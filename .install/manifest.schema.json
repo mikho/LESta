@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lesta.example/schemas/install-manifest.schema.json",
+  "title": "LESta installation manifest",
+  "type": "object",
+  "required": ["schema_version", "id", "version", "supported_ubuntu", "depends_on", "provides", "packages", "ports", "artifacts", "ownership"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "web_profile": { "type": "string", "enum": ["nginx", "apache", "both"] },
+    "supported_ubuntu": { "type": "array", "items": { "enum": ["24.04", "26.04"] }, "minItems": 1, "uniqueItems": true },
+    "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" }, "uniqueItems": true },
+    "provides": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" }, "minItems": 1, "uniqueItems": true },
+    "packages": { "type": "array", "items": { "type": "object", "required": ["name", "version", "sha256"], "additionalProperties": false, "properties": { "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9+.-]*$" }, "version": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } },
+    "ports": { "type": "array", "items": { "type": "object", "required": ["protocol", "port", "direction"], "additionalProperties": false, "properties": { "protocol": { "enum": ["tcp", "udp"] }, "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "direction": { "enum": ["inbound", "outbound"] } } } },
+    "artifacts": { "type": "array", "items": { "type": "object", "required": ["name", "version", "source", "sha256", "signature"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "source": { "type": "string", "format": "uri" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "signature": { "type": "string", "minLength": 1 } } } },
+    "ownership": { "type": "object", "required": ["owned_roots", "read_only_roots", "refused_roots"], "additionalProperties": false, "properties": { "owned_roots": { "type": "array", "items": { "type": "string", "pattern": "^/[^*]*$" } }, "read_only_roots": { "type": "array", "items": { "type": "string", "pattern": "^/[^*]*$" } }, "refused_roots": { "type": "array", "items": { "type": "string", "pattern": "^/[^*]*$" } } } }
+  }
+}

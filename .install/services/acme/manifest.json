@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "acme",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["web.nginx.v1", "base.tls.v1"],
+  "provides": ["tls.acme.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/var/lib/lesta/acme"], "read_only_roots": ["/etc/ssl/certs"], "refused_roots": ["/etc/ssl/private"]}
+}

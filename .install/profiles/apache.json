@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "id": "web-profile-apache",
+  "web_profile": "apache",
+  "services": ["apache"],
+  "public_listener": "apache",
+  "backend_listener": null,
+  "public_ports": [80, 443]
+}

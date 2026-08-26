@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "backups",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.layout.v1", "node.health.v1"],
+  "provides": ["backup.encrypted-artifacts.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/var/lib/lesta/backups", "/var/cache/lesta/backups"], "read_only_roots": [], "refused_roots": ["/home"]}
+}

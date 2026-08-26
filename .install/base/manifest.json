@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "id": "base",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": [],
+  "provides": ["base.os.v1", "base.layout.v1", "base.tls.v1", "base.firewall.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {
+    "owned_roots": ["/etc/lesta", "/var/lib/lesta", "/var/log/lesta"],
+    "read_only_roots": ["/etc/os-release"],
+    "refused_roots": ["/etc/passwd", "/etc/shadow", "/etc/sudoers"]
+  }
+}

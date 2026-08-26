@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lesta.example/schemas/web-profile.schema.json",
+  "title": "LESta web installation profile",
+  "type": "object",
+  "required": ["schema_version", "id", "web_profile", "services", "public_listener", "backend_listener", "public_ports"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "id": { "type": "string", "pattern": "^web-profile-(nginx|apache|both)$" },
+    "web_profile": { "enum": ["nginx", "apache", "both"] },
+    "services": { "type": "array", "items": { "enum": ["nginx", "apache"] }, "minItems": 1, "maxItems": 2, "uniqueItems": true },
+    "public_listener": { "enum": ["nginx", "apache"] },
+    "backend_listener": { "type": ["string", "null"], "pattern": "^apache:127\\.0\\.0\\.1:8080$" },
+    "public_ports": { "type": "array", "items": { "enum": [80, 443] }, "minItems": 2, "maxItems": 2, "uniqueItems": true }
+  },
+  "allOf": [
+    { "if": { "properties": { "web_profile": { "const": "nginx" } } }, "then": { "properties": { "id": { "const": "web-profile-nginx" }, "services": { "const": ["nginx"] }, "public_listener": { "const": "nginx" }, "backend_listener": { "type": "null" } } } },
+    { "if": { "properties": { "web_profile": { "const": "apache" } } }, "then": { "properties": { "id": { "const": "web-profile-apache" }, "services": { "const": ["apache"] }, "public_listener": { "const": "apache" }, "backend_listener": { "type": "null" } } } },
+    { "if": { "properties": { "web_profile": { "const": "both" } } }, "then": { "properties": { "id": { "const": "web-profile-both" }, "services": { "const": ["nginx", "apache"] }, "public_listener": { "const": "nginx" }, "backend_listener": { "const": "apache:127.0.0.1:8080" } } } }
+  ]
+}
