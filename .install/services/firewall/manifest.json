@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "firewall",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1"],
+  "provides": ["firewall.baseline.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/etc/lesta/firewall"], "read_only_roots": ["/etc/nftables.conf"], "refused_roots": ["/etc/iptables/rules.v4"]}
+}

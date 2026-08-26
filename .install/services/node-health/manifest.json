@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "node-health",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "base.tls.v1"],
+  "provides": ["node.health.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/etc/lesta/agent", "/var/lib/lesta/agent", "/var/log/lesta/agent"], "read_only_roots": ["/etc/os-release"], "refused_roots": ["/etc/sudoers", "/etc/shadow"]}
+}

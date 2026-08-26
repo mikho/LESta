@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "apache",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "base.firewall.v1", "node.health.v1"],
+  "provides": ["web.apache.v1"],
+  "packages": [],
+  "ports": [{"protocol": "tcp", "port": 80, "direction": "inbound"}, {"protocol": "tcp", "port": 443, "direction": "inbound"}],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/etc/apache2/lesta.d", "/var/lib/lesta/apache"], "read_only_roots": ["/etc/apache2/apache2.conf"], "refused_roots": ["/etc/apache2/apache2.conf"]}
+}

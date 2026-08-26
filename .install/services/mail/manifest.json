@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "mail",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["dns.bind9.v1", "web.nginx.v1", "tls.acme.v1", "node.health.v1"],
+  "provides": ["mail.smtp-imap.v1"],
+  "packages": [],
+  "ports": [{"protocol": "tcp", "port": 25, "direction": "inbound"}, {"protocol": "tcp", "port": 465, "direction": "inbound"}, {"protocol": "tcp", "port": 587, "direction": "inbound"}, {"protocol": "tcp", "port": 993, "direction": "inbound"}],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/etc/lesta/mail", "/var/lib/lesta/mail"], "read_only_roots": ["/etc/exim4", "/etc/dovecot"], "refused_roots": ["/var/spool/postfix"]}
+}

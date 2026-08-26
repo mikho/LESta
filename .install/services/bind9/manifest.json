@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "bind9",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "base.firewall.v1", "node.health.v1"],
+  "provides": ["dns.bind9.v1"],
+  "packages": [],
+  "ports": [{"protocol": "udp", "port": 53, "direction": "inbound"}, {"protocol": "tcp", "port": 53, "direction": "inbound"}],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/etc/bind/lesta.d", "/var/lib/lesta/bind"], "read_only_roots": ["/etc/bind/named.conf"], "refused_roots": ["/etc/bind/named.conf"]}
+}

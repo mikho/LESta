@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "cron",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "node.health.v1"],
+  "provides": ["scheduler.account-cron.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/var/lib/lesta/cron"], "read_only_roots": ["/etc/crontab"], "refused_roots": ["/var/spool/cron/crontabs/root"]}
+}

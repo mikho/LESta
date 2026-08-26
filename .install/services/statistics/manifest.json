@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "statistics",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["web.nginx.v1", "node.health.v1"],
+  "provides": ["metrics.usage.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {"owned_roots": ["/var/lib/lesta/statistics"], "read_only_roots": ["/var/log/nginx"], "refused_roots": ["/var/log/auth.log"]}
+}
