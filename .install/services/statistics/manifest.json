@@ -3,7 +3,7 @@
   "id": "statistics",
   "version": "1.0.0",
   "supported_ubuntu": ["24.04", "26.04"],
-  "depends_on": ["web.nginx.v1", "node.health.v1"],
+  "depends_on": ["web.nginx.v1", "node.health.v1", "database.tenant.v1"],
   "provides": ["metrics.usage.v1"],
   "packages": [],
   "ports": [],

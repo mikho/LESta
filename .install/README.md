@@ -17,7 +17,6 @@ Laravel never executes host commands and never calls `.install`, directly or thr
 - Installation is unattended, convergent, resumable, and observable through structured output.
 - Service configuration is rendered by the agent into staged generations, validated, atomically activated, health-checked, and rollback-capable.
 - A blank server may select `nginx`, `apache`, or `both`. In the `both` profile, nginx owns public ports 80 and 443 and proxies to Apache on a LESta-owned loopback port.
-- A blank server may select `nginx`, `apache`, or `both`. In the `both` profile, nginx owns public ports 80 and 443 and proxies to Apache on a LESta-owned loopback port.
 
 No service installer is implemented in this scaffolding step. The directory contains contracts, manifests, and discoverable service boundaries only.
 
@@ -54,8 +53,6 @@ No service installer is implemented in this scaffolding step. The directory cont
 The base layer is shared. Service manifests contain only service-specific metadata. Runtime templates do not live here, because the node agent must version and test the renderer together with its protocol and activation logic. `.install` may reference a signed agent release, but it must not become a second template engine.
 
 The web profile is selected once during blank-node bootstrap. `nginx` and `apache` are mutually exclusive public listeners. `both` installs both capabilities, assigns nginx the public listener, and binds Apache to a fixed loopback-only backend listener. The selected profile is recorded in node state and cannot be changed by a tenant request. Profile metadata is validated against `profiles/schema.json` before service manifests are planned.
-
-The web profile is selected once during blank-node bootstrap. `nginx` and `apache` are mutually exclusive public listeners. `both` installs both capabilities, assigns nginx the public listener, and binds Apache to a fixed loopback-only backend listener. The selected profile is recorded in node state and cannot be changed by a tenant request.
 
 ## Tracking and release behavior
 

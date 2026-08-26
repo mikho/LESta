@@ -5,6 +5,7 @@
   "supported_ubuntu": ["24.04", "26.04"],
   "depends_on": ["base.layout.v1", "node.health.v1"],
   "provides": ["backup.encrypted-artifacts.v1"],
+  "backs_up": ["database.control-plane.v1", "database.tenant.v1", "web.nginx.v1", "web.apache.v1", "dns.bind9.v1", "scheduler.account-cron.v1"],
   "packages": [],
   "ports": [],
   "artifacts": [],

@@ -1,3 +1,3 @@
 # ACME
 
-Certificate issuance is a capability of the web service, not an independent tenant-facing daemon. It uses bounded retries, staging endpoints, per-account and per-node rate limits, challenge cleanup, and protected account keys.
+Certificate issuance is a capability of the web service, not an independent tenant-facing daemon. It uses bounded retries, staging endpoints, per-account and per-node rate limits, challenge cleanup, and protected account keys. Both HTTP-01 and DNS-01 challenges are supported. HTTP-01 requires only the selected web profile and is available as soon as `web.nginx.v1`/`web.apache.v1` is healthy. DNS-01 additionally requires `dns.bind9.v1` to be registered and healthy at request time; a DNS-01 request made before BIND is installed fails that specific challenge type rather than degrading the whole ACME capability.
