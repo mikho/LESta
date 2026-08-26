@@ -5,6 +5,8 @@
 - Scope: Ubuntu node bootstrap, runtime configuration, service dependency order, and implementation sequencing
 - Governing document: `LESta-rewrite-plan.md`
 
+> **Note (added on review, 2026-08-26):** `LESta-rewrite-plan.md` is not present in this repository or in git history. It is maintained in the project's Obsidian vault (`03 Projects/LESta/LESta-rewrite-plan.md`), the same place project prompts and decision logs are kept; it is intentionally not duplicated into this repository. This ADR's citations were checked directly against that document on this review pass. All three items in the "Conflict With the Governing Plan" section below turned out to be incorrect, the plan already decided each of them and there was no conflict, and have been corrected accordingly.
+
 ## Decision Summary
 
 LESta will use a two-stage host lifecycle:
@@ -16,13 +18,15 @@ The `.install` directory owns bootstrap and upgrade orchestration only. It is ne
 
 The implementation sequence is a modified Strategy C: contract and fake seam first, then a complete web slice, then its real Go capability, then installer hardening, followed by DNS, mail, databases, and cron as separate vertical slices.
 
-## Conflict With the Governing Plan
+## Corrections After Reading the Governing Plan
 
-The governing plan says in Phase 5 that the control plane should use PostgreSQL in one operational paragraph. That conflicts with its confirmed decision that MySQL/MariaDB is required. This ADR resolves the conflict in favor of MySQL/MariaDB. The operational wording must be corrected before implementation.
+This section originally claimed three conflicts with the governing plan. Having now read the actual plan document directly, none of the three hold. Each is corrected below rather than left standing.
 
-The governing plan does not specify an Ubuntu release. This ADR supports Ubuntu 24.04 LTS and 26.04 LTS, with both releases tested independently. It does not expand the supported operating-system family.
+**Claimed conflict:** the plan says in Phase 5 that the control plane should use PostgreSQL, conflicting with its own MySQL/MariaDB requirement. **Correction:** Phase 5, step 23 of the plan reads "Use MySQL/MariaDB for authoritative state, Redis for queues/cache/locks/rate limiting, and object storage for backups and large artifacts." There is no PostgreSQL mention there or anywhere near it. The plan's only PostgreSQL references (Phase 0 step 4, and the tradeoff analysis) both explicitly defer to MySQL/MariaDB and note PostgreSQL would only be revisited later if reporting, locking, or JSON/query needs prove painful. There was never a conflict. MySQL/MariaDB was already the plan's unambiguous decision.
 
-The governing plan names both nginx and Apache as possible service capabilities but does not define the blank-node selection model. This ADR supports `nginx`, `apache`, and `both`. In the `both` profile, nginx owns public ports 80 and 443 and proxies to Apache on a fixed LESta-owned loopback port. Tenant resources cannot select or change the web profile.
+**Claimed conflict:** the plan does not specify an Ubuntu release. **Correction:** Phase 0, step 2 of the plan reads "Define the supported first-release environment: Ubuntu 24.04 and 26.04 LTS..." The plan already named both releases. This ADR's support for 24.04 and 26.04 is an adoption of the plan's decision, not a resolution of a gap in it.
+
+**Claimed conflict:** the plan names nginx and Apache as possible capabilities but does not define the blank-node selection model. **Correction:** the same sentence in Phase 0, step 2 reads "A blank server may select nginx, Apache, or both. In the both profile, nginx owns public ports 80 and 443 and proxies to Apache on a fixed loopback backend port." The plan already fully specified the exact model this ADR describes below. There was no gap to fill.
 
 ## 1. Bootstrap Versus Runtime
 
@@ -50,7 +54,8 @@ LESta owns only files under dedicated include, drop-in, state, and generation ro
 | --- | --- | --- | --- |
 | nginx | `/etc/nginx/lesta.d/`, `/var/lib/lesta/nginx/` | `/etc/nginx/nginx.conf`, distribution includes | operator config outside `lesta.d`, arbitrary web roots |
 | BIND | `/etc/bind/lesta.d/`, `/var/lib/lesta/bind/` | distribution defaults and trust anchors | `/etc/bind/named.conf` and unrelated zones |
-| MariaDB | `/etc/mysql/mariadb.conf.d/99-lesta.cnf`, `/var/lib/lesta/mariadb/` | distribution defaults | package-managed main files and host-wide authentication files |
+| MariaDB (control-plane instance, port 3306) | `/etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf`, `/var/lib/lesta/mariadb/control-plane/` | distribution defaults | package-managed main files, host-wide authentication files, the tenant instance's data directory |
+| MariaDB (tenant instance, port 3307) | `/etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf`, `/var/lib/lesta/mariadb/tenant/` | distribution defaults | package-managed main files, host-wide authentication files, the control-plane instance's data directory |
 | Exim/Dovecot | dedicated LESta include/drop-in directories and `/var/lib/lesta/mail/` | distribution defaults | operator-managed mail policy and unrelated service files |
 | ACME | `/var/lib/lesta/acme/` | system CA trust | private keys outside the LESta secret root |
 | cron | `/var/lib/lesta/cron/` and fixed per-account crontab fragments | system scheduler defaults | root crontab and unrelated users |
@@ -80,7 +85,7 @@ A capability is usable only when its manifest requirements, agent protocol versi
 
 ## 6. Service Order and Dependency Graph
 
-The first release supports three blank-node web profiles: nginx only, Apache only, or both. The control-plane database and tenant database service are separate logical instances or hosts by default. They may share a physical node for the single-node deployment, but use separate database users, schemas, credentials, quotas, and network permissions. The control plane must never use tenant credentials or grant tenant accounts access to its schema. A separate physical host becomes mandatory when threat, load, or compliance requirements demand it.
+The first release supports three blank-node web profiles: nginx only, Apache only, or both. The control-plane database and tenant database service are two separate MariaDB server instances, not one instance with logical separation, and this is a firm decision, not a default that may collapse to something looser. Both instances share the physical node for the single-node deployment: control-plane on port 3306, tenant on port 3307, each with its own data directory, configuration fragment, database users, credentials, quotas, and network permissions. The control plane must never use tenant credentials or grant tenant accounts access to its schema. A separate physical host becomes mandatory when threat, load, or compliance requirements demand it.
 
 ```mermaid
 flowchart TD
@@ -102,15 +107,27 @@ flowchart TD
     Base --> Firewall
     Base --> Health
     Base --> ControlDB
+    Health --> ControlDB
+    Firewall --> ControlDB
     Base --> Nginx
+    Firewall --> Nginx
+    Health --> Nginx
     Base --> Apache
+    Firewall --> Apache
+    Health --> Apache
     WebProfile --> Nginx
     WebProfile --> Apache
     Apache --> Nginx
     Nginx --> ACME
+    Base --> ACME
     Base --> DNS
+    Firewall --> DNS
+    Health --> DNS
     Base --> TenantDB
+    Firewall --> TenantDB
+    Health --> TenantDB
     Base --> Cron
+    Health --> Cron
     Health --> Backups
     ControlDB --> Backups
     Nginx --> Backups
@@ -118,11 +135,25 @@ flowchart TD
     TenantDB --> Backups
     Cron --> Backups
     Nginx --> Stats
+    Health --> Stats
     TenantDB --> Stats
     DNS --> Mail
     Nginx --> Mail
+    ACME --> Mail
     Health --> Mail
+    Firewall --> Mail
 ```
+
+This graph now matches the `depends_on`/`provides` pairs declared in every service manifest exactly; no edge here is decorative, with one deliberate exception explained below.
+
+**Statistics reads tenant-database state directly.** The `statistics` manifest now depends on `database.tenant.v1` in addition to `web.nginx.v1` and `node.health.v1`, and the graph's `TenantDB --> Stats` edge is a real installer-level dependency, not decoration. Usage and statistics collection is not scoped to web logs alone.
+
+**Backups uses a separate, optional relationship instead of a hard dependency.** A backup job for a capability that was never enabled on a node has nothing to back up, but it would be wrong to make `backups` hard-`depends_on` every capability it might someday touch: that would force DNS, mail, tenant databases, and cron to exist before backups could even install, which contradicts backups being a late, cross-cutting concern rather than a prerequisite chain. The manifest schema distinguishes two relationships:
+
+- `depends_on`: a hard installer gate. The named capability must exist and be healthy before this manifest's own install can proceed. Used for the acyclic install-order graph above.
+- `backs_up` (new, optional): a list of capability names this service knows how to include in a backup artifact *if* they happen to be present and healthy on the node. It is not a gate. It is not part of the acyclic dependency graph, and a validator must not treat it as one. Absence of a `backs_up` capability on a given node is not an error; the backup job simply omits that source from the artifact and records what it did include.
+
+`services/backups/manifest.json` now declares `backs_up: ["database.control-plane.v1", "database.tenant.v1", "web.nginx.v1", "web.apache.v1", "dns.bind9.v1", "scheduler.account-cron.v1"]`, while its `depends_on` stays exactly `base.layout.v1` and `node.health.v1`, the only two things backups itself actually requires to install. `manifest.schema.json` gained a matching optional `backs_up` property with the same capability-name pattern as `provides`/`depends_on`.
 
 Ordering rationale and gates:
 
@@ -184,11 +215,17 @@ The installer contract will be enforced by a manifest schema validator, a static
 
 The release check must also run `git archive` and inspect its contents. `.install` is not ignored by `.gitignore`, is not marked `export-ignore` by `.gitattributes`, and is not consumed by Vite or Composer runtime packaging. It survives source archives when committed. The current CI does not yet enforce these checks; adding that CI is part of the installer hardening phase, not this scaffolding step.
 
-## Open Decisions Before Implementation
+## Decisions Confirmed on Review (2026-08-26)
 
-1. **MariaDB version:** choose MariaDB 11.4 LTS or MySQL 8.4 LTS. The manifest format supports both, but the first implementation must choose one primary and one compatibility target.
-2. **Ubuntu release support policy:** approve 24.04 and 26.04 as simultaneous targets, or reduce the first implementation to one release to lower test cost.
-3. **ACME challenge mode:** choose HTTP-01 through nginx, DNS-01 through LESta-managed BIND, or both. Both increases capability and failure surface.
-4. **Control-plane database placement:** choose a separate host, a separate local instance, or a separate logical instance on the same MariaDB server for the single-node deployment.
-5. **Mail enablement:** require explicit operator opt-in after readiness review, or enable it by default on newly bootstrapped nodes after all gates pass.
-6. **Web profile migration:** keep the blank-node profile immutable, or later support an explicit operator migration between nginx, Apache, and both with a staged port and rollback workflow.
+All eight items that were open questions as of the initial scaffolding pass have since been decided explicitly. None remain open as of this revision:
+
+1. **MariaDB version:** MariaDB 11.4 LTS only. MySQL compatibility is not a first-implementation goal.
+2. **Ubuntu release support policy:** both 24.04 LTS and 26.04 LTS are supported simultaneously, tested independently, as already declared in every manifest's `supported_ubuntu` array.
+3. **ACME challenge mode:** both HTTP-01 and DNS-01 are supported. HTTP-01 depends only on the selected web profile and is available before BIND exists. DNS-01 additionally requires `dns.bind9.v1` to be registered and healthy at request time; this is a runtime capability check on the individual challenge, not an installer-time `depends_on` edge on the `acme` manifest, since ACME must be able to bootstrap and serve HTTP-01 before DNS is installed (see ordering rationale, steps 6-7).
+4. **Mail enablement:** explicit operator opt-in only, per node, after the mail threat model and operational readiness review pass. Mail is never enabled by default.
+5. **Control-plane database placement:** the control-plane and tenant databases run as two separate MariaDB server instances, control-plane on port 3306 and tenant on port 3307, each with its own data directory, credentials, and resource limits. Both instances share the physical node for the single-node deployment; a separate physical host is not required for the first release but remains available later.
+6. **Web profile migration:** the blank-node web profile (nginx, Apache, or both) is immutable for the first implementation and stays that way indefinitely unless revisited. A later operator migration workflow between profiles is filed as a feature request in the project's Obsidian vault (`Feature Requests.md`) rather than scheduled here.
+7. **Backup dependency expression:** resolved by adding an optional `backs_up` field to the manifest schema, distinct from the hard `depends_on` gate. See the explanation under "6. Service Order and Dependency Graph" above and the updated `services/backups/manifest.json`.
+8. **Statistics data sources:** statistics reads tenant-database state directly, through a dedicated least-privilege read-only account, in addition to web logs. `services/statistics/manifest.json` now depends on `database.tenant.v1`.
+
+No open decisions remain from this review pass. Any decision made after this date is recorded in the Obsidian vault's decision log, not by editing this list further; this ADR should be amended by a superseding revision if a future decision changes something recorded above.

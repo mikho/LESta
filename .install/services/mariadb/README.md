@@ -1,3 +1,3 @@
 # MariaDB
 
-MariaDB supports two isolated roles: the private control-plane store and the tenant database capability. They may share a physical node initially, but never share schemas, credentials, grants, or resource limits. The final installer manifest must select the approved MariaDB or MySQL release explicitly.
+MariaDB supports two isolated roles: the private control-plane store and the tenant database capability. They run as two separate MariaDB server instances, not one shared instance with logical separation. Both instances may live on the same physical node for the single-node deployment, control-plane on port 3306, tenant on port 3307, each with its own data directory, configuration fragment, credentials, and resource limits. They never share schemas, users, grants, sockets, or ports. MariaDB 11.4 LTS is the approved target for the first implementation; MySQL compatibility is not pursued.

@@ -3,10 +3,10 @@
   "id": "mariadb",
   "version": "1.0.0",
   "supported_ubuntu": ["24.04", "26.04"],
-  "depends_on": ["base.os.v1", "node.health.v1"],
+  "depends_on": ["base.os.v1", "node.health.v1", "firewall.baseline.v1"],
   "provides": ["database.control-plane.v1", "database.tenant.v1"],
   "packages": [],
-  "ports": [{"protocol": "tcp", "port": 3306, "direction": "inbound"}],
+  "ports": [{"protocol": "tcp", "port": 3306, "direction": "inbound"}, {"protocol": "tcp", "port": 3307, "direction": "inbound"}],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/etc/mysql/mariadb.conf.d/99-lesta.cnf", "/var/lib/lesta/mariadb"], "read_only_roots": ["/etc/mysql/mariadb.cnf"], "refused_roots": ["/etc/mysql/debian.cnf"]}
+  "ownership": {"owned_roots": ["/etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf", "/etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf", "/var/lib/lesta/mariadb/control-plane", "/var/lib/lesta/mariadb/tenant"], "read_only_roots": ["/etc/mysql/mariadb.cnf"], "refused_roots": ["/etc/mysql/debian.cnf"]}
 }

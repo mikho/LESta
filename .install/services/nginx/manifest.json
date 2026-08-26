@@ -3,7 +3,7 @@
   "id": "nginx",
   "version": "1.0.0",
   "supported_ubuntu": ["24.04", "26.04"],
-  "depends_on": ["base.os.v1", "base.firewall.v1", "node.health.v1"],
+  "depends_on": ["base.os.v1", "firewall.baseline.v1", "node.health.v1"],
   "provides": ["web.nginx.v1"],
   "packages": [],
   "ports": [{"protocol": "tcp", "port": 80, "direction": "inbound"}, {"protocol": "tcp", "port": 443, "direction": "inbound"}],
