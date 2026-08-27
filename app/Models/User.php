@@ -7,6 +7,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -46,5 +47,25 @@ class User extends Authenticatable implements PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * @return HasMany<Membership, $this>
+     */
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(Membership::class);
+    }
+
+    public function isProviderAdmin(): bool
+    {
+        return $this->memberships()->whereNull('account_id')
+            ->whereHas('role', fn ($query) => $query->where('name', 'provider_admin'))->exists();
+    }
+
+    public function hasAccountRole(Account $account, string $roleName): bool
+    {
+        return $this->memberships()->where('account_id', $account->id)
+            ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists();
     }
 }
