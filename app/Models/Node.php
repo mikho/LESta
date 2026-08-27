@@ -48,4 +48,12 @@ class Node extends Model implements ProviderAdminManaged
     {
         return $this->hasMany(NodeCapability::class);
     }
+
+    /**
+     * @return HasMany<WebDomain, $this>
+     */
+    public function webDomains(): HasMany
+    {
+        return $this->hasMany(WebDomain::class);
+    }
 }

@@ -2,10 +2,12 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\Domains\SuspendWebDomain;
 use App\Enums\SuspensionSource;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\User;
+use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -22,6 +24,9 @@ class SuspendAccount
 
         DB::transaction(function () use ($actor, $account): void {
             $account->suspend(SuspensionSource::Manual);
+
+            $account->webDomains()->whereNull('suspended_at')->get()
+                ->each(fn (WebDomain $d) => app(SuspendWebDomain::class)->handle($actor, $d, SuspensionSource::Cascade));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),
