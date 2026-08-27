@@ -2,9 +2,11 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\Domains\DeleteWebDomain;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\User;
+use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -19,6 +21,8 @@ class DeleteAccount
             if ($account->isSuspended()) {
                 $account->unsuspend();
             }
+
+            $account->webDomains()->get()->each(fn (WebDomain $d) => app(DeleteWebDomain::class)->handle($actor, $d));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),

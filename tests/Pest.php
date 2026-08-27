@@ -20,6 +20,23 @@ pest()->extend(TestCase::class)
 
 /*
 |--------------------------------------------------------------------------
+| Browser Tests
+|--------------------------------------------------------------------------
+|
+| Browser tests (tests/Browser/) require Playwright: run
+| `npm install playwright && npx playwright install` locally, then opt them
+| into a test run (e.g. `vendor/bin/pest tests/Browser`). They are not part
+| of the default test suite in phpunit.xml, see the Phase 2 plan's own note
+| about CI needing a browser-binary setup step first.
+|
+*/
+
+pest()->extend(TestCase::class)
+    ->use(RefreshDatabase::class)
+    ->in('Browser');
+
+/*
+|--------------------------------------------------------------------------
 | Expectations
 |--------------------------------------------------------------------------
 |

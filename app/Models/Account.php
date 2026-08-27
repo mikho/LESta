@@ -58,4 +58,12 @@ class Account extends Model
     {
         return $this->hasMany(Membership::class);
     }
+
+    /**
+     * @return HasMany<WebDomain, $this>
+     */
+    public function webDomains(): HasMany
+    {
+        return $this->hasMany(WebDomain::class);
+    }
 }
