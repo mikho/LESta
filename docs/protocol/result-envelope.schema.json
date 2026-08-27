@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lesta.example/schemas/protocol/result-envelope.schema.json",
+  "title": "LESta node protocol result envelope",
+  "type": "object",
+  "required": ["protocol_version", "capability", "resource_id", "idempotency_key", "correlation_id", "status", "observed_state_version", "observed_state_digest", "generation_id", "errors", "completed_at"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "string", "const": "1" },
+    "capability": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" },
+    "resource_id": { "type": "string", "format": "uuid" },
+    "idempotency_key": { "type": "string", "format": "uuid" },
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["applied", "already_applied", "rejected", "failed", "degraded"] },
+    "observed_state_version": { "type": "integer", "minimum": 0 },
+    "observed_state_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "generation_id": { "type": "string", "minLength": 1 },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "message": { "type": "string" },
+          "field": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "completed_at": { "type": "string", "format": "date-time" }
+  }
+}
