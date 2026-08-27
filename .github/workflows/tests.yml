@@ -36,3 +36,37 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+  agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
+      - name: Check formatting
+        working-directory: agent
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        working-directory: agent
+        run: go vet ./...
+
+      - name: Test (nginx not installed yet; real-capability suite self-skips)
+        working-directory: agent
+        run: go test ./...
+
+      - name: Install nginx
+        run: sudo apt-get update && sudo apt-get install -y nginx
+
+      - name: Test (fake and real nginx capability, nothing skips)
+        working-directory: agent
+        run: go test ./...

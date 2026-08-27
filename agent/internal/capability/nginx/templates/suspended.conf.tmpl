@@ -1,0 +1,11 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}} (suspended)
+server {
+    listen {{.IPAddress}}:{{.Port}};
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+
+    location / {
+        default_type text/html;
+        return 200 '{{.SuspendedPage}}';
+    }
+}
