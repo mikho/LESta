@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lesta.example/schemas/protocol/operation-envelope.schema.json",
+  "title": "LESta node protocol operation envelope",
+  "type": "object",
+  "required": ["protocol_version", "capability", "operation", "resource_id", "desired_state_version", "idempotency_key", "correlation_id", "deadline", "issued_at", "request_digest", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": { "type": "string", "const": "1" },
+    "capability": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" },
+    "operation": { "type": "string", "enum": ["create", "update", "suspend", "unsuspend", "delete", "observe"] },
+    "resource_id": { "type": "string", "format": "uuid" },
+    "desired_state_version": { "type": "integer", "minimum": 1 },
+    "idempotency_key": { "type": "string", "format": "uuid" },
+    "correlation_id": { "type": "string", "format": "uuid" },
+    "deadline": { "type": "string", "format": "date-time" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "request_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "payload": {
+      "type": "object",
+      "description": "Capability-specific request body. Its shape is owned and versioned by the named capability's own schema, not by this envelope. This envelope makes no assumption about its contents beyond that it is a JSON object."
+    }
+  }
+}
