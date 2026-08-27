@@ -193,3 +193,18 @@ Use Wayfinder to generate TypeScript functions for Laravel routes. Import from `
 - IMPORTANT: Activate `inertia-react-development` when working with Inertia React client-side patterns.
 
 </laravel-boost-guidelines>
+
+## LESta Project Context
+
+Project planning lives outside this repository, in the Obsidian vault at:
+`/Users/mikho/Library/CloudStorage/OneDrive-Deladebibliotek–mikandhoITAB/mikandho IT AB - Scripts/0. Obsidian/mikho vault/03 Projects/LESta/`
+
+- `LESta-rewrite-plan.md`: the governing plan. Read it before any architecture or feature work.
+- `Decision Log.md`: chronological record of every decision made across sessions, regardless of which tool executed the prompt. Update it after every prompt.
+- `Feature Requests.md`: deferred features and a running backlog.
+- `Threat Model.md`, `Node Protocol.md`, `Capability Matrix.md`: Phase 0 design documents.
+- `Engineering teardown · Vesta Control Panel.md`: a prior security and architecture review of the legacy Vesta codebase.
+
+The repository itself holds only the ADR (`docs/adr/`), the `.install` installer scaffolding, and machine-validated protocol schemas (`docs/protocol/`). Everything explanatory (design docs, decisions, prompt history) belongs in the vault, not in `docs/`.
+
+This project has been worked on through both GitHub Copilot Chat and Claude Code in separate sessions with no shared memory between them. The vault, not either tool's session history, is the durable source of truth; check it before assuming a fresh session's context is complete.
