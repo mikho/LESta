@@ -102,6 +102,26 @@ jobs:
           # sources turns up nothing SC1091 was hiding.
           shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh
 
+      - name: Prepare the runner as a bare nginx-profile node
+        run: |
+          # GitHub-hosted runner images are pre-provisioned, not bare: they
+          # ship apache2 (which install.sh's own conflicting-package
+          # preflight check correctly rejects) and no nginx.conf include
+          # line at all. This step performs exactly the two things
+          # nginx/README.md's "Manual prerequisite" section documents an
+          # operator must do by hand before their first --apply: install
+          # nginx, then add the required include line. install.sh itself
+          # never touches either.
+          sudo systemctl stop apache2 2>/dev/null || true
+          sudo apt-get purge -y apache2 apache2-bin apache2-data apache2-utils lighttpd 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
+            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
+          fi
+          cat /etc/nginx/nginx.conf
+
       - name: Dry-run against a real Ubuntu host (must mutate nothing)
         run: sudo sh .install/services/nginx/install.sh --dry-run --web-server nginx
 
