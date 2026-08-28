@@ -93,7 +93,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck --shell=sh --severity=style .install/lib/*.sh .install/services/nginx/install.sh
+          # SC1091 excluded: it fires for the lib/*.sh files install.sh
+          # sources (only resolvable with -x run from install.sh's own
+          # directory, not meaningful checked from the repo root) and for
+          # preflight.sh's read of /etc/os-release (a real runtime path that
+          # never exists in this repository). Verified separately (locally,
+          # with -x and the correct working directory) that following those
+          # sources turns up nothing SC1091 was hiding.
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh
 
       - name: Dry-run against a real Ubuntu host (must mutate nothing)
         run: sudo sh .install/services/nginx/install.sh --dry-run --web-server nginx
