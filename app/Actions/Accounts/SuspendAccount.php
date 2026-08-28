@@ -2,10 +2,12 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\Dns\SuspendDnsZone;
 use App\Actions\Domains\SuspendWebDomain;
 use App\Enums\SuspensionSource;
 use App\Models\Account;
 use App\Models\AuditEvent;
+use App\Models\DnsZone;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +29,9 @@ class SuspendAccount
 
             $account->webDomains()->whereNull('suspended_at')->get()
                 ->each(fn (WebDomain $d) => app(SuspendWebDomain::class)->handle($actor, $d, SuspensionSource::Cascade));
+
+            $account->dnsZones()->whereNull('suspended_at')->get()
+                ->each(fn (DnsZone $z) => app(SuspendDnsZone::class)->handle($actor, $z, SuspensionSource::Cascade));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),

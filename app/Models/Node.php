@@ -56,4 +56,12 @@ class Node extends Model implements ProviderAdminManaged
     {
         return $this->hasMany(WebDomain::class);
     }
+
+    /**
+     * @return HasMany<DnsZone, $this>
+     */
+    public function dnsZones(): HasMany
+    {
+        return $this->hasMany(DnsZone::class);
+    }
 }

@@ -2,9 +2,11 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\Dns\DeleteDnsZone;
 use App\Actions\Domains\DeleteWebDomain;
 use App\Models\Account;
 use App\Models\AuditEvent;
+use App\Models\DnsZone;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +25,8 @@ class DeleteAccount
             }
 
             $account->webDomains()->get()->each(fn (WebDomain $d) => app(DeleteWebDomain::class)->handle($actor, $d));
+
+            $account->dnsZones()->get()->each(fn (DnsZone $z) => app(DeleteDnsZone::class)->handle($actor, $z));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),
