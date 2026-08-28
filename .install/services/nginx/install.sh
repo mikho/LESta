@@ -540,6 +540,13 @@ install_nginx() {
 
 # --- phase 4: bootstrap_node_health --------------------------------------
 
+# selftest_new_uuid -> a fresh random UUID, read from the kernel directly
+# (no uuidgen/util-linux dependency; Linux-only, which this script already
+# is).
+selftest_new_uuid() {
+    cat /proc/sys/kernel/random/uuid
+}
+
 # selftest_envelope <operation> <resource_id> <idem> <corr> <desired_state_version> <payload>
 # -> a complete OperationEnvelope JSON object for the given operation.
 selftest_envelope() {
@@ -632,11 +639,19 @@ run_node_health_selftest() {
     local resource_id create_idem create_corr delete_idem delete_corr
     local ssl_obj payload envelope agent_out agent_status status_line
 
-    resource_id="4b1f7c9e-6b1a-4a8e-9c2d-2f9b6a7d0001"
-    create_idem="4b1f7c9e-6b1a-4a8e-9c2d-2f9b6a7d0002"
-    create_corr="4b1f7c9e-6b1a-4a8e-9c2d-2f9b6a7d0003"
-    delete_idem="4b1f7c9e-6b1a-4a8e-9c2d-2f9b6a7d0004"
-    delete_corr="4b1f7c9e-6b1a-4a8e-9c2d-2f9b6a7d0005"
+    # A fresh UUID every run, not a fixed constant: `delete` records a
+    # terminal "deleted" generation for a resource_id rather than forgetting
+    # it ever existed (matching real product semantics -- a deleted
+    # WebDomain's id is never reused), so a fixed resource_id would make the
+    # second installer run's own create see resource_already_exists against
+    # the first run's already-deleted history. /proc/sys/kernel/random/uuid
+    # is a kernel-provided source with no extra package dependency, and this
+    # only ever runs on Linux.
+    resource_id=$(selftest_new_uuid)
+    create_idem=$(selftest_new_uuid)
+    create_corr=$(selftest_new_uuid)
+    delete_idem=$(selftest_new_uuid)
+    delete_corr=$(selftest_new_uuid)
 
     ssl_obj=$(json_join_object "$(json_kv_str "mode" "off")")
     payload=$(json_join_object \
