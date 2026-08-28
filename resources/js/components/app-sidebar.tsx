@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, Globe, LayoutGrid } from 'lucide-react';
+import { BookOpen, FolderGit2, Globe, LayoutGrid, Network } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -14,6 +14,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import dns from '@/routes/dns';
 import domains from '@/routes/domains';
 import type { NavItem } from '@/types';
 
@@ -27,6 +28,11 @@ const mainNavItems: NavItem[] = [
         title: 'Domains',
         href: domains.index(),
         icon: Globe,
+    },
+    {
+        title: 'DNS',
+        href: dns.index(),
+        icon: Network,
     },
 ];
 
