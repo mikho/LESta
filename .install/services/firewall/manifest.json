@@ -8,5 +8,5 @@
   "packages": [],
   "ports": [],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/etc/lesta/firewall"], "read_only_roots": ["/etc/nftables.conf"], "refused_roots": ["/etc/iptables/rules.v4"]}
+  "ownership": {"owned_roots": ["/etc/lesta/firewall", "/etc/systemd/system/lesta-firewall.service"], "read_only_roots": ["/etc/nftables.conf"], "refused_roots": ["/etc/iptables/rules.v4"]}
 }

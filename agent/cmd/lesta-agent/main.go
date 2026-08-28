@@ -63,6 +63,17 @@ func run(stdin *os.File, stdout *os.File) error {
 // reconciliation settled on. Creating these paths (and nginx.conf's own
 // `include /etc/nginx/lesta.d/*.conf;` line) is a bootstrap-installer
 // precondition this phase's code requires, not something it creates itself.
+//
+// This is deliberately not configurable via environment variables or flags:
+// NginxBinary is passed straight into an exec.Command call (see
+// internal/capability/nginx/validate.go and reload.go), so making it
+// externally overridable would let anything able to set this process's
+// environment redirect a privileged exec to an arbitrary executable. The
+// bootstrap installer's own self-test (.install/services/nginx/install.sh's
+// bootstrap_node_health phase) proves this exact, unmodified binary works by
+// running it against the real production paths after install_nginx has
+// created them, using a disposable resource it creates and then deletes, not
+// by parameterizing the binary itself.
 func productionConfig() nginx.Config {
 	return nginx.Config{
 		LiveDir:       "/etc/nginx/lesta.d",

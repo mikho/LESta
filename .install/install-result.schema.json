@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lesta.example/schemas/install-result.schema.json",
+  "title": "LESta bootstrap installer result",
+  "description": "The single JSON object install.sh prints on stdout for every invocation (--version, --dry-run, --apply, and every failure path), matching INSTALLER-CONTRACT.md's 'Output and exit codes' example exactly, plus the item shapes for changes[] and errors[].",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "installer",
+    "service",
+    "web_profile",
+    "mode",
+    "status",
+    "exit_code",
+    "release",
+    "manifest_digest",
+    "capabilities_provided",
+    "capabilities_required",
+    "changes",
+    "errors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "installer": { "type": "string", "const": "lesta-bootstrap" },
+    "service": { "type": "string", "const": "web" },
+    "web_profile": { "type": "string", "enum": ["nginx", "apache", "both"] },
+    "mode": { "type": "string", "enum": ["dry-run", "apply", "version", "unset"] },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "applied", "would_change", "failed"],
+      "description": "ok: --version. applied: a completed --apply run. would_change: a completed --dry-run (a fresh/repair/upgrade classification and the changes it would make are reported in changes[], never applied). failed: preflight, verification, mutation, or health failure in any mode."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 10, 11, 12, 13, 20, 21, 22, 30],
+      "description": "Matches INSTALLER-CONTRACT.md's exit code table exactly: 0 success/valid dry-run, 10 invalid invocation or manifest, 11 unsupported platform or architecture, 12 preflight conflict or insufficient capacity, 13 verification/signature/checksum failure, 20 package or filesystem mutation failure, 21 service validation or health failure, 22 rollback or recovery failure, 30 interrupted or incomplete run requiring recovery."
+    },
+    "release": { "type": "string", "minLength": 1 },
+    "manifest_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "capabilities_provided": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" }
+    },
+    "capabilities_required": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" }
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capability", "action", "path", "detail"],
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "type": "string",
+            "description": "One of this manifest set's own capability ids (e.g. base.os.v1, firewall.baseline.v1, node.health.v1, web.nginx.v1), naming which capability this change belongs to."
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A short verb-phrase describing what happened or would happen, e.g. created, verified, ensured, applied, enabled, installed, installed_structural_only, validated, healthy, would_install, would_ensure, would_apply."
+          },
+          "path": {
+            "type": "string",
+            "description": "The filesystem path this change concerns, or an empty string when the change is not path-scoped (e.g. a package installation or a health probe)."
+          },
+          "detail": {
+            "type": "string",
+            "description": "A human-readable explanation of what actually happened (or, in --dry-run, what would happen), redacted at the logging boundary the same as every other diagnostic string."
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "A short machine-matchable error code, e.g. invalid_invocation, unsupported_os, unsupported_architecture, insufficient_disk, insufficient_inodes, port_occupied, conflicting_package, conflicting_service, conflicting_identity, nginx_conf_missing, nginx_conf_missing_include, checksum_mismatch, apt_install_failed, nginx_test_failed, selftest_agent_failed, selftest_not_applied."
+          },
+          "message": { "type": "string", "minLength": 1 },
+          "path": {
+            "type": "string",
+            "description": "The filesystem path this error concerns, or an empty string when not path-scoped."
+          }
+        }
+      }
+    }
+  }
+}
