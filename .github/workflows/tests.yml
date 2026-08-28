@@ -70,3 +70,40 @@ jobs:
       - name: Test (fake and real nginx capability, nothing skips)
         working-directory: agent
         run: go test ./...
+
+  installer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
+      - name: Report runner platform (diagnostic only)
+        run: cat /etc/os-release
+
+      - name: ShellCheck the installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --shell=sh --severity=style .install/lib/*.sh .install/services/nginx/install.sh
+
+      - name: Dry-run against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/nginx/install.sh --dry-run --web-server nginx
+
+      - name: Apply (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/nginx/install.sh --apply --web-server nginx --yes
+
+      - name: Re-apply (idempotent rerun must still succeed)
+        run: sudo sh .install/services/nginx/install.sh --apply --web-server nginx --yes
+
+      - name: Real-capability agent tests against the installer-produced state
+        working-directory: agent
+        run: go test ./...

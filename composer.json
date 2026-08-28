@@ -62,6 +62,7 @@
         "lint:check": [
             "pint --parallel --test"
         ],
+        "agent:build": "cd agent && GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w\" -o dist/lesta-agent-linux-amd64 ./cmd/lesta-agent",
         "agent:lint": "gofmt -w agent",
         "agent:lint:check": "cd agent && test -z \"$(gofmt -l .)\" && go vet ./...",
         "agent:test": "cd agent && go test ./...",
