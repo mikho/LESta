@@ -102,22 +102,32 @@ preflight_check_capacity() {
 # apache2/lighttpd package coexisting on the node). Anything else holding
 # the port (an unrelated process, or nginx not yet reflected in `ss` for
 # some other reason) still fails closed.
+#
+# A single port commonly has more than one matching ss line (an IPv4 and an
+# IPv6 listener, both nginx): every matching line's owner must be nginx, not
+# just one of them, so this walks all of them rather than sampling the first.
 preflight_check_port_free() {
-    local port="$1" line owner
+    local port="$1" line owner bad=0 bad_owner=""
 
-    line=$(ss -H -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$"')
-    if [ -z "${line}" ]; then
-        return 0
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+
+        owner=$(printf '%s' "${line}" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
+
+        if [ "${owner}" != "nginx" ]; then
+            bad=1
+            bad_owner="${owner:-an unidentified process}"
+        fi
+    done <<LINES
+$(ss -H -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$"')
+LINES
+
+    if [ "${bad}" -ne 0 ]; then
+        add_error port_occupied "port ${port} is already in use by '${bad_owner}' (ss -tlnp)" ""
+        return 1
     fi
 
-    owner=$(printf '%s' "${line}" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
-
-    if [ "${owner}" = "nginx" ]; then
-        return 0
-    fi
-
-    add_error port_occupied "port ${port} is already in use by '${owner:-an unidentified process}' (ss -tlnp)" ""
-    return 1
+    return 0
 }
 
 # preflight_check_conflicting_packages
