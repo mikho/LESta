@@ -1,0 +1,8 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}}
+zone "{{.Domain}}" {
+	type primary;
+	file "{{.ZoneDBPath}}";
+	allow-query { any; };
+	allow-transfer { none; };
+};
