@@ -94,17 +94,30 @@ preflight_check_capacity() {
 }
 
 # preflight_check_port_free <port>
-# Fails when `ss -tln` already shows a listener bound to :port.
+# Fails when `ss -tlnp` shows a listener bound to :port that isn't nginx
+# itself. A rerun against an already-bootstrapped node finds its own,
+# already-running nginx holding these exact ports -- that is convergence,
+# not a conflict, and preflight_check_conflicting_packages already rejects
+# the one thing that would make an nginx-held port suspicious anyway (an
+# apache2/lighttpd package coexisting on the node). Anything else holding
+# the port (an unrelated process, or nginx not yet reflected in `ss` for
+# some other reason) still fails closed.
 preflight_check_port_free() {
-    local port="$1" occupied
+    local port="$1" line owner
 
-    occupied=$(ss -H -tln 2>/dev/null | awk -v p=":${port}" '{if ($4 ~ p"$") {found=1}} END{print found+0}')
-    if [ "${occupied}" -ne 0 ]; then
-        add_error port_occupied "port ${port} is already in use (ss -tln shows an active listener)" ""
-        return 1
+    line=$(ss -H -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$"')
+    if [ -z "${line}" ]; then
+        return 0
     fi
 
-    return 0
+    owner=$(printf '%s' "${line}" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
+
+    if [ "${owner}" = "nginx" ]; then
+        return 0
+    fi
+
+    add_error port_occupied "port ${port} is already in use by '${owner:-an unidentified process}' (ss -tlnp)" ""
+    return 1
 }
 
 # preflight_check_conflicting_packages
