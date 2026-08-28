@@ -5,8 +5,7 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Only the web.nginx.v1 capability is wired up: it is the only capability this
-// phase builds (no Apache, no combined "both" web profile).
+// Two capabilities are wired up: web.nginx.v1 and dns.bind9.v1.
 package main
 
 import (
@@ -15,11 +14,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
-const webNginxCapability = "web.nginx.v1"
+const (
+	webNginxCapability = "web.nginx.v1"
+	dnsBind9Capability = "dns.bind9.v1"
+)
 
 func main() {
 	if err := run(os.Stdin, os.Stdout); err != nil {
@@ -38,11 +41,16 @@ func run(stdin *os.File, stdout *os.File) error {
 		return fmt.Errorf("decoding operation envelope from stdin: %w", err)
 	}
 
-	if op.Capability != webNginxCapability {
-		return fmt.Errorf("unsupported capability %q; this build only implements %q", op.Capability, webNginxCapability)
-	}
+	var capability protocol.Capability
 
-	capability := nginx.New(productionConfig())
+	switch op.Capability {
+	case webNginxCapability:
+		capability = nginx.New(nginxProductionConfig())
+	case dnsBind9Capability:
+		capability = bind9.New(bind9ProductionConfig())
+	default:
+		return fmt.Errorf("unsupported capability %q; this build only implements %q and %q", op.Capability, webNginxCapability, dnsBind9Capability)
+	}
 
 	result, err := capability.Apply(context.Background(), op)
 	if err != nil {
@@ -59,8 +67,8 @@ func run(stdin *os.File, stdout *os.File) error {
 	return nil
 }
 
-// productionConfig points at the real, fixed host paths this phase's own ADR
-// reconciliation settled on. Creating these paths (and nginx.conf's own
+// nginxProductionConfig points at the real, fixed host paths this phase's own
+// ADR reconciliation settled on. Creating these paths (and nginx.conf's own
 // `include /etc/nginx/lesta.d/*.conf;` line) is a bootstrap-installer
 // precondition this phase's code requires, not something it creates itself.
 //
@@ -74,12 +82,39 @@ func run(stdin *os.File, stdout *os.File) error {
 // running it against the real production paths after install_nginx has
 // created them, using a disposable resource it creates and then deletes, not
 // by parameterizing the binary itself.
-func productionConfig() nginx.Config {
+func nginxProductionConfig() nginx.Config {
 	return nginx.Config{
 		LiveDir:       "/etc/nginx/lesta.d",
 		StateRoot:     "/var/lib/lesta/nginx",
 		NginxConfPath: "/etc/nginx/nginx.conf",
 		NginxBinary:   "nginx",
 		Port:          80,
+	}
+}
+
+// bind9ProductionConfig points at the real, fixed host paths and binaries
+// this phase's own ADR reconciliation settled on for dns.bind9.v1, mirroring
+// nginxProductionConfig's own non-configurability rationale exactly:
+// NamedCheckconfBinary and RndcBinary are passed straight into exec.Command
+// calls (see internal/capability/bind9/validate.go and reload.go), so making
+// them externally overridable would let anything able to set this process's
+// environment redirect a privileged exec to an arbitrary executable.
+//
+// Nameservers is a real, production-meaningful default: these are the fixed,
+// out-of-bailiwick nameserver FQDNs this node advertises as every zone's own
+// NS set. The placeholder values below are structurally correct but not a
+// real, resolvable pair of nameservers; an operator deploying this build for
+// real DNS service must change them (and this build must be rebuilt to
+// change them, per the same no-env-var-configurability principle as
+// everything else in this file).
+func bind9ProductionConfig() bind9.Config {
+	return bind9.Config{
+		LiveDir:              "/etc/bind/lesta.d",
+		StateRoot:            "/var/lib/lesta/bind",
+		NamedConfPath:        "/etc/bind/named.conf",
+		NamedCheckconfBinary: "named-checkconf",
+		RndcBinary:           "rndc",
+		Port:                 53,
+		Nameservers:          []string{"ns1.lesta-hosting.example.", "ns2.lesta-hosting.example."},
 	}
 }

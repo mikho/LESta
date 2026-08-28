@@ -1,0 +1,14 @@
+; Managed by LESta. Do not edit by hand.
+; resource={{.ResourceID}}
+; zone={{.Domain}}
+$TTL {{.TTL}}
+@	IN	SOA	{{index .Nameservers 0}} {{.RNAME}} (
+			{{.Serial}}	; serial
+			{{.Refresh}}	; refresh
+			{{.Retry}}	; retry
+			{{.Expire}}	; expire
+			{{.Minimum}} )	; minimum
+{{range .Nameservers}}@	IN	NS	{{.}}
+{{end}}_lesta-marker	IN	TXT	"{{.Marker}}"
+{{range .Records}}{{.}}
+{{end}}
