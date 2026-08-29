@@ -327,9 +327,9 @@ emit_dry_run_result_and_exit() {
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed apache2"
 
     if [ "${WEB_PROFILE}" = "both" ]; then
-        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
+        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
     else
-        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
+        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
     fi
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -550,7 +550,7 @@ apache_health_probe() {
 install_apache() {
     log_info "install_apache: installing apache2 package and activating web.apache.v1"
 
-    local out installed_version deb_note include_status=0 listen_port
+    local out installed_version deb_note include_status=0 listen_port apache_apparmor_local
 
     if ! out=$(apt-get install -y apache2 2>&1); then
         add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
@@ -569,6 +569,44 @@ install_apache() {
         fail_step "${EXIT_VERIFICATION_FAILURE}" mod_asis_missing "${ASIS_MODULE_PATH}" "expected mod_asis.so at the fixed path agent/internal/capability/apache/content.go hardcodes, but it is not present after apt-get install -y apache2; failing fast here beats failing silently at first domain-creation time"
     fi
     add_change web.apache.v1 verified "${ASIS_MODULE_PATH}" "mod_asis.so present at the fixed path the Go capability hardcodes"
+
+    # apache2's worker processes run as APACHE_RUN_USER (www-data on Ubuntu,
+    # see /etc/apache2/envvars), which apt-get install just created -- it has
+    # no reason to already be a member of the lesta group. Unlike nginx's
+    # worker (which never reads anything under its own state root at request
+    # time: its content is a `return` directive baked directly into the
+    # already-parsed vhost .conf), Apache's own mod_asis-served content lives
+    # in a real file under /var/lib/lesta/apache (0750 root:lesta) that
+    # www-data itself must open at request time, not just the agent. This is
+    # the exact same class of gap bind9/install.sh's own installation of
+    # named already hit and fixed (see its own comment for the full
+    # reasoning): a Unix group grant alone is not sufficient by itself, since
+    # Ubuntu's apache2 package also ships an AppArmor profile
+    # (/etc/apparmor.d/usr.sbin.apache2) that denies anything outside its own
+    # allow-list under AppArmor's default-deny model, independent of (and in
+    # addition to) the Unix group grant. Both gaps are fixed here together,
+    # by direct analogy rather than by guessing one at a time.
+    usermod -aG lesta www-data || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta www-data failed"
+    add_change web.apache.v1 group_membership_granted "" "www-data added to the lesta group, so apache2's worker processes can traverse /var/lib/lesta/apache to read mod_asis content"
+
+    apache_apparmor_local="/etc/apparmor.d/local/usr.sbin.apache2"
+    if [ -f "${apache_apparmor_local}" ]; then
+        if ! grep -qF "/var/lib/lesta/apache/" "${apache_apparmor_local}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: apache2 must read its own mod_asis content here.\n'
+                printf '/var/lib/lesta/apache/ r,\n'
+                printf '/var/lib/lesta/apache/** r,\n'
+            } >> "${apache_apparmor_local}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apache_apparmor_local}" "failed to append the /var/lib/lesta/apache allowance to ${apache_apparmor_local}"
+            add_change web.apache.v1 apparmor_extended "${apache_apparmor_local}" "granted apache2 read access to /var/lib/lesta/apache via Ubuntu's own local-override include point"
+        fi
+
+        if command -v apparmor_parser >/dev/null 2>&1; then
+            apparmor_parser -r /etc/apparmor.d/usr.sbin.apache2 || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_reload_failed "${apache_apparmor_local}" "apparmor_parser -r /etc/apparmor.d/usr.sbin.apache2 failed"
+            add_change web.apache.v1 apparmor_reloaded "" "apparmor_parser -r reloaded the apache2 profile with the /var/lib/lesta/apache allowance"
+        fi
+    else
+        log_info "AppArmor local override file for apache2 not present (${apache_apparmor_local}); assuming AppArmor is not enforcing apache2 on this host, skipping"
+    fi
 
     install -d -m 0755 "${APACHE_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
     install -d -m 0750 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
@@ -614,11 +652,32 @@ install_apache() {
     fi
     add_change web.apache.v1 validated "" "apache2ctl configtest passed"
 
-    systemctl enable --now apache2 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now apache2 failed"
-    add_change web.apache.v1 enabled "" "systemctl enable --now apache2 succeeded"
+    systemctl enable apache2 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
+
+    # A restart, not `enable --now`: the apache2 package's own postinst
+    # starts apache2 automatically during `apt-get install` above, before
+    # the `usermod -aG lesta www-data` call earlier in this function ever
+    # ran (in the standalone profile, that auto-start succeeds outright; in
+    # the both profile, it fails to bind the public port nginx already owns,
+    # but the point stands either way -- postinst always attempts to start
+    # it first). Unix supplementary groups are fixed at process-exec time
+    # (via initgroups, when a worker forks under APACHE_RUN_USER) and are
+    # never re-read from /etc/group while a process is already running;
+    # `enable --now` is a no-op on an already-active unit and would never
+    # replace that pre-group-grant process. Mirrors bind9/install.sh's own
+    # identical fix for named/bind, verified there directly against CI (see
+    # its own comment for the full account) rather than re-discovered here
+    # by trial and error. An unconditional restart guarantees a fresh exec
+    # that picks up the just-granted group, whether apache2 was already
+    # running from the postinst or not started yet.
+    if ! out=$(systemctl restart apache2 2>&1); then
+        add_error apache_restart_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+    fi
+    add_change web.apache.v1 enabled "" "systemctl enable apache2 + systemctl restart apache2 succeeded"
 
     listen_port=$(apache_listen_port)
-    apache_health_probe "${listen_port}" || fail_step "${EXIT_HEALTH_FAILURE}" apache_health_check_failed "" "apache2 did not answer a health probe on 127.0.0.1:${listen_port} after enable --now"
+    apache_health_probe "${listen_port}" || fail_step "${EXIT_HEALTH_FAILURE}" apache_health_check_failed "" "apache2 did not answer a health probe on 127.0.0.1:${listen_port} after enable + restart"
     add_change web.apache.v1 healthy "" "TCP health probe against 127.0.0.1:${listen_port} succeeded"
 
     checkpoint_write install_apache "${MANIFEST_DIGEST}"
