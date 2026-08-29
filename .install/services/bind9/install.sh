@@ -253,7 +253,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway zone against the real, just-installed bind9"
-    add_change dns.bind9.v1 would_install "" "apt-get install -y bind9 bind9-utils would run; ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; bind9 would be enabled, restarted, and health-probed"
+    add_change dns.bind9.v1 would_install "" "apt-get install -y bind9 bind9-utils would run; ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; bind9 would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -462,7 +462,7 @@ bind9_health_probe() {
 install_bind9() {
     log_info "install_bind9: installing bind9 package and activating dns.bind9.v1"
 
-    local out installed_version deb_note include_status=0
+    local out installed_version deb_note include_status=0 apparmor_local_named
 
     if ! out=$(apt-get install -y bind9 bind9-utils 2>&1); then
         add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
@@ -485,13 +485,51 @@ install_bind9() {
     # world-traversable NGINX_LIVE_DIR tree), bind9's zone stanza's own
     # `file` directive points straight at a path under /var/lib/lesta/bind
     # (0750 root:lesta), which named itself must open at zone-load time,
-    # not just the agent. Without this, named fails every zone load with a
-    # plain "permission denied" on the parent directory's traversal (x)
-    # bit, verified directly against CI: not an AppArmor denial (the
-    # profile's own denials are unrelated, cosmetic named startup
-    # complaints), a plain Unix directory-traversal permission gap.
+    # not just the agent. Without this, named's own Unix DAC check would
+    # fail traversing the parent directory regardless of anything else.
+    # (Verified directly against CI that this grant alone is NOT
+    # sufficient by itself: AppArmor confinement, fixed separately below,
+    # was the actual blocker in every observed failure. Both gaps are
+    # real and independent -- this one is defense in depth, matching
+    # lesta-agent's own existing group membership.)
     usermod -aG lesta bind || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta bind failed"
     add_change dns.bind9.v1 group_membership_granted "" "bind added to the lesta group, so named can traverse /var/lib/lesta/bind to read zone data"
+
+    # Ubuntu's bind9 package ships an AppArmor profile for /usr/sbin/named
+    # (/etc/apparmor.d/usr.sbin.named) that allow-lists only /etc/bind/**,
+    # /var/lib/bind/**, and /var/cache/bind/** for zone/config data -- it
+    # has no rule at all for /var/lib/lesta/bind, so named is denied
+    # outright under AppArmor's default-deny model, independent of (and in
+    # addition to) the Unix group grant above. Confirmed directly against
+    # CI: named kept logging a plain "permission denied" loading the zone
+    # file even after the group grant and a forced restart; reading the
+    # actual shipped profile confirmed the missing rule, and cat'ing
+    # /etc/apparmor.d/local/usr.sbin.named confirmed the profile's own
+    # last line (`#include <local/usr.sbin.named>`) is Ubuntu's own
+    # sanctioned extension point for exactly this, specifically so
+    # packages/operators never need to edit the vendor-shipped profile
+    # file itself (which would be overwritten on the next bind9 package
+    # upgrade). named only ever reads zone data here (zones are type
+    # primary with content re-rendered by the agent on every generation,
+    # never dynamic-update zones), so read-only is sufficient.
+    apparmor_local_named="/etc/apparmor.d/local/usr.sbin.named"
+    if [ -f "${apparmor_local_named}" ]; then
+        if ! grep -qF "/var/lib/lesta/bind/" "${apparmor_local_named}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: named must read its own zone data here.\n'
+                printf '/var/lib/lesta/bind/ r,\n'
+                printf '/var/lib/lesta/bind/** r,\n'
+            } >> "${apparmor_local_named}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_named}" "failed to append the /var/lib/lesta/bind allowance to ${apparmor_local_named}"
+            add_change dns.bind9.v1 apparmor_extended "${apparmor_local_named}" "granted named read access to /var/lib/lesta/bind via Ubuntu's own local-override include point"
+        fi
+
+        if command -v apparmor_parser >/dev/null 2>&1; then
+            apparmor_parser -r /etc/apparmor.d/usr.sbin.named || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_reload_failed "${apparmor_local_named}" "apparmor_parser -r /etc/apparmor.d/usr.sbin.named failed"
+            add_change dns.bind9.v1 apparmor_reloaded "" "apparmor_parser -r reloaded the named profile with the /var/lib/lesta/bind allowance"
+        fi
+    else
+        log_info "AppArmor local override file for named not present (${apparmor_local_named}); assuming AppArmor is not enforcing named on this host, skipping"
+    fi
 
     install -d -m 0755 "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
     add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0755"
