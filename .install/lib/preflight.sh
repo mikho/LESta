@@ -108,8 +108,17 @@ preflight_check_capacity() {
 # IPv6 listener, both expected_owner): every matching line's owner must be
 # expected_owner, not just one of them, so this walks all of them rather
 # than sampling the first.
+#
+# Loopback-only listeners (127.0.0.0/8, ::1) are skipped outright, never
+# considered a conflict regardless of owner: every service this installer
+# family bootstraps (nginx, named) binds a wildcard/public address, and on
+# Linux a specific-address bind (e.g. systemd-resolved's stub resolver at
+# 127.0.0.53:53, present by default on every Ubuntu 24.04/26.04 node) and a
+# later wildcard bind on the same port from a different process coexist at
+# the socket layer without conflict; only a genuine second wildcard-or-
+# public-address listener on the port is a real conflict.
 preflight_check_port_free() {
-    local port="$1" protocol="$2" expected_owner="$3" ss_flag line owner bad=0 bad_owner=""
+    local port="$1" protocol="$2" expected_owner="$3" ss_flag line owner addr bad=0 bad_owner=""
 
     case "${protocol}" in
         tcp) ss_flag="-tlnp" ;;
@@ -119,6 +128,14 @@ preflight_check_port_free() {
 
     while IFS= read -r line; do
         [ -n "${line}" ] || continue
+
+        addr=$(printf '%s' "${line}" | awk '{print $4}')
+        addr="${addr%:*}"
+        case "${addr}" in
+            127.* | '[::1]' | ::1)
+                continue
+                ;;
+        esac
 
         owner=$(printf '%s' "${line}" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
 
