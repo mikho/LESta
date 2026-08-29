@@ -175,6 +175,14 @@ jobs:
           id bind || true
           echo "--- named.service unit, checking for sandboxing directives ---"
           systemctl cat named 2>&1 || true
+          echo "--- /etc/default/named (checking for a chroot -t flag) ---"
+          sudo cat /etc/default/named 2>&1 || true
+          echo "--- direct traversal test AS the bind user, bypassing all speculation ---"
+          sudo -u bind test -x /var/lib/lesta/bind && echo "bind CAN exec/traverse /var/lib/lesta/bind" || echo "bind CANNOT exec/traverse /var/lib/lesta/bind"
+          sudo -u bind ls -la /var/lib/lesta/bind/zones 2>&1 || true
+          echo "--- full AppArmor profile for named (checking for a silent/unlogged deny rule) ---"
+          sudo cat /etc/apparmor.d/usr.sbin.named 2>&1 || true
+          sudo cat /etc/apparmor.d/local/usr.sbin.named 2>&1 || true
           echo "--- ss :53 ---"
           sudo ss -H -tlnp | grep ':53 ' || true
           sudo ss -H -ulnp | grep ':53 ' || true
