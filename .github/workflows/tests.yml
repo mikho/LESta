@@ -158,7 +158,18 @@ jobs:
         if: failure()
         run: |
           sudo systemctl status named --no-pager || true
-          sudo journalctl -u named --no-pager -n 100 || true
+          echo "--- full named journal, grepped for the self-test zone ---"
+          sudo journalctl -u named --no-pager | grep -i selftest || true
+          echo "--- last 40 lines of the named journal, unfiltered ---"
+          sudo journalctl -u named --no-pager -n 40 || true
+          echo "--- AppArmor status ---"
+          sudo aa-status || true
+          echo "--- kernel log, grepped for apparmor denials against named ---"
+          sudo dmesg 2>/dev/null | grep -i apparmor | grep -i named || true
+          sudo journalctl -k --no-pager | grep -iE 'apparmor.*(denied|named)' || true
+          echo "--- zone data directory ownership/permissions ---"
+          sudo ls -laR /var/lib/lesta/bind/zones 2>&1 || true
+          echo "--- ss :53 ---"
           sudo ss -H -tlnp | grep ':53 ' || true
           sudo ss -H -ulnp | grep ':53 ' || true
 
