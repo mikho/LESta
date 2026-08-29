@@ -169,6 +169,12 @@ jobs:
           sudo journalctl -k --no-pager | grep -iE 'apparmor.*(denied|named)' || true
           echo "--- zone data directory ownership/permissions ---"
           sudo ls -laR /var/lib/lesta/bind/zones 2>&1 || true
+          echo "--- full path walk (namei), the definitive tool for this bug class ---"
+          sudo namei -l /var/lib/lesta/bind/zones/*/generations/1/zone.db 2>&1 || true
+          echo "--- bind user's actual group memberships ---"
+          id bind || true
+          echo "--- named.service unit, checking for sandboxing directives ---"
+          systemctl cat named 2>&1 || true
           echo "--- ss :53 ---"
           sudo ss -H -tlnp | grep ':53 ' || true
           sudo ss -H -ulnp | grep ':53 ' || true
