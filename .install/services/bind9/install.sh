@@ -477,6 +477,22 @@ install_bind9() {
     deb_note=$(bind9_package_provenance_note "${installed_version}")
     add_change dns.bind9.v1 installed "" "apt-get install -y bind9 bind9-utils succeeded; dpkg-query reports bind9 version ${installed_version}. ${deb_note}"
 
+    # named runs as the bind9 package's own system user (bind on Ubuntu, see
+    # named.service's own `-u bind`), which apt-get install just created --
+    # it has no reason to already be a member of the lesta group. Unlike
+    # nginx's worker (which never needs to read anything under its own
+    # state root directly: its served content lives entirely inside the
+    # world-traversable NGINX_LIVE_DIR tree), bind9's zone stanza's own
+    # `file` directive points straight at a path under /var/lib/lesta/bind
+    # (0750 root:lesta), which named itself must open at zone-load time,
+    # not just the agent. Without this, named fails every zone load with a
+    # plain "permission denied" on the parent directory's traversal (x)
+    # bit, verified directly against CI: not an AppArmor denial (the
+    # profile's own denials are unrelated, cosmetic named startup
+    # complaints), a plain Unix directory-traversal permission gap.
+    usermod -aG lesta bind || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta bind failed"
+    add_change dns.bind9.v1 group_membership_granted "" "bind added to the lesta group, so named can traverse /var/lib/lesta/bind to read zone data"
+
     install -d -m 0755 "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
     add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0755"
 
