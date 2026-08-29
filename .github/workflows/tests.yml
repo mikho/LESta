@@ -225,8 +225,13 @@ jobs:
           # fully enforced; only this disposable, thrown-away CI runner's
           # test run needs the relaxation, so this never weakens what a
           # real node actually enforces.
-          sudo apt-get install -y apparmor-utils
-          sudo aa-complain /usr/sbin/named
+          # apparmor_parser directly, not aa-complain: aa-complain's Python
+          # tooling scans the entire /etc/apparmor.d/ directory and this
+          # runner image ships two overlapping, pre-existing, unrelated
+          # profiles for Microsoft Edge that make that whole-directory scan
+          # error out before it ever reaches named. apparmor_parser -C
+          # operates only on the one file given to it.
+          sudo apparmor_parser -r -C /etc/apparmor.d/usr.sbin.named
 
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
