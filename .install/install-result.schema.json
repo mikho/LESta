@@ -8,7 +8,6 @@
     "schema_version",
     "installer",
     "service",
-    "web_profile",
     "mode",
     "status",
     "exit_code",
@@ -23,7 +22,7 @@
   "properties": {
     "schema_version": { "type": "string", "const": "1" },
     "installer": { "type": "string", "const": "lesta-bootstrap" },
-    "service": { "type": "string", "const": "web" },
+    "service": { "type": "string", "enum": ["web", "dns"] },
     "web_profile": { "type": "string", "enum": ["nginx", "apache", "both"] },
     "mode": { "type": "string", "enum": ["dry-run", "apply", "version", "unset"] },
     "status": {

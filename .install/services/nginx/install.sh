@@ -66,6 +66,14 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/checkpoint.sh"
 # shellcheck source=../../lib/preflight.sh
 . "${INSTALL_ROOT}/lib/preflight.sh"
+# shellcheck source=../../lib/result.sh
+. "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/firewall.sh
+. "${INSTALL_ROOT}/lib/firewall.sh"
+# shellcheck source=../../lib/agent.sh
+. "${INSTALL_ROOT}/lib/agent.sh"
+# shellcheck source=../../lib/selftest.sh
+. "${INSTALL_ROOT}/lib/selftest.sh"
 
 BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
 FIREWALL_MANIFEST="${INSTALL_ROOT}/services/firewall/manifest.json"
@@ -73,11 +81,22 @@ NODE_HEALTH_MANIFEST="${INSTALL_ROOT}/services/node-health/manifest.json"
 NGINX_MANIFEST="${INSTALL_ROOT}/services/nginx/manifest.json"
 
 AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
-AGENT_BINARY_DEST="/var/lib/lesta/agent/bin/lesta-agent"
-AGENT_ARTIFACT_NAME="lesta-agent-linux-amd64"
 
-NFT_TABLE_PATH="/etc/lesta/firewall/lesta.nft"
-FIREWALL_UNIT_PATH="/etc/systemd/system/lesta-firewall.service"
+# NGINX_CONF_PATH/NGINX_LIVE_DIR: no longer exported from lib/preflight.sh
+# (that file's own check_lesta_include_present is now capability-agnostic
+# and takes these as explicit parameters instead).
+NGINX_CONF_PATH="/etc/nginx/nginx.conf"
+NGINX_LIVE_DIR="/etc/nginx/lesta.d"
+
+# CHECKPOINT_PATH/RELEASE_PATH: no longer exported from lib/checkpoint.sh
+# (each installer now sets its own). These are the exact same paths this
+# installer has always used, preserved unchanged so a rerun after this
+# refactor still finds an existing node's checkpoint/release files. Still
+# exported here (only consumed ambiently by lib/checkpoint.sh's functions,
+# a separate sourced file, never referenced by name in this file's own
+# body) so a single-file shellcheck pass doesn't flag them as unused.
+export CHECKPOINT_PATH="/var/lib/lesta/install/nginx.checkpoint"
+export RELEASE_PATH="/etc/lesta/nginx-release"
 
 # --- globals (all pre-declared for `set -u` safety) -------------------------
 
@@ -193,34 +212,9 @@ validate_args() {
 }
 
 # --- result accumulation / emission -----------------------------------------
-
-# add_change <capability> <action> <path> <detail>
-add_change() {
-    local frag
-    frag=$(json_join_object \
-        "$(json_kv_str "capability" "$1")" \
-        "$(json_kv_str "action" "$2")" \
-        "$(json_kv_str "path" "$3")" \
-        "$(json_kv_str "detail" "$4")")
-    CHANGES=$(append_line "${CHANGES}" "${frag}")
-}
-
-# add_error <code> <message> [<path>]
-add_error() {
-    local frag
-    frag=$(json_join_object \
-        "$(json_kv_str "code" "$1")" \
-        "$(json_kv_str "message" "$2")" \
-        "$(json_kv_str "path" "${3:-}")")
-    ERRORS=$(append_line "${ERRORS}" "${frag}")
-}
-
-# fail_step <exit_code> <error_code> <path> <message>
-# Records one error and immediately emits the final failed result.
-fail_step() {
-    add_error "$2" "$4" "$3"
-    emit_result_and_exit failed "$1"
-}
+#
+# add_change/add_error/fail_step now live in lib/result.sh (pure JSON-record
+# builders with no nginx-specific behavior; relocated verbatim).
 
 # manifest_capabilities_required_json -> a JSON array of nginx manifest's own
 # depends_on entries.
@@ -296,6 +290,28 @@ emit_apply_success_and_exit() {
 
 # --- preflight orchestration --------------------------------------------
 
+# preflight_check_include_line wraps the shared check_lesta_include_present
+# with the add_error call and remediation text specific to nginx.conf.
+preflight_check_include_line() {
+    local status=0
+
+    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" || status=$?
+
+    case "${status}" in
+        0)
+            return 0
+            ;;
+        1)
+            add_error nginx_conf_missing "nginx.conf not found at ${NGINX_CONF_PATH}; install nginx first (apt-get install -y nginx), then add this line inside its http {} block: include ${NGINX_LIVE_DIR}/*.conf; -- do not remove any other existing include lines. This installer never writes to nginx.conf itself." "${NGINX_CONF_PATH}"
+            return 1
+            ;;
+        *)
+            add_error nginx_conf_missing_include "${NGINX_CONF_PATH} exists but has no include ${NGINX_LIVE_DIR}/*.conf; line inside its http {} block. Add that exact line by hand -- do not remove any other existing include lines. This installer never writes to nginx.conf itself." "${NGINX_CONF_PATH}"
+            return 1
+            ;;
+    esac
+}
+
 run_preflight() {
     local os_id os_version_id arch supported dir port failed=0
 
@@ -327,7 +343,7 @@ run_preflight() {
 
     while IFS= read -r port; do
         [ -n "${port}" ] || continue
-        preflight_check_port_free "${port}" || failed=1
+        preflight_check_port_free "${port}" tcp nginx || failed=1
     done <<PORTS
 $(manifest_extract_ports "${NGINX_MANIFEST}")
 PORTS
@@ -378,75 +394,17 @@ bootstrap_base() {
 }
 
 # --- phase 2: bootstrap_firewall_baseline -------------------------------
-
-bootstrap_firewall_baseline() {
-    log_info "bootstrap_firewall_baseline: rendering deny-by-default nftables table"
-
-    install -d -m 0750 -o root -g lesta /etc/lesta/firewall || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/firewall "failed to create /etc/lesta/firewall"
-    add_change firewall.baseline.v1 ensured /etc/lesta/firewall "directory present, mode 0750 root:lesta"
-
-    local port port_rules="" out
-    while IFS= read -r port; do
-        [ -n "${port}" ] || continue
-        port_rules=$(append_line "${port_rules}" "${port}")
-    done <<PORTS
-$(manifest_extract_ports "${NGINX_MANIFEST}")
-PORTS
-    port_rules=$(printf '%s' "${port_rules}" | tr '\n' ',' | sed -e 's/,/, /g' -e 's/, $//')
-
-    {
-        printf 'table inet lesta {\n'
-        printf '    chain input {\n'
-        printf '        type filter hook input priority 0; policy drop;\n'
-        printf '        ct state established,related accept;\n'
-        printf '        iif lo accept;\n'
-        printf '        icmp type echo-request accept;\n'
-        printf '        tcp dport 22 accept;\n'
-        printf '        tcp dport { %s } accept;\n' "${port_rules}"
-        printf '    }\n'
-        printf '}\n'
-    } > "${NFT_TABLE_PATH}.tmp"
-    chmod 0640 "${NFT_TABLE_PATH}.tmp"
-    chown root:lesta "${NFT_TABLE_PATH}.tmp" 2>/dev/null || true
-
-    if ! out=$(nft -c -f "${NFT_TABLE_PATH}.tmp" 2>&1); then
-        rm -f "${NFT_TABLE_PATH}.tmp"
-        add_error nft_validation_failed "${out}" "${NFT_TABLE_PATH}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-
-    mv -f "${NFT_TABLE_PATH}.tmp" "${NFT_TABLE_PATH}"
-
-    if ! out=$(nft -f "${NFT_TABLE_PATH}" 2>&1); then
-        add_error nft_apply_failed "${out}" "${NFT_TABLE_PATH}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-    add_change firewall.baseline.v1 applied "${NFT_TABLE_PATH}" "deny-by-default inet lesta table loaded (ssh 22, ${port_rules})"
-
-    {
-        printf '[Unit]\n'
-        printf 'Description=LESta firewall baseline (nftables)\n'
-        printf 'After=network-pre.target\n'
-        printf 'Before=network.target\n'
-        printf '\n'
-        printf '[Service]\n'
-        printf 'Type=oneshot\n'
-        printf 'ExecStart=/usr/sbin/nft -f %s\n' "${NFT_TABLE_PATH}"
-        printf 'RemainAfterExit=yes\n'
-        printf '\n'
-        printf '[Install]\n'
-        printf 'WantedBy=multi-user.target\n'
-    } > "${FIREWALL_UNIT_PATH}.tmp"
-    chmod 0644 "${FIREWALL_UNIT_PATH}.tmp"
-    mv -f "${FIREWALL_UNIT_PATH}.tmp" "${FIREWALL_UNIT_PATH}"
-
-    systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "${FIREWALL_UNIT_PATH}" "systemctl daemon-reload failed"
-    systemctl enable lesta-firewall.service >/dev/null || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_enable_failed "${FIREWALL_UNIT_PATH}" "systemctl enable lesta-firewall.service failed"
-    add_change firewall.baseline.v1 enabled "${FIREWALL_UNIT_PATH}" "systemd oneshot unit installed and enabled for boot-time reload"
-
-    checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
-    log_info "bootstrap_firewall_baseline complete"
-}
+#
+# bootstrap_firewall_baseline itself now lives in lib/firewall.sh, shared by
+# every leaf-service installer: it renders the deny-by-default nftables
+# table from the UNION of every service's own registered ports (each
+# service's ports live in their own FIREWALL_PORTS_DIR/<service_id>.ports
+# fragment), rather than nginx's own ports alone -- otherwise a second
+# leaf-service installer's own firewall phase would silently replace this
+# entire table and close nginx's ports, since `nft -f` replaces a named
+# table's content rather than merging it. See lib/firewall.sh's own top
+# comment for the full rationale. Checkpoint behavior stays here, per
+# installer, unchanged.
 
 # --- phase 3: install_nginx ---------------------------------------------
 
@@ -517,7 +475,7 @@ install_nginx() {
     add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0755"
     add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0750 root:lesta"
 
-    check_lesta_include_present || include_status=$?
+    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
         fail_step "${EXIT_PREFLIGHT_CONFLICT}" nginx_conf_include_missing "${NGINX_CONF_PATH}" "the lesta.d include line disappeared between preflight and this defensive re-check; investigate concurrent nginx.conf edits"
     fi
@@ -539,81 +497,13 @@ install_nginx() {
 }
 
 # --- phase 4: bootstrap_node_health --------------------------------------
-
-# selftest_new_uuid -> a fresh random UUID, read from the kernel directly
-# (no uuidgen/util-linux dependency; Linux-only, which this script already
-# is).
-selftest_new_uuid() {
-    cat /proc/sys/kernel/random/uuid
-}
-
-# selftest_envelope <operation> <resource_id> <idem> <corr> <desired_state_version> <payload>
-# -> a complete OperationEnvelope JSON object for the given operation.
-selftest_envelope() {
-    local operation="$1" resource_id="$2" idem="$3" corr="$4" dsv="$5" payload="$6"
-    local issued_at deadline request_digest
-
-    issued_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    deadline=$(date -u -d '+30 seconds' +%Y-%m-%dT%H:%M:%SZ)
-    request_digest="sha256:$(printf '%s' "${payload}" | sha256sum | awk '{print $1}')"
-
-    json_join_object \
-        "$(json_kv_str "protocol_version" "1")" \
-        "$(json_kv_str "capability" "${WEB_NGINX_CAPABILITY}")" \
-        "$(json_kv_str "operation" "${operation}")" \
-        "$(json_kv_str "resource_id" "${resource_id}")" \
-        "$(json_kv_raw "desired_state_version" "${dsv}")" \
-        "$(json_kv_str "idempotency_key" "${idem}")" \
-        "$(json_kv_str "correlation_id" "${corr}")" \
-        "$(json_kv_str "deadline" "${deadline}")" \
-        "$(json_kv_str "issued_at" "${issued_at}")" \
-        "$(json_kv_str "request_digest" "${request_digest}")" \
-        "$(json_kv_raw "payload" "${payload}")"
-}
-
-# selftest_invoke_agent <envelope_json> -> the agent's raw stdout on success
-# (return 0), or its combined output with a non-zero return on failure. Never
-# passes any environment override: the shipped binary only ever knows
-# productionConfig()'s fixed paths (see agent/cmd/lesta-agent/main.go).
-selftest_invoke_agent() {
-    printf '%s' "$1" | "${AGENT_BINARY_DEST}"
-}
-
-# selftest_status_from_output <agent_stdout> -> the "status" field's value,
-# or empty if not found.
-selftest_status_from_output() {
-    printf '%s\n' "$1" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([a-z_]*\)".*/\1/p' | head -n1
-}
-
-# run_node_health_selftest_delete <resource_id> <payload> <idem> <corr>
-# Issues the matching `delete` for the throwaway resource
-# run_node_health_selftest creates. Split out so the "create succeeded, now
-# clean up" and "create's own status wasn't applied, still try to clean up"
-# paths share one implementation. Logs a warning and returns 1 on any
-# failure; never exits the script itself, so callers control what a failed
-# cleanup means for the overall result.
-run_node_health_selftest_delete() {
-    local resource_id="$1" payload="$2" idem="$3" corr="$4"
-    local envelope agent_out agent_status status_line
-
-    envelope=$(selftest_envelope delete "${resource_id}" "${idem}" "${corr}" 2 "${payload}")
-
-    agent_status=0
-    agent_out=$(selftest_invoke_agent "${envelope}") || agent_status=$?
-
-    if [ "${agent_status}" -ne 0 ]; then
-        log_warn "self-test delete: agent exited ${agent_status}: $(printf '%s' "${agent_out}" | tr '\n' ' ')"
-        return 1
-    fi
-
-    status_line=$(selftest_status_from_output "${agent_out}")
-    if [ "${status_line}" != "applied" ]; then
-        log_warn "self-test delete: agent returned status=${status_line:-unknown}, expected applied"
-        return 1
-    fi
-
-    return 0
-}
+#
+# selftest_new_uuid/selftest_envelope/selftest_invoke_agent/
+# selftest_status_from_output/run_node_health_selftest_delete now live in
+# lib/selftest.sh, shared by every leaf-service installer's own self-test
+# (the only nginx-specific thing among them, selftest_envelope's capability
+# string, is now its own first parameter, supplied by this installer's own
+# run_node_health_selftest below).
 
 # run_node_health_selftest feeds two real OperationEnvelopes, a `create` then
 # a `delete`, to the just-placed agent binary, targeting the exact real
@@ -662,7 +552,7 @@ run_node_health_selftest() {
         "$(json_kv_raw "ssl" "${ssl_obj}")" \
         "$(json_kv_raw "suspended" "false")")
 
-    envelope=$(selftest_envelope create "${resource_id}" "${create_idem}" "${create_corr}" 1 "${payload}")
+    envelope=$(selftest_envelope "${WEB_NGINX_CAPABILITY}" create "${resource_id}" "${create_idem}" "${create_corr}" 1 "${payload}")
 
     agent_status=0
     agent_out=$(selftest_invoke_agent "${envelope}") || agent_status=$?
@@ -675,13 +565,13 @@ run_node_health_selftest() {
     status_line=$(selftest_status_from_output "${agent_out}")
     if [ "${status_line}" != "applied" ]; then
         add_error selftest_create_not_applied "agent returned status=${status_line:-unknown} for create, expected applied: $(printf '%s' "${agent_out}" | tr '\n' ' ')" "${AGENT_BINARY_DEST}"
-        run_node_health_selftest_delete "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
         emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
     fi
 
     log_info "bootstrap_node_health self-test: create returned status=applied"
 
-    if ! run_node_health_selftest_delete "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
+    if ! run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         add_error selftest_cleanup_failed "self-test create succeeded but the throwaway resource could not be deleted afterward; ${AGENT_BINARY_DEST} may have left a stray fragment for ${resource_id} under ${NGINX_LIVE_DIR}" "${NGINX_LIVE_DIR}"
         emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
     fi
@@ -694,30 +584,7 @@ run_node_health_selftest() {
 bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
-    install -d -m 0750 -o root -g lesta /etc/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/agent "failed to create /etc/lesta/agent"
-    install -d -m 0750 -o root -g lesta /var/lib/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent "failed to create /var/lib/lesta/agent"
-    install -d -m 0750 -o root -g lesta /var/log/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta/agent "failed to create /var/log/lesta/agent"
-    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/agent/bin || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/bin "failed to create /var/lib/lesta/agent/bin"
-    add_change node.health.v1 ensured /var/lib/lesta/agent "agent directories present with correct ownership"
-
-    local expected_sha256
-    expected_sha256=$(manifest_artifact_sha256 "${NODE_HEALTH_MANIFEST}" "${AGENT_ARTIFACT_NAME}")
-    if [ -z "${expected_sha256}" ]; then
-        fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${NODE_HEALTH_MANIFEST}" "node-health manifest has no ${AGENT_ARTIFACT_NAME} artifacts[] entry"
-    fi
-
-    if [ ! -f "${AGENT_BINARY_SRC}" ]; then
-        fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_missing "${AGENT_BINARY_SRC}" "vendored agent binary not found; run 'composer agent:build' before packaging a release"
-    fi
-
-    verify_sha256 "${AGENT_BINARY_SRC}" "${expected_sha256}" \
-        || fail_step "${EXIT_VERIFICATION_FAILURE}" checksum_mismatch "${AGENT_BINARY_SRC}" "vendored agent binary sha256 does not match node-health manifest's artifacts[] entry"
-
-    cp "${AGENT_BINARY_SRC}" "${AGENT_BINARY_DEST}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" copy_failed "${AGENT_BINARY_DEST}" "failed to copy agent binary into place"
-    chmod 0750 "${AGENT_BINARY_DEST}.tmp"
-    chown lesta-agent:lesta "${AGENT_BINARY_DEST}.tmp" 2>/dev/null || true
-    mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}"
-    add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${AGENT_BINARY_SRC}, sha256 verified against manifest, mode 0750 lesta-agent:lesta"
+    agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
 
     run_node_health_selftest
 
@@ -758,7 +625,8 @@ main() {
     log_info "preflight passed; beginning apply mutations"
 
     bootstrap_base
-    bootstrap_firewall_baseline
+    bootstrap_firewall_baseline nginx "${NGINX_MANIFEST}"
+    checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
     install_nginx
     bootstrap_node_health
 
