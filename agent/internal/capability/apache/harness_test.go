@@ -137,11 +137,12 @@ func resolveMPMModuleLine(t *testing.T, moduleDir string, compiledIn map[string]
 // own from-scratch config satisfies directly. Zero sudo, zero systemd,
 // identical on this Mac, a Multipass VM, or a GitHub Actions Ubuntu runner.
 type disposableApache struct {
-	Config  apache.Config
-	Prefix  string
-	Port    int
-	binary  string
-	pidPath string
+	Config       apache.Config
+	Prefix       string
+	Port         int
+	binary       string
+	pidPath      string
+	errorLogPath string
 }
 
 // newDisposableApache starts a fresh apache2/httpd master process and
@@ -153,6 +154,7 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	binary := requireRealApache(t)
 	moduleDir := resolveModuleDir(t)
 	compiledIn := compiledInModules(t, binary)
+	t.Logf("%s reports these modules already compiled in: %v", binary, compiledIn)
 
 	prefix := t.TempDir()
 	liveDir := filepath.Join(prefix, "lesta.d")
@@ -170,6 +172,7 @@ func newDisposableApache(t *testing.T) *disposableApache {
 
 	pidPath := filepath.Join(prefix, "apache.pid")
 	confPath := filepath.Join(prefix, "apache2.conf")
+	errorLogPath := filepath.Join(logsDir, "error.log")
 
 	var confBuilder strings.Builder
 
@@ -182,19 +185,22 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_asis.c", "asis_module", filepath.Join(moduleDir, "mod_asis.so")))
 	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
 	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
-	fmt.Fprintf(&confBuilder, "ErrorLog %s\n", filepath.Join(logsDir, "error.log"))
+	fmt.Fprintf(&confBuilder, "ErrorLog %s\n", errorLogPath)
 	fmt.Fprintf(&confBuilder, "DocumentRoot %s\n", htdocsDir)
 	fmt.Fprintf(&confBuilder, "IncludeOptional %s\n", filepath.Join(liveDir, "*.conf"))
+
+	t.Logf("disposable apache2.conf:\n%s", confBuilder.String())
 
 	if err := os.WriteFile(confPath, []byte(confBuilder.String()), 0o644); err != nil {
 		t.Fatalf("writing disposable apache2.conf: %v", err)
 	}
 
 	d := &disposableApache{
-		Prefix:  prefix,
-		Port:    port,
-		binary:  binary,
-		pidPath: pidPath,
+		Prefix:       prefix,
+		Port:         port,
+		binary:       binary,
+		pidPath:      pidPath,
+		errorLogPath: errorLogPath,
 		Config: apache.Config{
 			LiveDir:        liveDir,
 			StateRoot:      stateRoot,
@@ -227,7 +233,14 @@ func (d *disposableApache) start(t *testing.T) {
 	cmd := exec.Command(d.binary, d.args("-k", "start")...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("starting disposable apache: %v: %s", err, out)
+		// A config-parse-time failure (e.g. an unloadable module) prints to
+		// stderr, captured above in out. A failure detected later in startup
+		// (e.g. no MPM active) is instead written to ErrorLog, since parsing
+		// has already reached the ErrorLog directive by that point; read it
+		// too so a bare "exit status 1" with empty combined output still
+		// carries a real diagnosis instead of none.
+		errorLog, _ := os.ReadFile(d.errorLogPath)
+		t.Fatalf("starting disposable apache: %v: stderr/stdout=%q error_log=%q", err, out, errorLog)
 	}
 
 	// The instance starts with no vhost fragments at all (none have been
