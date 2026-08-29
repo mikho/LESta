@@ -225,6 +225,7 @@ jobs:
           # fully enforced; only this disposable, thrown-away CI runner's
           # test run needs the relaxation, so this never weakens what a
           # real node actually enforces.
+          sudo apt-get install -y apparmor-utils
           sudo aa-complain /usr/sbin/named
 
       - name: Real-capability agent tests against the installer-produced state
