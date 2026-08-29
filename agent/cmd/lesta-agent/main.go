@@ -5,7 +5,8 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Two capabilities are wired up: web.nginx.v1 and dns.bind9.v1.
+// Three capabilities are wired up: web.nginx.v1, dns.bind9.v1, and
+// web.apache.v1.
 package main
 
 import (
@@ -14,14 +15,16 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
 const (
-	webNginxCapability = "web.nginx.v1"
-	dnsBind9Capability = "dns.bind9.v1"
+	webNginxCapability  = "web.nginx.v1"
+	dnsBind9Capability  = "dns.bind9.v1"
+	webApacheCapability = "web.apache.v1"
 )
 
 func main() {
@@ -48,8 +51,10 @@ func run(stdin *os.File, stdout *os.File) error {
 		capability = nginx.New(nginxProductionConfig())
 	case dnsBind9Capability:
 		capability = bind9.New(bind9ProductionConfig())
+	case webApacheCapability:
+		capability = apache.New(apacheProductionConfig())
 	default:
-		return fmt.Errorf("unsupported capability %q; this build only implements %q and %q", op.Capability, webNginxCapability, dnsBind9Capability)
+		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability)
 	}
 
 	result, err := capability.Apply(context.Background(), op)
@@ -116,5 +121,47 @@ func bind9ProductionConfig() bind9.Config {
 		RndcBinary:           "rndc",
 		Port:                 53,
 		Nameservers:          []string{"ns1.lesta-hosting.example.", "ns2.lesta-hosting.example."},
+	}
+}
+
+// apacheProductionConfig points at the real, fixed host paths and binary
+// this phase's own plan settled on for web.apache.v1, mirroring
+// nginxProductionConfig's and bind9ProductionConfig's own
+// non-configurability rationale exactly: ApacheBinary is passed straight
+// into exec.Command calls (see internal/capability/apache/validate.go and
+// reload.go), so making it externally overridable would let anything able to
+// set this process's environment redirect a privileged exec to an arbitrary
+// executable.
+//
+// Env's six values are a researched reconstruction of Ubuntu/Debian's real
+// /etc/apache2/envvars defaults (APACHE_RUN_USER/APACHE_RUN_GROUP=www-data,
+// the standard pid/run/lock/log directories under /var/run and /var/log),
+// which apache2ctl normally sources before exec'ing the real apache2 binary.
+// Since this package execs apache2 directly, bypassing that wrapper script
+// entirely (the same bypass nginxProductionConfig already makes for nginx's
+// own service script), it must supply the same fixed values itself. These
+// six literals are NOT yet hands-on-confirmed against a real Ubuntu box by
+// this phase's own work (only researched against Debian/Ubuntu apache2
+// packaging convention); the disposable test harness this phase's own test
+// suite actually exercises never uses this function at all (it builds its
+// own apache.Config with an empty Env, since its from-scratch synthetic
+// config never references ${APACHE_...}), so CI's real-apache2 job is the
+// first real exercise of these exact values and should be treated as the
+// verification of this comment's own claim, not this comment itself.
+func apacheProductionConfig() apache.Config {
+	return apache.Config{
+		LiveDir:        "/etc/apache2/lesta.d",
+		StateRoot:      "/var/lib/lesta/apache",
+		ApacheConfPath: "/etc/apache2/apache2.conf",
+		ApacheBinary:   "apache2",
+		Port:           80,
+		Env: []string{
+			"APACHE_RUN_USER=www-data",
+			"APACHE_RUN_GROUP=www-data",
+			"APACHE_PID_FILE=/var/run/apache2/apache2.pid",
+			"APACHE_RUN_DIR=/var/run/apache2",
+			"APACHE_LOCK_DIR=/var/lock/apache2",
+			"APACHE_LOG_DIR=/var/log/apache2",
+		},
 	}
 }

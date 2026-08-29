@@ -70,7 +70,10 @@ jobs:
       - name: Install bind9
         run: sudo apt-get update && sudo apt-get install -y bind9 bind9-utils
 
-      - name: Test (fake, real nginx, and real bind9 capability, nothing skips)
+      - name: Install apache2
+        run: sudo apt-get update && sudo apt-get install -y apache2
+
+      - name: Test (fake, real nginx, real bind9, and real apache capability, nothing skips)
         working-directory: agent
         run: go test ./...
 
