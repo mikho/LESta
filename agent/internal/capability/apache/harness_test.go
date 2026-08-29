@@ -56,26 +56,74 @@ func resolveModuleDir(t *testing.T) string {
 	return ""
 }
 
-// resolveMPMModule picks event over prefork when both are available (Ubuntu's
-// apache2 package ships mpm_event; this Mac's own build, verified hands-on,
-// also ships mpm_event), falling back to prefork only if event's .so is
-// genuinely absent from the resolved module directory.
-func resolveMPMModule(t *testing.T, moduleDir string) (name, path string) {
+// compiledInModules runs `<binary> -l` (List compiled-in modules) and returns
+// the set of source file names (e.g. "mod_unixd.c") it reports. Found via a
+// real CI failure, not anticipated in advance: Ubuntu's real apache2 package
+// compiles mod_unixd statically into the binary, and an explicit
+// `LoadModule unixd_module ...` against such a binary is a hard startup
+// error ("module unixd_module is built-in and can't be loaded"), unlike
+// loading an already-*loaded* dynamic module by the same name (which
+// production's own ensureModulesFragment relies on being a harmless no-op).
+// This Mac's own httpd build compiles in only core.c/mod_so.c/http_core.c
+// (confirmed via `httpd -l`), so a fixed, unconditional module list that
+// works here silently breaks on Ubuntu; checking `-l` directly is what makes
+// the identical harness code work on both.
+func compiledInModules(t *testing.T, binary string) map[string]bool {
 	t.Helper()
 
-	eventPath := filepath.Join(moduleDir, "mod_mpm_event.so")
-	if _, err := os.Stat(eventPath); err == nil {
-		return "mpm_event_module", eventPath
+	out, err := exec.Command(binary, "-l").CombinedOutput()
+	if err != nil {
+		t.Fatalf("listing %s's compiled-in modules: %v: %s", binary, err, out)
 	}
 
-	preforkPath := filepath.Join(moduleDir, "mod_mpm_prefork.so")
-	if _, err := os.Stat(preforkPath); err == nil {
-		return "mpm_prefork_module", preforkPath
+	compiled := make(map[string]bool)
+
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); strings.HasSuffix(line, ".c") {
+			compiled[line] = true
+		}
 	}
 
-	t.Fatalf("neither mod_mpm_event.so nor mod_mpm_prefork.so found in %s", moduleDir)
+	return compiled
+}
 
-	return "", ""
+// loadModuleLineIfNeeded returns a "LoadModule name path\n" line, or "" if
+// compiledIn already reports sourceFile built into the binary (see
+// compiledInModules).
+func loadModuleLineIfNeeded(compiledIn map[string]bool, sourceFile, name, path string) string {
+	if compiledIn[sourceFile] {
+		return ""
+	}
+
+	return fmt.Sprintf("LoadModule %s %s\n", name, path)
+}
+
+// resolveMPMModuleLine returns the LoadModule line for whichever MPM module
+// is available, or "" if the binary already compiles one in statically.
+// Prefers event over prefork when both are loadable (Ubuntu's apache2
+// package ships mpm_event; this Mac's own build, verified hands-on, also
+// ships mpm_event), falling back to prefork only if event is neither
+// compiled in nor has a loadable .so in moduleDir.
+func resolveMPMModuleLine(t *testing.T, moduleDir string, compiledIn map[string]bool) string {
+	t.Helper()
+
+	for _, m := range [...]struct{ source, name, file string }{
+		{"mod_mpm_event.c", "mpm_event_module", "mod_mpm_event.so"},
+		{"mod_mpm_prefork.c", "mpm_prefork_module", "mod_mpm_prefork.so"},
+	} {
+		if compiledIn[m.source] {
+			return ""
+		}
+
+		path := filepath.Join(moduleDir, m.file)
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Sprintf("LoadModule %s %s\n", m.name, path)
+		}
+	}
+
+	t.Fatalf("no usable MPM module found (checked compiled-in modules and %s for mod_mpm_event.so/mod_mpm_prefork.so)", moduleDir)
+
+	return ""
 }
 
 // disposableApache is a fully disposable, per-test apache2/httpd process: its
@@ -104,7 +152,7 @@ func newDisposableApache(t *testing.T) *disposableApache {
 
 	binary := requireRealApache(t)
 	moduleDir := resolveModuleDir(t)
-	mpmName, mpmPath := resolveMPMModule(t, moduleDir)
+	compiledIn := compiledInModules(t, binary)
 
 	prefix := t.TempDir()
 	liveDir := filepath.Join(prefix, "lesta.d")
@@ -123,34 +171,22 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	pidPath := filepath.Join(prefix, "apache.pid")
 	confPath := filepath.Join(prefix, "apache2.conf")
 
-	confBody := fmt.Sprintf(`LoadModule unixd_module %s
-LoadModule %s %s
-LoadModule authz_core_module %s
-LoadModule log_config_module %s
-LoadModule mime_module %s
-LoadModule dir_module %s
-LoadModule asis_module %s
-PidFile %s
-Listen 127.0.0.1:%d
-ErrorLog %s
-DocumentRoot %s
-IncludeOptional %s
-`,
-		filepath.Join(moduleDir, "mod_unixd.so"),
-		mpmName, mpmPath,
-		filepath.Join(moduleDir, "mod_authz_core.so"),
-		filepath.Join(moduleDir, "mod_log_config.so"),
-		filepath.Join(moduleDir, "mod_mime.so"),
-		filepath.Join(moduleDir, "mod_dir.so"),
-		filepath.Join(moduleDir, "mod_asis.so"),
-		pidPath,
-		port,
-		filepath.Join(logsDir, "error.log"),
-		htdocsDir,
-		filepath.Join(liveDir, "*.conf"),
-	)
+	var confBuilder strings.Builder
 
-	if err := os.WriteFile(confPath, []byte(confBody), 0o644); err != nil {
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_unixd.c", "unixd_module", filepath.Join(moduleDir, "mod_unixd.so")))
+	confBuilder.WriteString(resolveMPMModuleLine(t, moduleDir, compiledIn))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_authz_core.c", "authz_core_module", filepath.Join(moduleDir, "mod_authz_core.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_log_config.c", "log_config_module", filepath.Join(moduleDir, "mod_log_config.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_mime.c", "mime_module", filepath.Join(moduleDir, "mod_mime.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_dir.c", "dir_module", filepath.Join(moduleDir, "mod_dir.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_asis.c", "asis_module", filepath.Join(moduleDir, "mod_asis.so")))
+	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
+	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
+	fmt.Fprintf(&confBuilder, "ErrorLog %s\n", filepath.Join(logsDir, "error.log"))
+	fmt.Fprintf(&confBuilder, "DocumentRoot %s\n", htdocsDir)
+	fmt.Fprintf(&confBuilder, "IncludeOptional %s\n", filepath.Join(liveDir, "*.conf"))
+
+	if err := os.WriteFile(confPath, []byte(confBuilder.String()), 0o644); err != nil {
 		t.Fatalf("writing disposable apache2.conf: %v", err)
 	}
 
