@@ -174,6 +174,22 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	confPath := filepath.Join(prefix, "apache2.conf")
 	errorLogPath := filepath.Join(logsDir, "error.log")
 
+	// mod_mime's own compiled-in default TypesConfig path is ServerRoot-
+	// relative ("conf/mime.types"); Ubuntu's real apache2 package overrides
+	// it via mods-available/mime.conf, which this from-scratch config never
+	// includes, so mod_mime fails to load against our -d-relocated ServerRoot
+	// with "could not open mime types config file" (found via a real CI
+	// failure -- this Mac's own httpd build apparently resolves a working
+	// default and never hit this). The content this harness's own tests
+	// actually check is always served by mod_asis's own explicit
+	// Content-Type: pseudo-header, never by mod_mime's extension-based
+	// guessing, so this file's contents don't matter, only that mod_mime can
+	// open something.
+	mimeTypesPath := filepath.Join(prefix, "mime.types")
+	if err := os.WriteFile(mimeTypesPath, []byte("text/plain txt\n"), 0o644); err != nil {
+		t.Fatalf("writing minimal mime.types: %v", err)
+	}
+
 	var confBuilder strings.Builder
 
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_unixd.c", "unixd_module", filepath.Join(moduleDir, "mod_unixd.so")))
@@ -183,6 +199,7 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_mime.c", "mime_module", filepath.Join(moduleDir, "mod_mime.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_dir.c", "dir_module", filepath.Join(moduleDir, "mod_dir.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_asis.c", "asis_module", filepath.Join(moduleDir, "mod_asis.so")))
+	fmt.Fprintf(&confBuilder, "TypesConfig %s\n", mimeTypesPath)
 	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
 	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
 	fmt.Fprintf(&confBuilder, "ErrorLog %s\n", errorLogPath)
