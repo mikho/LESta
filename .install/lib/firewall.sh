@@ -114,10 +114,32 @@ firewall_render_and_apply() {
     [ -n "${tcp_raw}" ] && tcp_rendered=$(printf '%s' "${tcp_raw}" | tr '\n' ',' | sed -e 's/,/, /g' -e 's/, $//')
     [ -n "${udp_raw}" ] && udp_rendered=$(printf '%s' "${udp_raw}" | tr '\n' ',' | sed -e 's/,/, /g' -e 's/, $//')
 
+    # Declare the table+chain first (a no-op if they already exist with the
+    # same type/hook/priority/policy, which this script always declares
+    # identically), then explicitly flush the chain before adding the
+    # current rule set. Without the flush, `nft -f` does not replace a
+    # chain's content on repeat invocations, it only ever ADDS rules on
+    # top of whatever the kernel already holds -- a real, previously
+    # latent bug inherited unchanged from nginx's own original
+    # bootstrap_firewall_baseline (Phase 4), never caught until this
+    # phase's own explicit `nft list table inet lesta` CI verification
+    # step actually looked at the rendered ruleset and found the accept
+    # rules duplicated once per prior apply/re-apply in the same CI job
+    # (nginx apply, nginx re-apply, bind9 apply: three copies). nft
+    # evaluates one `-f` script as a single atomic transaction, so the
+    # flush statement below validates and applies correctly even on a
+    # completely fresh node where the table doesn't exist yet: it's
+    # created by the first declaration earlier in this same file, then
+    # flushed (a no-op on an already-empty chain), then repopulated.
     {
         printf 'table inet lesta {\n'
         printf '    chain input {\n'
         printf '        type filter hook input priority 0; policy drop;\n'
+        printf '    }\n'
+        printf '}\n'
+        printf 'flush chain inet lesta input\n'
+        printf 'table inet lesta {\n'
+        printf '    chain input {\n'
         printf '        ct state established,related accept;\n'
         printf '        iif lo accept;\n'
         printf '        icmp type echo-request accept;\n'
