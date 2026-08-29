@@ -595,11 +595,24 @@ install_apache() {
         fail_step "${EXIT_PREFLIGHT_CONFLICT}" apache_conf_include_missing "${APACHE_CONF_PATH}" "the lesta.d include line disappeared between preflight and this defensive re-check; investigate concurrent apache2.conf edits"
     fi
 
-    if ! out=$(apache2 -t 2>&1); then
+    # apache2ctl configtest, not a bare `apache2 -t`: real apache2.conf
+    # references ${APACHE_RUN_DIR} and friends (e.g. via DefaultRuntimeDir),
+    # which are only ever defined by sourcing /etc/apache2/envvars first --
+    # normally apache2ctl's own job, since it is the one path every other
+    # invocation in this script (apt's postinst, systemctl's own unit file)
+    # already goes through. A bare `apache2 -t` skips that sourcing entirely
+    # and fails outright with "AH00111: Config variable ${APACHE_RUN_DIR} is
+    # not defined ... DefaultRuntimeDir must be a valid directory", caught
+    # via a real --apply run in CI. This is unrelated to the Go agent's own
+    # explicit Config.Env list (agent/cmd/lesta-agent/main.go): that list
+    # covers the agent's own later exec.Command calls against the raw
+    # apache2 binary, a completely separate code path from this installer's
+    # own one-time validation call.
+    if ! out=$(apache2ctl configtest 2>&1); then
         add_error apache_test_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${APACHE_CONF_PATH}"
         emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
     fi
-    add_change web.apache.v1 validated "" "apache2 -t passed"
+    add_change web.apache.v1 validated "" "apache2ctl configtest passed"
 
     systemctl enable --now apache2 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now apache2 failed"
     add_change web.apache.v1 enabled "" "systemctl enable --now apache2 succeeded"
