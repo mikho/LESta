@@ -507,8 +507,14 @@ PLACEHOLDER
     fi
     add_change dns.bind9.v1 validated "" "named-checkconf ${NAMED_CONF_PATH} passed"
 
-    systemctl enable --now bind9 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now bind9 failed"
-    add_change dns.bind9.v1 enabled "" "systemctl enable --now bind9 succeeded"
+    # The Ubuntu bind9 package's real unit is named.service; bind9.service is
+    # only a systemd alias for it (Alias= in named.service's own [Install]
+    # section). `systemctl start`/`stop` resolve an alias transparently, but
+    # `systemctl enable` (and `enable --now`) refuses to operate on an alias
+    # name outright ("Refusing to operate on alias name or linked unit
+    # file"), so the real unit name must be used here.
+    systemctl enable --now named || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now named failed"
+    add_change dns.bind9.v1 enabled "" "systemctl enable --now named succeeded"
 
     # A defensive, always-safe, idempotent reload: `enable --now` does not
     # force a reload if the unit was already active from an earlier manual
