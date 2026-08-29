@@ -426,18 +426,21 @@ bind9_package_provenance_note() {
 }
 
 # bind9_health_probe -> a plain TCP-connect probe against 127.0.0.1:53,
-# preferring curl, falling back to nc, falling back to a bash /dev/tcp
-# connect. Mirrors nginx/install.sh's own nginx_health_probe exactly,
-# adapted to port 53: DNS is usually UDP-first, but a TCP listener check is
-# still meaningful here as the installer's own shallow structural probe --
-# the self-test's real create/delete round-trip against the agent is the
+# preferring nc, falling back to a bash /dev/tcp connect, falling back to
+# curl as a last resort. DNS is usually UDP-first, but a TCP listener check
+# is still meaningful here as the installer's own shallow structural probe
+# -- the self-test's real create/delete round-trip against the agent is the
 # deep proof, matching nginx's own two-layer pattern.
+#
+# Unlike nginx/install.sh's own nginx_health_probe (which leads with curl,
+# appropriate there since curl speaks real HTTP), this leads with nc/bash
+# instead: curl's telnet:// scheme is not a bare TCP-connect check, it
+# attempts actual RFC854 telnet option negotiation, which named does not
+# speak, making it unsuitable for probing a non-HTTP protocol port; nc -z
+# and bash's /dev/tcp are both purpose-built zero-I/O connect tests. curl
+# is kept only as a last-resort fallback for a system with neither nc nor
+# bash present, which every Linux system this installer targets has.
 bind9_health_probe() {
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsS --max-time 5 -o /dev/null telnet://127.0.0.1:53 2>/dev/null
-        return $?
-    fi
-
     if command -v nc >/dev/null 2>&1; then
         nc -z -w 5 127.0.0.1 53
         return $?
@@ -445,6 +448,11 @@ bind9_health_probe() {
 
     if command -v bash >/dev/null 2>&1; then
         bash -c 'exec 3<>/dev/tcp/127.0.0.1/53' 2>/dev/null
+        return $?
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS --max-time 5 -o /dev/null telnet://127.0.0.1:53 2>/dev/null
         return $?
     fi
 
