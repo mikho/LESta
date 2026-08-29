@@ -154,6 +154,14 @@ jobs:
       - name: Apply bind9 (real mutation on this disposable CI runner)
         run: sudo sh .install/services/bind9/install.sh --apply --yes
 
+      - name: Diagnose bind9 apply failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          sudo systemctl status named --no-pager || true
+          sudo journalctl -u named --no-pager -n 100 || true
+          sudo ss -H -tlnp | grep ':53 ' || true
+          sudo ss -H -ulnp | grep ':53 ' || true
+
       - name: Verify nginx's ports are still open after bind9's apply
         run: |
           # This is the actual regression proof for the whole phase: bind9's
