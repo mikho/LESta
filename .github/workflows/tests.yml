@@ -213,6 +213,20 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
           grep -q '443' /tmp/lesta-nft-2.txt && echo "443/tcp still allowed in the firewall table"
 
+      - name: Relax AppArmor for named before running the disposable-harness tests
+        run: |
+          # The Go test suite's own disposable bind9 harness
+          # (agent/internal/capability/bind9/harness_test.go) points a real
+          # named at a config under t.TempDir() (/tmp/...), a path outside
+          # the production AppArmor profile's allow-list -- confirmed
+          # directly via a kernel audit denial naming that exact test's own
+          # tmp path. Production named (confined to /etc/bind, /var/lib/
+          # bind, /var/cache/bind, and now /var/lib/lesta/bind) should stay
+          # fully enforced; only this disposable, thrown-away CI runner's
+          # test run needs the relaxation, so this never weakens what a
+          # real node actually enforces.
+          sudo aa-complain /usr/sbin/named
+
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
         run: go test ./...
