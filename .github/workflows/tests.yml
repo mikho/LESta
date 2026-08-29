@@ -193,21 +193,25 @@ jobs:
           # own firewall phase must union its ports with nginx's already-
           # registered ports, never replace the shared nftables table
           # outright (see lib/firewall.sh's own top comment).
-          sudo nft list table inet lesta
+          sudo nft list table inet lesta | tee /tmp/lesta-nft.txt
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
-          # nginx's default vhost may not answer a full TLS handshake
-          # without a certificate, so 443 is checked as "still listening"
-          # via ss rather than a full HTTPS request.
-          sudo ss -H -tlnp | grep -q ':443 ' && echo "443/tcp still listening"
+          # A bare `apt-get install nginx` never configures an SSL vhost, so
+          # nginx genuinely never binds 443 in this job regardless of
+          # bind9's own changes -- there was never a live listener to
+          # regression-check here. The real, always-true guarantee this
+          # step exists to prove is that bind9's firewall phase didn't
+          # drop nginx's port from the shared nftables table, checked
+          # directly against the listing above instead.
+          grep -q '443' /tmp/lesta-nft.txt && echo "443/tcp still allowed in the firewall table"
 
       - name: Re-apply bind9 (idempotent rerun must still succeed)
         run: sudo sh .install/services/bind9/install.sh --apply --yes
 
       - name: Re-verify nginx's ports are still open after bind9's second apply
         run: |
-          sudo nft list table inet lesta
+          sudo nft list table inet lesta | tee /tmp/lesta-nft-2.txt
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
-          sudo ss -H -tlnp | grep -q ':443 ' && echo "443/tcp still listening"
+          grep -q '443' /tmp/lesta-nft-2.txt && echo "443/tcp still allowed in the firewall table"
 
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
