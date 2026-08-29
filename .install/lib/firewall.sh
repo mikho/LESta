@@ -93,7 +93,9 @@ firewall_render_and_apply() {
             [ -f "${fragment}" ] || continue
 
             while IFS=' ' read -r protocol port; do
-                [ -n "${protocol}" ] && [ -n "${port}" ] || continue
+                if [ -z "${protocol}" ] || [ -z "${port}" ]; then
+                    continue
+                fi
 
                 all_raw=$(append_line "${all_raw}" "${port}")
                 case "${protocol}" in
