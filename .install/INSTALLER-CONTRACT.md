@@ -7,7 +7,7 @@ Every future installer and the shared bootstrap runner must satisfy this contrac
 - Non-interactive by default. `--yes` is required for unattended mutation; stdin prompts are forbidden.
 - Required modes: `--dry-run`, `--apply`, and `--version`.
 - Dry-run performs manifest verification and complete preflight without changing packages, services, files, users, ports, or firewall state.
-- The installer accepts only a release bundle path and declared options, including `--web-server nginx|apache|both` (the web installer's own profile choice; other leaf-service installers, e.g. the DNS installer, have no such flag). It does not accept shell fragments, arbitrary package names, arbitrary service names, or arbitrary commands.
+- The installer accepts only a release bundle path and declared options, including `--web-server nginx|apache|both` (the web installer's own profile choice; other leaf-service installers, e.g. the DNS installer, have no such flag) and Apache's own narrower `--web-profile apache|both` (topology-awareness only, never a dispatch flag: it never orchestrates another service the way nginx's `--web-server` does). It does not accept shell fragments, arbitrary package names, arbitrary service names, or arbitrary commands.
 - The web profile is immutable after bootstrap. Changing it requires an explicit operator migration workflow with a preflight, backup, port plan, staged validation, and rollback.
 
 ## Supply chain

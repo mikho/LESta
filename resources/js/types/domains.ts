@@ -1,5 +1,7 @@
 export type SslMode = 'none' | 'manual' | 'lets_encrypt';
 
+export type WebServer = 'nginx' | 'apache';
+
 export type SuspensionSource = 'manual' | 'cascade';
 
 export type ProvisioningStatus =
@@ -18,6 +20,7 @@ export type WebDomain = {
     domain: string;
     aliases: WebDomainAlias[];
     web_template: string;
+    web_server: WebServer;
     ssl_mode: SslMode;
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;

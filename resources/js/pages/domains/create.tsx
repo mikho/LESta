@@ -86,6 +86,31 @@ export default function Create() {
                             </div>
 
                             <div className="grid gap-2">
+                                <Label htmlFor="web_server">Web server</Label>
+
+                                <Select name="web_server" defaultValue="nginx">
+                                    <SelectTrigger id="web_server">
+                                        <SelectValue placeholder="Select a web server" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="nginx">
+                                            nginx
+                                        </SelectItem>
+                                        <SelectItem value="apache">
+                                            Apache
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+
+                                <p className="text-sm text-muted-foreground">
+                                    Apache support requires this node to offer
+                                    it.
+                                </p>
+
+                                <InputError message={errors.web_server} />
+                            </div>
+
+                            <div className="grid gap-2">
                                 <Label htmlFor="ssl_mode">SSL mode</Label>
 
                                 <Select name="ssl_mode" defaultValue="none">

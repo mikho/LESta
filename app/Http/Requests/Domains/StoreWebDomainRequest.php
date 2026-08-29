@@ -35,6 +35,7 @@ class StoreWebDomainRequest extends FormRequest
         return [
             'domain' => ['required', 'string', new ValidDomainName, Rule::unique('web_domains', 'domain')],
             'web_template' => ['nullable', 'string', 'max:255'],
+            'web_server' => ['nullable', 'string', Rule::in(['nginx', 'apache'])],
             'ssl_mode' => ['nullable', 'string', Rule::in(['none', 'manual', 'lets_encrypt'])],
             'aliases' => ['array'],
             'aliases.*' => ['string', new ValidDomainName, Rule::unique('web_domain_aliases', 'alias')],

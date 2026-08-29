@@ -31,6 +31,11 @@ const sslModeLabels: Record<WebDomain['ssl_mode'], string> = {
     lets_encrypt: "Let's Encrypt",
 };
 
+const webServerLabels: Record<WebDomain['web_server'], string> = {
+    nginx: 'nginx',
+    apache: 'Apache',
+};
+
 const provisioningBadgeClasses: Record<string, string> = {
     pending:
         'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
@@ -130,6 +135,9 @@ export default function Index({
                                 </th>
                                 <th className="px-4 py-2 font-medium">SSL</th>
                                 <th className="px-4 py-2 font-medium">
+                                    Web server
+                                </th>
+                                <th className="px-4 py-2 font-medium">
                                     Suspension
                                 </th>
                                 <th className="px-4 py-2 font-medium">
@@ -144,7 +152,7 @@ export default function Index({
                             {webDomains.data.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={6}
+                                        colSpan={7}
                                         className="px-4 py-6 text-center text-muted-foreground"
                                     >
                                         No domains yet.
@@ -167,6 +175,9 @@ export default function Index({
                                     </td>
                                     <td className="px-4 py-2">
                                         {sslModeLabels[webDomain.ssl_mode]}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        {webServerLabels[webDomain.web_server]}
                                     </td>
                                     <td className="px-4 py-2">
                                         {webDomain.suspended_at ? (

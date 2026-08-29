@@ -3,6 +3,7 @@
 use App\Actions\Domains\SuspendWebDomain;
 use App\Enums\ProvisioningVerb;
 use App\Enums\SuspensionSource;
+use App\Enums\WebServer;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Node;
@@ -31,6 +32,41 @@ test('an owner can suspend their web domain', function () {
         ->first();
 
     expect($operation)->not->toBeNull();
+});
+
+test('suspending a web domain with the default web_server still produces exactly one nginx provisioning operation', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create();
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(SuspendWebDomain::class)->handle($owner, $webDomain);
+
+    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)
+        ->where('operation', ProvisioningVerb::Suspend)
+        ->get();
+
+    expect($operations)->toHaveCount(1)
+        ->and($operations->first()->capability)->toBe('web.nginx.v1');
+});
+
+test('suspending a web domain configured for apache on a both-profile node suspends apache then nginx', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['web_server' => WebServer::Apache]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(SuspendWebDomain::class)->handle($owner, $webDomain);
+
+    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)
+        ->where('operation', ProvisioningVerb::Suspend)
+        ->orderBy('id')
+        ->get();
+
+    expect($operations)->toHaveCount(2)
+        ->and($operations->get(0)->capability)->toBe('web.apache.v1')
+        ->and($operations->get(1)->capability)->toBe('web.nginx.v1');
 });
 
 test('duplicate suspend submissions do not create a second audit row', function () {

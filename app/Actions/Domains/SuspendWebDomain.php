@@ -27,7 +27,7 @@ class SuspendWebDomain
             $webDomain->suspend($source);
             $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
 
-            $capability = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node);
+            $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();
 
             AuditEvent::create([
@@ -40,14 +40,16 @@ class SuspendWebDomain
                 'metadata' => ['source' => $source->value],
             ]);
 
-            app(RecordsProvisioningOperation::class)->record(
-                $webDomain,
-                $capability,
-                ProvisioningVerb::Suspend,
-                $webDomain->toProvisioningPayload(),
-                $correlationId,
-                $webDomain->desired_state_version,
-            );
+            foreach ($capabilities as $capability) {
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    $capability,
+                    ProvisioningVerb::Suspend,
+                    $webDomain->toProvisioningPayload($capability),
+                    $correlationId,
+                    $webDomain->desired_state_version,
+                );
+            }
         });
     }
 }

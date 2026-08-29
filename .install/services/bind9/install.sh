@@ -274,7 +274,7 @@ emit_apply_success_and_exit() {
 preflight_check_include_line() {
     local status=0
 
-    check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" || status=$?
+    check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" || status=$?
 
     case "${status}" in
         0)
@@ -558,7 +558,7 @@ PLACEHOLDER
     install -d -m 0750 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
     add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0750 root:lesta"
 
-    check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" || include_status=$?
+    check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
         fail_step "${EXIT_PREFLIGHT_CONFLICT}" bind9_named_conf_include_missing "${NAMED_CONF_PATH}" "the lesta.d include line disappeared between preflight and this defensive re-check; investigate concurrent named.conf edits"
     fi

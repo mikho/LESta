@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
 class UpdateWebDomain
 {
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, ssl_mode?: string, aliases?: array<int, string>}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, ssl_mode?: string, aliases?: array<int, string>}
      */
     public function handle(User $actor, WebDomain $webDomain, array $data): WebDomain
     {
@@ -26,6 +26,7 @@ class UpdateWebDomain
             $webDomain->forceFill([
                 'domain' => WebDomain::normalizeDomain($data['domain']),
                 'web_template' => $data['web_template'] ?? 'default',
+                'web_server' => $data['web_server'] ?? 'nginx',
                 'ssl_mode' => $data['ssl_mode'] ?? 'none',
                 'desired_state_version' => $webDomain->desired_state_version + 1,
             ])->save();
@@ -39,7 +40,7 @@ class UpdateWebDomain
                 ]);
             }
 
-            $capability = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node);
+            $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $data['web_server'] ?? 'nginx');
             $correlationId = (string) Str::uuid();
 
             AuditEvent::create([
@@ -51,14 +52,16 @@ class UpdateWebDomain
                 'correlation_id' => $correlationId,
             ]);
 
-            app(RecordsProvisioningOperation::class)->record(
-                $webDomain,
-                $capability,
-                ProvisioningVerb::Update,
-                $webDomain->toProvisioningPayload(),
-                $correlationId,
-                $webDomain->desired_state_version,
-            );
+            foreach ($capabilities as $capability) {
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    $capability,
+                    ProvisioningVerb::Update,
+                    $webDomain->toProvisioningPayload($capability),
+                    $correlationId,
+                    $webDomain->desired_state_version,
+                );
+            }
 
             return $webDomain;
         });
