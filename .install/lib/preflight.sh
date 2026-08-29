@@ -15,11 +15,11 @@
 # Also holds the small manifest-array/field readers used to keep values
 # (supported Ubuntu releases, ports, artifact digests) sourced from the
 # actual manifest.json files rather than duplicated as literals in shell.
-
-# Exported: also read directly (not just through this file's own functions)
-# by install.sh, a separate sourced file.
-export NGINX_CONF_PATH="/etc/nginx/nginx.conf"
-export NGINX_LIVE_DIR="/etc/nginx/lesta.d"
+#
+# NGINX_CONF_PATH/NGINX_LIVE_DIR are no longer declared here: each installer
+# now sets its own local equivalents (e.g. nginx/install.sh's own
+# NGINX_CONF_PATH/NGINX_LIVE_DIR, bind9/install.sh's own NAMED_CONF_PATH/
+# BIND9_LIVE_DIR) before calling check_lesta_include_present, below.
 
 # manifest_extract_array <file> <field> -> one array item per line, quotes
 # and surrounding whitespace stripped. Only works for a simple flat
@@ -93,37 +93,45 @@ preflight_check_capacity() {
     return 0
 }
 
-# preflight_check_port_free <port>
-# Fails when `ss -tlnp` shows a listener bound to :port that isn't nginx
-# itself. A rerun against an already-bootstrapped node finds its own,
-# already-running nginx holding these exact ports -- that is convergence,
-# not a conflict, and preflight_check_conflicting_packages already rejects
-# the one thing that would make an nginx-held port suspicious anyway (an
-# apache2/lighttpd package coexisting on the node). Anything else holding
-# the port (an unrelated process, or nginx not yet reflected in `ss` for
-# some other reason) still fails closed.
+# preflight_check_port_free <port> <protocol> <expected_owner>
+# protocol is "tcp" or "udp". Fails when ss shows a listener bound to :port
+# whose owner isn't expected_owner. A rerun against an already-bootstrapped
+# node finds its own, already-running service holding these exact ports --
+# that is convergence, not a conflict, and
+# preflight_check_conflicting_packages already rejects the one thing that
+# would make an expected_owner-held port suspicious anyway (a competing
+# package coexisting on the node). Anything else holding the port (an
+# unrelated process, or expected_owner not yet reflected in `ss` for some
+# other reason) still fails closed.
 #
 # A single port commonly has more than one matching ss line (an IPv4 and an
-# IPv6 listener, both nginx): every matching line's owner must be nginx, not
-# just one of them, so this walks all of them rather than sampling the first.
+# IPv6 listener, both expected_owner): every matching line's owner must be
+# expected_owner, not just one of them, so this walks all of them rather
+# than sampling the first.
 preflight_check_port_free() {
-    local port="$1" line owner bad=0 bad_owner=""
+    local port="$1" protocol="$2" expected_owner="$3" ss_flag line owner bad=0 bad_owner=""
+
+    case "${protocol}" in
+        tcp) ss_flag="-tlnp" ;;
+        udp) ss_flag="-ulnp" ;;
+        *) ss_flag="-tlnp" ;;
+    esac
 
     while IFS= read -r line; do
         [ -n "${line}" ] || continue
 
         owner=$(printf '%s' "${line}" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
 
-        if [ "${owner}" != "nginx" ]; then
+        if [ "${owner}" != "${expected_owner}" ]; then
             bad=1
             bad_owner="${owner:-an unidentified process}"
         fi
     done <<LINES
-$(ss -H -tlnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$"')
+$(ss -H "${ss_flag}" 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$"')
 LINES
 
     if [ "${bad}" -ne 0 ]; then
-        add_error port_occupied "port ${port} is already in use by '${bad_owner}' (ss -tlnp)" ""
+        add_error port_occupied "port ${port}/${protocol} is already in use by '${bad_owner}' (ss ${ss_flag})" ""
         return 1
     fi
 
@@ -167,54 +175,35 @@ preflight_check_lesta_identity() {
     return 0
 }
 
-# check_lesta_include_present
+# check_lesta_include_present <conf_path> <glob>
 # Detects the operator-managed prerequisite line using the identical
-# substring logic agent/internal/capability/nginx/validate.go already uses at
-# runtime (a line containing both "include" and NGINX_LIVE_DIR's "*.conf"
-# glob), so the installer and the running agent can never disagree about
-# whether the precondition holds.
+# substring logic agent/internal/capability/nginx/validate.go (and bind9's
+# own equivalent) already uses at runtime (a line containing both "include"
+# and the live-dir glob), so the installer and the running agent can never
+# disagree about whether the precondition holds. Pure detection only: each
+# installer wraps this with its own add_error call and remediation text,
+# since that text (and the error codes used) differ per installer.
 #
-# Returns 0 when present, 1 when nginx.conf does not exist at all, 2 when it
+# Returns 0 when present, 1 when conf_path does not exist at all, 2 when it
 # exists but has no matching line.
 check_lesta_include_present() {
-    local liveglob="${NGINX_LIVE_DIR}/*.conf"
+    local conf_path="$1" liveglob="$2"
 
-    if [ ! -f "${NGINX_CONF_PATH}" ]; then
+    if [ ! -f "${conf_path}" ]; then
         return 1
     fi
 
-    if grep -F "include" "${NGINX_CONF_PATH}" | grep -F "${liveglob}" >/dev/null 2>&1; then
+    if grep -F "include" "${conf_path}" | grep -F "${liveglob}" >/dev/null 2>&1; then
         return 0
     fi
 
     return 2
 }
 
-# preflight_check_include_line wraps check_lesta_include_present with the
-# add_error call and remediation text appropriate to each failure case.
-preflight_check_include_line() {
-    local status=0
-
-    check_lesta_include_present || status=$?
-
-    case "${status}" in
-        0)
-            return 0
-            ;;
-        1)
-            add_error nginx_conf_missing "nginx.conf not found at ${NGINX_CONF_PATH}; install nginx first (apt-get install -y nginx), then add this line inside its http {} block: include ${NGINX_LIVE_DIR}/*.conf; -- do not remove any other existing include lines. This installer never writes to nginx.conf itself." "${NGINX_CONF_PATH}"
-            return 1
-            ;;
-        *)
-            add_error nginx_conf_missing_include "${NGINX_CONF_PATH} exists but has no include ${NGINX_LIVE_DIR}/*.conf; line inside its http {} block. Add that exact line by hand -- do not remove any other existing include lines. This installer never writes to nginx.conf itself." "${NGINX_CONF_PATH}"
-            return 1
-            ;;
-    esac
-}
-
 # preflight_classify_install_state -> prints a short human-readable
 # classification (fresh/repair/upgrade/interrupted) based on
-# CHECKPOINT_PATH and NGINX_RELEASE_PATH, for reporting only. Full
+# CHECKPOINT_PATH and RELEASE_PATH (each installer's own local values --
+# see lib/checkpoint.sh's own top comment), for reporting only. Full
 # interrupted-run recovery and upgrade machinery are out of scope this pass;
 # this only has to report honestly, not act on the distinction yet.
 preflight_classify_install_state() {
@@ -225,7 +214,7 @@ preflight_classify_install_state() {
         return 0
     fi
 
-    if [ -f "${NGINX_RELEASE_PATH}" ]; then
+    if [ -f "${RELEASE_PATH}" ]; then
         recorded_digest=$(release_read_digest || true)
         if [ "${recorded_digest}" = "${MANIFEST_DIGEST}" ]; then
             printf 'repair (already installed at this exact manifest digest)'

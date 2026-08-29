@@ -103,7 +103,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -133,6 +133,48 @@ jobs:
 
       - name: Re-apply (idempotent rerun must still succeed)
         run: sudo sh .install/services/nginx/install.sh --apply --web-server nginx --yes
+
+      - name: Prepare the runner for bind9
+        run: |
+          # Mirrors the nginx prep step above, exactly: install the
+          # package, then add the required include line to
+          # /etc/bind/named.conf ITSELF (not named.conf.local -- see
+          # bind9/README.md's "Manual prerequisite" section for why).
+          # install.sh itself never touches named.conf.
+          sudo apt-get update
+          sudo apt-get install -y bind9 bind9-utils
+          if ! grep -F "include" /etc/bind/named.conf | grep -F "/etc/bind/lesta.d/*.conf" >/dev/null 2>&1; then
+            sudo sed -i '$a\include "/etc/bind/lesta.d/*.conf";' /etc/bind/named.conf
+          fi
+          cat /etc/bind/named.conf
+
+      - name: Dry-run bind9 against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/bind9/install.sh --dry-run
+
+      - name: Apply bind9 (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/bind9/install.sh --apply --yes
+
+      - name: Verify nginx's ports are still open after bind9's apply
+        run: |
+          # This is the actual regression proof for the whole phase: bind9's
+          # own firewall phase must union its ports with nginx's already-
+          # registered ports, never replace the shared nftables table
+          # outright (see lib/firewall.sh's own top comment).
+          sudo nft list table inet lesta
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          # nginx's default vhost may not answer a full TLS handshake
+          # without a certificate, so 443 is checked as "still listening"
+          # via ss rather than a full HTTPS request.
+          sudo ss -H -tlnp | grep -q ':443 ' && echo "443/tcp still listening"
+
+      - name: Re-apply bind9 (idempotent rerun must still succeed)
+        run: sudo sh .install/services/bind9/install.sh --apply --yes
+
+      - name: Re-verify nginx's ports are still open after bind9's second apply
+        run: |
+          sudo nft list table inet lesta
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          sudo ss -H -tlnp | grep -q ':443 ' && echo "443/tcp still listening"
 
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
