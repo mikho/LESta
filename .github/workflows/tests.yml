@@ -216,3 +216,14 @@ jobs:
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
         run: go test ./...
+
+      - name: Diagnose agent test failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          echo "--- kernel log, grepped for any apparmor denial against named ---"
+          sudo journalctl -k --no-pager | grep -i 'apparmor.*named' | tail -40 || true
+          echo "--- is a real system named currently active? ---"
+          sudo systemctl status named --no-pager || true
+          echo "--- what's listening on 53 right now ---"
+          sudo ss -H -tlnp | grep ':53 ' || true
+          sudo ss -H -ulnp | grep ':53 ' || true
