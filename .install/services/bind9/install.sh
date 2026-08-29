@@ -253,7 +253,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway zone against the real, just-installed bind9"
-    add_change dns.bind9.v1 would_install "" "apt-get install -y bind9 bind9-utils would run; ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind9 would be enabled, reloaded, and health-probed"
+    add_change dns.bind9.v1 would_install "" "apt-get install -y bind9 bind9-utils would run; ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; bind9 would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -537,19 +537,29 @@ PLACEHOLDER
     # `systemctl enable` (and `enable --now`) refuses to operate on an alias
     # name outright ("Refusing to operate on alias name or linked unit
     # file"), so the real unit name must be used here.
-    systemctl enable --now named || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now named failed"
-    add_change dns.bind9.v1 enabled "" "systemctl enable --now named succeeded"
+    systemctl enable named || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable named failed"
 
-    # A defensive, always-safe, idempotent reload: `enable --now` does not
-    # force a reload if the unit was already active from an earlier manual
-    # `apt-get install` (e.g. the package's own postinst auto-starting it),
-    # so this makes sure named has definitely picked up the include line
-    # and placeholder fragment just put in place.
-    if ! out=$(rndc reload 2>&1); then
-        add_error bind9_rndc_reload_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+    # A restart, not `enable --now` or a bare `rndc reload`: the bind9
+    # package's own postinst starts named automatically during `apt-get
+    # install` above, before the `usermod -aG lesta bind` call earlier in
+    # this function ever ran. Unix supplementary groups are fixed at
+    # process-exec time (via initgroups, when named drops from root to the
+    # bind user) and are never re-read from /etc/group while a process is
+    # already running, and `rndc reload` only re-reads config/zones inside
+    # the SAME running process, it does not re-exec the daemon. Verified
+    # directly against CI: with only `enable --now` + `rndc reload`, named
+    # kept failing every zone load with "permission denied" on
+    # /var/lib/lesta/bind even though `id bind` correctly showed the lesta
+    # group and namei confirmed every path component's Unix permissions
+    # were otherwise fine -- because the already-running, pre-group-grant
+    # process was never replaced. An unconditional restart guarantees a
+    # fresh exec that picks up the just-granted group, whether named was
+    # already running from the postinst or not started yet.
+    if ! out=$(systemctl restart named 2>&1); then
+        add_error bind9_restart_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
         emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
     fi
-    add_change dns.bind9.v1 reloaded "" "rndc reload succeeded"
+    add_change dns.bind9.v1 enabled "" "systemctl enable named + systemctl restart named succeeded"
 
     bind9_health_probe || fail_step "${EXIT_HEALTH_FAILURE}" bind9_health_check_failed "" "bind9 did not answer a TCP health probe on 127.0.0.1:53 after enable --now"
     add_change dns.bind9.v1 healthy "" "TCP health probe against 127.0.0.1:53 succeeded"
