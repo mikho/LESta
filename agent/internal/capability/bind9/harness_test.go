@@ -198,8 +198,60 @@ func (d *disposableBind9) reload() error {
 	return nil
 }
 
+// stop asks named to shut down and waits for it to actually exit before
+// returning. `rndc stop` itself is asynchronous: it returns as soon as the
+// control channel request completes, not once named has actually released
+// the files it holds open inside this test's own t.TempDir() (its log,
+// journal, and pid file). Since Go's t.Cleanup callbacks run in LIFO order,
+// t.TempDir()'s own RemoveAll cleanup (registered before this one) runs
+// right after this function returns; without waiting here, that RemoveAll
+// can race a still-shutting-down named and fail with "directory not empty",
+// caught via a real, occasionally-flaky CI run.
 func (d *disposableBind9) stop() {
+	pid := readPid(d.pidPath)
+
 	_ = exec.Command("rndc", "-c", d.rndcConf, "stop").Run()
+
+	if pid > 0 {
+		waitForProcessExit(pid, 5*time.Second)
+	}
+}
+
+// readPid reads and parses pidPath's content, returning 0 if it is missing
+// or unparseable (best-effort: this only feeds stop()'s own post-shutdown
+// wait, never a hard failure).
+func readPid(pidPath string) int {
+	raw, err := os.ReadFile(pidPath)
+	if err != nil {
+		return 0
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return 0
+	}
+
+	return pid
+}
+
+// waitForProcessExit polls until pid is no longer a running process, or
+// timeout elapses. Best-effort: this is cleanup, not a test assertion, so it
+// never fails the test itself, even on timeout.
+func waitForProcessExit(pid int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			return
+		}
+
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // freePort binds a loopback listener momentarily to obtain an unused port,
