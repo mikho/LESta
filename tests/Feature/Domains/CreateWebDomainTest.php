@@ -3,6 +3,7 @@
 use App\Actions\Domains\CreateWebDomain;
 use App\Enums\IpAllocationStatus;
 use App\Enums\ProvisioningStatus;
+use App\Enums\WebServer;
 use App\Exceptions\NoIpAllocationAvailableException;
 use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Exceptions\ResourceQuotaExceededException;
@@ -111,6 +112,62 @@ test('a rolled-back creation leaves no partial rows', function () {
         ->and(AuditEvent::where('action', 'web_domain.created')->count())->toBe(0)
         ->and(ProvisioningOperation::count())->toBe(0);
 });
+
+test('creating a web domain with the default web_server produces exactly one nginx provisioning operation', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    $webDomain = app(CreateWebDomain::class)->handle($owner, $account, ['domain' => 'example.com']);
+
+    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)->get();
+
+    expect($webDomain->web_server)->toBe(WebServer::Nginx)
+        ->and($operations)->toHaveCount(1)
+        ->and($operations->first()->capability)->toBe('web.nginx.v1');
+});
+
+test('creating a web domain with web_server apache on a both-profile node provisions apache then nginx', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    $webDomain = app(CreateWebDomain::class)->handle($owner, $account, [
+        'domain' => 'example.com',
+        'web_server' => 'apache',
+    ]);
+
+    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)->orderBy('id')->get();
+
+    expect($webDomain->web_server)->toBe(WebServer::Apache)
+        ->and($operations)->toHaveCount(2)
+        ->and($operations->get(0)->capability)->toBe('web.apache.v1')
+        ->and($operations->get(1)->capability)->toBe('web.nginx.v1')
+        ->and($operations->get(0)->payload['web_template'])->toBe('default')
+        ->and($operations->get(1)->payload['web_template'])->toBe('apache-proxy');
+});
+
+test('creating a web domain with web_server apache fails when the resolved node has no active apache capability', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    app(CreateWebDomain::class)->handle($owner, $account, [
+        'domain' => 'example.com',
+        'web_server' => 'apache',
+    ]);
+})->throws(NoWebCapableNodeAvailableException::class);
 
 test('a dedicated ip allocation for the account is preferred over a shared one', function () {
     $package = Package::factory()->withLimit('web_domains', 5)->create();

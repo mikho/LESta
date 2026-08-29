@@ -26,6 +26,13 @@ type Config struct {
 	// Port is the port every rendered vhost listens on (80 in production; an
 	// ephemeral loopback port for a disposable test instance).
 	Port int
+	// ProxyBackend is the "host:port" a rendered apache-proxy vhost's
+	// proxy_pass directive points at (127.0.0.1:8080 in production, matching
+	// .install/profiles/schema.json's own hardcoded backend port for the
+	// "both" web profile). Empty/overridable in the disposable test harness,
+	// which points it at whatever ephemeral loopback port its own disposable
+	// Apache instance is listening on. Unused for every other web_template.
+	ProxyBackend string
 	// ReloadCommand, when non-empty, fully overrides how a reload is issued
 	// (e.g. ["systemctl", "reload", "nginx"]). This is the seam a later,
 	// explicitly separate "Tier 2" suite against a real system-wide,

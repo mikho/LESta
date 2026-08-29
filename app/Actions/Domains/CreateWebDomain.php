@@ -22,7 +22,7 @@ use Illuminate\Support\Str;
 class CreateWebDomain
 {
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, ssl_mode?: string, aliases?: array<int, string>}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, ssl_mode?: string, aliases?: array<int, string>}
      */
     public function handle(User $actor, Account $account, array $data): WebDomain
     {
@@ -42,7 +42,7 @@ class CreateWebDomain
                 throw ResourceQuotaExceededException::limitReached('web_domains', $limit->limit_value);
             }
 
-            [$node, $capability] = app(ResolvesWebCapableNode::class)->resolve();
+            [$node, $capabilities] = app(ResolvesWebCapableNode::class)->resolve($data['web_server'] ?? 'nginx');
 
             $ipAllocation = IpAllocation::query()
                 ->where('node_id', $node->id)
@@ -64,6 +64,7 @@ class CreateWebDomain
                 'ip_allocation_id' => $ipAllocation->id,
                 'domain' => WebDomain::normalizeDomain($data['domain']),
                 'web_template' => $data['web_template'] ?? 'default',
+                'web_server' => $data['web_server'] ?? 'nginx',
                 'ssl_mode' => $data['ssl_mode'] ?? 'none',
                 'desired_state_version' => 1,
             ]);
@@ -86,14 +87,16 @@ class CreateWebDomain
                 'correlation_id' => $correlationId,
             ]);
 
-            app(RecordsProvisioningOperation::class)->record(
-                $webDomain,
-                $capability,
-                ProvisioningVerb::Create,
-                $webDomain->toProvisioningPayload(),
-                $correlationId,
-                1,
-            );
+            foreach ($capabilities as $capability) {
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    $capability,
+                    ProvisioningVerb::Create,
+                    $webDomain->toProvisioningPayload($capability),
+                    $correlationId,
+                    1,
+                );
+            }
 
             return $webDomain;
         });

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
@@ -25,6 +26,12 @@ const (
 	webNginxCapability  = "web.nginx.v1"
 	dnsBind9Capability  = "dns.bind9.v1"
 	webApacheCapability = "web.apache.v1"
+
+	// webProfilePath is the one shared artifact both apache/install.sh and
+	// nginx/install.sh's own --web-server both orchestration write: a single
+	// trimmed line ("apache" or "both"). apacheProductionConfig reads it at
+	// process start to pick Apache's own rendered-vhost listen port.
+	webProfilePath = "/etc/lesta/web-profile"
 )
 
 func main() {
@@ -94,6 +101,13 @@ func nginxProductionConfig() nginx.Config {
 		NginxConfPath: "/etc/nginx/nginx.conf",
 		NginxBinary:   "nginx",
 		Port:          80,
+		// ProxyBackend: the fixed loopback address+port Apache listens on in
+		// the "both" web profile (see apacheProductionConfig's own
+		// apachePortForProfile), matching
+		// .install/profiles/schema.json's own hardcoded backend port.
+		// Harmless when unused (every web_template other than "apache-proxy"
+		// never references it).
+		ProxyBackend: "127.0.0.1:8080",
 	}
 }
 
@@ -124,6 +138,33 @@ func bind9ProductionConfig() bind9.Config {
 	}
 }
 
+// readWebProfile reads and trims webProfilePath's content, returning "" if
+// the file is missing or unreadable -- the safe default, per
+// apachePortForProfile: a node that was never bootstrapped through the
+// "both" profile (or whose web-profile file is absent for any other reason)
+// must never be treated as one.
+func readWebProfile(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(raw))
+}
+
+// apachePortForProfile maps a web-profile file's trimmed content to the port
+// Apache's own rendered vhosts should listen on: "both" (Apache is a
+// loopback-only backend behind nginx) gets 8080; anything else, including a
+// missing/unreadable file's empty string, keeps the safe default of 80
+// (Apache is the public listener, matching a bare, non-"both" install).
+func apachePortForProfile(profile string) int {
+	if profile == "both" {
+		return 8080
+	}
+
+	return 80
+}
+
 // apacheProductionConfig points at the real, fixed host paths and binary
 // this phase's own plan settled on for web.apache.v1, mirroring
 // nginxProductionConfig's and bind9ProductionConfig's own
@@ -132,6 +173,17 @@ func bind9ProductionConfig() bind9.Config {
 // reload.go), so making it externally overridable would let anything able to
 // set this process's environment redirect a privileged exec to an arbitrary
 // executable.
+//
+// Port is read from webProfilePath at call time via
+// apachePortForProfile(readWebProfile(...)): "both" (the loopback-backend
+// profile) selects 8080, matching nginxProductionConfig's own hardcoded
+// ProxyBackend; anything else (including a missing file, the safe default)
+// keeps 80, Apache as the public listener. apache/install.sh and
+// nginx/install.sh's own --web-server both orchestration are the only
+// writers of that file; this function is the one and only place the
+// profile-to-port mapping lives, and it is re-read on every process start
+// (this binary is a one-shot stdin/stdout pipe, not a daemon, so "at call
+// time" means "at every invocation").
 //
 // Env's six values are a researched reconstruction of Ubuntu/Debian's real
 // /etc/apache2/envvars defaults (APACHE_RUN_USER/APACHE_RUN_GROUP=www-data,
@@ -154,7 +206,7 @@ func apacheProductionConfig() apache.Config {
 		StateRoot:      "/var/lib/lesta/apache",
 		ApacheConfPath: "/etc/apache2/apache2.conf",
 		ApacheBinary:   "apache2",
-		Port:           80,
+		Port:           apachePortForProfile(readWebProfile(webProfilePath)),
 		Env: []string{
 			"APACHE_RUN_USER=www-data",
 			"APACHE_RUN_GROUP=www-data",

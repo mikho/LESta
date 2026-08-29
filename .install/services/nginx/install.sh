@@ -112,14 +112,20 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version --web-server nginx [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version --web-server nginx|apache|both [--yes] [--help]
 
   --dry-run                Run preflight and report what would change. No mutation.
   --apply                  Apply the installer. Requires --yes.
   --version                Print installer version and exit.
-  --web-server <profile>   Required for --dry-run/--apply. Only "nginx" is
-                           implemented this release; "apache" and "both" are
-                           rejected.
+  --web-server <profile>   Required for --dry-run/--apply.
+                           nginx:  installs nginx alone (unchanged from before).
+                           apache: never installs nginx at all; delegates the
+                                   entire run to apache/install.sh (Apache owns
+                                   80/443 directly).
+                           both:   installs nginx as the public listener (as
+                                   above), then delegates to apache/install.sh
+                                   --web-profile both for a loopback-only Apache
+                                   backend behind it.
   --yes                    Required with --apply: non-interactive confirmation.
   --help                   Print this message.
 USAGE
@@ -194,12 +200,9 @@ validate_args() {
     esac
 
     case "${WEB_SERVER}" in
-        nginx) ;;
-        apache | both)
-            fail_invocation "--web-server ${WEB_SERVER} is not implemented; this release only implements nginx"
-            ;;
+        nginx | apache | both) ;;
         "")
-            fail_invocation "--web-server is required for --dry-run/--apply (only \"nginx\" is implemented this release)"
+            fail_invocation "--web-server is required for --dry-run/--apply (one of nginx|apache|both)"
             ;;
         *)
             fail_invocation "--web-server must be one of nginx|apache|both"
@@ -276,9 +279,24 @@ emit_dry_run_result_and_exit() {
     install_state=$(preflight_classify_install_state)
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
-    add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled"
-    add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed nginx"
-    add_change web.nginx.v1 would_install "" "apt-get install -y nginx would run; ${NGINX_LIVE_DIR} and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed"
+
+    case "${WEB_SERVER}" in
+        nginx)
+            add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled"
+            add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed nginx"
+            add_change web.nginx.v1 would_install "" "apt-get install -y nginx would run; ${NGINX_LIVE_DIR} and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed"
+            ;;
+        both)
+            add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled"
+            add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed nginx"
+            add_change web.nginx.v1 would_install "" "apt-get install -y nginx would run; ${NGINX_LIVE_DIR} and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed as this node's public listener"
+            add_change web.apache.v1 would_delegate "${INSTALL_ROOT}/services/apache/install.sh" "after nginx is up, apache/install.sh --apply --yes --web-profile both would run: apache2 would be installed as a loopback-only backend (no public ports opened for it), health-probed, and /etc/lesta/web-profile would be written with 'both'"
+            ;;
+        apache)
+            add_change web.nginx.v1 would_skip "" "nginx is never installed for --web-server apache; this run delegates entirely to apache/install.sh"
+            add_change web.apache.v1 would_delegate "${INSTALL_ROOT}/services/apache/install.sh" "apache/install.sh --apply --yes would run: apache2 would be installed as the public listener on ports 80/443, health-probed, and /etc/lesta/web-profile would be written with 'apache'"
+            ;;
+    esac
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -295,7 +313,7 @@ emit_apply_success_and_exit() {
 preflight_check_include_line() {
     local status=0
 
-    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" || status=$?
+    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || status=$?
 
     case "${status}" in
         0)
@@ -310,6 +328,26 @@ preflight_check_include_line() {
             return 1
             ;;
     esac
+}
+
+# preflight_check_conflicting_lighttpd is --web-server both's own narrower
+# variant of the shared preflight_check_conflicting_packages
+# (lib/preflight.sh): apache2 is EXPECTED in the both profile (this same
+# --apply run's own later delegation to apache/install.sh installs it), so it
+# is never treated as a conflict here -- unlike plain --web-server nginx,
+# where an already-installed apache2 legitimately means "an operator-managed
+# web server is already here, refuse to displace it". Without this
+# narrower check, a --web-server both re-apply (an already-successful first
+# run has apache2 installed and active) would wrongly fail its own second
+# preflight forever. lighttpd remains a genuine, unrelated third-party
+# competitor this profile never expects and never installs.
+preflight_check_conflicting_lighttpd() {
+    if dpkg -l 2>/dev/null | grep -E '^ii[[:space:]]+lighttpd\b' >/dev/null 2>&1; then
+        add_error conflicting_package "lighttpd is already installed (dpkg -l); this installer refuses to displace an existing web server package" ""
+        return 1
+    fi
+
+    return 0
 }
 
 run_preflight() {
@@ -341,16 +379,29 @@ run_preflight() {
         preflight_check_capacity "${dir}" || failed=1
     done
 
-    while IFS= read -r port; do
-        [ -n "${port}" ] || continue
-        preflight_check_port_free "${port}" tcp nginx || failed=1
-    done <<PORTS
+    case "${WEB_SERVER}" in
+        nginx | both)
+            while IFS= read -r port; do
+                [ -n "${port}" ] || continue
+                preflight_check_port_free "${port}" tcp nginx || failed=1
+            done <<PORTS
 $(manifest_extract_ports "${NGINX_MANIFEST}")
 PORTS
 
-    preflight_check_conflicting_packages || failed=1
-    preflight_check_lesta_identity || failed=1
-    preflight_check_include_line || failed=1
+            if [ "${WEB_SERVER}" = "nginx" ]; then
+                preflight_check_conflicting_packages || failed=1
+            else
+                preflight_check_conflicting_lighttpd || failed=1
+            fi
+
+            preflight_check_lesta_identity || failed=1
+            preflight_check_include_line || failed=1
+            ;;
+        apache)
+            log_info "web-server apache: nginx is never installed this run; this script's own preflight (ports, conflicting packages, nginx.conf include line) is skipped entirely -- apache/install.sh runs its own full preflight when this script delegates to it"
+            preflight_check_lesta_identity || failed=1
+            ;;
+    esac
 
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
@@ -475,7 +526,7 @@ install_nginx() {
     add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0755"
     add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0750 root:lesta"
 
-    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" || include_status=$?
+    check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
         fail_step "${EXIT_PREFLIGHT_CONFLICT}" nginx_conf_include_missing "${NGINX_CONF_PATH}" "the lesta.d include line disappeared between preflight and this defensive re-check; investigate concurrent nginx.conf edits"
     fi
@@ -592,6 +643,38 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health complete"
 }
 
+# --- phase 5 (apache/both only): delegate to apache/install.sh ------------
+#
+# exec_apache_installer <web_profile> runs apache/install.sh as a genuine
+# child process (`sh ... --apply --yes --web-profile <web_profile>`, never
+# sourced: each script keeps its own set -eu/trap/main() fully isolated,
+# matching how CI already treats nginx and bind9 as independent sequential
+# subprocess invocations against the same box), NOT the shell `exec` builtin:
+# this script must still print exactly one combined JSON result of its own
+# afterward (INSTALLER-CONTRACT.md's "the only thing this script ever prints
+# to stdout"), so apache/install.sh's own separate JSON result is captured
+# and summarized into this installer's own changes[]/errors[], never
+# forwarded to stdout directly.
+#
+# "propagating its exit code" (the plan's own wording) means this installer's
+# own final exit code equals apache/install.sh's exit code exactly on
+# failure: apache/install.sh's own EXIT_* codes come from the identical
+# lib/run.sh constants this script itself uses, so re-emitting that same
+# integer via emit_result_and_exit is schema-valid without translation.
+exec_apache_installer() {
+    local web_profile="$1" out status=0
+
+    out=$(sh "${INSTALL_ROOT}/services/apache/install.sh" --apply --yes --web-profile "${web_profile}" 2>&1) || status=$?
+
+    if [ "${status}" -ne 0 ]; then
+        add_error apache_delegate_failed "apache/install.sh --apply --yes --web-profile ${web_profile} exited ${status}: $(printf '%s' "${out}" | tr '\n' ' ')" "${INSTALL_ROOT}/services/apache/install.sh"
+        emit_result_and_exit failed "${status}"
+    fi
+
+    add_change web.apache.v1 delegated "${INSTALL_ROOT}/services/apache/install.sh" "apache/install.sh --apply --yes --web-profile ${web_profile} completed successfully (see its own run log under /var/log/lesta/install/ for full detail); web.apache.v1 is now installed and health-checked on this node"
+    log_info "apache/install.sh --web-profile ${web_profile} completed successfully"
+}
+
 # --- main -------------------------------------------------------------
 
 main() {
@@ -624,11 +707,30 @@ main() {
     log_init
     log_info "preflight passed; beginning apply mutations"
 
-    bootstrap_base
-    bootstrap_firewall_baseline nginx "${NGINX_MANIFEST}"
-    checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
-    install_nginx
-    bootstrap_node_health
+    case "${WEB_SERVER}" in
+        nginx)
+            bootstrap_base
+            bootstrap_firewall_baseline nginx "${NGINX_MANIFEST}"
+            checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
+            install_nginx
+            bootstrap_node_health
+            ;;
+        both)
+            bootstrap_base
+            bootstrap_firewall_baseline nginx "${NGINX_MANIFEST}"
+            checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
+            install_nginx
+            bootstrap_node_health
+            exec_apache_installer both
+            ;;
+        apache)
+            # nginx itself is never installed for this profile: apache/install.sh
+            # is a fully standalone leaf installer (its own bootstrap_base,
+            # firewall registration, and node-health self-test), so nothing of
+            # this script's own phases runs first.
+            exec_apache_installer apache
+            ;;
+    esac
 
     checkpoint_remove
     release_write "${RELEASE_ID}" "${MANIFEST_DIGEST}"

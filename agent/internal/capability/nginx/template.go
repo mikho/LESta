@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -30,6 +30,15 @@ type vhostData struct {
 	Aliases    []string
 	IPAddress  string
 	Port       int
+	// WebTemplate is the payload's own web_template value, threaded through
+	// so renderVhost can select apache_proxy.conf.tmpl without needing a
+	// separate parameter of its own. Never used inside a template body
+	// itself (nothing in apache_proxy.conf.tmpl references {{.WebTemplate}});
+	// it only ever drives renderVhost's own Go-level template-file selection.
+	WebTemplate string
+	// ProxyBackend is the "host:port" apache_proxy.conf.tmpl's proxy_pass
+	// directive points at. Unused by every other template.
+	ProxyBackend string
 	// Marker is a known string embedded in the rendered default vhost's body,
 	// so a health check can assert that *this* resource answered, not just
 	// that some nginx vhost is alive. It is deliberately a function of
@@ -50,18 +59,26 @@ func (d vhostData) marker() string {
 	return fmt.Sprintf("LESTA-MARKER resource=%s", d.ResourceID)
 }
 
-// renderVhost renders the vhost fragment for data. suspended selects between
-// the two built-in templates; it is a pure function of the payload
-// (payload.Suspended), never of the requested operation's name, so
-// create/update/suspend/unsuspend can all funnel through the identical
-// rendering call.
+// renderVhost renders the vhost fragment for data. suspended takes priority
+// over everything else and always wins when true (a suspended apache-routed
+// domain shows nginx's ordinary suspended page directly, never reaching
+// Apache at all, reusing 100% of the existing suspended-page mechanism);
+// otherwise data.WebTemplate selects apache_proxy.conf.tmpl when it is
+// "apache-proxy", falling back to the default content-rendering template for
+// everything else. Both selectors are pure functions of the payload, never
+// of the requested operation's name, so create/update/suspend/unsuspend can
+// all funnel through the identical rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	data.Marker = data.marker()
 
 	name := "default.conf.tmpl"
-	if suspended {
+
+	switch {
+	case suspended:
 		name = "suspended.conf.tmpl"
 		data.SuspendedPage = string(suspendedHTML)
+	case data.WebTemplate == "apache-proxy":
+		name = "apache_proxy.conf.tmpl"
 	}
 
 	tmplPath := path.Join("templates", name)

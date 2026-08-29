@@ -6,6 +6,7 @@ use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
 use App\Enums\SslMode;
 use App\Enums\SuspensionSource;
+use App\Enums\WebServer;
 use Database\Factories\WebDomainFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -23,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property int $ip_allocation_id
  * @property string $domain
  * @property string $web_template
+ * @property WebServer $web_server
  * @property SslMode $ssl_mode
  * @property string|null $certificate_authority
  * @property Carbon|null $certificate_issued_at
@@ -33,7 +35,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'desired_state_version'])]
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
@@ -47,6 +49,7 @@ class WebDomain extends Model
     protected function casts(): array
     {
         return [
+            'web_server' => WebServer::class,
             'ssl_mode' => SslMode::class,
             'certificate_issued_at' => 'datetime',
             'certificate_expires_at' => 'datetime',
@@ -123,17 +126,28 @@ class WebDomain extends Model
     }
 
     /**
-     * Shape the desired-state payload sent to a provisioner. Never anything secret-shaped.
+     * Shape the desired-state payload sent to a provisioner for a specific capability. Never
+     * anything secret-shaped. When $capability is the nginx capability and this domain's
+     * web_server is apache (the "both" profile's proxy leg), web_template is overridden to the
+     * fixed sentinel 'apache-proxy' regardless of the domain's own stored web_template: nginx is
+     * not rendering the tenant's own content in that case, only proxying to whichever node
+     * capability actually renders it. Every other combination is unchanged.
      *
      * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, ssl: array{mode: string}, suspended: bool}
      */
-    public function toProvisioningPayload(): array
+    public function toProvisioningPayload(string $capability): array
     {
+        $webTemplate = $this->web_template;
+
+        if ($capability === 'web.nginx.v1' && $this->web_server === WebServer::Apache) {
+            $webTemplate = 'apache-proxy';
+        }
+
         return [
             'domain' => $this->domain,
             'aliases' => $this->aliases()->pluck('alias')->all(),
             'ip_address' => $this->ipAllocation->ip_address,
-            'web_template' => $this->web_template,
+            'web_template' => $webTemplate,
             'ssl' => [
                 'mode' => $this->ssl_mode->value,
             ],

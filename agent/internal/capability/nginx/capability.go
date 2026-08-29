@@ -119,11 +119,13 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 	}
 
 	content, err := renderVhost(vhostData{
-		ResourceID: op.ResourceID,
-		Domain:     payload.Domain,
-		Aliases:    payload.Aliases,
-		IPAddress:  payload.IPAddress,
-		Port:       c.cfg.Port,
+		ResourceID:   op.ResourceID,
+		Domain:       payload.Domain,
+		Aliases:      payload.Aliases,
+		IPAddress:    payload.IPAddress,
+		Port:         c.cfg.Port,
+		WebTemplate:  payload.WebTemplate,
+		ProxyBackend: c.cfg.ProxyBackend,
 	}, payload.Suspended)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
@@ -161,12 +163,28 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return c.recoverFromFailure(ctx, op, requirePrior, "reload_failed", reloadErr.Error())
 	}
 
-	expectedMarker := vhostData{ResourceID: op.ResourceID}.marker()
-	if payload.Suspended {
-		expectedMarker = suspendedMarker
+	var healthErr error
+
+	if !payload.Suspended && payload.WebTemplate == "apache-proxy" {
+		// nginx's own health check can only prove nginx itself accepted and
+		// is running the new proxy config: this operation and Apache's own
+		// matching create/update against its own loopback resource are
+		// dispatched independently with no ordering guarantee, so asserting
+		// real proxied content here would make this health check flaky
+		// against a backend that may not exist yet. Apache's own
+		// capability, applying to itself, still does its own full
+		// marker-checked health check against its own loopback port.
+		healthErr = c.waitHealthyGeneric(ctx, payload.IPAddress, c.cfg.Port)
+	} else {
+		expectedMarker := vhostData{ResourceID: op.ResourceID}.marker()
+		if payload.Suspended {
+			expectedMarker = suspendedMarker
+		}
+
+		healthErr = c.waitHealthy(ctx, payload.IPAddress, c.cfg.Port, payload.Domain, expectedMarker)
 	}
 
-	if healthErr := c.waitHealthy(ctx, payload.IPAddress, c.cfg.Port, payload.Domain, expectedMarker); healthErr != nil {
+	if healthErr != nil {
 		return c.recoverFromFailure(ctx, op, requirePrior, "health_check_failed", healthErr.Error())
 	}
 
@@ -351,7 +369,8 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 
 	var healthErr error
 
-	if prevDeleted {
+	switch {
+	case prevDeleted:
 		// Rolling back a failed delete restores the resource; the failed
 		// delete's own operation envelope still carries this resource's
 		// ip_address (delete's payload is the domain's full
@@ -364,7 +383,12 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 		}
 
 		healthErr = c.waitHealthyGeneric(ctx, origPayload.IPAddress, c.cfg.Port)
-	} else {
+	case !prevPayload.Suspended && prevPayload.WebTemplate == "apache-proxy":
+		// Same reasoning as applyGeneration's own apache-proxy branch: this
+		// rollback can only prove nginx itself is healthy again, never that
+		// the separately-dispatched Apache backend is reachable.
+		healthErr = c.waitHealthyGeneric(ctx, prevPayload.IPAddress, c.cfg.Port)
+	default:
 		// The restored content is prevN's own stored bytes, unchanged; the
 		// marker is a pure function of ResourceID, not of any generation
 		// number, so it matches regardless of which generation rendered it.

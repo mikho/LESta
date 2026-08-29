@@ -165,6 +165,7 @@ class WebDomainController extends Controller
             'domain' => $webDomain->domain,
             'aliases' => $webDomain->aliases->pluck('alias')->all(),
             'web_template' => $webDomain->web_template,
+            'web_server' => $webDomain->web_server->value,
             'ssl_mode' => $webDomain->ssl_mode->value,
             'suspended_at' => $webDomain->suspended_at?->toIso8601String(),
             'suspension_source' => $webDomain->suspension_source?->value,

@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -261,6 +264,199 @@ func TestUpdateFailureWithSuccessfulRollbackReportsDegraded(t *testing.T) {
 	t.Logf("confirmed via a real HTTP request that the original vhost is still being served after the degraded rollback, body: %q", strings.TrimSpace(body))
 }
 
+// TestParsePayloadAcceptsApacheProxyWebTemplate is a pure unit test (no real
+// nginx needed) proving ParsePayload's own allow-list accepts "apache-proxy"
+// alongside "default", per payload.go's supportedWebTemplates map.
+func TestParsePayloadAcceptsApacheProxyWebTemplate(t *testing.T) {
+	raw, err := json.Marshal(nginxPayloadWithTemplate("proxy.example.test", "127.0.0.1", "apache-proxy", false))
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	payload, err := nginx.ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("expected apache-proxy to be accepted, got error: %v", err)
+	}
+	if payload.WebTemplate != "apache-proxy" {
+		t.Fatalf("expected WebTemplate to round-trip as apache-proxy, got %q", payload.WebTemplate)
+	}
+}
+
+// TestParsePayloadRejectsUnknownWebTemplate proves the allow-list still
+// rejects anything outside {"default", "apache-proxy"}, with the same
+// unsupported_web_template error code the shared contract suite's own
+// caseUnsupportedWebTemplateIsRejected exercises.
+func TestParsePayloadRejectsUnknownWebTemplate(t *testing.T) {
+	raw, err := json.Marshal(nginxPayloadWithTemplate("proxy.example.test", "127.0.0.1", "apache-classic", false))
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	_, err = nginx.ParsePayload(raw)
+
+	var verr *nginx.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected a *nginx.ValidationError, got %v", err)
+	}
+	if verr.Code != "unsupported_web_template" {
+		t.Fatalf("expected code unsupported_web_template, got %q", verr.Code)
+	}
+}
+
+// TestApacheProxyTemplateProxiesToBackend proves apache_proxy.conf.tmpl
+// actually works as a reverse proxy against a real backend: a plain
+// httptest.Server stands in for Apache here (this file's own suite has no
+// need for a real disposable Apache just to prove nginx's own template
+// renders a working proxy_pass; the cross-capability proof against a real
+// disposable Apache lives in a separate top-level test).
+func TestApacheProxyTemplateProxiesToBackend(t *testing.T) {
+	requireRealNginx(t)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "BACKEND-MARKER host=%s", r.Host)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parsing backend URL: %v", err)
+	}
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.ProxyBackend = backendURL.Host
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "apache-proxy.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayloadWithTemplate(domain, "127.0.0.1", "apache-proxy", false)))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	body := getVhost(t, d.Port, domain)
+	if !strings.Contains(body, "BACKEND-MARKER") {
+		t.Fatalf("expected the apache-proxy vhost to proxy through to the backend, got: %q", body)
+	}
+	t.Logf("confirmed the apache-proxy template really proxies a real HTTP request to its configured backend: %q", body)
+}
+
+// TestApacheProxyTemplateYieldsToSuspendedPage proves suspended always wins
+// over WebTemplate: a suspended apache-proxy resource must serve nginx's
+// ordinary suspended page directly, never attempting to reach Apache at all.
+// ProxyBackend deliberately points at nothing reachable to prove it is never
+// even contacted.
+func TestApacheProxyTemplateYieldsToSuspendedPage(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.ProxyBackend = "127.0.0.1:1" // nothing listens here; must never be hit
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "apache-proxy-suspended.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayloadWithTemplate(domain, "127.0.0.1", "apache-proxy", true)))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	body := getVhost(t, d.Port, domain)
+	if !strings.Contains(body, "LESTA-SUSPENDED-MARKER") {
+		t.Fatalf("expected a suspended apache-proxy resource to serve the ordinary suspended page, got: %q", body)
+	}
+	t.Logf("confirmed a suspended apache-proxy resource serves the suspended page directly, never reaching the (unreachable) backend: %q", strings.TrimSpace(body))
+}
+
+// TestApacheProxyCreateSucceedsEvenWithUnreachableBackend proves the
+// deliberate, documented health-check limitation: nginx's own apache-proxy
+// health check (waitHealthyGeneric) only proves nginx itself accepted and is
+// running the new proxy config, never that the configured backend is
+// actually reachable. A marker-checked health check (waitHealthy) would
+// instead make this create fail against an unreachable backend, which is
+// exactly the flakiness capability.go's own comment says this is avoiding.
+func TestApacheProxyCreateSucceedsEvenWithUnreachableBackend(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.ProxyBackend = "127.0.0.1:1" // nothing listens here
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "apache-proxy-no-backend.contract.test"
+
+	result, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayloadWithTemplate(domain, "127.0.0.1", "apache-proxy", false)))
+	if err != nil {
+		t.Fatalf("Apply returned an error (no verdict reached): %v", err)
+	}
+	if result.Status != protocol.StatusApplied {
+		t.Fatalf("expected create to succeed via the generic (nginx-only) health check even with an unreachable backend, got %s (errors=%+v)", result.Status, result.Errors)
+	}
+	t.Logf("confirmed nginx's own apache-proxy health check only proves nginx itself is healthy, not the backend: status=%s", result.Status)
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", d.Port), nil)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Host = domain
+
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("expected nginx itself to accept the connection even though its backend is unreachable: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < http.StatusInternalServerError {
+		t.Fatalf("expected a 5xx from nginx's own proxy failure against an unreachable backend, got %d", resp.StatusCode)
+	}
+}
+
+// TestApacheProxyRollbackUsesGenericHealthCheck exercises the matching
+// branch inside recoverFromFailure: a forced, recoverable reload failure on
+// an apache-proxy resource must roll back and report degraded using the
+// generic health check too, never blocking on the (here, deliberately
+// unreachable) backend during rollback.
+func TestApacheProxyRollbackUsesGenericHealthCheck(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.ProxyBackend = "127.0.0.1:1" // unreachable throughout
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "apache-proxy-rollback.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayloadWithTemplate(domain, "127.0.0.1", "apache-proxy", false)))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	script := writeFailOnceReloadScript(t)
+	flakyCfg := cfg
+	flakyCfg.ReloadCommand = []string{
+		"sh", script, filepath.Join(t.TempDir(), "counter"), "1",
+		"-p", d.Prefix, "-c", d.Config.NginxConfPath, "-s", "reload",
+	}
+	flakyCapability := nginx.New(flakyCfg)
+
+	updated, err := flakyCapability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 2, nginxPayloadWithTemplate("changed-"+domain, "127.0.0.1", "apache-proxy", false)))
+	if err != nil {
+		t.Fatalf("Apply returned an error (no verdict reached): %v", err)
+	}
+	if updated.Status != protocol.StatusDegraded {
+		t.Fatalf("expected a recoverable reload failure on an apache-proxy resource to report degraded, got %s (errors=%+v)", updated.Status, updated.Errors)
+	}
+	t.Logf("confirmed a rolled-back apache-proxy update reports degraded using the generic health check, never blocking on the unreachable backend: status=%s", updated.Status)
+}
+
 func writeFailOnceReloadScript(t *testing.T) string {
 	t.Helper()
 
@@ -358,11 +554,18 @@ func newOp(operation protocol.Operation, resourceID, idempotencyKey string, desi
 }
 
 func nginxPayload(domain, ip string, suspended bool) map[string]any {
+	return nginxPayloadWithTemplate(domain, ip, "default", suspended)
+}
+
+// nginxPayloadWithTemplate is nginxPayload's own more general form, letting
+// callers exercise a web_template other than "default" (e.g. "apache-proxy",
+// or a deliberately unsupported value for a rejection test).
+func nginxPayloadWithTemplate(domain, ip, webTemplate string, suspended bool) map[string]any {
 	return map[string]any{
 		"domain":       domain,
 		"aliases":      []string{},
 		"ip_address":   ip,
-		"web_template": "default",
+		"web_template": webTemplate,
 		"ssl":          map[string]any{"mode": "off"},
 		"suspended":    suspended,
 	}

@@ -16,11 +16,22 @@ import (
 // canonical ASCII form it is handed.
 var hostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
-// supportedWebTemplate is the single built-in template this phase supports.
-// web_template is matched via a plain Go switch wherever it selects a template
-// file (see template.go): tenant input never selects which template file gets
-// parsed, so any other value is rejected outright, never silently reinterpreted.
-const supportedWebTemplate = "default"
+// supportedWebTemplates is the nginx capability's own allow-list of built-in
+// templates: "default" (nginx renders the tenant's own content, as every
+// prior phase did) and "apache-proxy" (the "both" web profile's proxy leg --
+// nginx renders a reverse proxy vhost pointing at the node's own Apache
+// backend instead of any tenant content of its own; see template.go's
+// apache_proxy.conf.tmpl). web_template is matched via a plain Go switch
+// wherever it selects a template file (see template.go): tenant input never
+// selects which template file gets parsed, so any other value is rejected
+// outright, never silently reinterpreted. apache/payload.go's own
+// supportedWebTemplate is deliberately untouched by this: Apache's own
+// capability still only ever accepts "default", since it is always the
+// content-rendering side, never the proxy side.
+var supportedWebTemplates = map[string]bool{
+	"default":      true,
+	"apache-proxy": true,
+}
 
 // SSL mirrors WebDomain::toProvisioningPayload()'s ssl shape. mode is parsed and
 // stored but never acted on this phase: every vhost this phase renders is
@@ -87,10 +98,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "invalid_ip_address", Message: "ip_address is not a valid IP address", Field: "ip_address"}
 	}
 
-	if p.WebTemplate != supportedWebTemplate {
+	if !supportedWebTemplates[p.WebTemplate] {
 		return Payload{}, &ValidationError{
 			Code:    "unsupported_web_template",
-			Message: fmt.Sprintf("web_template %q is not supported; only %q is available this phase", p.WebTemplate, supportedWebTemplate),
+			Message: fmt.Sprintf("web_template %q is not supported; supported values this phase: %q, %q", p.WebTemplate, "default", "apache-proxy"),
 			Field:   "web_template",
 		}
 	}

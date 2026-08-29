@@ -192,25 +192,31 @@ preflight_check_lesta_identity() {
     return 0
 }
 
-# check_lesta_include_present <conf_path> <glob>
+# check_lesta_include_present <conf_path> <glob> <keyword>
 # Detects the operator-managed prerequisite line using the identical
 # substring logic agent/internal/capability/nginx/validate.go (and bind9's
-# own equivalent) already uses at runtime (a line containing both "include"
+# own equivalent) already uses at runtime (a line containing both keyword
 # and the live-dir glob), so the installer and the running agent can never
-# disagree about whether the precondition holds. Pure detection only: each
+# disagree about whether the precondition holds. keyword is the caller's own
+# choice, matching whichever spelling its own running capability's Go
+# validator looks for at runtime: nginx and bind9 both pass "include"
+# (lowercase, their own directive's spelling); apache passes "Include"
+# (capital, matching Apache's own Include/IncludeOptional convention and
+# agent/internal/capability/apache/validate.go's own case-sensitive
+# strings.Contains(line, "Include") check). Pure detection only: each
 # installer wraps this with its own add_error call and remediation text,
 # since that text (and the error codes used) differ per installer.
 #
 # Returns 0 when present, 1 when conf_path does not exist at all, 2 when it
 # exists but has no matching line.
 check_lesta_include_present() {
-    local conf_path="$1" liveglob="$2"
+    local conf_path="$1" liveglob="$2" keyword="$3"
 
     if [ ! -f "${conf_path}" ]; then
         return 1
     fi
 
-    if grep -F "include" "${conf_path}" | grep -F "${liveglob}" >/dev/null 2>&1; then
+    if grep -F "${keyword}" "${conf_path}" | grep -F "${liveglob}" >/dev/null 2>&1; then
         return 0
     fi
 

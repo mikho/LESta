@@ -106,7 +106,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -136,6 +136,57 @@ jobs:
 
       - name: Re-apply (idempotent rerun must still succeed)
         run: sudo sh .install/services/nginx/install.sh --apply --web-server nginx --yes
+
+      - name: Standalone Apache installer coverage (help/version/dry-run/argument validation only; a real --apply here would conflict with nginx already owning 80/443 in this same job)
+        run: |
+          sh .install/services/apache/install.sh --help
+          sh .install/services/apache/install.sh --version
+
+          # --dry-run (default --web-profile apache): nginx already owns
+          # 80/443 and is already installed on this runner, so apache's own
+          # preflight (port-free + conflicting-package checks) must
+          # correctly detect the real conflict and fail closed, never
+          # proceed to would_change.
+          set +e
+          sudo sh .install/services/apache/install.sh --dry-run
+          status=$?
+          set -e
+          if [ "${status}" -ne 12 ]; then
+            echo "expected --dry-run (default apache profile) to fail preflight with exit 12 (EXIT_PREFLIGHT_CONFLICT) against a node where nginx already owns 80/443, got exit ${status}" >&2
+            exit 1
+          fi
+
+          # --dry-run --web-profile both: skips the port/package preflight
+          # entirely (nginx legitimately owns 80/443 in this profile), but
+          # apache2 itself is never installed in this job, so the
+          # apache2.conf include-line precondition correctly fails instead.
+          set +e
+          sudo sh .install/services/apache/install.sh --dry-run --web-profile both
+          status=$?
+          set -e
+          if [ "${status}" -ne 12 ]; then
+            echo "expected --dry-run --web-profile both to fail preflight with exit 12 (EXIT_PREFLIGHT_CONFLICT, missing apache2.conf) since apache2 is never installed in this job, got exit ${status}" >&2
+            exit 1
+          fi
+
+          # Invalid invocations: pure argument validation, no infra needed.
+          set +e
+          sh .install/services/apache/install.sh
+          status=$?
+          set -e
+          if [ "${status}" -ne 10 ]; then
+            echo "expected a no-arguments invocation to fail with exit 10 (EXIT_INVALID_INVOCATION), got exit ${status}" >&2
+            exit 1
+          fi
+
+          set +e
+          sh .install/services/apache/install.sh --dry-run --web-profile bogus
+          status=$?
+          set -e
+          if [ "${status}" -ne 10 ]; then
+            echo "expected an invalid --web-profile value to fail with exit 10 (EXIT_INVALID_INVOCATION), got exit ${status}" >&2
+            exit 1
+          fi
 
       - name: Prepare the runner for bind9
         run: |
@@ -250,3 +301,95 @@ jobs:
           echo "--- what's listening on 53 right now ---"
           sudo ss -H -tlnp | grep ':53 ' || true
           sudo ss -H -ulnp | grep ':53 ' || true
+
+  installer-both-profile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
+      - name: Prepare the runner as a bare node (nginx + apache2 installed and configured, apache2 stopped so nginx can claim port 80 first)
+        run: |
+          # Mirrors the "installer" job's own "prepare as a bare node"
+          # pattern, extended to both web server packages: this profile
+          # needs BOTH nginx.conf's and apache2.conf's own include lines
+          # satisfied as manual operator prerequisites before either
+          # install.sh invocation below, exactly like the "installer" job's
+          # own nginx/bind9 prep steps already do one at a time.
+          #
+          # apache2 is stopped (not purged) right after its own prereqs are
+          # satisfied: its package postinst auto-starts it bound to the
+          # stock port 80, which would otherwise collide with nginx's own
+          # preflight/bind moments later in this same job. apache/install.sh
+          # itself (invoked via nginx/install.sh's own --web-server both
+          # delegation) reconfigures and restarts apache2 on its real
+          # loopback port (8080) once nginx already owns 80.
+          sudo systemctl stop nginx apache2 2>/dev/null || true
+          sudo apt-get purge -y nginx nginx-common nginx-core apache2 apache2-bin apache2-data apache2-utils lighttpd bind9 bind9-utils 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get update
+
+          sudo apt-get install -y nginx
+          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
+            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
+          fi
+          cat /etc/nginx/nginx.conf
+
+          sudo apt-get install -y apache2
+          if ! grep -F "Include" /etc/apache2/apache2.conf | grep -F "/etc/apache2/lesta.d/*.conf" >/dev/null 2>&1; then
+            printf '\nIncludeOptional /etc/apache2/lesta.d/*.conf\n' | sudo tee -a /etc/apache2/apache2.conf >/dev/null
+          fi
+          cat /etc/apache2/apache2.conf
+          sudo systemctl stop apache2
+
+      - name: Dry-run nginx --web-server both (must mutate nothing)
+        run: sudo sh .install/services/nginx/install.sh --dry-run --web-server both
+
+      - name: Apply nginx --web-server both (real mutation on this disposable CI runner; installs and health-checks nginx, then delegates to apache/install.sh --web-profile both)
+        run: sudo sh .install/services/nginx/install.sh --apply --yes --web-server both
+
+      - name: Re-apply nginx --web-server both (idempotent rerun must still succeed, covering the orchestration path itself, not just each leaf script alone)
+        run: sudo sh .install/services/nginx/install.sh --apply --yes --web-server both
+
+      - name: Verify both nginx and apache2 are active
+        run: |
+          sudo systemctl is-active nginx
+          sudo systemctl is-active apache2
+
+      - name: Verify /etc/lesta/web-profile contains 'both'
+        run: |
+          sudo cat /etc/lesta/web-profile
+          [ "$(sudo cat /etc/lesta/web-profile)" = "both" ]
+
+      - name: Verify apache2 is listening on its loopback backend port, never on public 80
+        run: |
+          sudo ss -H -tlnp | grep ':8080 ' | grep -q apache2
+          ! sudo ss -H -tlnp | grep ':80 ' | grep -q apache2
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: Real-capability agent tests against the installer-produced both-profile system (exercises apacheProductionConfig()'s port-8080 branch against a genuinely both-profiled node)
+        working-directory: agent
+        run: go test ./...
+
+      - name: Diagnose a failure in this job (only runs if a step above failed)
+        if: failure()
+        run: |
+          echo "--- systemctl status nginx ---"
+          sudo systemctl status nginx --no-pager || true
+          echo "--- systemctl status apache2 ---"
+          sudo systemctl status apache2 --no-pager || true
+          echo "--- ss -tlnp (80 and 8080) ---"
+          sudo ss -H -tlnp | grep -E ':(80|8080) ' || true
+          echo "--- /etc/lesta/web-profile ---"
+          sudo cat /etc/lesta/web-profile 2>&1 || true
+          echo "--- apache2 error log ---"
+          sudo tail -n 60 /var/log/apache2/error.log 2>&1 || true

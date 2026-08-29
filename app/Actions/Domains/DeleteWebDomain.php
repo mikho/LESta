@@ -23,7 +23,7 @@ class DeleteWebDomain
                 $webDomain->unsuspend();
             }
 
-            $capability = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node);
+            $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();
 
             AuditEvent::create([
@@ -35,14 +35,16 @@ class DeleteWebDomain
                 'correlation_id' => $correlationId,
             ]);
 
-            app(RecordsProvisioningOperation::class)->record(
-                $webDomain,
-                $capability,
-                ProvisioningVerb::Delete,
-                $webDomain->toProvisioningPayload(),
-                $correlationId,
-                $webDomain->desired_state_version,
-            );
+            foreach ($capabilities as $capability) {
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    $capability,
+                    ProvisioningVerb::Delete,
+                    $webDomain->toProvisioningPayload($capability),
+                    $correlationId,
+                    $webDomain->desired_state_version,
+                );
+            }
 
             $webDomain->delete();
         });
