@@ -340,7 +340,9 @@ run_preflight() {
     # <port>" pairs, so both are checked against their own protocol's `ss`
     # listing rather than assuming tcp.
     while IFS=' ' read -r protocol port; do
-        [ -n "${protocol}" ] && [ -n "${port}" ] || continue
+        if [ -z "${protocol}" ] || [ -z "${port}" ]; then
+            continue
+        fi
         preflight_check_port_free "${port}" "${protocol}" named || failed=1
     done <<PORTS
 $(manifest_extract_port_specs "${BIND9_MANIFEST}")
