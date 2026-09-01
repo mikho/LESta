@@ -356,6 +356,10 @@ class IssueAcmeCertificate implements ShouldQueue
     {
         $parsed = openssl_x509_parse($certificate->getPEM());
 
+        if ($parsed === false || ! isset($parsed['validTo_time_t'])) {
+            throw new \RuntimeException('Failed to parse the issued certificate to determine its expiry.');
+        }
+
         return Carbon::createFromTimestamp($parsed['validTo_time_t']);
     }
 
