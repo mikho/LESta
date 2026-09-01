@@ -4,6 +4,7 @@ use App\Actions\Provisioning\ResolvesWebCapableNode;
 use App\Enums\SslMode;
 use App\Enums\WebServer;
 use App\Exceptions\NoWebCapableNodeAvailableException;
+use App\Models\DnsZone;
 use App\Models\IpAllocation;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -30,6 +31,54 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'suspended' => false,
     ])
         ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'ssl', 'suspended']);
+});
+
+test('toProvisioningPayload omits ssl certificate paths until a certificate has actually been issued', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create(['ssl_mode' => SslMode::LetsEncrypt, 'certificate_issued_at' => null]);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['ssl'])->toBe(['mode' => 'lets_encrypt']);
+});
+
+test('toProvisioningPayload adds ssl certificate paths for web.nginx.v1 once a certificate is issued', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'domain' => 'issued.example.com',
+        'ssl_mode' => SslMode::LetsEncrypt,
+        'certificate_issued_at' => now(),
+    ]);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['ssl'])->toBe([
+        'mode' => 'lets_encrypt',
+        'certificate_path' => '/var/lib/lesta/acme/certs/issued.example.com/fullchain.pem',
+        'private_key_path' => '/var/lib/lesta/acme/certs/issued.example.com/privkey.pem',
+    ]);
+});
+
+test('toProvisioningPayload never adds ssl certificate paths for web.apache.v1, even once a certificate is issued', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'ssl_mode' => SslMode::LetsEncrypt,
+        'certificate_issued_at' => now(),
+    ]);
+
+    expect($webDomain->toProvisioningPayload('web.apache.v1')['ssl'])->toBe(['mode' => 'lets_encrypt']);
+});
+
+test('resolveDnsZone finds the exact-match zone for this domain', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'zone-match.example.com']);
+    $zone = DnsZone::factory()->for($node)->create(['domain' => 'zone-match.example.com']);
+
+    expect($webDomain->resolveDnsZone()?->id)->toBe($zone->id);
+});
+
+test('resolveDnsZone returns null when no exact-match zone exists', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'no-zone.example.com']);
+    DnsZone::factory()->for($node)->create(['domain' => 'unrelated.example.com']);
+
+    expect($webDomain->resolveDnsZone())->toBeNull();
 });
 
 test('toProvisioningPayload reflects the current suspension state', function () {

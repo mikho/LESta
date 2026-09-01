@@ -33,6 +33,26 @@ type Config struct {
 	// which points it at whatever ephemeral loopback port its own disposable
 	// Apache instance is listening on. Unused for every other web_template.
 	ProxyBackend string
+	// AcmeChallengeDir is the directory every rendered vhost's shared
+	// `location /.well-known/acme-challenge/` block serves from, via an
+	// nginx `alias` (not `root`: tls.acme.v1 writes challenge files directly
+	// at <dir>/<token>, with no nested .well-known/acme-challenge/ path of
+	// its own, so `alias` -- which replaces the matched location prefix
+	// outright -- is the directive that actually matches that layout; `root`
+	// would instead require the request's full URI appended beneath <dir>,
+	// which is not where the files land). Production:
+	// /var/lib/lesta/acme/http-01, the exact same path
+	// internal/capability/acme's own Config.StateRoot+"/http-01" resolves
+	// to. Threaded through Config (like ProxyBackend above) rather than
+	// hardcoded in the template, so a disposable test instance can point it
+	// at its own temp directory instead.
+	AcmeChallengeDir string
+	// SSLPort is the port templates/default_ssl.conf.tmpl's second (HTTPS)
+	// server block listens on: 443 in production, an ephemeral loopback
+	// port for a disposable test instance (binding to the literal port 443
+	// requires root, which a disposable per-test process never has).
+	// Unused by every template that never selects default_ssl.conf.tmpl.
+	SSLPort int
 	// ReloadCommand, when non-empty, fully overrides how a reload is issued
 	// (e.g. ["systemctl", "reload", "nginx"]). This is the seam a later,
 	// explicitly separate "Tier 2" suite against a real system-wide,

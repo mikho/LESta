@@ -119,13 +119,17 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 	}
 
 	content, err := renderVhost(vhostData{
-		ResourceID:   op.ResourceID,
-		Domain:       payload.Domain,
-		Aliases:      payload.Aliases,
-		IPAddress:    payload.IPAddress,
-		Port:         c.cfg.Port,
-		WebTemplate:  payload.WebTemplate,
-		ProxyBackend: c.cfg.ProxyBackend,
+		ResourceID:       op.ResourceID,
+		Domain:           payload.Domain,
+		Aliases:          payload.Aliases,
+		IPAddress:        payload.IPAddress,
+		Port:             c.cfg.Port,
+		WebTemplate:      payload.WebTemplate,
+		ProxyBackend:     c.cfg.ProxyBackend,
+		AcmeChallengeDir: c.cfg.AcmeChallengeDir,
+		CertificatePath:  payload.SSL.CertificatePath,
+		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
+		SSLPort:          c.cfg.SSLPort,
 	}, payload.Suspended)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err

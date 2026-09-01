@@ -1,0 +1,34 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}} (HTTPS-enabled)
+server {
+    listen {{.IPAddress}}:{{.Port}};
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+
+    location /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
+    location / {
+        default_type text/plain;
+        return 200 '{{.Marker}}
+';
+    }
+}
+
+server {
+    listen {{.IPAddress}}:{{.SSLPort}} ssl;
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+
+    ssl_certificate {{.CertificatePath}};
+    ssl_certificate_key {{.PrivateKeyPath}};
+
+    location /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
+    location / {
+        default_type text/plain;
+        return 200 '{{.Marker}}
+';
+    }
+}

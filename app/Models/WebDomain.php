@@ -29,13 +29,14 @@ use Illuminate\Support\Carbon;
  * @property string|null $certificate_authority
  * @property Carbon|null $certificate_issued_at
  * @property Carbon|null $certificate_expires_at
+ * @property string|null $last_certificate_error
  * @property int $desired_state_version
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
@@ -126,14 +127,36 @@ class WebDomain extends Model
     }
 
     /**
+     * Resolve the DnsZone that answers for this domain, if any: exact-match only this phase
+     * (`WebDomain::normalizeDomain($this->domain)` against `dns_zones.domain`), no parent-label
+     * walking. Deliberately narrow, matching this project's own "don't build for a case with no
+     * evidence yet" pattern: if no zone exists, DNS-01 issuance simply isn't offered for this
+     * domain (HTTP-01 still is), a known limitation rather than a silently-glossed-over one.
+     */
+    public function resolveDnsZone(): ?DnsZone
+    {
+        return DnsZone::query()->where('domain', self::normalizeDomain($this->domain))->first();
+    }
+
+    /**
      * Shape the desired-state payload sent to a provisioner for a specific capability. Never
-     * anything secret-shaped. When $capability is the nginx capability and this domain's
-     * web_server is apache (the "both" profile's proxy leg), web_template is overridden to the
-     * fixed sentinel 'apache-proxy' regardless of the domain's own stored web_template: nginx is
-     * not rendering the tenant's own content in that case, only proxying to whichever node
-     * capability actually renders it. Every other combination is unchanged.
+     * anything secret-shaped (a domain's own issued certificate/private key is not secret-shaped
+     * in the ADR's sense -- it must reach the node's disk in cleartext for nginx to terminate TLS
+     * with it; only the ACME *account* key that signs requests to the CA is forbidden here, and
+     * that key never appears in any Eloquent attribute this method could reach). When $capability
+     * is the nginx capability and this domain's web_server is apache (the "both" profile's proxy
+     * leg), web_template is overridden to the fixed sentinel 'apache-proxy' regardless of the
+     * domain's own stored web_template: nginx is not rendering the tenant's own content in that
+     * case, only proxying to whichever node capability actually renders it. Every other
+     * combination is unchanged.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, ssl: array{mode: string}, suspended: bool}
+     * ssl.certificate_path/private_key_path are populated only for web.nginx.v1 and only once
+     * certificate_issued_at is set: until an ACME issuance has actually succeeded, nginx must keep
+     * rendering HTTP-only (see internal/capability/nginx's own SSL doc comment for why). Apache's
+     * own capability never gets these fields this phase -- its own HTTPS vhost template is
+     * deferred, mirroring this project's repeated nginx-first-then-apache pattern.
+     *
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -143,14 +166,19 @@ class WebDomain extends Model
             $webTemplate = 'apache-proxy';
         }
 
+        $ssl = ['mode' => $this->ssl_mode->value];
+
+        if ($capability === 'web.nginx.v1' && $this->certificate_issued_at !== null) {
+            $ssl['certificate_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/fullchain.pem";
+            $ssl['private_key_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/privkey.pem";
+        }
+
         return [
             'domain' => $this->domain,
             'aliases' => $this->aliases()->pluck('alias')->all(),
             'ip_address' => $this->ipAllocation->ip_address,
             'web_template' => $webTemplate,
-            'ssl' => [
-                'mode' => $this->ssl_mode->value,
-            ],
+            'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
         ];
     }
