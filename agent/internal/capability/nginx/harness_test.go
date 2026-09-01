@@ -47,8 +47,9 @@ func newDisposableNginx(t *testing.T) *disposableNginx {
 	liveDir := filepath.Join(prefix, "lesta.d")
 	stateRoot := filepath.Join(prefix, "state")
 	logsDir := filepath.Join(prefix, "logs")
+	acmeChallengeDir := filepath.Join(prefix, "acme-http-01")
 
-	for _, dir := range []string{liveDir, stateRoot, logsDir} {
+	for _, dir := range []string{liveDir, stateRoot, logsDir, acmeChallengeDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
@@ -83,12 +84,14 @@ http {
 		Port:    port,
 		pidPath: pidPath,
 		Config: nginx.Config{
-			LiveDir:       liveDir,
-			StateRoot:     stateRoot,
-			NginxConfPath: confPath,
-			NginxBinary:   "nginx",
-			Prefix:        prefix,
-			Port:          port,
+			LiveDir:          liveDir,
+			StateRoot:        stateRoot,
+			NginxConfPath:    confPath,
+			NginxBinary:      "nginx",
+			Prefix:           prefix,
+			Port:             port,
+			AcmeChallengeDir: acmeChallengeDir,
+			SSLPort:          freePort(t),
 		},
 	}
 

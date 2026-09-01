@@ -4,6 +4,10 @@ server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
 
+    location /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
     location / {
         default_type text/html;
         return 200 '{{.SuspendedPage}}';

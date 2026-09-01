@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -39,6 +39,20 @@ type vhostData struct {
 	// ProxyBackend is the "host:port" apache_proxy.conf.tmpl's proxy_pass
 	// directive points at. Unused by every other template.
 	ProxyBackend string
+	// AcmeChallengeDir backs every template's shared
+	// `.well-known/acme-challenge/` location block (see Config's own field
+	// of the same name).
+	AcmeChallengeDir string
+	// CertificatePath and PrivateKeyPath, both non-empty, select
+	// default_ssl.conf.tmpl over default.conf.tmpl (see renderVhost) and
+	// back its second server block's ssl_certificate/ssl_certificate_key
+	// directives. Empty for every domain with no certificate issued yet.
+	CertificatePath string
+	PrivateKeyPath  string
+	// SSLPort backs default_ssl.conf.tmpl's second server block's listen
+	// directive (see Config's own field of the same name). Unused by every
+	// other template.
+	SSLPort int
 	// Marker is a known string embedded in the rendered default vhost's body,
 	// so a health check can assert that *this* resource answered, not just
 	// that some nginx vhost is alive. It is deliberately a function of
@@ -64,10 +78,11 @@ func (d vhostData) marker() string {
 // domain shows nginx's ordinary suspended page directly, never reaching
 // Apache at all, reusing 100% of the existing suspended-page mechanism);
 // otherwise data.WebTemplate selects apache_proxy.conf.tmpl when it is
-// "apache-proxy", falling back to the default content-rendering template for
-// everything else. Both selectors are pure functions of the payload, never
-// of the requested operation's name, so create/update/suspend/unsuspend can
-// all funnel through the identical rendering call.
+// "apache-proxy", falling back to default_ssl.conf.tmpl when a certificate
+// path is present, and to the default content-rendering template for
+// everything else. All three selectors are pure functions of the payload,
+// never of the requested operation's name, so create/update/suspend/
+// unsuspend can all funnel through the identical rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	data.Marker = data.marker()
 
@@ -79,6 +94,8 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 		data.SuspendedPage = string(suspendedHTML)
 	case data.WebTemplate == "apache-proxy":
 		name = "apache_proxy.conf.tmpl"
+	case data.CertificatePath != "":
+		name = "default_ssl.conf.tmpl"
 	}
 
 	tmplPath := path.Join("templates", name)

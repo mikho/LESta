@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\Provisioning\TriggersAcmeCertificateIssuance;
 use App\Contracts\Provisioner;
 use App\Enums\ProvisioningStatus;
 use App\Models\ProvisioningOperation;
@@ -18,9 +19,19 @@ class DispatchProvisioningOperation implements ShouldQueue
 
     public function __construct(public int $provisioningOperationId) {}
 
+    // Deliberately still a single-dependency signature (Provisioner only):
+    // existing tests (e.g. DuplicateDeliveryTest) call handle() directly
+    // with one manually-resolved argument rather than letting the queue
+    // worker's own container resolution supply every parameter, so adding a
+    // second method-injected parameter here would break that established
+    // calling convention. TriggersAcmeCertificateIssuance is resolved via
+    // the container instead, exactly like every provisioner-agnostic Action
+    // this job already calls (RecordsProvisioningOperation, etc.).
     public function handle(Provisioner $provisioner): void
     {
-        DB::transaction(function () use ($provisioner): void {
+        $triggersAcmeCertificateIssuance = app(TriggersAcmeCertificateIssuance::class);
+
+        DB::transaction(function () use ($provisioner, $triggersAcmeCertificateIssuance): void {
             $operation = ProvisioningOperation::query()
                 ->whereKey($this->provisioningOperationId)
                 ->lockForUpdate()
@@ -50,6 +61,11 @@ class DispatchProvisioningOperation implements ShouldQueue
                 'errors' => $result->errors,
                 'completed_at' => $result->completedAt,
             ])->save();
+
+            // The one hook point ACME issuance needs: never couples this
+            // provisionable-agnostic job to ACME-specific knowledge itself,
+            // see TriggersAcmeCertificateIssuance's own doc comment.
+            $triggersAcmeCertificateIssuance->handle($operation);
         });
     }
 }

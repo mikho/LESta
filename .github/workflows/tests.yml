@@ -60,7 +60,7 @@ jobs:
         working-directory: agent
         run: go vet ./...
 
-      - name: Test (nginx not installed yet; real-capability suite self-skips)
+      - name: Test (nginx/pebble not installed yet; real-capability suite self-skips)
         working-directory: agent
         run: go test ./...
 
@@ -73,7 +73,20 @@ jobs:
       - name: Install apache2
         run: sudo apt-get update && sudo apt-get install -y apache2
 
-      - name: Test (fake, real nginx, real bind9, and real apache capability, nothing skips)
+      - name: Install Pebble
+        # Let's Encrypt's own official ACME v2 test server (never a live
+        # third-party service), matching this job's own real-binary
+        # precedent for nginx/bind9/apache2. Unpinned: this Go-side test
+        # hand-rolls its own JSON decoding into plain Go structs, which
+        # tolerates newer Pebble versions' additional challenge types
+        # (dns-account-01, dns-persist-01) without issue -- unlike the
+        # separate PHP-side Pebble tests (acmephp/core-based, in the `ci`
+        # job... not yet wired into CI -- see this phase's own final
+        # report), which need a specific older Pebble version pinned due to
+        # a real acmephp/core compatibility gap with those newer types.
+        run: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
+
+      - name: Test (fake, real nginx, real bind9, real apache, and real Pebble-backed ACME capability, nothing skips)
         working-directory: agent
         run: go test ./...
 

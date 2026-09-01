@@ -2,11 +2,18 @@ package nginx_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -581,4 +588,226 @@ func newTestUUID() string {
 	b[8] = (b[8] & 0x3f) | 0x80
 
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// TestAcmeChallengeLocationServesRealFile proves the new, always-present
+// `.well-known/acme-challenge/` location block actually serves a file placed
+// under Config.AcmeChallengeDir, via a real HTTP GET against a real
+// disposable nginx instance -- the exact mechanism tls.acme.v1's own
+// http01_challenge writes are meant to satisfy (see
+// internal/capability/acme's own package doc comment).
+func TestAcmeChallengeLocationServesRealFile(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "acme-challenge.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayload(domain, "127.0.0.1", false)))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	token := "test-token-123"
+	keyAuthorization := "test-token-123.thumbprint-placeholder"
+
+	if err := os.WriteFile(filepath.Join(d.Config.AcmeChallengeDir, token), []byte(keyAuthorization), 0o644); err != nil {
+		t.Fatalf("writing challenge file: %v", err)
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/.well-known/acme-challenge/%s", d.Port, token)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Host = domain
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	var (
+		body    []byte
+		lastErr error
+	)
+
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(50 * time.Millisecond)
+
+			continue
+		}
+
+		body, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("reading response body: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 from %s, got %d: %s", url, resp.StatusCode, body)
+		}
+
+		break
+	}
+
+	if len(body) == 0 && lastErr != nil {
+		t.Fatalf("never got a response from %s: %v", url, lastErr)
+	}
+	if string(body) != keyAuthorization {
+		t.Fatalf("expected the acme-challenge location to serve %q, got %q", keyAuthorization, string(body))
+	}
+	t.Logf("confirmed a real HTTP 200 from the .well-known/acme-challenge/ location block, body: %q", string(body))
+}
+
+// selfSignedTestCertificate generates, entirely on the fly via Go's own
+// crypto/tls and crypto/x509 (never fetching or vendoring a real Let's
+// Encrypt certificate), a minimal self-signed ECDSA certificate valid for
+// domain, writing cert.pem/key.pem under dir and returning their paths plus
+// an *x509.CertPool a test HTTPS client can use to trust it.
+func selfSignedTestCertificate(t *testing.T, dir, domain string) (certPath, keyPath string, pool *x509.CertPool) {
+	t.Helper()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating test certificate key: %v", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("generating test certificate serial number: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: domain},
+		DNSNames:              []string{domain},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("creating self-signed test certificate: %v", err)
+	}
+
+	certPath = filepath.Join(dir, "cert.pem")
+	keyPath = filepath.Join(dir, "key.pem")
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+		t.Fatalf("writing test certificate: %v", err)
+	}
+
+	keyBytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshaling test private key: %v", err)
+	}
+
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		t.Fatalf("writing test private key: %v", err)
+	}
+
+	pool = x509.NewCertPool()
+	pool.AppendCertsFromPEM(certPEM)
+
+	return certPath, keyPath, pool
+}
+
+// TestDefaultSslTemplateServesRealHTTPSContent proves default_ssl.conf.tmpl's
+// selection path (CertificatePath != "") actually terminates real TLS: a
+// real disposable nginx instance is configured with a real self-signed test
+// certificate generated on the fly, then a real HTTPS GET against its own
+// SSLPort must succeed and carry the vhost's own marker, while a plain HTTP
+// GET against Port must still work unmodified (no forced redirect this
+// phase, per the plan).
+func TestDefaultSslTemplateServesRealHTTPSContent(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	domain := "ssl-vhost.contract.test"
+
+	certPath, keyPath, pool := selfSignedTestCertificate(t, t.TempDir(), domain)
+
+	cfg := d.Config
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+
+	payload := nginxPayload(domain, "127.0.0.1", false)
+	payload["ssl"] = map[string]any{
+		"mode":             "lets_encrypt",
+		"certificate_path": certPath,
+		"private_key_path": keyPath,
+	}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	// Plain HTTP still works unmodified: no forced redirect this phase.
+	body := getVhost(t, d.Port, domain)
+	if !strings.Contains(body, resourceID) {
+		t.Fatalf("expected plain HTTP to still serve the vhost's own marker, got: %q", body)
+	}
+	t.Logf("confirmed plain HTTP still works with no forced redirect, body: %q", strings.TrimSpace(body))
+
+	httpsClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: domain},
+		},
+	}
+
+	httpsURL := fmt.Sprintf("https://127.0.0.1:%d/", cfg.SSLPort)
+
+	req, err := http.NewRequest(http.MethodGet, httpsURL, nil)
+	if err != nil {
+		t.Fatalf("building HTTPS request: %v", err)
+	}
+	req.Host = domain
+
+	var (
+		httpsBody []byte
+		lastErr   error
+	)
+
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		resp, err := httpsClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(50 * time.Millisecond)
+
+			continue
+		}
+
+		httpsBody, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("reading HTTPS response body: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 from %s, got %d: %s", httpsURL, resp.StatusCode, httpsBody)
+		}
+
+		break
+	}
+
+	if len(httpsBody) == 0 {
+		t.Fatalf("never got a real HTTPS response from %s: %v", httpsURL, lastErr)
+	}
+	if !strings.Contains(string(httpsBody), resourceID) {
+		t.Fatalf("expected the real HTTPS response to contain the vhost's own marker, got: %q", string(httpsBody))
+	}
+	t.Logf("confirmed a real HTTPS request, terminated with a real self-signed certificate, served the vhost's own marker: %q", strings.TrimSpace(string(httpsBody)))
 }

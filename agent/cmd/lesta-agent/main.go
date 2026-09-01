@@ -5,8 +5,8 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Three capabilities are wired up: web.nginx.v1, dns.bind9.v1, and
-// web.apache.v1.
+// Four capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// and tls.acme.v1.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
@@ -26,6 +27,7 @@ const (
 	webNginxCapability  = "web.nginx.v1"
 	dnsBind9Capability  = "dns.bind9.v1"
 	webApacheCapability = "web.apache.v1"
+	tlsAcmeCapability   = "tls.acme.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -60,8 +62,10 @@ func run(stdin *os.File, stdout *os.File) error {
 		capability = bind9.New(bind9ProductionConfig())
 	case webApacheCapability:
 		capability = apache.New(apacheProductionConfig())
+	case tlsAcmeCapability:
+		capability = acme.New(acmeProductionConfig())
 	default:
-		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability)
+		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability)
 	}
 
 	result, err := capability.Apply(context.Background(), op)
@@ -108,6 +112,19 @@ func nginxProductionConfig() nginx.Config {
 		// Harmless when unused (every web_template other than "apache-proxy"
 		// never references it).
 		ProxyBackend: "127.0.0.1:8080",
+		// AcmeChallengeDir: the exact same path acmeProductionConfig's own
+		// StateRoot+"/http-01" resolves to. Both this process's own
+		// tls.acme.v1 dispatch (when invoked separately, for that
+		// capability) and this nginx dispatch read this literal string
+		// independently; there is no runtime negotiation between the two
+		// capabilities, only this shared, hardcoded convention, the same
+		// way apache/install.sh and nginx/install.sh coordinate over
+		// /etc/lesta/web-profile.
+		AcmeChallengeDir: "/var/lib/lesta/acme/http-01",
+		// SSLPort: 443, the standard HTTPS port. Only ever referenced by a
+		// rendered vhost once WebDomain has a real issued certificate (see
+		// payload.go's own SSL.CertificatePath doc comment).
+		SSLPort: 443,
 	}
 }
 
@@ -215,5 +232,18 @@ func apacheProductionConfig() apache.Config {
 			"APACHE_LOCK_DIR=/var/lock/apache2",
 			"APACHE_LOG_DIR=/var/log/apache2",
 		},
+	}
+}
+
+// acmeProductionConfig points at the real, fixed host path
+// .install/services/acme/manifest.json's own owned_roots declares
+// (/var/lib/lesta/acme). Unlike nginxProductionConfig/bind9ProductionConfig/
+// apacheProductionConfig, there is no binary or env list to guard here at
+// all: tls.acme.v1 never execs anything (see internal/capability/acme's own
+// package doc comment), it only ever reads and writes plain files under this
+// one root, so StateRoot is the only production value this capability needs.
+func acmeProductionConfig() acme.Config {
+	return acme.Config{
+		StateRoot: "/var/lib/lesta/acme",
 	}
 }
