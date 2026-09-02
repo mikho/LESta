@@ -74,4 +74,12 @@ class Account extends Model
     {
         return $this->hasMany(DnsZone::class);
     }
+
+    /**
+     * @return HasMany<TenantDatabase, $this>
+     */
+    public function tenantDatabases(): HasMany
+    {
+        return $this->hasMany(TenantDatabase::class);
+    }
 }

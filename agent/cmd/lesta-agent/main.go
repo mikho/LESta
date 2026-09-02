@@ -5,8 +5,8 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Four capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
-// and tls.acme.v1.
+// Five capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// tls.acme.v1, and database.tenant.v1.
 package main
 
 import (
@@ -19,15 +19,17 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
+	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
 const (
-	webNginxCapability  = "web.nginx.v1"
-	dnsBind9Capability  = "dns.bind9.v1"
-	webApacheCapability = "web.apache.v1"
-	tlsAcmeCapability   = "tls.acme.v1"
+	webNginxCapability       = "web.nginx.v1"
+	dnsBind9Capability       = "dns.bind9.v1"
+	webApacheCapability      = "web.apache.v1"
+	tlsAcmeCapability        = "tls.acme.v1"
+	databaseTenantCapability = "database.tenant.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -64,8 +66,10 @@ func run(stdin *os.File, stdout *os.File) error {
 		capability = apache.New(apacheProductionConfig())
 	case tlsAcmeCapability:
 		capability = acme.New(acmeProductionConfig())
+	case databaseTenantCapability:
+		capability = mariadb.New(mariadbProductionConfig())
 	default:
-		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability)
+		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability)
 	}
 
 	result, err := capability.Apply(context.Background(), op)
@@ -245,5 +249,33 @@ func apacheProductionConfig() apache.Config {
 func acmeProductionConfig() acme.Config {
 	return acme.Config{
 		StateRoot: "/var/lib/lesta/acme",
+	}
+}
+
+// mariadbProductionConfig points at the real, fixed connection details and
+// paths .install/services/mariadb/install.sh establishes for the tenant
+// MariaDB instance (port 3307; control-plane MariaDB on 3306 is a separate,
+// out-of-scope instance this capability never touches). MariaDBBinary is
+// passed straight into an exec.Command call (see
+// internal/capability/mariadb/exec.go's own runSQL), so -- mirroring every
+// other capability's own *Binary field -- it is not configurable via
+// environment variables or flags.
+//
+// DefaultsExtraFile points at the root-owned, 0600 ini install.sh writes
+// carrying this capability's own dedicated admin account's credentials (see
+// internal/capability/mariadb/config.go's own Config.DefaultsExtraFile doc
+// comment for why this is the standard MariaDB mechanism for keeping
+// credentials out of argv/env/`ps`, not a convenience). StateRoot is this
+// capability's own generation-history bookkeeping root, deliberately
+// distinct from the MariaDB server's own datadir (/var/lib/lesta/mariadb/
+// tenant, owned and written by mariadbd itself as the `mysql` system user,
+// never by this capability).
+func mariadbProductionConfig() mariadb.Config {
+	return mariadb.Config{
+		Host:              "127.0.0.1",
+		Port:              3307,
+		MariaDBBinary:     "mariadb",
+		DefaultsExtraFile: "/etc/lesta/mariadb-tenant-admin.cnf",
+		StateRoot:         "/var/lib/lesta/mariadb/tenant-agent-state",
 	}
 }

@@ -8,5 +8,5 @@
   "packages": [],
   "ports": [{"protocol": "tcp", "port": 3306, "direction": "inbound"}, {"protocol": "tcp", "port": 3307, "direction": "inbound"}],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf", "/etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf", "/var/lib/lesta/mariadb/control-plane", "/var/lib/lesta/mariadb/tenant"], "read_only_roots": ["/etc/mysql/mariadb.cnf"], "refused_roots": ["/etc/mysql/debian.cnf"]}
+  "ownership": {"owned_roots": ["/etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf", "/etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf", "/var/lib/lesta/mariadb/control-plane", "/var/lib/lesta/mariadb/tenant", "/var/lib/lesta/mariadb/tenant-agent-state", "/etc/lesta/mariadb-tenant-admin.cnf"], "read_only_roots": ["/etc/mysql/mariadb.cnf"], "refused_roots": ["/etc/mysql/debian.cnf"]}
 }
