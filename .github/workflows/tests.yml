@@ -119,7 +119,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -279,6 +279,43 @@ jobs:
           sudo nft list table inet lesta | tee /tmp/lesta-nft-2.txt
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
           grep -q '443' /tmp/lesta-nft-2.txt && echo "443/tcp still allowed in the firewall table"
+
+      - name: Prepare the runner for mariadb (purge any pre-installed default MySQL/MariaDB so the pinned MariaDB Foundation package installs cleanly)
+        run: |
+          sudo systemctl stop mysql mariadb 2>/dev/null || true
+          sudo apt-get purge -y mysql-server mysql-server-core-* mysql-client-core-* mariadb-server mariadb-server-core-* 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo rm -rf /var/lib/mysql /etc/mysql
+
+      - name: Dry-run mariadb against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/mariadb/install.sh --dry-run
+
+      - name: Apply mariadb (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/mariadb/install.sh --apply --yes
+
+      - name: Diagnose mariadb apply failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          echo "--- systemctl status mariadb@tenant.service ---"
+          sudo systemctl status mariadb@tenant.service --no-pager || true
+          echo "--- journalctl for mariadb@tenant.service ---"
+          sudo journalctl -u mariadb@tenant.service --no-pager | tail -100 || true
+          echo "--- ss -tlnp (3307) ---"
+          sudo ss -H -tlnp | grep ':3307 ' || true
+          echo "--- /etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf ---"
+          sudo cat /etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf 2>&1 || true
+          echo "--- kernel log, grepped for any apparmor denial against mariadbd ---"
+          sudo journalctl -k --no-pager | grep -i 'apparmor.*mariadbd' | tail -40 || true
+
+      - name: Verify nginx's and bind9's ports are still open after mariadb's apply
+        run: |
+          sudo nft list table inet lesta | tee /tmp/lesta-nft-3.txt
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          grep -q '443' /tmp/lesta-nft-3.txt && echo "443/tcp still allowed in the firewall table"
+          grep -q '53' /tmp/lesta-nft-3.txt && echo "53 still allowed in the firewall table"
+
+      - name: Re-apply mariadb (idempotent rerun must still succeed)
+        run: sudo sh .install/services/mariadb/install.sh --apply --yes
 
       - name: Relax AppArmor for named before running the disposable-harness tests
         run: |
