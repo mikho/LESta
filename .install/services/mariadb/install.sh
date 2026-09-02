@@ -466,7 +466,7 @@ mariadb_health_probe() {
 install_mariadb_tenant() {
     log_info "install_mariadb_tenant: pinning MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME}), installing, and activating database.tenant.v1"
 
-    local out installed_version admin_password apparmor_local_mariadbd
+    local out installed_version installed_version_no_epoch admin_password apparmor_local_mariadbd
 
     # --- pin the MariaDB Foundation apt repository --------------------------
     #
@@ -509,15 +509,39 @@ SOURCES
         fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed mariadb-server version after apt-get install"
     fi
 
-    case "${installed_version}" in
-        "${MARIADB_PINNED_SERIES}".*)
-            add_change database.tenant.v1 installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, confirming the pinned ${MARIADB_PINNED_SERIES} repository (not Ubuntu's own default archive) was actually used"
-            ;;
+    # Debian/Ubuntu package versions may carry an "epoch:" prefix
+    # (dpkg-query's own ${Version} field includes it when present); MariaDB
+    # Foundation's own noble build is versioned "1:11.4.13+maria~ubu2404",
+    # confirmed directly via a real CI run -- a bare
+    # `case "${installed_version}" in "${MARIADB_PINNED_SERIES}".*)` never
+    # matches a string starting "1:", producing a false "wrong version"
+    # failure even when the correct, pinned package installed successfully.
+    # Strip up to and including the first ':' (a no-op if there is none)
+    # before comparing the series prefix.
+    installed_version_no_epoch="${installed_version#*:}"
+
+    case "${installed_version_no_epoch}" in
+        "${MARIADB_PINNED_SERIES}".*) ;;
         *)
-            add_error mariadb_wrong_version_installed "expected a ${MARIADB_PINNED_SERIES}.* version from the pinned MariaDB Foundation repository, but dpkg-query reports ${installed_version}; the pinned apt source was likely shadowed by Ubuntu's own default archive entry" ""
+            add_error mariadb_wrong_version_installed "expected a ${MARIADB_PINNED_SERIES}.* version, but dpkg-query reports ${installed_version}" ""
             emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
             ;;
     esac
+
+    # The version prefix alone only proves "some 11.4.x is installed", not
+    # that it came from OUR pinned, signed repository rather than Ubuntu's
+    # own default archive happening to ship a same-numbered build (the ADR's
+    # own pinning requirement is about verified provenance, not just a
+    # matching version string). apt-cache policy's own output marks the
+    # currently-installed version with a leading "***" and lists its actual
+    # source origin on the very next line; checking that line names
+    # deb.mariadb.org is a real provenance check, not a guess.
+    if ! apt-cache policy mariadb-server 2>/dev/null | awk '/\*\*\*/{getline; print}' | grep -q 'deb\.mariadb\.org'; then
+        add_error mariadb_wrong_repo_installed "mariadb-server ${installed_version} is installed, but apt-cache policy does not show deb.mariadb.org as its source -- the pinned MariaDB Foundation repository was likely shadowed by another apt source offering the same version number" ""
+        emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
+    fi
+
+    add_change database.tenant.v1 installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
 
     # --- tenant datadir: created empty and correctly owned only -----------
     #
