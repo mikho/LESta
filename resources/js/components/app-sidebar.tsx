@@ -1,5 +1,12 @@
 import { Link } from '@inertiajs/react';
-import { BookOpen, FolderGit2, Globe, LayoutGrid, Network } from 'lucide-react';
+import {
+    BookOpen,
+    Database,
+    FolderGit2,
+    Globe,
+    LayoutGrid,
+    Network,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
@@ -16,6 +23,7 @@ import {
 import { dashboard } from '@/routes';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
+import tenantDatabases from '@/routes/tenant-databases';
 import type { NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -33,6 +41,11 @@ const mainNavItems: NavItem[] = [
         title: 'DNS',
         href: dns.index(),
         icon: Network,
+    },
+    {
+        title: 'Databases',
+        href: tenantDatabases.index(),
+        icon: Database,
     },
 ];
 
