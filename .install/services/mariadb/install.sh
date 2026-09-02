@@ -652,10 +652,27 @@ CONF
     # comment for why), matching the exact host every GRANT/REVOKE/CREATE
     # USER/ALTER USER/DROP USER statement the agent itself issues also
     # targets.
+    # CREATE OR REPLACE USER, not CREATE USER IF NOT EXISTS: a fresh
+    # admin_password is generated on every apply (this installer keeps no
+    # state across runs to reuse a prior one), but IF NOT EXISTS is a no-op
+    # against an already-existing user from a prior run -- the password
+    # would never actually change server-side while
+    # TENANT_ADMIN_DEFAULTS_FILE below is unconditionally rewritten with the
+    # new one regardless, permanently desyncing the two after the second
+    # apply. Confirmed directly via a real CI idempotent-rerun: the second
+    # apply's own self-test failed with "Access denied for user
+    # 'lesta_agent'@'localhost' (using password: YES)" -- the agent
+    # authenticating with the freshly-rewritten (but never actually applied)
+    # password. REPLACE resets the user (and, by extension, its grants) on
+    # every run, which is correct here since the very next statement
+    # unconditionally re-grants the exact same fixed privilege set anyway --
+    # unlike tenant password rotation (see exec.go's own rotateDDL doc
+    # comment), there is no pre-existing, independently-managed grant state
+    # to preserve for this installer-owned admin account.
     admin_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
 
     if ! out=$(mariadb --socket="${TENANT_SOCKET}" -u root <<ADMINSQL 2>&1
-CREATE USER IF NOT EXISTS '${TENANT_ADMIN_USER}'@'127.0.0.1' IDENTIFIED BY '${admin_password}';
+CREATE OR REPLACE USER '${TENANT_ADMIN_USER}'@'127.0.0.1' IDENTIFIED BY '${admin_password}';
 GRANT ALL PRIVILEGES ON *.* TO '${TENANT_ADMIN_USER}'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 ADMINSQL
