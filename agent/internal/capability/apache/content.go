@@ -62,23 +62,57 @@ const modulesFragmentName = "00-lesta-modules.conf"
 // doesn't exist on disk).
 const asisModulePath = "/usr/lib/apache2/modules/mod_asis.so"
 
+// sslModulePath and socacheShmcbModulePath are mod_ssl.so's and
+// mod_socache_shmcb.so's fixed, standard installation paths under the same
+// Debian/Ubuntu apache2-bin package layout asisModulePath's own doc comment
+// verifies. Both ship in that package already (no new installer package
+// dependency this phase). mod_ssl needs a shared object cache implementation
+// to store its SSL session cache; mod_socache_shmcb (a shared-memory cache
+// backed by a cyclic buffer) is Ubuntu's own stock mods-enabled default for
+// this, so this project uses the same one rather than introducing a
+// dependency (e.g. mod_socache_dbm) Ubuntu's own default install doesn't
+// already carry.
+const sslModulePath = "/usr/lib/apache2/modules/mod_ssl.so"
+const socacheShmcbModulePath = "/usr/lib/apache2/modules/mod_socache_shmcb.so"
+
 // ensureModulesFragment writes LiveDir/00-lesta-modules.conf, unconditionally,
-// on every applyGeneration call. It is idempotent: the content never varies, so
-// a same-content overwrite is a no-op as far as apache2 and this resource's own
-// digest are concerned. This fragment carries no generation history of its own
-// (it isn't scoped to any one resource) and needs none: it is a fixed,
-// LiveDir-wide precondition for mod_asis to be available to whichever vhost
-// fragments use `SetHandler send-as-is`, exactly mirroring bind9's own
-// _lesta-placeholder.conf precedent -- except bind9's placeholder is written by
-// an installer, once, before named's first-ever start, while this fragment is
-// written by the capability's own Go code on every apply.
-func ensureModulesFragment(liveDir string) error {
+// on every applyGeneration call. It is idempotent: the content never varies for
+// a fixed sslPort, so a same-content overwrite is a no-op as far as apache2 and
+// this resource's own digest are concerned. This fragment carries no
+// generation history of its own (it isn't scoped to any one resource) and
+// needs none: it is a fixed, LiveDir-wide precondition for mod_asis to be
+// available to whichever vhost fragments use `SetHandler send-as-is`, exactly
+// mirroring bind9's own _lesta-placeholder.conf precedent -- except bind9's
+// placeholder is written by an installer, once, before named's first-ever
+// start, while this fragment is written by the capability's own Go code on
+// every apply.
+//
+// It also unconditionally loads mod_ssl and mod_socache_shmcb (harmless even
+// when no domain on this node has SSL enabled yet, exactly like mod_asis's own
+// always-loaded precedent), and, only when sslPort is non-zero, emits an
+// explicit `Listen <sslPort>` line. That Listen is required, not redundant:
+// Ubuntu's stock ports.conf wraps its own `Listen 443` in
+// `<IfModule ssl_module>`, evaluated while ports.conf itself is parsed --
+// before this project's own LoadModule line (written into this very fragment,
+// included later via LiveDir's IncludeOptional) ever loads ssl_module, so that
+// conditional never activates and the stock Listen 443 never binds. An
+// explicit, unconditional Listen from this fragment is the fix. It is
+// suppressed entirely (sslPort == 0) in the "both" web profile, where Apache is
+// a loopback-only 8080 backend that must never bind 443 itself, which would
+// conflict with nginx's own public 443 listener on the same node.
+func ensureModulesFragment(liveDir string, sslPort int) error {
 	if err := os.MkdirAll(liveDir, 0o755); err != nil {
 		return fmt.Errorf("creating live directory %s: %w", liveDir, err)
 	}
 
 	content := "# Managed by LESta. Do not edit by hand.\n" +
-		"LoadModule asis_module " + asisModulePath + "\n"
+		"LoadModule asis_module " + asisModulePath + "\n" +
+		"LoadModule ssl_module " + sslModulePath + "\n" +
+		"LoadModule socache_shmcb_module " + socacheShmcbModulePath + "\n"
+
+	if sslPort != 0 {
+		content += fmt.Sprintf("Listen %d\n", sslPort)
+	}
 
 	path := filepath.Join(liveDir, modulesFragmentName)
 

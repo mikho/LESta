@@ -200,7 +200,7 @@ Project planning lives outside this repository, in the Obsidian vault at:
 `/Users/mikho/Library/CloudStorage/OneDrive-Deladebibliotek–mikandhoITAB/mikandho IT AB - Scripts/0. Obsidian/mikho vault/03 Projects/LESta/`
 
 - `LESta-rewrite-plan.md`: the governing plan. Read it before any architecture or feature work.
-- `Decision Log.md`: chronological record of every decision made across sessions, regardless of which tool executed the prompt. Update it after every prompt.
+- `Decision Log.md`: index into the decision log, split one file per phase (`Decision Log - Phase NN.md`, plus `Decision Log - Foundations.md` for pre-Phase-1 work) so a session only needs to load the index and the one phase file it's actually working on, not the whole project history. Read the index first, then whichever phase file is relevant (usually the most recent one for ongoing work), and update that phase's file after every prompt, adding a new phase file when a new phase starts.
 - `Feature Requests.md`: deferred features and a running backlog.
 - `Threat Model.md`, `Node Protocol.md`, `Capability Matrix.md`: Phase 0 design documents.
 - `Engineering teardown · Vesta Control Panel.md`: a prior security and architecture review of the legacy Vesta codebase.

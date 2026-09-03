@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/default.asis.tmpl templates/suspended.asis.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/default_ssl.conf.tmpl templates/default.asis.tmpl templates/suspended.asis.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -37,6 +37,20 @@ type vhostData struct {
 	// DirectoryIndex+SetHandler pair hands every request to mod_asis's
 	// "content" file within it (see content.go's contentPath/writeContent).
 	ContentDir string
+	// AcmeChallengeDir backs every template's shared acme-challenge Alias
+	// block (see Config's own field of the same name).
+	AcmeChallengeDir string
+	// CertificatePath and PrivateKeyPath, both non-empty, select
+	// default_ssl.conf.tmpl over default.conf.tmpl (see renderVhost) and
+	// back its second VirtualHost block's SSLCertificateFile/
+	// SSLCertificateKeyFile directives. Empty for every domain with no
+	// certificate issued yet.
+	CertificatePath string
+	PrivateKeyPath  string
+	// SSLPort backs default_ssl.conf.tmpl's second VirtualHost block's
+	// address (see Config's own field of the same name). Unused by every
+	// other template.
+	SSLPort int
 	// Marker is a known string embedded in the rendered default content file's
 	// body, so a health check can assert that *this* resource answered, not
 	// just that some apache2 vhost is alive. It is deliberately a function of
@@ -86,16 +100,22 @@ func renderTemplate(name string, data vhostData) ([]byte, error) {
 }
 
 // renderVhost renders the LiveDir VirtualHost fragment for data. suspended
-// selects between the two built-in templates; it is a pure function of the
-// payload (payload.Suspended), never of the requested operation's name, so
+// takes priority and always wins when true; otherwise a non-empty
+// CertificatePath selects the SSL-capable template over the plain default.
+// Both selectors are pure functions of the payload (payload.Suspended,
+// payload.SSL.CertificatePath), never of the requested operation's name, so
 // create/update/suspend/unsuspend can all funnel through the identical
 // rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	data = data.prepare(suspended)
 
 	name := "default.conf.tmpl"
-	if suspended {
+
+	switch {
+	case suspended:
 		name = "suspended.conf.tmpl"
+	case data.CertificatePath != "":
+		name = "default_ssl.conf.tmpl"
 	}
 
 	return renderTemplate(name, data)

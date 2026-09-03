@@ -2,10 +2,17 @@ package apache_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -617,6 +624,153 @@ func TestWriteModulesFragmentIsIdempotent(t *testing.T) {
 		t.Fatalf("expected the modules fragment's content to stay byte-identical across repeated applyGeneration calls:\nfirst:\n%s\nsecond:\n%s", firstContent, secondContent)
 	}
 	t.Logf("confirmed 00-lesta-modules.conf stayed byte-identical across two applyGeneration calls, and both creates reported applied (a real apache2 reload never errored)")
+}
+
+// selfSignedTestCertificate generates, entirely on the fly via Go's own
+// crypto/tls and crypto/x509 (never fetching or vendoring a real Let's
+// Encrypt certificate), a minimal self-signed ECDSA certificate valid for
+// domain, writing cert.pem/key.pem under dir and returning their paths plus
+// an *x509.CertPool a test HTTPS client can use to trust it. Mirrors
+// nginx_test.go's own helper of the same name verbatim.
+func selfSignedTestCertificate(t *testing.T, dir, domain string) (certPath, keyPath string, pool *x509.CertPool) {
+	t.Helper()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating test certificate key: %v", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		t.Fatalf("generating test certificate serial number: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: domain},
+		DNSNames:              []string{domain},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("creating self-signed test certificate: %v", err)
+	}
+
+	certPath = filepath.Join(dir, "cert.pem")
+	keyPath = filepath.Join(dir, "key.pem")
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+		t.Fatalf("writing test certificate: %v", err)
+	}
+
+	keyBytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("marshaling test private key: %v", err)
+	}
+
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		t.Fatalf("writing test private key: %v", err)
+	}
+
+	pool = x509.NewCertPool()
+	pool.AppendCertsFromPEM(certPEM)
+
+	return certPath, keyPath, pool
+}
+
+// TestDefaultSslTemplateServesRealHTTPSContent proves default_ssl.conf.tmpl's
+// selection path (CertificatePath != "") actually terminates real TLS: a real
+// disposable apache2/httpd instance is configured with a real self-signed test
+// certificate generated on the fly, then a real HTTPS GET against its own
+// SSLPort must succeed and carry the vhost's own marker, while a plain HTTP
+// GET against Port must still work unmodified (no forced redirect this phase,
+// per the plan). Mirrors nginx_test.go's own
+// TestDefaultSslTemplateServesRealHTTPSContent structure exactly.
+func TestDefaultSslTemplateServesRealHTTPSContent(t *testing.T) {
+	d := newDisposableApache(t)
+	capability := apache.New(d.Config)
+	ctx := context.Background()
+
+	domain := "ssl-vhost.contract.test"
+	certPath, keyPath, pool := selfSignedTestCertificate(t, t.TempDir(), domain)
+
+	resourceID := newTestUUID()
+
+	payload := apachePayload(domain, "127.0.0.1", false)
+	payload["ssl"] = map[string]any{
+		"mode":             "lets_encrypt",
+		"certificate_path": certPath,
+		"private_key_path": keyPath,
+	}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	// Plain HTTP still works unmodified: no forced redirect this phase.
+	body := getVhost(t, d.Port, domain)
+	if !strings.Contains(body, resourceID) {
+		t.Fatalf("expected plain HTTP to still serve the vhost's own marker, got: %q", body)
+	}
+	t.Logf("confirmed plain HTTP still works with no forced redirect, body: %q", strings.TrimSpace(body))
+
+	httpsClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: domain},
+		},
+	}
+
+	httpsURL := fmt.Sprintf("https://127.0.0.1:%d/", d.SSLPort)
+
+	req, err := http.NewRequest(http.MethodGet, httpsURL, nil)
+	if err != nil {
+		t.Fatalf("building HTTPS request: %v", err)
+	}
+	req.Host = domain
+
+	var (
+		httpsBody []byte
+		lastErr   error
+	)
+
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		resp, err := httpsClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(50 * time.Millisecond)
+
+			continue
+		}
+
+		httpsBody, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("reading HTTPS response body: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 from %s, got %d: %s", httpsURL, resp.StatusCode, httpsBody)
+		}
+
+		break
+	}
+
+	if len(httpsBody) == 0 {
+		t.Fatalf("never got a real HTTPS response from %s: %v", httpsURL, lastErr)
+	}
+	if !strings.Contains(string(httpsBody), resourceID) {
+		t.Fatalf("expected the real HTTPS response to contain the vhost's own marker, got: %q", string(httpsBody))
+	}
+	t.Logf("confirmed a real HTTPS request, terminated with a real self-signed certificate, served the vhost's own marker: %q", strings.TrimSpace(string(httpsBody)))
 }
 
 func writeFailOnceReloadScript(t *testing.T, binary string) string {

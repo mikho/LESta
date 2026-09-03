@@ -140,6 +140,7 @@ type disposableApache struct {
 	Config       apache.Config
 	Prefix       string
 	Port         int
+	SSLPort      int
 	binary       string
 	pidPath      string
 	errorLogPath string
@@ -161,14 +162,16 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	stateRoot := filepath.Join(prefix, "state")
 	logsDir := filepath.Join(prefix, "logs")
 	htdocsDir := filepath.Join(prefix, "htdocs")
+	acmeChallengeDir := filepath.Join(prefix, "acme-http-01")
 
-	for _, dir := range []string{liveDir, stateRoot, logsDir, htdocsDir} {
+	for _, dir := range []string{liveDir, stateRoot, logsDir, htdocsDir, acmeChallengeDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
 	}
 
 	port := freePort(t)
+	sslPort := freePort(t)
 
 	pidPath := filepath.Join(prefix, "apache.pid")
 	confPath := filepath.Join(prefix, "apache2.conf")
@@ -198,7 +201,18 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_log_config.c", "log_config_module", filepath.Join(moduleDir, "mod_log_config.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_mime.c", "mime_module", filepath.Join(moduleDir, "mod_mime.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_dir.c", "dir_module", filepath.Join(moduleDir, "mod_dir.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_alias.c", "alias_module", filepath.Join(moduleDir, "mod_alias.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_asis.c", "asis_module", filepath.Join(moduleDir, "mod_asis.so")))
+	// ssl_module and socache_shmcb_module: loaded here from whichever module
+	// directory actually exists on the machine running the test (see
+	// resolveModuleDir), so ensureModulesFragment's own hardcoded
+	// production-path LoadModule lines for the same two modules become
+	// harmless, silently-skipped duplicates by name (see asisModulePath's
+	// own doc comment for the verified precedent this relies on), never
+	// erroring even though those hardcoded paths don't exist on this
+	// machine.
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_ssl.c", "ssl_module", filepath.Join(moduleDir, "mod_ssl.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_socache_shmcb.c", "socache_shmcb_module", filepath.Join(moduleDir, "mod_socache_shmcb.so")))
 	fmt.Fprintf(&confBuilder, "TypesConfig %s\n", mimeTypesPath)
 	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
 	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
@@ -215,16 +229,19 @@ func newDisposableApache(t *testing.T) *disposableApache {
 	d := &disposableApache{
 		Prefix:       prefix,
 		Port:         port,
+		SSLPort:      sslPort,
 		binary:       binary,
 		pidPath:      pidPath,
 		errorLogPath: errorLogPath,
 		Config: apache.Config{
-			LiveDir:        liveDir,
-			StateRoot:      stateRoot,
-			ApacheConfPath: confPath,
-			ApacheBinary:   binary,
-			Prefix:         prefix,
-			Port:           port,
+			LiveDir:          liveDir,
+			StateRoot:        stateRoot,
+			ApacheConfPath:   confPath,
+			ApacheBinary:     binary,
+			Prefix:           prefix,
+			Port:             port,
+			SSLPort:          sslPort,
+			AcmeChallengeDir: acmeChallengeDir,
 			// Env intentionally empty: this from-scratch synthetic config
 			// never references ${APACHE_RUN_USER} or any other apache2
 			// envvars-style substitution, unlike the real production

@@ -438,8 +438,9 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 	stateRoot := filepath.Join(prefix, "state")
 	logsDir := filepath.Join(prefix, "logs")
 	htdocsDir := filepath.Join(prefix, "htdocs")
+	acmeChallengeDir := filepath.Join(prefix, "acme-http-01")
 
-	for _, dir := range []string{liveDir, stateRoot, logsDir, htdocsDir} {
+	for _, dir := range []string{liveDir, stateRoot, logsDir, htdocsDir, acmeChallengeDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
@@ -463,7 +464,19 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_log_config.c", "log_config_module", filepath.Join(moduleDir, "mod_log_config.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_mime.c", "mime_module", filepath.Join(moduleDir, "mod_mime.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_dir.c", "dir_module", filepath.Join(moduleDir, "mod_dir.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_alias.c", "alias_module", filepath.Join(moduleDir, "mod_alias.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_asis.c", "asis_module", filepath.Join(moduleDir, "mod_asis.so")))
+	// ssl_module and socache_shmcb_module: ensureModulesFragment (production
+	// code, shared with internal/capability/apache) now unconditionally
+	// emits its own LoadModule lines for both, pointing at the hardcoded
+	// production Ubuntu path. Pre-loading them here, from whichever module
+	// directory actually exists on the machine running this test, makes
+	// that a harmless, silently-skipped duplicate-by-name -- exactly the
+	// same fix apache/harness_test.go's own newDisposableApache applies for
+	// its own suite (see that file's own comment for the verified
+	// precedent this relies on).
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_ssl.c", "ssl_module", filepath.Join(moduleDir, "mod_ssl.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_socache_shmcb.c", "socache_shmcb_module", filepath.Join(moduleDir, "mod_socache_shmcb.so")))
 	fmt.Fprintf(&confBuilder, "TypesConfig %s\n", mimeTypesPath)
 	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
 	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
@@ -482,12 +495,18 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 		pidPath:      pidPath,
 		errorLogPath: errorLogPath,
 		Config: apache.Config{
-			LiveDir:        liveDir,
-			StateRoot:      stateRoot,
-			ApacheConfPath: confPath,
-			ApacheBinary:   binary,
-			Prefix:         prefix,
-			Port:           port,
+			LiveDir:          liveDir,
+			StateRoot:        stateRoot,
+			ApacheConfPath:   confPath,
+			ApacheBinary:     binary,
+			Prefix:           prefix,
+			Port:             port,
+			AcmeChallengeDir: acmeChallengeDir,
+			// SSLPort intentionally left 0: this test never exercises SSL,
+			// and the "both" profile's own real production wiring also
+			// keeps Apache's SSLPort at 0 (see main.go's
+			// apacheSSLPortForProfile), so 0 is the faithful default here
+			// too.
 		},
 	}
 

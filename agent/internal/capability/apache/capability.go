@@ -105,12 +105,16 @@ func (c *ApacheCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 // an already-validated payload.
 func (c *ApacheCapability) vhostDataFor(resourceID string, payload Payload, n int) vhostData {
 	return vhostData{
-		ResourceID: resourceID,
-		Domain:     payload.Domain,
-		Aliases:    payload.Aliases,
-		IPAddress:  payload.IPAddress,
-		Port:       c.cfg.Port,
-		ContentDir: c.store.GenerationDir(resourceID, n),
+		ResourceID:       resourceID,
+		Domain:           payload.Domain,
+		Aliases:          payload.Aliases,
+		IPAddress:        payload.IPAddress,
+		Port:             c.cfg.Port,
+		ContentDir:       c.store.GenerationDir(resourceID, n),
+		AcmeChallengeDir: c.cfg.AcmeChallengeDir,
+		CertificatePath:  payload.SSL.CertificatePath,
+		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
+		SSLPort:          c.cfg.SSLPort,
 	}
 }
 
@@ -172,7 +176,7 @@ func (c *ApacheCapability) applyGeneration(ctx context.Context, op protocol.Oper
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if err := ensureModulesFragment(c.cfg.LiveDir); err != nil {
+	if err := ensureModulesFragment(c.cfg.LiveDir, c.cfg.SSLPort); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -237,7 +241,7 @@ func (c *ApacheCapability) applyDelete(ctx context.Context, op protocol.Operatio
 		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if err := ensureModulesFragment(c.cfg.LiveDir); err != nil {
+	if err := ensureModulesFragment(c.cfg.LiveDir, c.cfg.SSLPort); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -381,7 +385,7 @@ func (c *ApacheCapability) recoverFromFailure(ctx context.Context, op protocol.O
 			return protocol.ResultEnvelope{}, rerr
 		}
 
-		if err := ensureModulesFragment(c.cfg.LiveDir); err != nil {
+		if err := ensureModulesFragment(c.cfg.LiveDir, c.cfg.SSLPort); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
 

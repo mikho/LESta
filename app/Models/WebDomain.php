@@ -150,11 +150,13 @@ class WebDomain extends Model
      * case, only proxying to whichever node capability actually renders it. Every other
      * combination is unchanged.
      *
-     * ssl.certificate_path/private_key_path are populated only for web.nginx.v1 and only once
-     * certificate_issued_at is set: until an ACME issuance has actually succeeded, nginx must keep
-     * rendering HTTP-only (see internal/capability/nginx's own SSL doc comment for why). Apache's
-     * own capability never gets these fields this phase -- its own HTTPS vhost template is
-     * deferred, mirroring this project's repeated nginx-first-then-apache pattern.
+     * ssl.certificate_path/private_key_path are populated for both web.nginx.v1 and web.apache.v1,
+     * only once certificate_issued_at is set: until an ACME issuance has actually succeeded, a web
+     * capability must keep rendering HTTP-only (see internal/capability/nginx's and
+     * internal/capability/apache's own SSL doc comments for why). Apache only ever receives an
+     * SSL-bearing payload when it is genuinely this domain's resolved public capability (nginx
+     * always wins in the "both" profile, per ResolvesWebCapableNode's own priority), so this never
+     * needs a web_server-based guard of its own.
      *
      * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
@@ -168,7 +170,7 @@ class WebDomain extends Model
 
         $ssl = ['mode' => $this->ssl_mode->value];
 
-        if ($capability === 'web.nginx.v1' && $this->certificate_issued_at !== null) {
+        if (in_array($capability, ['web.nginx.v1', 'web.apache.v1'], true) && $this->certificate_issued_at !== null) {
             $ssl['certificate_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/fullchain.pem";
             $ssl['private_key_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/privkey.pem";
         }

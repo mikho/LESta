@@ -600,6 +600,27 @@ install_apache() {
             add_change web.apache.v1 apparmor_extended "${apache_apparmor_local}" "granted apache2 read access to /var/lib/lesta/apache via Ubuntu's own local-override include point"
         fi
 
+        # A second, separate grant path from the one just above: that one
+        # covers www-data's own worker processes reading mod_asis content at
+        # request time. This one covers apache2's ROOT master process itself,
+        # which reads SSLCertificateFile/SSLCertificateKeyFile at
+        # config-parse/reload time, before any privilege drop to www-data --
+        # tls.acme.v1 writes those files (fullchain.pem 0644, privkey.pem
+        # 0600) under /var/lib/lesta/acme/certs/<domain>/, a root-owned tree
+        # apache2's AppArmor profile has no reason to already allow into.
+        # Without this, a domain's own default_ssl.conf.tmpl vhost (see
+        # agent/internal/capability/apache/templates) would fail to reload
+        # under AppArmor enforcement even though the files themselves are
+        # readable by their own Unix permissions.
+        if ! grep -qF "/var/lib/lesta/acme/certs/" "${apache_apparmor_local}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: apache2'\''s root master process must read issued certificates here.\n'
+                printf '/var/lib/lesta/acme/certs/ r,\n'
+                printf '/var/lib/lesta/acme/certs/** r,\n'
+            } >> "${apache_apparmor_local}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apache_apparmor_local}" "failed to append the /var/lib/lesta/acme/certs allowance to ${apache_apparmor_local}"
+            add_change web.apache.v1 apparmor_extended "${apache_apparmor_local}" "granted apache2 read access to /var/lib/lesta/acme/certs via Ubuntu's own local-override include point"
+        fi
+
         if command -v apparmor_parser >/dev/null 2>&1; then
             apparmor_parser -r /etc/apparmor.d/usr.sbin.apache2 || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_reload_failed "${apache_apparmor_local}" "apparmor_parser -r /etc/apparmor.d/usr.sbin.apache2 failed"
             add_change web.apache.v1 apparmor_reloaded "" "apparmor_parser -r reloaded the apache2 profile with the /var/lib/lesta/apache allowance"

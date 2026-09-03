@@ -46,6 +46,28 @@ type Config struct {
 	// exercised this phase in production. Empty means the default
 	// `apache2 -k graceful [-d Prefix] -f ApacheConfPath`.
 	ReloadCommand []string
+	// SSLPort is the port an SSL-capable vhost's second <VirtualHost> block
+	// listens on: 443 in production (standalone apache profile only), 0 in
+	// the "both" web profile (Apache is a loopback-only 8080 backend behind
+	// nginx there and must never bind 443 itself, avoiding a bind conflict
+	// with nginx's own public 443 listener), an ephemeral loopback port for a
+	// disposable test instance. 0 also means "no SSL vhost ever selected":
+	// renderVhost's own selection is CertificatePath != "", and by
+	// construction WebDomain never dispatches an SSL-bearing payload to
+	// Apache when it isn't the domain's resolved public capability (see
+	// WebDomain::toProvisioningPayload()), so this field's only real job in
+	// production is suppressing the global Listen directive in the "both"
+	// profile, not gating template selection itself.
+	SSLPort int
+	// AcmeChallengeDir is the directory tls.acme.v1 writes HTTP-01 challenge
+	// files into (production: /var/lib/lesta/acme/http-01, the same path
+	// internal/capability/nginx's own Config.AcmeChallengeDir resolves to
+	// and internal/capability/acme's own Config.StateRoot+"/http-01"
+	// produces). Every rendered vhost template (default, suspended, and the
+	// new SSL one) gets an Alias for this directory, so HTTP-01 challenges
+	// keep working for a suspended or freshly-created domain the same way
+	// nginx's own templates already do.
+	AcmeChallengeDir string
 }
 
 func (c Config) apacheBinary() string {

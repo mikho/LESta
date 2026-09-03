@@ -200,6 +200,21 @@ func apachePortForProfile(profile string) int {
 	return 80
 }
 
+// apacheSSLPortForProfile maps a web-profile file's trimmed content to the
+// port Apache's own rendered SSL vhosts should listen on: "both" (Apache is a
+// loopback-only backend behind nginx, which owns the public 443 listener
+// itself) gets 0 -- suppressing the SSL vhost's Listen entirely, since Apache
+// must never bind 443 itself in that profile -- anything else, including a
+// missing/unreadable file's empty string, keeps the safe default of 443
+// (Apache is the public listener, matching a bare, non-"both" install).
+func apacheSSLPortForProfile(profile string) int {
+	if profile == "both" {
+		return 0
+	}
+
+	return 443
+}
+
 // apacheProductionConfig points at the real, fixed host paths and binary
 // this phase's own plan settled on for web.apache.v1, mirroring
 // nginxProductionConfig's and bind9ProductionConfig's own
@@ -220,6 +235,17 @@ func apachePortForProfile(profile string) int {
 // (this binary is a one-shot stdin/stdout pipe, not a daemon, so "at call
 // time" means "at every invocation").
 //
+// SSLPort is read the same way, via apacheSSLPortForProfile: 443 for a
+// standalone apache profile, 0 (suppressing the SSL vhost's Listen
+// entirely) for "both", where Apache must never bind 443 itself --
+// nginx's own SSLPort in nginxProductionConfig owns that in the "both"
+// profile. AcmeChallengeDir is the exact same literal path
+// nginxProductionConfig's own AcmeChallengeDir resolves to (and
+// acmeProductionConfig's own StateRoot+"/http-01" produces); both
+// capabilities read this shared, hardcoded convention independently, the
+// same way apache/install.sh and nginx/install.sh coordinate over
+// /etc/lesta/web-profile.
+//
 // Env's six values are a researched reconstruction of Ubuntu/Debian's real
 // /etc/apache2/envvars defaults (APACHE_RUN_USER/APACHE_RUN_GROUP=www-data,
 // the standard pid/run/lock/log directories under /var/run and /var/log),
@@ -237,11 +263,13 @@ func apachePortForProfile(profile string) int {
 // verification of this comment's own claim, not this comment itself.
 func apacheProductionConfig() apache.Config {
 	return apache.Config{
-		LiveDir:        "/etc/apache2/lesta.d",
-		StateRoot:      "/var/lib/lesta/apache",
-		ApacheConfPath: "/etc/apache2/apache2.conf",
-		ApacheBinary:   "apache2",
-		Port:           apachePortForProfile(readWebProfile(webProfilePath)),
+		LiveDir:          "/etc/apache2/lesta.d",
+		StateRoot:        "/var/lib/lesta/apache",
+		ApacheConfPath:   "/etc/apache2/apache2.conf",
+		ApacheBinary:     "apache2",
+		Port:             apachePortForProfile(readWebProfile(webProfilePath)),
+		SSLPort:          apacheSSLPortForProfile(readWebProfile(webProfilePath)),
+		AcmeChallengeDir: "/var/lib/lesta/acme/http-01",
 		Env: []string{
 			"APACHE_RUN_USER=www-data",
 			"APACHE_RUN_GROUP=www-data",
