@@ -1,0 +1,38 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}} (HTTPS-enabled)
+<VirtualHost {{.IPAddress}}:{{.Port}}>
+    ServerName {{.Domain}}
+{{if .Aliases}}    ServerAlias{{range .Aliases}} {{.}}{{end}}
+{{end}}    Alias /.well-known/acme-challenge/ "{{.AcmeChallengeDir}}/"
+    <Directory "{{.AcmeChallengeDir}}">
+        Require all granted
+    </Directory>
+    DocumentRoot "{{.ContentDir}}"
+    <Directory "{{.ContentDir}}">
+        Require all granted
+        Options None
+        AllowOverride None
+        DirectoryIndex content
+        SetHandler send-as-is
+    </Directory>
+</VirtualHost>
+
+<VirtualHost {{.IPAddress}}:{{.SSLPort}}>
+    ServerName {{.Domain}}
+{{if .Aliases}}    ServerAlias{{range .Aliases}} {{.}}{{end}}
+{{end}}    SSLEngine on
+    SSLCertificateFile "{{.CertificatePath}}"
+    SSLCertificateKeyFile "{{.PrivateKeyPath}}"
+    Alias /.well-known/acme-challenge/ "{{.AcmeChallengeDir}}/"
+    <Directory "{{.AcmeChallengeDir}}">
+        Require all granted
+    </Directory>
+    DocumentRoot "{{.ContentDir}}"
+    <Directory "{{.ContentDir}}">
+        Require all granted
+        Options None
+        AllowOverride None
+        DirectoryIndex content
+        SetHandler send-as-is
+    </Directory>
+</VirtualHost>

@@ -55,11 +55,28 @@ test('toProvisioningPayload adds ssl certificate paths for web.nginx.v1 once a c
     ]);
 });
 
-test('toProvisioningPayload never adds ssl certificate paths for web.apache.v1, even once a certificate is issued', function () {
+test('toProvisioningPayload adds ssl certificate paths for web.apache.v1 once a certificate is issued', function () {
     $node = Node::factory()->create();
     $webDomain = WebDomain::factory()->for($node)->create([
+        'domain' => 'apache-issued.example.com',
+        'web_server' => WebServer::Apache,
         'ssl_mode' => SslMode::LetsEncrypt,
         'certificate_issued_at' => now(),
+    ]);
+
+    expect($webDomain->toProvisioningPayload('web.apache.v1')['ssl'])->toBe([
+        'mode' => 'lets_encrypt',
+        'certificate_path' => '/var/lib/lesta/acme/certs/apache-issued.example.com/fullchain.pem',
+        'private_key_path' => '/var/lib/lesta/acme/certs/apache-issued.example.com/privkey.pem',
+    ]);
+});
+
+test('toProvisioningPayload omits ssl certificate paths for web.apache.v1 until a certificate has actually been issued', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'web_server' => WebServer::Apache,
+        'ssl_mode' => SslMode::LetsEncrypt,
+        'certificate_issued_at' => null,
     ]);
 
     expect($webDomain->toProvisioningPayload('web.apache.v1')['ssl'])->toBe(['mode' => 'lets_encrypt']);

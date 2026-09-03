@@ -3,7 +3,7 @@
   "id": "acme",
   "version": "1.0.0",
   "supported_ubuntu": ["24.04", "26.04"],
-  "depends_on": ["web.nginx.v1", "base.tls.v1"],
+  "depends_on": ["web.nginx.v1", "web.apache.v1", "base.tls.v1"],
   "provides": ["tls.acme.v1"],
   "packages": [],
   "ports": [],

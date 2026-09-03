@@ -147,9 +147,9 @@ class IssueAcmeCertificate implements ShouldQueue
             // issuance) must never retroactively overwrite that real
             // success as last_certificate_error.
             try {
-                $this->dispatchNginxUpdateIfPresent($webDomain);
-            } catch (Throwable $nginxDispatchError) {
-                report($nginxDispatchError);
+                $this->dispatchWebCapabilityUpdateIfPresent($webDomain);
+            } catch (Throwable $webCapabilityDispatchError) {
+                report($webCapabilityDispatchError);
             }
         } catch (Throwable $e) {
             $webDomain->forceFill([
@@ -321,32 +321,33 @@ class IssueAcmeCertificate implements ShouldQueue
     }
 
     /**
-     * Once a certificate is installed, nginx's own vhost needs to be told
-     * about it so it actually terminates HTTPS -- but only when this
-     * domain's node resolves web.nginx.v1 at all: only nginx gets an HTTPS
-     * vhost template this phase (Apache's own is deferred), so an
-     * apache-only node's domain still gets a real certificate issued and
-     * stored, just not yet reflected in any live vhost.
+     * Once a certificate is installed, this domain's own resolved PUBLIC
+     * web capability needs to be told about it so it actually terminates
+     * HTTPS -- web.nginx.v1 when the node has it active (nginx always
+     * fronts the public listener, per ResolvesWebCapableNode's own
+     * nginx-over-apache precedence), otherwise web.apache.v1. Both
+     * capabilities now render an HTTPS vhost template once
+     * WebDomain::toProvisioningPayload() populates
+     * ssl.certificate_path/private_key_path for them, so neither is
+     * special-cased here: the same resolution TriggersAcmeCertificateIssuance
+     * itself performs (see its own doc comment) is simply repeated fresh.
      *
      * Unlike the ACME protocol steps above, there is no reason to bypass the
-     * queue here: nginx picking up the new certificate isn't part of the
-     * CA's own synchronous validation path, so this reuses the same queued
-     * RecordsProvisioningOperation::record() path every other web_domain
-     * desired-state change already goes through.
+     * queue here: the public capability picking up the new certificate
+     * isn't part of the CA's own synchronous validation path, so this
+     * reuses the same queued RecordsProvisioningOperation::record() path
+     * every other web_domain desired-state change already goes through.
      */
-    private function dispatchNginxUpdateIfPresent(WebDomain $webDomain): void
+    private function dispatchWebCapabilityUpdateIfPresent(WebDomain $webDomain): void
     {
         $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
-
-        if (! in_array('web.nginx.v1', $capabilities, true)) {
-            return;
-        }
+        $publicCapability = in_array('web.nginx.v1', $capabilities, true) ? 'web.nginx.v1' : 'web.apache.v1';
 
         app(RecordsProvisioningOperation::class)->record(
             $webDomain,
-            'web.nginx.v1',
+            $publicCapability,
             ProvisioningVerb::Update,
-            $webDomain->toProvisioningPayload('web.nginx.v1'),
+            $webDomain->toProvisioningPayload($publicCapability),
             (string) Str::uuid(),
             $webDomain->desired_state_version,
         );

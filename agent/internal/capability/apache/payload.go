@@ -25,13 +25,21 @@ var hostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.
 // parsed, so any other value is rejected outright, never silently reinterpreted.
 const supportedWebTemplate = "default"
 
-// SSL mirrors WebDomain::toProvisioningPayload()'s ssl shape. mode is parsed and
-// stored but never acted on this phase: every vhost this phase renders is
-// HTTP-only, since acting on ssl.mode would need tls.acme.v1 certificates that
-// don't exist yet, and would make the agent's own `apache2 -t` validation fail
-// against a certificate file that was never provisioned.
+// SSL mirrors WebDomain::toProvisioningPayload()'s ssl shape. Mode is parsed
+// and stored but never acted on directly (renderVhost's template selection
+// keys off CertificatePath being non-empty, not off Mode's own value): a
+// domain can be ssl_mode=lets_encrypt long before tls.acme.v1 has actually
+// issued anything, and this phase's vhost must stay HTTP-only until it has,
+// or `apache2 -t` would fail validating a certificate file that was never
+// provisioned. CertificatePath/PrivateKeyPath are populated by
+// WebDomain::toProvisioningPayload('web.apache.v1') only once
+// certificate_issued_at is set, pointing at the exact fixed paths
+// tls.acme.v1 itself writes to (see internal/capability/acme's own
+// Config.StateRoot doc comment).
 type SSL struct {
-	Mode string `json:"mode"`
+	Mode            string `json:"mode"`
+	CertificatePath string `json:"certificate_path"`
+	PrivateKeyPath  string `json:"private_key_path"`
 }
 
 // Payload is the web.apache.v1 capability's request body, matching

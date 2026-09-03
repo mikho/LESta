@@ -505,3 +505,50 @@ test('IssueAcmeCertificate leaves dns_records byte-identical before and after a 
     $recordsAfter = DnsRecord::query()->where('dns_zone_id', $dnsZone->id)->orderBy('id')->get()->toArray();
     expect($recordsAfter)->toBe($recordsBefore);
 });
+
+test('IssueAcmeCertificate dispatches the update to web.apache.v1 when apache is the domain\'s resolved public capability', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
+    $allocation = IpAllocation::factory()->for($node)->create();
+
+    $webDomain = WebDomain::factory()
+        ->for($node)
+        ->for($allocation)
+        ->create([
+            'domain' => 'localhost',
+            'web_server' => 'apache',
+            'ssl_mode' => SslMode::LetsEncrypt,
+            'certificate_issued_at' => null,
+        ]);
+
+    (new IssueAcmeCertificate($webDomain))->handle(
+        app(EnsuresAcmeAccountExists::class),
+        app(AcmeClientFactory::class),
+        $this->provisioner,
+    );
+
+    $webDomain->refresh();
+
+    expect($webDomain->last_certificate_error)->toBeNull()
+        ->and($webDomain->certificate_issued_at)->not->toBeNull();
+
+    // Unlike every other test in this file (whose node has web.nginx.v1
+    // active, so the public-capability update lands there), this node's
+    // only web capability is web.apache.v1: the resolved public capability
+    // is apache, so the post-issuance update must be recorded against it,
+    // carrying the freshly issued certificate's own paths.
+    $apacheUpdate = ProvisioningOperation::query()
+        ->where('provisionable_type', $webDomain->getMorphClass())
+        ->where('provisionable_id', $webDomain->id)
+        ->where('capability', 'web.apache.v1')
+        ->where('operation', 'update')
+        ->latest('id')
+        ->first();
+
+    expect($apacheUpdate)->not->toBeNull()
+        ->and($apacheUpdate->payload['ssl'])->toBe([
+            'mode' => 'lets_encrypt',
+            'certificate_path' => '/var/lib/lesta/acme/certs/localhost/fullchain.pem',
+            'private_key_path' => '/var/lib/lesta/acme/certs/localhost/privkey.pem',
+        ]);
+});

@@ -3,7 +3,11 @@
 <VirtualHost {{.IPAddress}}:{{.Port}}>
     ServerName {{.Domain}}
 {{if .Aliases}}    ServerAlias{{range .Aliases}} {{.}}{{end}}
-{{end}}    DocumentRoot "{{.ContentDir}}"
+{{end}}    Alias /.well-known/acme-challenge/ "{{.AcmeChallengeDir}}/"
+    <Directory "{{.AcmeChallengeDir}}">
+        Require all granted
+    </Directory>
+    DocumentRoot "{{.ContentDir}}"
     <Directory "{{.ContentDir}}">
         Require all granted
         Options None
