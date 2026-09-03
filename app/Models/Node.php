@@ -72,4 +72,12 @@ class Node extends Model implements ProviderAdminManaged
     {
         return $this->hasMany(TenantDatabase::class);
     }
+
+    /**
+     * @return HasMany<CronJob, $this>
+     */
+    public function cronJobs(): HasMany
+    {
+        return $this->hasMany(CronJob::class);
+    }
 }

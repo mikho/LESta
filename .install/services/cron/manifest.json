@@ -8,5 +8,5 @@
   "packages": [],
   "ports": [],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/var/lib/lesta/cron"], "read_only_roots": ["/etc/crontab"], "refused_roots": ["/var/spool/cron/crontabs/root"]}
+  "ownership": {"owned_roots": ["/var/lib/lesta/cron", "/etc/cron.d"], "read_only_roots": ["/etc/crontab"], "refused_roots": ["/var/spool/cron/crontabs/root"]}
 }
