@@ -345,7 +345,7 @@ jobs:
           grep -q '53' /tmp/lesta-nft-4.txt && echo "53 still allowed in the firewall table"
           sudo systemctl is-active named
           sudo systemctl is-active mariadb@tenant.service
-          mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -e "SELECT 1;"
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -e "SELECT 1;"
 
       - name: Re-apply cron (idempotent rerun must still succeed)
         run: sudo sh .install/services/cron/install.sh --apply --yes
