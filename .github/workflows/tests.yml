@@ -119,7 +119,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -316,6 +316,39 @@ jobs:
 
       - name: Re-apply mariadb (idempotent rerun must still succeed)
         run: sudo sh .install/services/mariadb/install.sh --apply --yes
+
+      - name: Dry-run cron against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/cron/install.sh --dry-run
+
+      - name: Apply cron (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/cron/install.sh --apply --yes
+
+      - name: Diagnose cron apply failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          echo "--- systemctl status cron ---"
+          sudo systemctl status cron --no-pager || true
+          echo "--- journalctl for cron ---"
+          sudo journalctl -u cron --no-pager | tail -100 || true
+          echo "--- id lesta-cron ---"
+          id lesta-cron || true
+          echo "--- /etc/cron.d ---"
+          sudo ls -la /etc/cron.d || true
+          echo "--- /var/lib/lesta/cron ---"
+          sudo ls -laR /var/lib/lesta/cron 2>&1 || true
+
+      - name: Verify nginx, bind9, and mariadb are all still up after cron's apply
+        run: |
+          sudo nft list table inet lesta | tee /tmp/lesta-nft-4.txt
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          grep -q '443' /tmp/lesta-nft-4.txt && echo "443/tcp still allowed in the firewall table"
+          grep -q '53' /tmp/lesta-nft-4.txt && echo "53 still allowed in the firewall table"
+          sudo systemctl is-active named
+          sudo systemctl is-active mariadb@tenant.service
+          mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -e "SELECT 1;"
+
+      - name: Re-apply cron (idempotent rerun must still succeed)
+        run: sudo sh .install/services/cron/install.sh --apply --yes
 
       - name: Relax AppArmor for named before running the disposable-harness tests
         run: |

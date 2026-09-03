@@ -5,8 +5,8 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Five capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
-// tls.acme.v1, and database.tenant.v1.
+// Six capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// tls.acme.v1, database.tenant.v1, and scheduler.account-cron.v1.
 package main
 
 import (
@@ -19,6 +19,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
+	"github.com/mikho/LESta/agent/internal/capability/cron"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -30,6 +31,7 @@ const (
 	webApacheCapability      = "web.apache.v1"
 	tlsAcmeCapability        = "tls.acme.v1"
 	databaseTenantCapability = "database.tenant.v1"
+	schedulerCronCapability  = "scheduler.account-cron.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -39,6 +41,16 @@ const (
 )
 
 func main() {
+	// "cron-run <resource_id>" is a distinct CLI invocation shape, never an
+	// OperationEnvelope read from stdin: this is the wrapper cron itself
+	// execs on schedule (see internal/capability/cron's own package doc
+	// comment), not a call from the Laravel-facing provisioning pipeline.
+	// It must be checked before the normal run(os.Stdin, os.Stdout) path,
+	// which never looks at os.Args at all.
+	if len(os.Args) >= 3 && os.Args[1] == "cron-run" {
+		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2]))
+	}
+
 	if err := run(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "lesta-agent:", err)
 		os.Exit(1)
@@ -68,8 +80,10 @@ func run(stdin *os.File, stdout *os.File) error {
 		capability = acme.New(acmeProductionConfig())
 	case databaseTenantCapability:
 		capability = mariadb.New(mariadbProductionConfig())
+	case schedulerCronCapability:
+		capability = cron.New(cronProductionConfig())
 	default:
-		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability)
+		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability)
 	}
 
 	result, err := capability.Apply(context.Background(), op)
@@ -277,5 +291,27 @@ func mariadbProductionConfig() mariadb.Config {
 		MariaDBBinary:     "mariadb",
 		DefaultsExtraFile: "/etc/lesta/mariadb-tenant-admin.cnf",
 		StateRoot:         "/var/lib/lesta/mariadb/tenant-agent-state",
+	}
+}
+
+// cronProductionConfig points at the real, fixed host paths and identities
+// .install/services/cron/install.sh establishes for scheduler.account-cron.v1,
+// mirroring every other *ProductionConfig function's own non-configurability
+// rationale: AgentBinaryPath is embedded verbatim into every crontab
+// fragment's own scheduled line (see internal/capability/cron/capability.go's
+// own renderFragment), so making it externally overridable would let
+// anything able to set this process's environment redirect every future
+// cron-run invocation to an arbitrary executable.
+//
+// AgentBinaryPath's literal value must stay in lockstep with
+// .install/lib/agent.sh's own AGENT_BINARY_DEST and RunnerUser's literal
+// value with .install/services/cron/install.sh's own creation of the
+// lesta-cron system user.
+func cronProductionConfig() cron.Config {
+	return cron.Config{
+		FragmentDir:     "/etc/cron.d",
+		StateRoot:       "/var/lib/lesta/cron",
+		RunnerUser:      "lesta-cron",
+		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
 }

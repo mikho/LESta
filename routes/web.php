@@ -12,3 +12,4 @@ require __DIR__.'/settings.php';
 require __DIR__.'/domains.php';
 require __DIR__.'/dns.php';
 require __DIR__.'/tenant-databases.php';
+require __DIR__.'/cron-jobs.php';

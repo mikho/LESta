@@ -1,6 +1,7 @@
 import { Link } from '@inertiajs/react';
 import {
     BookOpen,
+    Clock,
     Database,
     FolderGit2,
     Globe,
@@ -21,6 +22,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
 import tenantDatabases from '@/routes/tenant-databases';
@@ -46,6 +48,11 @@ const mainNavItems: NavItem[] = [
         title: 'Databases',
         href: tenantDatabases.index(),
         icon: Database,
+    },
+    {
+        title: 'Cron jobs',
+        href: cronJobs.index(),
+        icon: Clock,
     },
 ];
 
