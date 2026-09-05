@@ -574,6 +574,35 @@ SOURCES
 
     add_change mariadb installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
 
+    # mysql (the package's own system user, running as the mariadbd worker
+    # identity for BOTH instances) has no reason to already be a member of
+    # the lesta group. /var/lib/lesta itself is 0750 root:lesta (created by
+    # bootstrap_base); mysql is neither root nor a lesta group member, so it
+    # cannot even traverse into /var/lib/lesta at all, let alone reach
+    # /var/lib/lesta/mariadb/control-plane or /var/lib/lesta/mariadb/tenant
+    # beneath it -- the exact same class of gap bind9's own installer already
+    # hit and fixed for named/bind and apache's own installer hit and fixed
+    # for www-data.
+    #
+    # This grant must run here, in the ONE shared phase both instance phases
+    # call, before either of them starts mariadbd against a /var/lib/lesta
+    # path. Confirmed directly via a real CI run: this call used to live
+    # inside install_mariadb_tenant() alone, which was fine when tenant ran
+    # first (a real supplementary-group grant, followed by that same
+    # function's own first `systemctl enable --now mariadb@tenant.service`,
+    # is sufficient since supplementary groups are fixed at process exec time
+    # and that exec only ever happens after the grant). Once
+    # install_mariadb_control_plane() started running BEFORE install_
+    # mariadb_tenant() in main(), that ordering assumption broke: the
+    # control-plane phase's own mariadbd re-exec (systemctl stop then
+    # enable --now mariadb.service, against the just-relocated datadir) hit
+    # "Can't create test file '.../control-plane/<host>.lower-test' (Errcode:
+    # 13 'Permission denied')" and failed its own health probe, since mysql
+    # still wasn't a lesta group member at that point. Moving the grant here,
+    # before either instance phase runs, fixes both orders at once.
+    usermod -aG lesta mysql || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta mysql failed"
+    add_change mariadb group_membership_granted "" "mysql added to the lesta group, so mariadbd's own worker (both instances) can traverse /var/lib/lesta to reach its own datadir"
+
     log_info "ensure_mariadb_package_installed complete"
 }
 
@@ -770,26 +799,9 @@ install_mariadb_tenant() {
 
     local out admin_password apparmor_local_mariadbd
 
-    # mysql (the package's own system user, running as APACHE_RUN_USER-style
-    # mariadbd worker identity) has no reason to already be a member of the
-    # lesta group. /var/lib/lesta itself is 0750 root:lesta (created by
-    # bootstrap_base); mysql is neither root nor a lesta group member, so it
-    # cannot even traverse into /var/lib/lesta at all, let alone reach
-    # /var/lib/lesta/mariadb/tenant beneath it -- confirmed directly via a
-    # real CI run: mariadb-install-db (run by mariadb@tenant.service's own
-    # ExecStartPre as user mysql) failed outright with "mkdir: cannot create
-    # directory '/var/lib/lesta': Permission denied", the exact same class of
-    # gap bind9's own installer already hit and fixed for named/bind and
-    # apache's own installer hit and fixed for www-data. Unlike those two,
-    # no restart-vs-enable-now subtlety applies here: mariadb@tenant.service
-    # is a systemd template instance no package postinst ever auto-starts
-    # (it doesn't know what instance name to use), so this is genuinely the
-    # first exec of this specific instance, not a re-exec of an
-    # already-running default one -- a plain group grant before this
-    # installer's own first `systemctl enable --now mariadb@tenant.service`
-    # call is sufficient.
-    usermod -aG lesta mysql || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta mysql failed"
-    add_change database.tenant.v1 group_membership_granted "" "mysql added to the lesta group, so mariadbd's own tenant-instance worker can traverse /var/lib/lesta to reach its own datadir"
+    # mysql's own lesta-group membership (needed to traverse /var/lib/lesta
+    # to reach this datadir) is granted once, shared by both instance
+    # phases, in ensure_mariadb_package_installed above.
 
     # --- tenant datadir: created empty and correctly owned only -----------
     #
