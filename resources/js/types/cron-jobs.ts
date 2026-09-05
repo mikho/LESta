@@ -1,5 +1,12 @@
 import type { ProvisioningStatus, SuspensionSource } from './domains';
 
+export type CronJobExecution = {
+    started_at: string;
+    finished_at: string;
+    exit_code: number;
+    output: string;
+};
+
 export type CronJob = {
     uuid: string;
     minute: string;
@@ -11,4 +18,5 @@ export type CronJob = {
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     provisioning_status: ProvisioningStatus | null;
+    executions?: CronJobExecution[];
 };

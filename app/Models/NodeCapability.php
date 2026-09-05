@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property string $capability
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
+ * @property Carbon|null $last_seen_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -37,6 +38,7 @@ class NodeCapability extends Model implements ProviderAdminManaged
         return [
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,
+            'last_seen_at' => 'datetime',
         ];
     }
 
