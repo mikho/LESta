@@ -28,6 +28,13 @@ class IssueNodeEnrollmentToken extends Command
     {
         $node = Node::query()->where('uuid', $this->argument('node_uuid'))->firstOrFail();
 
+        // The new App\Actions\Nodes\IssueNodeEnrollmentToken action requires a User actor to
+        // authorize and audit against, and this console command runs with no authenticated
+        // user and no reliable seeded provider admin to stand in for one. Rather than invent a
+        // synthetic actor (or weaken the action's signature to accept a nullable actor just for
+        // this one caller), this command keeps calling the model method directly; the web path
+        // (NodeController::issueEnrollmentToken) is the one that goes through the audited
+        // Action, since it always has a real authenticated provider admin as its actor.
         $token = $node->issueEnrollmentToken();
 
         $this->info("Enrollment token for node {$node->uuid} (valid 30 minutes): {$token}");

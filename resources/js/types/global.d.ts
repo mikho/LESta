@@ -20,6 +20,7 @@ declare module '@inertiajs/core' {
         flashDataType: {
             toast?: FlashToast;
             generatedPassword?: GeneratedTenantDatabasePassword;
+            enrollmentToken?: string;
         };
     }
 }

@@ -37,6 +37,16 @@ class Node extends Model implements ProviderAdminManaged
     use HasFactory, Suspendable;
 
     /**
+     * Route model binding resolves by uuid, not the internal auto-increment id, matching every
+     * other admin-managed resource's own route key convention (DnsZone, CronJob, WebDomain,
+     * TenantDatabase).
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -130,5 +140,13 @@ class Node extends Model implements ProviderAdminManaged
     public function cronJobs(): HasMany
     {
         return $this->hasMany(CronJob::class);
+    }
+
+    /**
+     * @return HasMany<ProvisioningOperation, $this>
+     */
+    public function provisioningOperations(): HasMany
+    {
+        return $this->hasMany(ProvisioningOperation::class);
     }
 }
