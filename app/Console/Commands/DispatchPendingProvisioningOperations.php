@@ -28,6 +28,18 @@ class DispatchPendingProvisioningOperations extends Command
      */
     public function handle(): int
     {
+        $this->redispatchStalePendingOperations();
+        $this->failOperationsPastTheirDeadline();
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Re-dispatch operations still Pending past the staleness window: the job that should
+     * have dispatched them never ran, or failed silently.
+     */
+    private function redispatchStalePendingOperations(): void
+    {
         $staleBefore = now()->subMinutes((int) config('provisioning.stale_after_minutes', 5));
 
         ProvisioningOperation::query()
@@ -36,7 +48,24 @@ class DispatchPendingProvisioningOperations extends Command
             ->each(function (ProvisioningOperation $operation): void {
                 DispatchProvisioningOperation::dispatch($operation->id);
             });
+    }
 
-        return self::SUCCESS;
+    /**
+     * Fail operations still Dispatched past their own deadline: the owning node's agent
+     * daemon never reported a result in time, so this is the backstop that reconciles a
+     * stuck operation to a terminal status rather than leaving it Dispatched forever.
+     */
+    private function failOperationsPastTheirDeadline(): void
+    {
+        ProvisioningOperation::query()
+            ->where('status', ProvisioningStatus::Dispatched)
+            ->where('deadline', '<', now())
+            ->each(function (ProvisioningOperation $operation): void {
+                $operation->forceFill([
+                    'status' => ProvisioningStatus::Failed,
+                    'errors' => [['code' => 'deadline_exceeded', 'message' => 'Operation exceeded its dispatch deadline without a result from the node.']],
+                    'completed_at' => now(),
+                ])->save();
+            });
     }
 }

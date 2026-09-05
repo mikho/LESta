@@ -91,6 +91,25 @@ func run(stdin *os.File, stdout *os.File) error {
 		return fmt.Errorf("decoding operation envelope from stdin: %w", err)
 	}
 
+	result, err := dispatchOperation(context.Background(), op)
+	if err != nil {
+		return err
+	}
+
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+
+	if err := enc.Encode(result); err != nil {
+		return fmt.Errorf("encoding result envelope to stdout: %w", err)
+	}
+
+	return nil
+}
+
+// dispatchOperation selects the one capability op.Capability names and applies op against
+// it. Shared by run's own one-shot stdin/stdout path and the daemon's own operations.go,
+// so both routes to applying an OperationEnvelope pick a capability identically.
+func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	var capability protocol.Capability
 
 	switch op.Capability {
@@ -107,22 +126,15 @@ func run(stdin *os.File, stdout *os.File) error {
 	case schedulerCronCapability:
 		capability = cron.New(cronProductionConfig())
 	default:
-		return fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability)
 	}
 
-	result, err := capability.Apply(context.Background(), op)
+	result, err := capability.Apply(ctx, op)
 	if err != nil {
-		return fmt.Errorf("applying operation: %w", err)
+		return protocol.ResultEnvelope{}, fmt.Errorf("applying operation: %w", err)
 	}
 
-	enc := json.NewEncoder(stdout)
-	enc.SetIndent("", "  ")
-
-	if err := enc.Encode(result); err != nil {
-		return fmt.Errorf("encoding result envelope to stdout: %w", err)
-	}
-
-	return nil
+	return result, nil
 }
 
 // nginxProductionConfig points at the real, fixed host paths this phase's own
@@ -408,6 +420,7 @@ func daemonProductionConfig() daemon.Config {
 		HeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
 		ProtocolVersion:   protocolVersion,
 		AgentVersion:      agentVersion,
+		Dispatch:          dispatchOperation,
 		CronStateRoot:     "/var/lib/lesta/cron",
 		// /var/lib/lesta/agent itself is 0750 root:lesta; the daemon's own
 		// lesta-agent identity is only ever a group member there, never the

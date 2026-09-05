@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Actions\Provisioning\TriggersAcmeCertificateIssuance;
+use App\Actions\Provisioning\CompletesProvisioningOperation;
 use App\Contracts\Provisioner;
 use App\Enums\ProvisioningStatus;
 use App\Models\ProvisioningOperation;
@@ -24,14 +24,12 @@ class DispatchProvisioningOperation implements ShouldQueue
     // with one manually-resolved argument rather than letting the queue
     // worker's own container resolution supply every parameter, so adding a
     // second method-injected parameter here would break that established
-    // calling convention. TriggersAcmeCertificateIssuance is resolved via
-    // the container instead, exactly like every provisioner-agnostic Action
-    // this job already calls (RecordsProvisioningOperation, etc.).
+    // calling convention. CompletesProvisioningOperation is resolved via the
+    // container instead, exactly like every provisioner-agnostic Action this
+    // job already calls (RecordsProvisioningOperation, etc.).
     public function handle(Provisioner $provisioner): void
     {
-        $triggersAcmeCertificateIssuance = app(TriggersAcmeCertificateIssuance::class);
-
-        DB::transaction(function () use ($provisioner, $triggersAcmeCertificateIssuance): void {
+        DB::transaction(function () use ($provisioner): void {
             $operation = ProvisioningOperation::query()
                 ->whereKey($this->provisioningOperationId)
                 ->lockForUpdate()
@@ -53,19 +51,14 @@ class DispatchProvisioningOperation implements ShouldQueue
 
             $result = $provisioner->apply($operation);
 
-            $operation->forceFill([
-                'status' => $result->status,
-                'observed_state_version' => $result->observedStateVersion,
-                'observed_state_digest' => $result->observedStateDigest,
-                'generation_id' => $result->generationId,
-                'errors' => $result->errors,
-                'completed_at' => $result->completedAt,
-            ])->save();
+            if ($result === null) {
+                // The daemon provisioner: the operation has merely been enqueued for real
+                // asynchronous delivery, and stays Dispatched until the owning node's agent
+                // daemon reports a result back over agent/v1/operation-results.
+                return;
+            }
 
-            // The one hook point ACME issuance needs: never couples this
-            // provisionable-agnostic job to ACME-specific knowledge itself,
-            // see TriggersAcmeCertificateIssuance's own doc comment.
-            $triggersAcmeCertificateIssuance->handle($operation);
+            app(CompletesProvisioningOperation::class)->handle($operation, $result);
         });
     }
 }

@@ -56,6 +56,15 @@ class ProvisioningOperationFactory extends Factory
         return $this->state(fn (): array => ['status' => ProvisioningStatus::Pending]);
     }
 
+    public function dispatched(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => ProvisioningStatus::Dispatched,
+            'dispatched_at' => now(),
+            'deadline' => now()->addMinutes(5),
+        ]);
+    }
+
     public function applied(): static
     {
         return $this->state(fn (array $attributes): array => [

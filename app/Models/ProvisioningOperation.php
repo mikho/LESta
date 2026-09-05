@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $provisionable_type
  * @property int|string $provisionable_id
+ * @property int|null $node_id
  * @property string $resource_id
  * @property string $capability
  * @property ProvisioningVerb $operation
@@ -37,7 +38,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['provisionable_type', 'provisionable_id', 'resource_id', 'capability', 'operation', 'status', 'desired_state_version', 'payload', 'correlation_id', 'idempotency_key', 'issued_at', 'request_digest'])]
+#[Fillable(['provisionable_type', 'provisionable_id', 'node_id', 'resource_id', 'capability', 'operation', 'status', 'desired_state_version', 'payload', 'correlation_id', 'idempotency_key', 'issued_at', 'request_digest'])]
 class ProvisioningOperation extends Model
 {
     /** @use HasFactory<ProvisioningOperationFactory> */

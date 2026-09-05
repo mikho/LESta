@@ -37,7 +37,7 @@ func TestSendHeartbeatSuccessAppliesNextHeartbeatSeconds(t *testing.T) {
 		HeartbeatInterval: 60,
 	}
 
-	if err := sendHeartbeat(server.Client(), cfg, "test-credential"); err != nil {
+	if _, err := sendHeartbeat(server.Client(), cfg, "test-credential"); err != nil {
 		t.Fatalf("sendHeartbeat returned error: %v", err)
 	}
 
@@ -54,12 +54,35 @@ func TestSendHeartbeatIgnoresAbsurdNextHeartbeatSeconds(t *testing.T) {
 
 	cfg := &Config{ControlPlaneURL: server.URL, HeartbeatInterval: 60}
 
-	if err := sendHeartbeat(server.Client(), cfg, "credential"); err != nil {
+	if _, err := sendHeartbeat(server.Client(), cfg, "credential"); err != nil {
 		t.Fatalf("sendHeartbeat returned error: %v", err)
 	}
 
 	if cfg.HeartbeatInterval != 60 {
 		t.Errorf("HeartbeatInterval changed to %v despite an out-of-range server value", cfg.HeartbeatInterval)
+	}
+}
+
+func TestSendHeartbeatReturnsPendingOperations(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ack":true,"next_heartbeat_seconds":60,"pending_operations":[{"protocol_version":"1","capability":"web.nginx.v1","operation":"create","resource_id":"11111111-1111-1111-1111-111111111111","desired_state_version":1,"idempotency_key":"22222222-2222-2222-2222-222222222222","correlation_id":"33333333-3333-3333-3333-333333333333","deadline":"2026-01-01T00:05:00Z","issued_at":"2026-01-01T00:00:00Z","request_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","payload":{}}]}`))
+	}))
+	defer server.Close()
+
+	cfg := &Config{ControlPlaneURL: server.URL, HeartbeatInterval: 60}
+
+	pending, err := sendHeartbeat(server.Client(), cfg, "credential")
+	if err != nil {
+		t.Fatalf("sendHeartbeat returned error: %v", err)
+	}
+
+	if len(pending) != 1 {
+		t.Fatalf("got %d pending operations, want 1", len(pending))
+	}
+
+	if pending[0].IdempotencyKey != "22222222-2222-2222-2222-222222222222" {
+		t.Errorf("IdempotencyKey = %q, want %q", pending[0].IdempotencyKey, "22222222-2222-2222-2222-222222222222")
 	}
 }
 
@@ -71,7 +94,7 @@ func TestSendHeartbeatServerErrorReturnsError(t *testing.T) {
 
 	cfg := &Config{ControlPlaneURL: server.URL, HeartbeatInterval: 60}
 
-	if err := sendHeartbeat(server.Client(), cfg, "credential"); err == nil {
+	if _, err := sendHeartbeat(server.Client(), cfg, "credential"); err == nil {
 		t.Fatal("expected an error for a 500 response, got nil")
 	}
 }

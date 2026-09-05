@@ -1,12 +1,17 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
 func TestRunOneCycleSkipsExecutionReportWhenHeartbeatFails(t *testing.T) {
@@ -76,6 +81,101 @@ func TestRunOneCycleReportsExecutionsAfterSuccessfulHeartbeat(t *testing.T) {
 
 	if !executionsCalled.Load() {
 		t.Error("cron-executions endpoint was never called despite a successful heartbeat")
+	}
+}
+
+func TestRunOneCycleReportsOperationResultsAfterSuccessfulHeartbeat(t *testing.T) {
+	var operationResultsCalled atomic.Bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/v1/heartbeat":
+			_, _ = w.Write([]byte(`{"ack":true,"next_heartbeat_seconds":60,"pending_operations":[{"protocol_version":"1","capability":"web.nginx.v1","operation":"create","resource_id":"11111111-1111-1111-1111-111111111111","desired_state_version":1,"idempotency_key":"22222222-2222-2222-2222-222222222222","correlation_id":"33333333-3333-3333-3333-333333333333","deadline":"2026-01-01T00:05:00Z","issued_at":"2026-01-01T00:00:00Z","request_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","payload":{}}]}`))
+		case "/agent/v1/cron-executions":
+			w.WriteHeader(http.StatusOK)
+		case "/agent/v1/operation-results":
+			operationResultsCalled.Store(true)
+
+			var body struct {
+				Results []protocol.ResultEnvelope `json:"results"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decoding operation-results body: %v", err)
+			}
+
+			if len(body.Results) != 1 {
+				t.Errorf("got %d results, want 1", len(body.Results))
+			}
+
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+
+	cfg := &Config{
+		ControlPlaneURL:   server.URL,
+		HeartbeatInterval: 60,
+		CronStateRoot:     dir,
+		WatermarkPath:     filepath.Join(dir, "watermark.json"),
+		Dispatch: func(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+			return protocol.ResultEnvelope{
+				ProtocolVersion:      op.ProtocolVersion,
+				Capability:           op.Capability,
+				ResourceID:           op.ResourceID,
+				IdempotencyKey:       op.IdempotencyKey,
+				CorrelationID:        op.CorrelationID,
+				Status:               protocol.StatusApplied,
+				ObservedStateVersion: op.DesiredStateVersion,
+				ObservedStateDigest:  "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				GenerationID:         "gen-1",
+				Errors:               []protocol.ResultError{},
+				CompletedAt:          time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	if err := runOneCycle(server.Client(), cfg, "credential"); err != nil {
+		t.Fatalf("runOneCycle returned error: %v", err)
+	}
+
+	if !operationResultsCalled.Load() {
+		t.Error("operation-results endpoint was never called despite a heartbeat carrying pending operations")
+	}
+}
+
+func TestRunOneCycleSkipsOperationResultsWhenNoPendingOperations(t *testing.T) {
+	var operationResultsCalled atomic.Bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/v1/heartbeat":
+			w.Write([]byte(`{"ack":true,"next_heartbeat_seconds":60}`))
+		case "/agent/v1/cron-executions":
+			w.WriteHeader(http.StatusOK)
+		case "/agent/v1/operation-results":
+			operationResultsCalled.Store(true)
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+
+	cfg := &Config{
+		ControlPlaneURL:   server.URL,
+		HeartbeatInterval: 60,
+		CronStateRoot:     dir,
+		WatermarkPath:     filepath.Join(dir, "watermark.json"),
+	}
+
+	if err := runOneCycle(server.Client(), cfg, "credential"); err != nil {
+		t.Fatalf("runOneCycle returned error: %v", err)
+	}
+
+	if operationResultsCalled.Load() {
+		t.Error("operation-results endpoint was called despite an empty pending_operations list")
 	}
 }
 
