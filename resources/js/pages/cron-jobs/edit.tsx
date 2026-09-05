@@ -16,7 +16,39 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import cronJobs from '@/routes/cron-jobs';
-import type { CronJob } from '@/types';
+import type { CronJob, CronJobExecution } from '@/types';
+
+const exitCodeBadgeClasses = (exitCode: number): string =>
+    exitCode === 0
+        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+        : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+
+function ExecutionRow({ execution }: { execution: CronJobExecution }) {
+    return (
+        <details className="rounded-lg border p-3">
+            <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+                <span className="text-sm">
+                    {new Date(execution.started_at).toLocaleString()}
+                </span>
+                <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${exitCodeBadgeClasses(execution.exit_code)}`}
+                >
+                    exit {execution.exit_code}
+                </span>
+            </summary>
+
+            <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                <p>
+                    Finished {new Date(execution.finished_at).toLocaleString()}
+                </p>
+
+                <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 whitespace-pre-wrap">
+                    {execution.output || '(no output)'}
+                </pre>
+            </div>
+        </details>
+    );
+}
 
 export default function Edit({ cronJob }: { cronJob: CronJob }) {
     return (
@@ -152,6 +184,29 @@ export default function Edit({ cronJob }: { cronJob: CronJob }) {
                             </Button>
                         )}
                     </Form>
+                </div>
+
+                <div className="space-y-4 rounded-lg border p-4">
+                    <Heading
+                        variant="small"
+                        title="Recent runs"
+                        description="The most recent reported executions of this job on its node"
+                    />
+
+                    {cronJob.executions && cronJob.executions.length > 0 ? (
+                        <div className="space-y-2">
+                            {cronJob.executions.map((execution) => (
+                                <ExecutionRow
+                                    key={execution.started_at}
+                                    execution={execution}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">
+                            No executions reported yet.
+                        </p>
+                    )}
                 </div>
 
                 <div className="space-y-6">

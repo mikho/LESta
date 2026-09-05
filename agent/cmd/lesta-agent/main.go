@@ -7,6 +7,13 @@
 //
 // Six capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
 // tls.acme.v1, database.tenant.v1, and scheduler.account-cron.v1.
+//
+// A third CLI mode, "daemon", is a genuinely long-running process (unlike
+// the one-shot envelope pipe and the "cron-run" wrapper mode): it heartbeats
+// this node's own liveness and capability presence to the control plane and
+// reports cron execution history, over plain bearer-token auth against
+// Laravel's own already-terminated HTTPS. See internal/daemon's own package
+// doc comment.
 package main
 
 import (
@@ -15,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
@@ -22,6 +30,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/cron"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
+	"github.com/mikho/LESta/agent/internal/daemon"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -38,6 +47,13 @@ const (
 	// trimmed line ("apache" or "both"). apacheProductionConfig reads it at
 	// process start to pick Apache's own rendered-vhost listen port.
 	webProfilePath = "/etc/lesta/web-profile"
+
+	// agentVersion is this binary's own build version, reported verbatim in
+	// every enrollment and heartbeat request. Bumped by hand alongside a
+	// real release; not derived from git describe or similar, matching this
+	// project's own preference for explicit, reviewable literals over
+	// build-time magic.
+	agentVersion = "1.0.0"
 )
 
 func main() {
@@ -49,6 +65,14 @@ func main() {
 	// which never looks at os.Args at all.
 	if len(os.Args) >= 3 && os.Args[1] == "cron-run" {
 		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2]))
+	}
+
+	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
+	// never an OperationEnvelope read from stdin: this is the process
+	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
+	// call from the Laravel-facing provisioning pipeline.
+	if len(os.Args) >= 2 && os.Args[1] == "daemon" {
+		os.Exit(daemon.Run(daemonProductionConfig()))
 	}
 
 	if err := run(os.Stdin, os.Stdout); err != nil {
@@ -342,4 +366,98 @@ func cronProductionConfig() cron.Config {
 		RunnerUser:      "lesta-cron",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
+}
+
+// daemonProductionConfig points at the real, fixed host paths
+// .install/services/agent-daemon/install.sh establishes for agent.daemon.v1.
+// Unlike every capability's own *ProductionConfig function, there is no
+// binary to guard against an environment-driven exec-target hijack here:
+// this mode makes only outbound HTTP requests. What IS fixed for the same
+// underlying reason (nothing about this daemon's own identity or reporting
+// targets should be attacker-adjustable via environment) is ConfigPath and
+// CredentialPath: both are root-owned, fixed locations the installer alone
+// writes, read once at process start.
+//
+// ControlPlaneURL/NodeUUID/HeartbeatInterval/ProtocolVersion are read from
+// ConfigPath (a small JSON file .install/lib/daemon.sh's own
+// daemon_write_config writes at enrollment time), not hardcoded here,
+// because unlike every other *ProductionConfig function's own literals
+// (binaries, filesystem paths fixed by this project's own packaging
+// convention), the control-plane URL and node identity are inherently
+// per-deployment, per-node values with no single correct compiled-in
+// default.
+//
+// CapabilityStateRoots's six literal values must stay in lockstep with
+// nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
+// acmeProductionConfig's/mariadbProductionConfig's/cronProductionConfig's
+// own StateRoot fields above; this function never invokes those
+// capabilities, it only os.Stats their fixed StateRoot to report presence.
+func daemonProductionConfig() daemon.Config {
+	const (
+		configPath     = "/etc/lesta/agent/daemon-config.json"
+		credentialPath = "/etc/lesta/agent/node-credential"
+	)
+
+	controlPlaneURL, nodeUUID, protocolVersion, heartbeatSeconds := readDaemonConfig(configPath)
+
+	return daemon.Config{
+		ControlPlaneURL:   controlPlaneURL,
+		NodeUUID:          nodeUUID,
+		CredentialPath:    credentialPath,
+		ConfigPath:        configPath,
+		HeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
+		ProtocolVersion:   protocolVersion,
+		AgentVersion:      agentVersion,
+		CronStateRoot:     "/var/lib/lesta/cron",
+		// /var/lib/lesta/agent itself is 0750 root:lesta; the daemon's own
+		// lesta-agent identity is only ever a group member there, never the
+		// owner, so its own writable watermark file must live in the nested
+		// daemon-state subdirectory the installer creates specifically for
+		// this (see .install/services/agent-daemon/install.sh).
+		WatermarkPath: "/var/lib/lesta/agent/daemon-state/cron-execution-watermark.json",
+		CapabilityStateRoots: map[string]string{
+			webNginxCapability:       "/var/lib/lesta/nginx",
+			dnsBind9Capability:       "/var/lib/lesta/bind",
+			webApacheCapability:      "/var/lib/lesta/apache",
+			tlsAcmeCapability:        "/var/lib/lesta/acme",
+			databaseTenantCapability: "/var/lib/lesta/mariadb/tenant-agent-state",
+			schedulerCronCapability:  "/var/lib/lesta/cron",
+		},
+	}
+}
+
+// readDaemonConfig reads and parses daemon-config.json, written once by
+// .install/services/agent-daemon/install.sh's own daemon_write_config at
+// enrollment time. Falls back to a 60 second heartbeat interval if the
+// file's own value is missing or non-positive, the same safe default the
+// installer itself writes.
+func readDaemonConfig(path string) (controlPlaneURL, nodeUUID, protocolVersion string, heartbeatSeconds int) {
+	heartbeatSeconds = 60
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", "1", heartbeatSeconds
+	}
+
+	var parsed struct {
+		ControlPlaneURL          string `json:"control_plane_url"`
+		NodeUUID                 string `json:"node_uuid"`
+		ProtocolVersion          string `json:"protocol_version"`
+		HeartbeatIntervalSeconds int    `json:"heartbeat_interval_seconds"`
+	}
+
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", "", "1", heartbeatSeconds
+	}
+
+	if parsed.HeartbeatIntervalSeconds > 0 {
+		heartbeatSeconds = parsed.HeartbeatIntervalSeconds
+	}
+
+	protocolVersion = parsed.ProtocolVersion
+	if protocolVersion == "" {
+		protocolVersion = "1"
+	}
+
+	return parsed.ControlPlaneURL, parsed.NodeUUID, protocolVersion, heartbeatSeconds
 }

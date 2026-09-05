@@ -1,0 +1,21 @@
+{
+  "schema_version": "1",
+  "id": "agent-daemon",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["node.health.v1"],
+  "provides": ["agent.daemon.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {
+    "owned_roots": [
+      "/etc/lesta/agent/node-credential",
+      "/etc/lesta/agent/daemon-config.json",
+      "/etc/systemd/system/lesta-agent-daemon.service",
+      "/var/lib/lesta/agent/daemon-state"
+    ],
+    "read_only_roots": [],
+    "refused_roots": []
+  }
+}

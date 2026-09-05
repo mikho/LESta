@@ -13,6 +13,7 @@ use App\Http\Requests\CronJobs\StoreCronJobRequest;
 use App\Http\Requests\CronJobs\UpdateCronJobRequest;
 use App\Models\Account;
 use App\Models\CronJob;
+use App\Models\CronJobExecution;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -85,7 +86,10 @@ class CronJobController extends Controller
     {
         Gate::authorize('update', $cronJob);
 
-        $cronJob->load('latestProvisioningOperation');
+        $cronJob->load([
+            'latestProvisioningOperation',
+            'executions' => fn ($query) => $query->latest('started_at')->limit(20),
+        ]);
 
         return Inertia::render('cron-jobs/edit', [
             'cronJob' => $this->presentForEdit($cronJob),
@@ -191,6 +195,12 @@ class CronJobController extends Controller
             'suspended_at' => $cronJob->suspended_at?->toIso8601String(),
             'suspension_source' => $cronJob->suspension_source?->value,
             'provisioning_status' => $cronJob->latestProvisioningOperation?->status->value,
+            'executions' => $cronJob->executions->map(fn (CronJobExecution $e): array => [
+                'started_at' => $e->started_at->toIso8601String(),
+                'finished_at' => $e->finished_at->toIso8601String(),
+                'exit_code' => $e->exit_code,
+                'output' => $e->output,
+            ])->all(),
         ];
     }
 }
