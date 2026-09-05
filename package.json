@@ -8,6 +8,7 @@
         "dev": "vite",
         "format": "prettier --write resources/",
         "format:check": "prettier --check resources/",
+        "installer:contract:check": "node .install/scripts/validate-contract.mjs",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
         "types:check": "tsc --noEmit"

@@ -476,3 +476,235 @@ jobs:
           sudo cat /etc/lesta/web-profile 2>&1 || true
           echo "--- apache2 error log ---"
           sudo tail -n 60 /var/log/apache2/error.log 2>&1 || true
+
+  installer-scenarios:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
+      - name: Build the vendored agent binary (agent_install_binary requires agent/dist/lesta-agent-linux-amd64 to exist before any real --apply)
+        run: cd agent && GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/lesta-agent-linux-amd64 ./cmd/lesta-agent
+
+      - name: Prepare the runner as a bare nginx-profile node
+        run: |
+          sudo systemctl stop apache2 2>/dev/null || true
+          sudo apt-get purge -y apache2 apache2-bin apache2-data apache2-utils lighttpd 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
+            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
+          fi
+
+      # --- Scenario 1: failed-validation (nginx, dry-run) ---------------
+      #
+      # preflight_check_lesta_identity (.install/lib/preflight.sh) rejects a
+      # pre-existing lesta-agent user whose home/shell do not match what it
+      # would create (home=/var/lib/lesta, shell=/usr/sbin/nologin).
+
+      - name: "Scenario 1 setup: create a conflicting lesta-agent system user"
+        run: sudo useradd --system --home-dir /nonexistent --shell /bin/false lesta-agent
+
+      - name: "Scenario 1: failed-validation (nginx dry-run) must reject the conflicting lesta-agent identity"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --dry-run --web-server nginx 2>/tmp/scenario1-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario1-stderr.log || true
+          if [ "${status}" -ne 12 ]; then
+            echo "expected exit 12 (EXIT_PREFLIGHT_CONFLICT), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"conflicting_identity"' \
+            || { echo "expected the result body to contain \"code\":\"conflicting_identity\"" >&2; exit 1; }
+
+      - name: "Scenario 1 cleanup: remove the conflicting lesta-agent user before any later scenario needs the real one absent"
+        run: sudo userdel lesta-agent
+
+      # --- Scenario 2: failed-health (nginx) ----------------------------
+      #
+      # A syntactically invalid fragment pre-seeded in /etc/nginx/lesta.d
+      # makes `nginx -t` fail deterministically during install_nginx.
+
+      - name: "Scenario 2 setup: poison /etc/nginx/lesta.d with an invalid fragment"
+        run: |
+          sudo install -d -m 0755 /etc/nginx/lesta.d
+          printf 'this is not valid nginx config {{{\n' | sudo tee /etc/nginx/lesta.d/zzz-poison.conf
+
+      - name: "Scenario 2: failed-health (nginx apply) must fail nginx -t on the poisoned fragment"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario2-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario2-stderr.log || true
+          if [ "${status}" -ne 21 ]; then
+            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"nginx_test_failed"' \
+            || { echo "expected the result body to contain \"code\":\"nginx_test_failed\"" >&2; exit 1; }
+
+      - name: "Scenario 2 cleanup: remove the poisoned fragment so the next real apply isn't blocked by it"
+        run: sudo rm -f /etc/nginx/lesta.d/zzz-poison.conf
+
+      # --- Scenario 3: interrupted (nginx) -------------------------------
+      #
+      # checkpoint.sh's own top comment states plainly that nothing in it
+      # ever causes a phase to be skipped outright, the checkpoint is a
+      # diagnostic and recovery record, not a short-circuit. This scenario
+      # proves idempotent reconvergence after a hard kill, never "resume
+      # from checkpoint" (no such mechanism exists to resume from).
+
+      - name: "Scenario 3: kill a real --apply mid-flight with SIGKILL"
+        run: |
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx &
+          pid=$!
+          sleep 2
+          sudo kill -KILL "${pid}" 2>/dev/null || true
+          wait "${pid}" 2>/dev/null || true
+
+      - name: "Scenario 3: a second --apply must converge to success (idempotent reconvergence, not checkpoint resume)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario3-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario3-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK) on the post-kill re-apply, got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      # --- Scenario 4: tampered (nginx via node-health) ------------------
+      #
+      # Corrupts THIS RUNNER's own checked-out node-health/manifest.json
+      # sha256 (never the committed repo), so agent_install_binary's
+      # verify_sha256 call rejects the real, correctly-built vendored agent
+      # binary. Restored via `git checkout --` immediately afterward.
+
+      - name: "Scenario 4 setup: corrupt this runner's own checked-out node-health manifest sha256"
+        run: |
+          manifest=.install/services/node-health/manifest.json
+          real_sha256=$(grep -oE '"sha256": ?"[a-f0-9]{64}"' "${manifest}" | grep -oE '[a-f0-9]{64}')
+          if [ -z "${real_sha256}" ]; then
+            echo "could not read the real sha256 out of ${manifest}; the manifest's own artifacts[] shape may have changed" >&2
+            exit 1
+          fi
+          echo "real sha256: ${real_sha256}"
+          tampered_sha256="ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          sudo sed -i "s/${real_sha256}/${tampered_sha256}/" "${manifest}"
+          if ! grep -q "${tampered_sha256}" "${manifest}"; then
+            echo "the sed replacement did not change ${manifest}; refusing to silently no-op the tamper" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 4: tampered node-health manifest sha256 must be rejected as a checksum mismatch"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario4-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario4-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 4 cleanup: restore the committed node-health manifest"
+        run: git checkout -- .install/services/node-health/manifest.json
+
+      # --- Scenario 5: conflicting, bind9 (dry-run) ----------------------
+      #
+      # preflight_check_conflicting_dns_packages (bind9/install.sh) rejects
+      # dnsmasq/unbound/powerdns via dpkg -l.
+
+      - name: "Scenario 5 setup: install a real, genuinely conflicting unbound package"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unbound
+
+      - name: "Scenario 5: conflicting (bind9 dry-run) must reject the pre-installed unbound package"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/bind9/install.sh --dry-run 2>/tmp/scenario5-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario5-stderr.log || true
+          if [ "${status}" -ne 12 ]; then
+            echo "expected exit 12 (EXIT_PREFLIGHT_CONFLICT), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"conflicting_package"' \
+            || { echo "expected the result body to contain \"code\":\"conflicting_package\"" >&2; exit 1; }
+
+      - name: "Scenario 5 cleanup: purge unbound (this job doesn't otherwise need bind9 installed for real)"
+        run: |
+          sudo apt-get purge -y unbound
+          sudo apt-get autoremove -y
+
+      # --- Scenario 6: conflicting, mariadb (exploratory) ----------------
+      #
+      # Unlike the "installer" job, this scenario deliberately skips the
+      # defensive MySQL purge and instead holds the runner's pre-installed
+      # MySQL packages, so `apt-get install -y mariadb-server` cannot
+      # resolve. Whether the third-party MariaDB Foundation package
+      # actually declares a dpkg-level Conflicts:/Replaces: against
+      # Ubuntu-archive mysql-server is unverified as of this commit: the
+      # assertion below is deliberately loose (non-zero exit only). A
+      # follow-up commit will tighten it to the exact (exit_code, code)
+      # pair once a real CI run's output can be read.
+
+      - name: "Scenario 6 setup: hold the runner's pre-installed MySQL packages"
+        run: sudo apt-mark hold mysql-server mysql-server-8.0 mysql-community-server 2>/dev/null || true
+
+      - name: "Scenario 6: conflicting (mariadb apply), exploratory, non-zero exit only"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mariadb/install.sh --apply --yes 2>/tmp/scenario6-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario6-stderr.log || true
+          if [ "${status}" -eq 0 ]; then
+            echo "expected a non-zero exit (held MySQL packages should block mariadb-server's apt-get install), got 0" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 6 cleanup: unhold the runner's MySQL packages"
+        run: sudo apt-mark unhold mysql-server mysql-server-8.0 mysql-community-server 2>/dev/null || true
+
+      # cron gets no conflicting-package scenario, no competing package exists in this project's manifest set for it to reject.
