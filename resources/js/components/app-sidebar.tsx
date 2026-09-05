@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import {
     BookOpen,
     Clock,
@@ -7,6 +7,7 @@ import {
     Globe,
     LayoutGrid,
     Network,
+    Server,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
@@ -25,6 +26,7 @@ import { dashboard } from '@/routes';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
+import nodes from '@/routes/nodes';
 import tenantDatabases from '@/routes/tenant-databases';
 import type { NavItem } from '@/types';
 
@@ -56,6 +58,12 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+const nodesNavItem: NavItem = {
+    title: 'Nodes',
+    href: nodes.index(),
+    icon: Server,
+};
+
 const footerNavItems: NavItem[] = [
     {
         title: 'Repository',
@@ -70,6 +78,12 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    const { auth } = usePage().props;
+
+    const items = auth.is_provider_admin
+        ? [...mainNavItems, nodesNavItem]
+        : mainNavItems;
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>
@@ -85,7 +99,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain items={items} />
             </SidebarContent>
 
             <SidebarFooter>
