@@ -157,9 +157,7 @@ export default function Index({
                                             asChild
                                         >
                                             <Link
-                                                href={NodeController.edit(
-                                                    node,
-                                                )}
+                                                href={NodeController.edit(node)}
                                             >
                                                 Manage
                                             </Link>
