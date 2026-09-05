@@ -7,5 +7,11 @@ use App\Services\Provisioning\ProvisioningResult;
 
 interface Provisioner
 {
-    public function apply(ProvisioningOperation $operation): ProvisioningResult;
+    /**
+     * Apply $operation and return its terminal result, or null when the operation has
+     * merely been enqueued for real asynchronous delivery to a node's agent daemon: no
+     * terminal result is available yet, and the operation stays Dispatched until the
+     * daemon reports back over agent/v1/operation-results.
+     */
+    public function apply(ProvisioningOperation $operation): ?ProvisioningResult;
 }

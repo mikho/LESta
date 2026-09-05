@@ -26,10 +26,12 @@ class RecordsProvisioningOperation
         // (Account does; Phase 2's WebDomain etc. will too), but the bare Model type-hint has
         // no such property.
         $resourceId = $provisionable->uuid; // @phpstan-ignore property.notFound
+        $nodeId = $provisionable->node_id; // @phpstan-ignore property.notFound
 
         $row = ProvisioningOperation::create([
             'provisionable_type' => $provisionable->getMorphClass(),
             'provisionable_id' => $provisionable->getKey(),
+            'node_id' => $nodeId,
             'resource_id' => $resourceId,
             'capability' => $capability,
             'operation' => $operation,

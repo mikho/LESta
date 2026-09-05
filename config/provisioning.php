@@ -8,8 +8,11 @@ return [
     |--------------------------------------------------------------------------
     |
     | The provisioner adapter used to apply provisioning operations against a
-    | node. "fake" is a stateless, deterministic adapter used until a real
-    | Go-agent-backed adapter exists.
+    | node. "fake" is a stateless, deterministic adapter used where no real
+    | node is available. "daemon" is the real adapter: it leaves the operation
+    | Dispatched for delivery to the owning node's agent daemon on its next
+    | heartbeat, which applies it and reports the result back over
+    | agent/v1/operation-results.
     |
     */
 

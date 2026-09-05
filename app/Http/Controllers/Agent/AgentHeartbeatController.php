@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Enums\ProvisioningStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Agent\StoreHeartbeatRequest;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\ProvisioningOperation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +53,42 @@ class AgentHeartbeatController extends Controller
             }
         });
 
-        return response()->json(['ack' => true, 'next_heartbeat_seconds' => 60]);
+        $pendingOperations = ProvisioningOperation::query()
+            ->where('node_id', $node->id)
+            ->where('status', ProvisioningStatus::Dispatched)
+            ->oldest('dispatched_at')
+            ->limit(10)
+            ->get()
+            ->map(fn (ProvisioningOperation $operation): array => $this->presentAsEnvelope($operation))
+            ->all();
+
+        return response()->json([
+            'ack' => true,
+            'next_heartbeat_seconds' => 60,
+            'pending_operations' => $pendingOperations,
+        ]);
+    }
+
+    /**
+     * Shape a ProvisioningOperation as the wire OperationEnvelope its owning node's agent
+     * daemon expects, matching docs/protocol/operation-envelope.schema.json exactly.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentAsEnvelope(ProvisioningOperation $operation): array
+    {
+        return [
+            'protocol_version' => $operation->protocol_version,
+            'capability' => $operation->capability,
+            'operation' => $operation->operation->value,
+            'resource_id' => $operation->resource_id,
+            'desired_state_version' => $operation->desired_state_version,
+            'idempotency_key' => $operation->idempotency_key,
+            'correlation_id' => $operation->correlation_id,
+            'deadline' => $operation->deadline?->toIso8601String(),
+            'issued_at' => $operation->issued_at->toIso8601String(),
+            'request_digest' => $operation->request_digest,
+            'payload' => $operation->payload,
+        ];
     }
 }

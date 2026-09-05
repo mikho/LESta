@@ -8,7 +8,12 @@
 // fixed StateRoot paths to check presence.
 package daemon
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"github.com/mikho/LESta/agent/internal/protocol"
+)
 
 // Config parameterizes Run by the fixed paths, identity, and network
 // details this daemon needs, so the identical implementation runs against
@@ -46,6 +51,14 @@ type Config struct {
 	// heartbeat request body.
 	ProtocolVersion string
 	AgentVersion    string
+	// Dispatch applies one OperationEnvelope a heartbeat's own pending_operations
+	// carried back and returns its ResultEnvelope. Production wires this to
+	// cmd/lesta-agent/main.go's own dispatchOperation (the same capability-selection
+	// switch run's one-shot stdin/stdout path uses); tests supply a fake. An error
+	// return means "no verdict was reached" (see protocol.Capability's own doc
+	// comment), which operations.go turns into a synthetic failed ResultEnvelope
+	// rather than ever crashing or dropping the operation.
+	Dispatch func(context.Context, protocol.OperationEnvelope) (protocol.ResultEnvelope, error)
 	// CronStateRoot is scheduler.account-cron.v1's own StateRoot (production:
 	// /var/lib/lesta/cron); this package only ever reads
 	// CronStateRoot/executions/*.log, matching runner.go's own log format,
