@@ -361,13 +361,13 @@ export default function Edit({ node }: { node: Node }) {
                             <dt className="text-muted-foreground">
                                 Protocol version
                             </dt>
-                            <dd>{node.protocol_version ?? '—'}</dd>
+                            <dd>{node.protocol_version ?? 'unknown'}</dd>
                         </div>
                         <div>
                             <dt className="text-muted-foreground">
                                 Agent version
                             </dt>
-                            <dd>{node.agent_version ?? '—'}</dd>
+                            <dd>{node.agent_version ?? 'unknown'}</dd>
                         </div>
                     </dl>
 
