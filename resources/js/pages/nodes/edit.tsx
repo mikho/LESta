@@ -50,11 +50,7 @@ const operationStatusBadgeClasses: Record<string, string> = {
         'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
 };
 
-function OperationRow({
-    operation,
-}: {
-    operation: NodeProvisioningOperation;
-}) {
+function OperationRow({ operation }: { operation: NodeProvisioningOperation }) {
     return (
         <details className="rounded-lg border p-3">
             <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
@@ -69,9 +65,7 @@ function OperationRow({
             </summary>
 
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                <p>
-                    Issued {new Date(operation.issued_at).toLocaleString()}
-                </p>
+                <p>Issued {new Date(operation.issued_at).toLocaleString()}</p>
                 {operation.completed_at && (
                     <p>
                         Completed{' '}
@@ -113,9 +107,9 @@ function IssueEnrollmentTokenDialog({ node }: { node: Node }) {
                 <DialogContent>
                     <DialogTitle>Issue a new enrollment token?</DialogTitle>
                     <DialogDescription>
-                        Any previously issued, unused token for {node.name}{' '}
-                        will be invalidated. The new token is shown once and
-                        cannot be recovered afterwards.
+                        Any previously issued, unused token for {node.name} will
+                        be invalidated. The new token is shown once and cannot
+                        be recovered afterwards.
                     </DialogDescription>
 
                     <Form
@@ -126,9 +120,7 @@ function IssueEnrollmentTokenDialog({ node }: { node: Node }) {
                         {({ processing }) => (
                             <DialogFooter className="gap-2">
                                 <DialogClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </DialogClose>
 
                                 <Button disabled={processing} asChild>
@@ -219,9 +211,7 @@ function CapabilityRow({
                             size="sm"
                             disabled={processing}
                         >
-                            {capability.suspended_at
-                                ? 'Unsuspend'
-                                : 'Suspend'}
+                            {capability.suspended_at ? 'Unsuspend' : 'Suspend'}
                         </Button>
                     )}
                 </Form>
@@ -231,9 +221,7 @@ function CapabilityRow({
 }
 
 function AddCapabilityForm({ node }: { node: Node }) {
-    const [capability, setCapability] = useState<string>(
-        capabilityOptions[0],
-    );
+    const [capability, setCapability] = useState<string>(capabilityOptions[0]);
 
     return (
         <Form
@@ -251,10 +239,7 @@ function AddCapabilityForm({ node }: { node: Node }) {
                             value={capability}
                             onValueChange={setCapability}
                         >
-                            <SelectTrigger
-                                id="capability"
-                                className="w-64"
-                            >
+                            <SelectTrigger id="capability" className="w-64">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -269,7 +254,10 @@ function AddCapabilityForm({ node }: { node: Node }) {
                         <InputError message={errors.capability} />
                     </div>
 
-                    <Button disabled={processing} data-test="add-capability-button">
+                    <Button
+                        disabled={processing}
+                        data-test="add-capability-button"
+                    >
                         Add capability
                     </Button>
                 </>
@@ -346,9 +334,7 @@ export default function Edit({ node }: { node: Node }) {
                             <dd>{node.enrollment_status}</dd>
                         </div>
                         <div>
-                            <dt className="text-muted-foreground">
-                                Last seen
-                            </dt>
+                            <dt className="text-muted-foreground">Last seen</dt>
                             <dd>
                                 {node.last_seen_at
                                     ? new Date(
@@ -504,8 +490,7 @@ export default function Edit({ node }: { node: Node }) {
                             </DialogTrigger>
                             <DialogContent>
                                 <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {node.name}?
+                                    Are you sure you want to delete {node.name}?
                                 </DialogTitle>
                                 <DialogDescription>
                                     A node with dependent resources (domains,
@@ -519,9 +504,7 @@ export default function Edit({ node }: { node: Node }) {
                                 >
                                     {({ processing, errors }) => (
                                         <>
-                                            <InputError
-                                                message={errors.node}
-                                            />
+                                            <InputError message={errors.node} />
 
                                             <DialogFooter className="gap-2">
                                                 <DialogClose asChild>
