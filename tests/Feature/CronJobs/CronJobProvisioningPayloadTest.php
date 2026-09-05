@@ -2,6 +2,7 @@
 
 use App\Actions\Provisioning\ResolvesCronCapableNode;
 use App\Exceptions\NoCronCapableNodeAvailableException;
+use App\Models\AccountNodeIdentity;
 use App\Models\CronJob;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -27,12 +28,29 @@ test('toProvisioningPayload returns exactly the expected keys, with no execution
         'day_of_week' => '*',
         'command' => 'php artisan backup:run',
         'suspended' => false,
+        // No AccountNodeIdentity row exists for this cron job's own (account_id, node_id) pair
+        // here (it was created directly via the factory, bypassing CreateCronJob/
+        // EnsuresAccountNodeIdentity), so run_as falls back to an empty string.
+        'run_as' => '',
     ])
-        ->and(array_keys($payload))->toBe(['minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'suspended'])
+        ->and(array_keys($payload))->toBe(['minute', 'hour', 'day_of_month', 'month', 'day_of_week', 'command', 'suspended', 'run_as'])
         ->and($payload)->not->toHaveKey('last_run_at')
         ->and($payload)->not->toHaveKey('exit_code')
         ->and($payload)->not->toHaveKey('output')
         ->and($payload)->not->toHaveKey('execution_log');
+});
+
+test('toProvisioningPayload carries the account-node identity system username as run_as', function () {
+    $node = Node::factory()->create();
+    $cronJob = CronJob::factory()->for($node)->create();
+
+    AccountNodeIdentity::factory()->create([
+        'account_id' => $cronJob->account_id,
+        'node_id' => $cronJob->node_id,
+        'system_username' => 'lesta-t'.$cronJob->account_id,
+    ]);
+
+    expect($cronJob->toProvisioningPayload()['run_as'])->toBe('lesta-t'.$cronJob->account_id);
 });
 
 test('toProvisioningPayload reflects the current suspension state', function () {

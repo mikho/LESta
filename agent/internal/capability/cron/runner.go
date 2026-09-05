@@ -42,25 +42,31 @@ type executionLogEntry struct {
 	Output     string `json:"output"`
 }
 
-// RunJob is invoked by the `lesta-agent cron-run <resource_id>` CLI mode
-// (wired in cmd/lesta-agent/main.go), never by the OperationEnvelope
+// RunJob is invoked by the `lesta-agent cron-run <resource_id> <run_as>` CLI
+// mode (wired in cmd/lesta-agent/main.go), never by the OperationEnvelope
 // pipeline. It is the process cron itself execs on schedule, running as
-// cfg.RunnerUser (whichever user actually owns the crontab line, enforced by
-// /etc/cron.d itself, not by this code). It reads the job's real command
-// from its JSON sidecar, execs it via `sh -c`, captures combined
-// stdout+stderr bounded to outputCapBytes, and appends one capped
+// runAs (whichever user actually owns the crontab line, enforced by
+// /etc/cron.d itself, not by this code) -- runAs is also this resource's own
+// per-account state key (see capability.go's own renderFragment doc comment
+// on why the crontab line carries it twice), so RunJob reads its sidecar
+// from, and appends its execution log under, StateRoot/accounts/<runAs>/...
+// exclusively: a directory this process's own real OS identity (runAs
+// itself, by construction) already has read/write access to via its own
+// primary group, without needing any elevated privilege. It reads the job's
+// real command from its JSON sidecar, execs it via `sh -c`, captures
+// combined stdout+stderr bounded to outputCapBytes, and appends one capped
 // execution-log entry. Returns the command's own exit code (or a synthetic
 // non-zero code if the sidecar can't be read or the command can't even
 // start), which main.go uses as this process's own exit code, matching
 // normal cron semantics.
-func RunJob(cfg Config, resourceID string) int {
+func RunJob(cfg Config, resourceID, runAs string) int {
 	started := time.Now().UTC()
 
-	sidecarPath := filepath.Join(cfg.StateRoot, "jobs", "sidecar", resourceID+".json")
+	sidecarPath := filepath.Join(accountDirFor(cfg.StateRoot, runAs), "jobs", "sidecar", resourceID+".json")
 
 	raw, err := os.ReadFile(sidecarPath)
 	if err != nil {
-		appendExecutionLog(cfg, resourceID, started, time.Now().UTC(), sidecarUnreadableExitCode,
+		appendExecutionLog(cfg, runAs, resourceID, started, time.Now().UTC(), sidecarUnreadableExitCode,
 			fmt.Sprintf("could not read sidecar %s: %v", sidecarPath, err))
 
 		return sidecarUnreadableExitCode
@@ -68,7 +74,7 @@ func RunJob(cfg Config, resourceID string) int {
 
 	var sidecar sidecarContent
 	if err := json.Unmarshal(raw, &sidecar); err != nil {
-		appendExecutionLog(cfg, resourceID, started, time.Now().UTC(), sidecarUnreadableExitCode,
+		appendExecutionLog(cfg, runAs, resourceID, started, time.Now().UTC(), sidecarUnreadableExitCode,
 			fmt.Sprintf("could not parse sidecar %s: %v", sidecarPath, err))
 
 		return sidecarUnreadableExitCode
@@ -94,7 +100,7 @@ func RunJob(cfg Config, resourceID string) int {
 		}
 	}
 
-	appendExecutionLog(cfg, resourceID, started, finished, exitCode, boundOutput(buf.String()))
+	appendExecutionLog(cfg, runAs, resourceID, started, finished, exitCode, boundOutput(buf.String()))
 
 	return exitCode
 }
@@ -110,14 +116,20 @@ func boundOutput(output string) string {
 }
 
 // appendExecutionLog appends one JSON-lines entry to
-// StateRoot/executions/<resource_id>.log, creating the executions directory
-// if missing and resetting the file first if it already exceeds logCapBytes.
-// Best-effort: a failure here must never change the exit code RunJob
-// returns, since the command itself already ran to completion (or failed to
-// start) by the time this is called.
-func appendExecutionLog(cfg Config, resourceID string, started, finished time.Time, exitCode int, output string) {
-	dir := filepath.Join(cfg.StateRoot, "executions")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// StateRoot/accounts/<runAs>/executions/<resource_id>.log, creating the
+// account's own executions directory if missing and resetting the file
+// first if it already exceeds logCapBytes. Best-effort: a failure here must
+// never change the exit code RunJob returns, since the command itself
+// already ran to completion (or failed to start) by the time this is
+// called. This process is already running as runAs by the time it gets
+// here (cron's own identity switch happened before this binary was ever
+// exec'd), so it needs no elevated privilege to create this directory: it
+// already has write access to StateRoot/accounts/<runAs> via its own
+// primary group, the same access ensureAccountDir's own root:runAs mode
+// 2750 ownership grants it.
+func appendExecutionLog(cfg Config, runAs, resourceID string, started, finished time.Time, exitCode int, output string) {
+	dir := filepath.Join(accountDirFor(cfg.StateRoot, runAs), "executions")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return
 	}
 

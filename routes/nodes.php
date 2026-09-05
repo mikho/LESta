@@ -18,4 +18,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('nodes/{node}/capabilities', [NodeCapabilityController::class, 'store'])->name('nodes.capabilities.store');
     Route::post('nodes/{node}/capabilities/{nodeCapability}/suspend', [NodeCapabilityController::class, 'suspend'])->name('nodes.capabilities.suspend');
     Route::post('nodes/{node}/capabilities/{nodeCapability}/unsuspend', [NodeCapabilityController::class, 'unsuspend'])->name('nodes.capabilities.unsuspend');
+
+    Route::delete('nodes/{node}/identities/{accountNodeIdentity}', [NodeController::class, 'destroyOrphanedIdentity'])->name('nodes.identities.destroy');
 });

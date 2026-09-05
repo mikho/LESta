@@ -122,6 +122,29 @@ func TestParsePayloadValidation(t *testing.T) {
 			payload: cronPayload("*", "*", "*", "*", "*", "echo 'do not sudo this'", false),
 			wantErr: false,
 		},
+		{
+			name:    "an empty run_as is rejected",
+			payload: cronPayloadRunAs("*", "*", "*", "*", "*", "echo hello", false, ""),
+			wantErr: true,
+			field:   "run_as",
+		},
+		{
+			name:    "a run_as starting with an uppercase letter is rejected",
+			payload: cronPayloadRunAs("*", "*", "*", "*", "*", "echo hello", false, "Lesta-t42"),
+			wantErr: true,
+			field:   "run_as",
+		},
+		{
+			name:    "a run_as containing a path separator is rejected",
+			payload: cronPayloadRunAs("*", "*", "*", "*", "*", "echo hello", false, "../../etc"),
+			wantErr: true,
+			field:   "run_as",
+		},
+		{
+			name:    "a well-formed run_as is accepted",
+			payload: cronPayloadRunAs("*", "*", "*", "*", "*", "echo hello", false, "lesta-t42"),
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

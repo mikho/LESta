@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Nodes;
 
+use App\Actions\Cron\DeleteOrphanedAccountNodeIdentity;
 use App\Actions\Nodes\CreateNode;
 use App\Actions\Nodes\DeleteNode;
 use App\Actions\Nodes\IssueNodeEnrollmentToken;
@@ -11,9 +12,11 @@ use App\Actions\Nodes\UpdateNode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Nodes\StoreNodeRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
+use App\Models\AccountNodeIdentity;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -84,9 +87,26 @@ class NodeController extends Controller
             'provisioningOperations' => fn ($query) => $query->latest('issued_at')->limit(20),
         ]);
 
+        $orphanedIdentities = AccountNodeIdentity::query()
+            ->orphanedOn($node)
+            ->with('account')
+            ->get();
+
         return Inertia::render('nodes/edit', [
-            'node' => $this->presentForEdit($node),
+            'node' => $this->presentForEdit($node, $orphanedIdentities),
         ]);
+    }
+
+    /**
+     * Delete an orphaned account-node identity on the given node.
+     */
+    public function destroyOrphanedIdentity(Request $request, Node $node, AccountNodeIdentity $accountNodeIdentity): RedirectResponse
+    {
+        app(DeleteOrphanedAccountNodeIdentity::class)->handle($request->user(), $accountNodeIdentity);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Identity deleted.')]);
+
+        return to_route('nodes.edit', $node);
     }
 
     /**
@@ -174,11 +194,13 @@ class NodeController extends Controller
     }
 
     /**
-     * Shape a node, with its capabilities and recent provisioning operations, for the edit page.
+     * Shape a node, with its capabilities, recent provisioning operations, and orphaned
+     * account-node identities, for the edit page.
      *
+     * @param  Collection<int, AccountNodeIdentity>  $orphanedIdentities
      * @return array<string, mixed>
      */
-    private function presentForEdit(Node $node): array
+    private function presentForEdit(Node $node, Collection $orphanedIdentities): array
     {
         return [
             'uuid' => $node->uuid,
@@ -196,6 +218,25 @@ class NodeController extends Controller
             'recent_operations' => $node->provisioningOperations
                 ->map(fn (ProvisioningOperation $operation): array => $this->presentOperation($operation))
                 ->all(),
+            'orphaned_identities' => $orphanedIdentities
+                ->map(fn (AccountNodeIdentity $identity): array => $this->presentOrphanedIdentity($identity))
+                ->all(),
+        ];
+    }
+
+    /**
+     * Shape an orphaned account-node identity for the frontend.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentOrphanedIdentity(AccountNodeIdentity $identity): array
+    {
+        return [
+            'uuid' => $identity->uuid,
+            'system_username' => $identity->system_username,
+            'account_id' => $identity->account_id,
+            'account_name' => $identity->account?->name,
+            'created_at' => $identity->created_at?->toIso8601String(),
         ];
     }
 

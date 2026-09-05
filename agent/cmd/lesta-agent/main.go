@@ -5,8 +5,9 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Six capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
-// tls.acme.v1, database.tenant.v1, and scheduler.account-cron.v1.
+// Seven capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1, and
+// system.account-identity.v1.
 //
 // A third CLI mode, "daemon", is a genuinely long-running process (unlike
 // the one-shot envelope pipe and the "cron-run" wrapper mode): it heartbeats
@@ -28,6 +29,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/cron"
+	"github.com/mikho/LESta/agent/internal/capability/identity"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/daemon"
@@ -35,12 +37,13 @@ import (
 )
 
 const (
-	webNginxCapability       = "web.nginx.v1"
-	dnsBind9Capability       = "dns.bind9.v1"
-	webApacheCapability      = "web.apache.v1"
-	tlsAcmeCapability        = "tls.acme.v1"
-	databaseTenantCapability = "database.tenant.v1"
-	schedulerCronCapability  = "scheduler.account-cron.v1"
+	webNginxCapability              = "web.nginx.v1"
+	dnsBind9Capability              = "dns.bind9.v1"
+	webApacheCapability             = "web.apache.v1"
+	tlsAcmeCapability               = "tls.acme.v1"
+	databaseTenantCapability        = "database.tenant.v1"
+	schedulerCronCapability         = "scheduler.account-cron.v1"
+	systemAccountIdentityCapability = "system.account-identity.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -57,14 +60,17 @@ const (
 )
 
 func main() {
-	// "cron-run <resource_id>" is a distinct CLI invocation shape, never an
-	// OperationEnvelope read from stdin: this is the wrapper cron itself
-	// execs on schedule (see internal/capability/cron's own package doc
-	// comment), not a call from the Laravel-facing provisioning pipeline.
-	// It must be checked before the normal run(os.Stdin, os.Stdout) path,
-	// which never looks at os.Args at all.
-	if len(os.Args) >= 3 && os.Args[1] == "cron-run" {
-		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2]))
+	// "cron-run <resource_id> <run_as>" is a distinct CLI invocation shape,
+	// never an OperationEnvelope read from stdin: this is the wrapper cron
+	// itself execs on schedule (see internal/capability/cron's own package
+	// doc comment), not a call from the Laravel-facing provisioning
+	// pipeline. It must be checked before the normal run(os.Stdin,
+	// os.Stdout) path, which never looks at os.Args at all. run_as is the
+	// same value already named in the crontab line's own user-column (see
+	// internal/capability/cron/capability.go's own renderFragment doc
+	// comment on why it is repeated here as an explicit argument).
+	if len(os.Args) >= 4 && os.Args[1] == "cron-run" {
+		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
@@ -125,8 +131,10 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = mariadb.New(mariadbProductionConfig())
 	case schedulerCronCapability:
 		capability = cron.New(cronProductionConfig())
+	case systemAccountIdentityCapability:
+		capability = identity.New(identityProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -377,6 +385,24 @@ func cronProductionConfig() cron.Config {
 		StateRoot:       "/var/lib/lesta/cron",
 		RunnerUser:      "lesta-cron",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
+	}
+}
+
+// identityProductionConfig points at the real useradd/userdel/id binaries
+// system.account-identity.v1 execs. Mirroring every other capability's own
+// *Binary field: these are fixed, non-configurable literals (see
+// internal/capability/identity/config.go's own Config doc comment), not
+// environment overrides, since each is passed straight into an exec.Command
+// call. There is no StateRoot here at all: unlike every other capability in
+// this module, this one keeps no generation history or served file tree of
+// its own (see internal/capability/identity's own package doc comment on
+// why) -- its only state is the OS's own /etc/passwd, which useradd/userdel/
+// id already own outright.
+func identityProductionConfig() identity.Config {
+	return identity.Config{
+		UseraddBinary: "useradd",
+		UserdelBinary: "userdel",
+		IDBinary:      "id",
 	}
 }
 

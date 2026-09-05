@@ -127,12 +127,22 @@ func (c *CronCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 		return protocol.ResultEnvelope{}, err
 	}
 
+	// The account's own owned root must exist (root:<run_as> mode 2750,
+	// setgid) before writeFileAtomic's own MkdirAll creates the ordinary
+	// 0755 jobs/sidecar subdirectory nested inside it: the outer directory
+	// is what actually restricts traversal to this one account's own
+	// dedicated Linux user, so it must be established with the right
+	// ownership first, not left to MkdirAll's own default mode.
+	if err := ensureAccountDir(c.cfg.StateRoot, payload.RunAs); err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
 	sidecar, err := json.Marshal(sidecarContent{Command: payload.Command})
 	if err != nil {
 		return protocol.ResultEnvelope{}, fmt.Errorf("encoding sidecar for %s: %w", op.ResourceID, err)
 	}
 
-	if err := writeFileAtomic(c.sidecarPath(op.ResourceID), sidecar, 0o640); err != nil {
+	if err := writeFileAtomic(c.sidecarPath(payload.RunAs, op.ResourceID), sidecar, 0o640); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -152,7 +162,7 @@ func (c *CronCapability) applyDelete(op protocol.OperationEnvelope) (protocol.Re
 		return protocol.ResultEnvelope{}, fmt.Errorf("removing crontab fragment for %s: %w", op.ResourceID, err)
 	}
 
-	if err := os.Remove(c.sidecarPath(op.ResourceID)); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(c.sidecarPath(payload.RunAs, op.ResourceID)); err != nil && !os.IsNotExist(err) {
 		return protocol.ResultEnvelope{}, fmt.Errorf("removing sidecar for %s: %w", op.ResourceID, err)
 	}
 
@@ -205,22 +215,48 @@ type sidecarContent struct {
 // recreate. An active job's line follows /etc/cron.d's own format, which --
 // unlike a personal crontab -- requires a user-column between the schedule
 // and the command.
+//
+// The wrapper invocation itself carries payload.RunAs a second time, as its
+// own trailing CLI argument ("cron-run <resource_id> <run_as>"), not just in
+// the line's own user-column: cron switches the *process's* identity to the
+// user-column value before ever exec'ing this line, but RunJob (the process
+// that identity switch lands in) still needs to know which account's own
+// StateRoot/accounts/<run_as> directory to read its sidecar from, and it has
+// no other way to learn that -- it cannot list StateRoot/accounts itself to
+// find it (that would require read access to every other account's own
+// directory too, defeating the very isolation this phase exists to add), so
+// the crontab line must simply say it twice.
 func renderFragment(cfg Config, payload Payload, resourceID string) []byte {
 	if payload.Suspended {
 		return []byte(fmt.Sprintf("# lesta-cron: job %s suspended\n", resourceID))
 	}
 
-	return []byte(fmt.Sprintf("%s %s %s %s %s %s %s cron-run %s\n",
+	return []byte(fmt.Sprintf("%s %s %s %s %s %s %s cron-run %s %s\n",
 		payload.Minute, payload.Hour, payload.DayOfMonth, payload.Month, payload.DayOfWeek,
-		cfg.RunnerUser, cfg.AgentBinaryPath, resourceID))
+		payload.RunAs, cfg.AgentBinaryPath, resourceID, payload.RunAs))
 }
 
 func (c *CronCapability) fragmentPath(resourceID string) string {
 	return filepath.Join(c.cfg.FragmentDir, "lesta-"+resourceID)
 }
 
-func (c *CronCapability) sidecarPath(resourceID string) string {
-	return filepath.Join(c.cfg.StateRoot, "jobs", "sidecar", resourceID+".json")
+// sidecarPath returns this resource's own JSON sidecar path, keyed by
+// runAs: StateRoot/accounts/<run_as>/jobs/sidecar/<resource_id>.json. Per-
+// account, not a single shared StateRoot/jobs/sidecar/ directory, so the
+// account's own dedicated Linux user (as a member of its own same-named
+// primary group; see internal/capability/identity's own createSystemUser
+// doc comment) can read its own sidecar via a directory that is never
+// group-readable by the broader shared `lesta` group -- ensureAccountDir
+// creates/chowns/chmods StateRoot/accounts/<run_as> itself, root:<run_as>
+// mode 2750, the first time any resource is written under it.
+func (c *CronCapability) sidecarPath(runAs, resourceID string) string {
+	return filepath.Join(c.accountDir(runAs), "jobs", "sidecar", resourceID+".json")
+}
+
+// accountDir returns StateRoot/accounts/<run_as>, this account's own owned
+// root under this capability's shared StateRoot.
+func (c *CronCapability) accountDir(runAs string) string {
+	return filepath.Join(c.cfg.StateRoot, "accounts", runAs)
 }
 
 // recordGenerationAndBuildResult persists payload as this resource's next

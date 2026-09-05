@@ -2,6 +2,7 @@
 
 namespace App\Actions\CronJobs;
 
+use App\Actions\Cron\EnsuresAccountNodeIdentity;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesCronCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -39,6 +40,14 @@ class CreateCronJob
             }
 
             [$node, $capability] = app(ResolvesCronCapableNode::class)->resolve();
+
+            // Lazily ensure this account's own dedicated, per-node Linux system user exists
+            // before this cron job's own provisioning operation is recorded below. The two
+            // dispatch independently (accepted eventual consistency, per this phase's own
+            // explicit scope boundary: no cross-operation dependency blocking is built), but
+            // are always issued in this order, so the identity operation's own dispatched_at is
+            // always at or before this cron job's own.
+            app(EnsuresAccountNodeIdentity::class)->handle($account, $node);
 
             $cronJob = CronJob::query()->create([
                 'account_id' => $account->id,
