@@ -801,10 +801,14 @@ jobs:
           test -x /tmp/lesta-agent-gen2
 
       - name: "Scenario 7: confirm the pre-swap baseline (original binary in place, no .previous yet)"
+        # /var/lib/lesta/agent/bin is 0750 lesta-agent:lesta; the runner user
+        # can't traverse it at all without sudo, so every read against a
+        # path under it here uses sudo, not just the mutating install.sh
+        # invocations elsewhere in these scenarios.
         run: |
-          [ ! -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+          sudo test ! -f /var/lib/lesta/agent/bin/lesta-agent.previous \
             || { echo "expected no .previous before this scenario's own swap" >&2; exit 1; }
-          orig_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          orig_sha256=$(sudo sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
           echo "orig_sha256=${orig_sha256}" >> "${GITHUB_ENV}"
 
       - name: "Scenario 7: point the manifest at the second binary and re-apply -- must swap generations and stay healthy"
@@ -832,10 +836,10 @@ jobs:
 
       - name: "Scenario 7: assert the previous generation was backed up and the live binary is now the new generation"
         run: |
-          [ -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+          sudo test -f /var/lib/lesta/agent/bin/lesta-agent.previous \
             || { echo "expected /var/lib/lesta/agent/bin/lesta-agent.previous to exist after a real generation swap" >&2; exit 1; }
-          previous_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent.previous | awk '{print $1}')
-          live_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          previous_sha256=$(sudo sha256sum /var/lib/lesta/agent/bin/lesta-agent.previous | awk '{print $1}')
+          live_sha256=$(sudo sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
           if [ "${previous_sha256}" != "${orig_sha256}" ]; then
             echo "expected .previous sha256 (${previous_sha256}) to equal the original binary's sha256 (${orig_sha256})" >&2
             exit 1
@@ -899,9 +903,9 @@ jobs:
 
       - name: "Scenario 8: confirm the pre-rollback baseline (original binary in place, no .previous yet)"
         run: |
-          [ ! -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+          sudo test ! -f /var/lib/lesta/agent/bin/lesta-agent.previous \
             || { echo "expected no .previous before this scenario's own swap" >&2; exit 1; }
-          orig_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          orig_sha256=$(sudo sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
           echo "s8_orig_sha256=${orig_sha256}" >> "${GITHUB_ENV}"
 
       - name: "Scenario 8: swap in the broken binary -- --apply must roll back to the original generation and fail (not with EXIT_ROLLBACK_FAILURE)"
@@ -934,7 +938,7 @@ jobs:
           printf '%s' "${result}" | grep -qi 'rolled back' \
             || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
 
-          restored_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          restored_sha256=$(sudo sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
           if [ "${restored_sha256}" != "${s8_orig_sha256}" ]; then
             echo "expected the live binary to be restored to the original sha256 ${s8_orig_sha256} after rollback, got ${restored_sha256}" >&2
             exit 1
