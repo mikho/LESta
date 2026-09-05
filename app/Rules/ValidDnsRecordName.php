@@ -21,7 +21,9 @@ class ValidDnsRecordName implements ValidationRule
             return;
         }
 
-        if (mb_strlen($value) > 255) {
+        // 191, not 255: matches the dns_records.name column's own bound (see the
+        // create_dns_records_table migration's comment for the InnoDB key-length math).
+        if (mb_strlen($value) > 191) {
             $fail('The :attribute must be a valid DNS record name.');
 
             return;

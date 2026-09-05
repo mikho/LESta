@@ -7,31 +7,54 @@
 #
 # .install/services/mariadb/install.sh
 #
-# Bootstrap installer for the database.tenant.v1 capability: takes a bare
-# Ubuntu 24.04 node (or one that already has any other leaf-service
-# capability bootstrapped) to a state where the Go agent's own
-# mariadbProductionConfig() preconditions (agent/cmd/lesta-agent/main.go) are
-# met and database.tenant.v1 is structurally installed and health-checked,
-# per .install/INSTALLER-CONTRACT.md.
+# Bootstrap installer for BOTH MariaDB-backed capabilities this node's
+# manifest.json declares: database.control-plane.v1 (port 3306, this
+# application's own private database) and database.tenant.v1 (port 3307,
+# the hosted-tenant database feature). Takes a bare Ubuntu 24.04 node (or one
+# that already has any other leaf-service capability bootstrapped) to a state
+# where both instances are structurally installed and health-checked, and
+# where the Go agent's own mariadbProductionConfig() preconditions
+# (agent/cmd/lesta-agent/main.go) are met for the tenant instance, per
+# .install/INSTALLER-CONTRACT.md.
 #
-# Explicitly scoped to the TENANT instance (port 3307) only. The private
-# control-plane MariaDB instance (port 3306; this application's own database)
-# is out of scope for this installer entirely -- per the ADR's own "install
-# the private control-plane instance or connect to an explicitly managed
-# external instance ... this is not the tenant database feature" line, and
-# per this service's own manifest.json/README.md, which already describe the
-# two instances as fully isolated (own datadir, own config fragment, own
-# credentials, never sharing schemas/users/grants/sockets/ports). This
-# installer never creates, starts, stops, or otherwise touches port 3306 or
-# `mariadb.service` (the default, un-suffixed instance) at all; whatever a
-# separate control-plane installer eventually does with that instance is
-# entirely independent of what happens here.
+# The two instances are fully isolated per this service's own README.md (own
+# datadir, own config fragment, own credentials, never sharing schemas,
+# users, grants, sockets, or ports), but they are mechanically very
+# different:
 #
-# Mirrors bind9/install.sh's own overall structure closely (the same four
-# named phases: bootstrap_base, bootstrap_firewall_baseline, install_
-# mariadb_tenant, bootstrap_node_health), sharing the capability-agnostic
-# plumbing every installer in this family needs via lib/result.sh,
-# lib/firewall.sh, lib/agent.sh, and lib/selftest.sh.
+# - The TENANT instance (port 3307) uses Ubuntu's packaged `mariadb@.service`
+#   systemd TEMPLATE unit with `--defaults-group-suffix=.tenant`, reading a
+#   `[mysqld.tenant]` option group. Its datadir is created empty; the
+#   packaged unit's own ExecStartPre runs mariadb-install-db automatically
+#   the first time this specific instance name is ever started, so this
+#   installer never runs mariadb-install-db itself for the tenant instance.
+#
+# - The CONTROL-PLANE instance (port 3306) uses Ubuntu's plain DEFAULT
+#   `mariadb.service` (no group suffix at all), reading a plain `[mysqld]`
+#   group -- it is the only instance on this node using the default,
+#   un-suffixed group. By the time this installer's own control-plane phase
+#   runs, mariadb-server's package postinst has almost certainly ALREADY
+#   auto-started `mariadb.service` against the stock `/var/lib/mysql`
+#   datadir and already run mariadb-install-db there (creating the
+#   `debian-sys-maint` account tracked by /etc/mysql/debian.cnf, a refused
+#   root per this service's own manifest.json -- never touched). Bootstrapping
+#   control-plane is therefore a RELOCATION of an already-live,
+#   already-initialized instance onto this project's own managed datadir
+#   path, not a "create an empty directory and let the unit populate it"
+#   flow -- structurally different from the tenant phase, and handled by its
+#   own install_mariadb_control_plane function below rather than by copying
+#   the tenant phase's pattern.
+#
+# Mirrors bind9/install.sh's own overall structure closely (the same overall
+# phase shape: bootstrap_base, bootstrap_firewall_baseline, one or more
+# install_mariadb_* phases, bootstrap_node_health), sharing the
+# capability-agnostic plumbing every installer in this family needs via
+# lib/result.sh, lib/firewall.sh, lib/agent.sh, and lib/selftest.sh.
+# bootstrap_node_health's own self-test remains tenant-only by design:
+# database.control-plane.v1 has no Go agent dispatch at all (it is this
+# application's own database, not a capability the agent manages on a
+# tenant's behalf), so its own health check is the real `SELECT 1` probe in
+# install_mariadb_control_plane, nothing more.
 #
 # **Confirmed mechanism, not a guess**: Ubuntu's mariadb-server package ships
 # a real, packaged `mariadb@.service` systemd template unit (confirmed
@@ -78,9 +101,10 @@ set -eu
 
 # --- constants -------------------------------------------------------------
 
-SCRIPT_VERSION="1.0.0"
-RELEASE_ID="2026.09.02"
+SCRIPT_VERSION="1.1.0"
+RELEASE_ID="2026.09.05"
 DATABASE_TENANT_CAPABILITY="database.tenant.v1"
+DATABASE_CONTROL_PLANE_CAPABILITY="database.control-plane.v1"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/../.." && pwd)
@@ -128,6 +152,22 @@ TENANT_ADMIN_USER="lesta_agent"
 MARIADB_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
 MARIADB_SOURCES_LIST="/etc/apt/sources.list.d/mariadb.list"
 MARIADB_PINNED_SERIES="11.4"
+
+# Control-plane instance (port 3306, the default/un-suffixed mariadbd
+# instance). Socket/pid-file/log-error are deliberately NOT relocated here --
+# left at Ubuntu's own stock package defaults -- since this installer cannot
+# independently confirm their exact stock literal paths without a real
+# Ubuntu box; only datadir (required, since the relocation is the whole
+# point) and port (defensive, matches the package default already) are set
+# in CONTROL_PLANE_CONF_FRAGMENT below.
+CONTROL_PLANE_PORT=3306
+CONTROL_PLANE_DATADIR="/var/lib/lesta/mariadb/control-plane"
+CONTROL_PLANE_STOCK_DATADIR="/var/lib/mysql"
+CONTROL_PLANE_SOCKET="/run/mysqld/mysqld.sock"
+CONTROL_PLANE_CONF_FRAGMENT="/etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf"
+CONTROL_PLANE_APP_DB="lesta_control_plane"
+CONTROL_PLANE_APP_USER="lesta_app"
+CONTROL_PLANE_APP_CREDENTIALS_FILE="/etc/lesta/mariadb-control-plane-app.env"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
@@ -237,16 +277,15 @@ ITEMS
 }
 
 # emit_result_and_exit <status> <exit_code>
-# Only ever reports database.tenant.v1 as provided: this installer never
-# touches database.control-plane.v1 (the manifest's OTHER declared
-# capability), which is a separate, not-yet-written installer's job.
+# Reports both of the manifest's own declared capabilities as provided: this
+# installer bootstraps both the control-plane and tenant MariaDB instances.
 emit_result_and_exit() {
     local status="$1" exit_code="$2" changes_json errors_json required_json provided_json result
 
     changes_json=$(json_array_from_lines "${CHANGES}")
     errors_json=$(json_array_from_lines "${ERRORS}")
     required_json=$(manifest_capabilities_required_json)
-    provided_json=$(json_array_from_lines "$(json_str "${DATABASE_TENANT_CAPABILITY}")")
+    provided_json=$(json_array_from_lines "$(append_line "$(json_str "${DATABASE_CONTROL_PLANE_CAPABILITY}")" "$(json_str "${DATABASE_TENANT_CAPABILITY}")")")
 
     result=$(json_join_object \
         "$(json_kv_str "schema_version" "1")" \
@@ -276,8 +315,9 @@ emit_dry_run_result_and_exit() {
     install_state=$(preflight_classify_install_state)
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
-    add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, registering only tcp/${TENANT_PORT} (control-plane's own tcp/3306 is out of scope for this installer), unioned with any other service already registered on this node"
+    add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway tenant database against the real, just-installed tenant MariaDB instance"
+    add_change database.control-plane.v1 would_install "" "MariaDB Foundation's apt repository (pinned to the ${MARIADB_PINNED_SERIES} series, codename ${MARIADB_CODENAME:-unresolved}) would be registered; mariadb-server/mariadb-client would be installed; the default mariadb.service instance would be stopped, its stock ${CONTROL_PLANE_STOCK_DATADIR} content relocated to ${CONTROL_PLANE_DATADIR}, ${CONTROL_PLANE_CONF_FRAGMENT} written, and mariadb.service re-enabled and started; a dedicated least-privilege application account and ${CONTROL_PLANE_APP_CREDENTIALS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
     add_change database.tenant.v1 would_install "" "MariaDB Foundation's apt repository (pinned to the ${MARIADB_PINNED_SERIES} series, codename ${MARIADB_CODENAME:-unresolved}) would be registered; mariadb-server/mariadb-client would be installed; ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -316,14 +356,21 @@ preflight_check_mariadb_repo_available() {
     esac
 }
 
-# preflight_check_conflicting_mariadb_tenant_port fails only when tcp/3307
-# (the tenant instance's own port) is already bound by something other than
-# mariadbd. Deliberately does NOT check tcp/3306: the control-plane instance
-# is entirely out of scope for this installer, and a rerun against an
-# already-bootstrapped node finding its own already-running mariadbd on 3307
-# is convergence, not a conflict.
+# preflight_check_tenant_port_free fails only when tcp/3307 (the tenant
+# instance's own port) is already bound by something other than mariadbd. A
+# rerun against an already-bootstrapped node finding its own already-running
+# mariadbd on 3307 is convergence, not a conflict.
 preflight_check_tenant_port_free() {
     preflight_check_port_free "${TENANT_PORT}" tcp mariadbd
+}
+
+# preflight_check_control_plane_port_free mirrors the tenant check above for
+# tcp/3306. On a bare node this is almost always already bound by the
+# package's own just-auto-started default mariadb.service, which
+# preflight_check_port_free correctly treats as convergence (mariadbd is the
+# expected owner), not a conflict.
+preflight_check_control_plane_port_free() {
+    preflight_check_port_free "${CONTROL_PLANE_PORT}" tcp mariadbd
 }
 
 run_preflight() {
@@ -362,6 +409,7 @@ run_preflight() {
         preflight_check_capacity "${dir}" || failed=1
     done
 
+    preflight_check_control_plane_port_free || failed=1
     preflight_check_tenant_port_free || failed=1
     preflight_check_lesta_identity || failed=1
 
@@ -413,60 +461,43 @@ bootstrap_base() {
 # --- phase 2: bootstrap_firewall_baseline -------------------------------
 #
 # Deliberately NOT the shared bootstrap_firewall_baseline (lib/firewall.sh):
-# that helper registers every port a manifest declares, but this service's
-# own manifest.json declares BOTH the control-plane (3306) and tenant (3307)
-# ports together (one manifest covers both roles), and this installer is
-# only ever responsible for the tenant one. bootstrap_firewall_baseline_
-# tenant_only below reimplements the same ensure-dirs + register + render
-# sequence, but registers only tcp/${TENANT_PORT}, filtered out of the
-# manifest's own combined port list rather than assumed as a literal, so a
-# future manifest edit (e.g. a port renumber) still flows through correctly.
+# that helper would work fine here too (this service's own manifest.json
+# declares exactly the two ports this installer is responsible for, control-
+# plane's 3306 and tenant's 3307, together), but bootstrap_firewall_baseline_
+# mariadb below reimplements the same ensure-dirs + register + render
+# sequence explicitly, matching every other leaf-service installer's own
+# "own capability-scoped firewall phase" pattern.
 
-bootstrap_firewall_baseline_tenant_only() {
-    log_info "bootstrap_firewall_baseline_tenant_only: registering tcp/${TENANT_PORT} only (control-plane's own tcp/3306 is out of scope for this installer)"
+bootstrap_firewall_baseline_mariadb() {
+    log_info "bootstrap_firewall_baseline_mariadb: registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}"
 
     install -d -m 0750 -o root -g lesta "${FIREWALL_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_DIR}" "failed to create ${FIREWALL_DIR}"
     install -d -m 0750 -o root -g lesta "${FIREWALL_PORTS_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_PORTS_DIR}" "failed to create ${FIREWALL_PORTS_DIR}"
     add_change firewall.baseline.v1 ensured "${FIREWALL_DIR}" "directory present, mode 0750 root:lesta"
 
-    manifest_extract_port_specs "${MARIADB_MANIFEST}" | grep -F "tcp ${TENANT_PORT}" > "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" firewall_fragment_write_failed "${FIREWALL_PORTS_DIR}/mariadb.ports" "manifest.json's own ports[] did not contain the expected tcp/${TENANT_PORT} entry"
+    manifest_extract_port_specs "${MARIADB_MANIFEST}" | grep -E "tcp (${CONTROL_PLANE_PORT}|${TENANT_PORT})" > "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" firewall_fragment_write_failed "${FIREWALL_PORTS_DIR}/mariadb.ports" "manifest.json's own ports[] did not contain the expected tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT} entries"
     chmod 0640 "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp"
     chown root:lesta "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" 2>/dev/null || true
     mv -f "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" "${FIREWALL_PORTS_DIR}/mariadb.ports"
 
     firewall_render_and_apply
 
-    log_info "bootstrap_firewall_baseline_tenant_only complete"
+    log_info "bootstrap_firewall_baseline_mariadb complete"
 }
 
-# --- phase 3: install_mariadb_tenant ------------------------------------
+# --- phase 3: ensure_mariadb_package_installed --------------------------
 
-# mariadb_health_probe polls a real `SELECT 1` round-trip over the tenant
-# instance's own Unix socket until it succeeds or timeout elapses. A real
-# client round-trip is a stronger readiness signal than a bare TCP/socket
-# connect check: mariadbd's own InnoDB initialization (and, on a fresh
-# datadir, mariadb-install-db itself, run automatically by the packaged
-# unit's ExecStartPre) can take a real moment after the process starts.
-mariadb_health_probe() {
-    local attempt=0
+# ensure_mariadb_package_installed pins the MariaDB Foundation apt
+# repository, installs mariadb-server/mariadb-client, and verifies both the
+# installed version and its provenance. Shared by both instance phases
+# below (control-plane and tenant): there is exactly one mariadb-server
+# package on this node, so this step runs once from main(), before either
+# instance-specific phase.
+ensure_mariadb_package_installed() {
+    log_info "ensure_mariadb_package_installed: pinning MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME}) and installing"
 
-    while [ "${attempt}" -lt 60 ]; do
-        if mariadb --socket="${TENANT_SOCKET}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
-            return 0
-        fi
-
-        attempt=$((attempt + 1))
-        sleep 1
-    done
-
-    return 1
-}
-
-install_mariadb_tenant() {
-    log_info "install_mariadb_tenant: pinning MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME}), installing, and activating database.tenant.v1"
-
-    local out installed_version installed_version_no_epoch admin_password apparmor_local_mariadbd
+    local out installed_version installed_version_no_epoch
 
     # --- pin the MariaDB Foundation apt repository --------------------------
     #
@@ -483,7 +514,7 @@ install_mariadb_tenant() {
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
     chmod 0644 "${MARIADB_KEYRING}"
-    add_change database.tenant.v1 installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing key (fingerprint 177F4010FE56CA333630 0305F1656F24C74CD1D8) downloaded to the modern apt trusted-keyring location"
+    add_change mariadb installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing key (fingerprint 177F4010FE56CA333630 0305F1656F24C74CD1D8) downloaded to the modern apt trusted-keyring location"
 
     cat > "${MARIADB_SOURCES_LIST}.tmp" <<SOURCES
 # MariaDB ${MARIADB_PINNED_SERIES} LTS repository (MariaDB Foundation), pinned to the
@@ -492,7 +523,7 @@ install_mariadb_tenant() {
 deb [arch=amd64 signed-by=${MARIADB_KEYRING}] https://deb.mariadb.org/${MARIADB_PINNED_SERIES}/ubuntu ${MARIADB_CODENAME} main
 SOURCES
     mv -f "${MARIADB_SOURCES_LIST}.tmp" "${MARIADB_SOURCES_LIST}"
-    add_change database.tenant.v1 installed "${MARIADB_SOURCES_LIST}" "apt source pinned to MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME})"
+    add_change mariadb installed "${MARIADB_SOURCES_LIST}" "apt source pinned to MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME})"
 
     if ! out=$(apt-get update 2>&1); then
         add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_SOURCES_LIST}"
@@ -541,7 +572,203 @@ SOURCES
         emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
     fi
 
-    add_change database.tenant.v1 installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
+    add_change mariadb installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
+
+    log_info "ensure_mariadb_package_installed complete"
+}
+
+# --- phase 4: install_mariadb_control_plane ------------------------------
+
+# mariadb_health_probe polls a real `SELECT 1` round-trip over the given
+# instance's own Unix socket until it succeeds or timeout elapses. A real
+# client round-trip is a stronger readiness signal than a bare TCP/socket
+# connect check: mariadbd's own InnoDB initialization (and, on a fresh
+# datadir, mariadb-install-db itself) can take a real moment after the
+# process starts.
+mariadb_health_probe() {
+    local socket="$1" attempt=0
+
+    while [ "${attempt}" -lt 60 ]; do
+        if mariadb --socket="${socket}" -u root -e "SELECT 1;" >/dev/null 2>&1; then
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+
+    return 1
+}
+
+# install_mariadb_control_plane relocates the default mariadb.service
+# instance (almost certainly already auto-started by the package's own
+# postinst against the stock /var/lib/mysql datadir) onto this project's own
+# managed datadir path, then creates a dedicated least-privilege application
+# account for Laravel to use.
+install_mariadb_control_plane() {
+    log_info "install_mariadb_control_plane: activating database.control-plane.v1"
+
+    local out app_password apparmor_local_mariadbd
+
+    # --- idempotency short-circuit: already migrated on a prior run --------
+    if [ -f "${CONTROL_PLANE_CONF_FRAGMENT}" ] && grep -qF "datadir = ${CONTROL_PLANE_DATADIR}" "${CONTROL_PLANE_CONF_FRAGMENT}" 2>/dev/null; then
+        log_info "install_mariadb_control_plane: ${CONTROL_PLANE_CONF_FRAGMENT} already points at ${CONTROL_PLANE_DATADIR}; treating this as a rerun against an already-migrated instance"
+        add_change database.control-plane.v1 verified "${CONTROL_PLANE_CONF_FRAGMENT}" "already migrated to ${CONTROL_PLANE_DATADIR} by a prior apply"
+
+        systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
+        if ! out=$(systemctl enable --now mariadb.service 2>&1); then
+            add_error mariadb_control_plane_enable_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        fi
+        add_change database.control-plane.v1 enabled "" "systemctl enable --now mariadb.service succeeded"
+
+        mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
+        add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
+
+        checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
+        log_info "install_mariadb_control_plane complete (already-migrated rerun)"
+        return 0
+    fi
+
+    # --- fresh migration: relocate the already-live default instance -------
+    systemctl stop mariadb.service 2>/dev/null || true
+
+    install -d -m 0750 -o mysql -g mysql /var/lib/lesta/mariadb || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/mariadb "failed to create /var/lib/lesta/mariadb"
+    install -d -m 0750 -o mysql -g mysql "${CONTROL_PLANE_DATADIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CONTROL_PLANE_DATADIR}" "failed to create ${CONTROL_PLANE_DATADIR}"
+
+    if [ -d "${CONTROL_PLANE_STOCK_DATADIR}" ] && [ -n "$(ls -A "${CONTROL_PLANE_STOCK_DATADIR}" 2>/dev/null)" ]; then
+        # cp -a then rm -rf, not a bare `mv .../* ...`: preserves ownership
+        # and permissions of every relocated file/directory explicitly and
+        # tolerates dotfiles the package may have written, which a bare glob
+        # move can silently skip.
+        cp -a "${CONTROL_PLANE_STOCK_DATADIR}/." "${CONTROL_PLANE_DATADIR}/" || fail_step "${EXIT_MUTATION_FAILURE}" datadir_relocate_failed "${CONTROL_PLANE_DATADIR}" "failed to copy ${CONTROL_PLANE_STOCK_DATADIR} content into ${CONTROL_PLANE_DATADIR}"
+        find "${CONTROL_PLANE_STOCK_DATADIR:?}" -mindepth 1 -delete 2>/dev/null || true
+        add_change database.control-plane.v1 relocated "${CONTROL_PLANE_DATADIR}" "already-initialized data relocated from the stock ${CONTROL_PLANE_STOCK_DATADIR} (created by mariadb-server's own package postinst) to this project's own managed datadir path"
+    else
+        # Real edge case: the package postinst did not auto-initialize the
+        # stock datadir (or it was already emptied by a prior partial run).
+        # Unlike the tenant instance, the default mariadb.service's own
+        # ExecStartPre behavior against an already-relocated, non-stock path
+        # is not a mechanism this installer relies on -- initialize
+        # explicitly here instead.
+        log_info "install_mariadb_control_plane: ${CONTROL_PLANE_STOCK_DATADIR} is empty or absent; running mariadb-install-db directly against ${CONTROL_PLANE_DATADIR}"
+        if ! out=$(mariadb-install-db --datadir="${CONTROL_PLANE_DATADIR}" --user=mysql 2>&1); then
+            add_error mariadb_install_db_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${CONTROL_PLANE_DATADIR}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        add_change database.control-plane.v1 installed "${CONTROL_PLANE_DATADIR}" "mariadb-install-db run directly against an empty datadir (the stock ${CONTROL_PLANE_STOCK_DATADIR} was empty or absent)"
+    fi
+
+    chown -R mysql:mysql "${CONTROL_PLANE_DATADIR}" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${CONTROL_PLANE_DATADIR}" "failed to chown ${CONTROL_PLANE_DATADIR} to mysql:mysql"
+    chmod 0750 "${CONTROL_PLANE_DATADIR}" || fail_step "${EXIT_MUTATION_FAILURE}" chmod_failed "${CONTROL_PLANE_DATADIR}" "failed to chmod ${CONTROL_PLANE_DATADIR} to 0750"
+    add_change database.control-plane.v1 ensured "${CONTROL_PLANE_DATADIR}" "control-plane datadir present, mode 0750 mysql:mysql"
+
+    # --- [mysqld] config fragment: read by the DEFAULT mariadbd instance
+    # (no --defaults-group-suffix), unlike the tenant fragment's own
+    # [mysqld.tenant] group-suffix mechanism -- this is the only fragment on
+    # this node targeting the plain, un-suffixed group. Only datadir
+    # (required) and port (defensive, already the package default) are set;
+    # socket/pid-file/log-error are left at Ubuntu's own stock package
+    # defaults, deliberately not relocated (see this file's own top comment
+    # and the CONTROL_PLANE_* constants block for why).
+    cat > "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" <<CONF
+# Managed by LESta. Do not edit by hand.
+#
+# Read by the DEFAULT mariadbd instance (systemctl start mariadb.service,
+# no --defaults-group-suffix) -- the plain [mysqld] group, not a
+# group-suffixed one. Only datadir and port are overridden here; socket,
+# pid-file, and log-error are left at Ubuntu's own stock package defaults.
+[mysqld]
+port = ${CONTROL_PLANE_PORT}
+datadir = ${CONTROL_PLANE_DATADIR}
+CONF
+    mv -f "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" "${CONTROL_PLANE_CONF_FRAGMENT}"
+    chmod 0644 "${CONTROL_PLANE_CONF_FRAGMENT}"
+    add_change database.control-plane.v1 installed "${CONTROL_PLANE_CONF_FRAGMENT}" "[mysqld] option group written with datadir and port set explicitly"
+
+    # --- AppArmor: same local-override file the tenant phase already
+    # appends to, extended with a second allow-block for the control-plane
+    # datadir if not already present -----------------------------------
+    apparmor_local_mariadbd="/etc/apparmor.d/local/usr.sbin.mariadbd"
+    if [ -f "${apparmor_local_mariadbd}" ]; then
+        if ! grep -qF "${CONTROL_PLANE_DATADIR}" "${apparmor_local_mariadbd}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: mariadbd must read and write its own control-plane datadir here.\n'
+                printf '%s/ r,\n' "${CONTROL_PLANE_DATADIR}"
+                printf '%s/** rwk,\n' "${CONTROL_PLANE_DATADIR}"
+            } >> "${apparmor_local_mariadbd}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_mariadbd}" "failed to append the ${CONTROL_PLANE_DATADIR} allowance to ${apparmor_local_mariadbd}"
+            add_change database.control-plane.v1 apparmor_extended "${apparmor_local_mariadbd}" "granted mariadbd read/write access to ${CONTROL_PLANE_DATADIR} via Ubuntu's own local-override include point"
+
+            if command -v apparmor_parser >/dev/null 2>&1; then
+                apparmor_parser -r /etc/apparmor.d/usr.sbin.mariadbd || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_reload_failed "${apparmor_local_mariadbd}" "apparmor_parser -r /etc/apparmor.d/usr.sbin.mariadbd failed"
+                add_change database.control-plane.v1 apparmor_reloaded "" "apparmor_parser -r reloaded the mariadbd profile with the ${CONTROL_PLANE_DATADIR} allowance"
+            fi
+        fi
+    else
+        log_info "AppArmor local override file for mariadbd not present (${apparmor_local_mariadbd}); assuming AppArmor is not enforcing mariadbd on this host, skipping"
+    fi
+
+    # --- enable + start the control-plane instance --------------------------
+    systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
+
+    if ! out=$(systemctl enable --now mariadb.service 2>&1); then
+        add_error mariadb_control_plane_enable_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+    fi
+    add_change database.control-plane.v1 enabled "" "systemctl enable --now mariadb.service succeeded, reading the relocated ${CONTROL_PLANE_DATADIR}"
+
+    mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
+    add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
+
+    # --- dedicated least-privilege Laravel application account -------------
+    #
+    # Deliberately NOT the tenant admin account's broad shape: schema-scoped
+    # to CONTROL_PLANE_APP_DB only, never *.*, never WITH GRANT OPTION. This
+    # application never needs to create other databases or manage other
+    # users, unlike the tenant admin account (which the agent uses to
+    # provision per-tenant databases dynamically).
+    # CREATE OR REPLACE USER, for the identical reason the tenant admin
+    # account uses it: a fresh password is generated on every apply, and the
+    # very next statement always re-grants the same fixed privilege set
+    # regardless, so REPLACE-then-regrant is safe here exactly as it is for
+    # the tenant admin account.
+    app_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+
+    if ! out=$(mariadb --socket="${CONTROL_PLANE_SOCKET}" -u root <<APPSQL 2>&1
+CREATE DATABASE IF NOT EXISTS \`${CONTROL_PLANE_APP_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE OR REPLACE USER '${CONTROL_PLANE_APP_USER}'@'127.0.0.1' IDENTIFIED BY '${app_password}';
+GRANT ALL PRIVILEGES ON \`${CONTROL_PLANE_APP_DB}\`.* TO '${CONTROL_PLANE_APP_USER}'@'127.0.0.1';
+FLUSH PRIVILEGES;
+APPSQL
+    ); then
+        add_error mariadb_app_account_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+    add_change database.control-plane.v1 installed "" "database ${CONTROL_PLANE_APP_DB} and dedicated application account ${CONTROL_PLANE_APP_USER}@127.0.0.1 created, schema-scoped, never WITH GRANT OPTION"
+
+    cat > "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" <<CREDS
+DB_CONNECTION=mariadb
+DB_HOST=127.0.0.1
+DB_PORT=${CONTROL_PLANE_PORT}
+DB_DATABASE=${CONTROL_PLANE_APP_DB}
+DB_USERNAME=${CONTROL_PLANE_APP_USER}
+DB_PASSWORD=${app_password}
+CREDS
+    chmod 0600 "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp"
+    chown root:root "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" 2>/dev/null || true
+    mv -f "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" "${CONTROL_PLANE_APP_CREDENTIALS_FILE}"
+    add_change database.control-plane.v1 installed "${CONTROL_PLANE_APP_CREDENTIALS_FILE}" "Laravel .env-shaped DB_* credentials written, mode 0600 root:root (a root-only file, not encrypted at rest in any cryptographic sense); an operator merges its contents into their own Laravel .env by hand, since install.sh has no reliable way to locate a Laravel checkout's .env on an arbitrary node, the password itself is never logged"
+
+    checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
+    log_info "install_mariadb_control_plane complete"
+}
+
+# --- phase 5: install_mariadb_tenant ------------------------------------
+
+install_mariadb_tenant() {
+    log_info "install_mariadb_tenant: activating database.tenant.v1"
+
+    local out admin_password apparmor_local_mariadbd
 
     # mysql (the package's own system user, running as APACHE_RUN_USER-style
     # mariadbd worker identity) has no reason to already be a member of the
@@ -637,7 +864,7 @@ CONF
     fi
     add_change database.tenant.v1 enabled "" "systemctl enable --now mariadb@tenant.service succeeded (--defaults-group-suffix=.tenant, reading [mysqld.tenant])"
 
-    mariadb_health_probe || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
+    mariadb_health_probe "${TENANT_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
     add_change database.tenant.v1 healthy "" "a real SELECT 1 round-trip over ${TENANT_SOCKET} succeeded"
 
     # --- dedicated admin account + --defaults-extra-file -------------------
@@ -696,7 +923,7 @@ DEFAULTS
     log_info "install_mariadb_tenant complete"
 }
 
-# --- phase 4: bootstrap_node_health --------------------------------------
+# --- phase 6: bootstrap_node_health --------------------------------------
 #
 # selftest_new_uuid/selftest_envelope/selftest_invoke_agent/
 # selftest_status_from_output/run_node_health_selftest_delete live in
@@ -804,8 +1031,10 @@ main() {
     log_info "preflight passed; beginning apply mutations"
 
     bootstrap_base
-    bootstrap_firewall_baseline_tenant_only
+    bootstrap_firewall_baseline_mariadb
     checkpoint_write bootstrap_firewall_baseline "${MANIFEST_DIGEST}"
+    ensure_mariadb_package_installed
+    install_mariadb_control_plane
     install_mariadb_tenant
     bootstrap_node_health
 
