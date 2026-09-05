@@ -666,22 +666,23 @@ jobs:
           sudo apt-get purge -y unbound
           sudo apt-get autoremove -y
 
-      # --- Scenario 6: conflicting, mariadb (exploratory) ----------------
+      # --- Scenario 6: conflicting, mariadb -------------------------------
       #
       # Unlike the "installer" job, this scenario deliberately skips the
       # defensive MySQL purge and instead holds the runner's pre-installed
       # MySQL packages, so `apt-get install -y mariadb-server` cannot
-      # resolve. Whether the third-party MariaDB Foundation package
-      # actually declares a dpkg-level Conflicts:/Replaces: against
-      # Ubuntu-archive mysql-server is unverified as of this commit: the
-      # assertion below is deliberately loose (non-zero exit only). A
-      # follow-up commit will tighten it to the exact (exit_code, code)
-      # pair once a real CI run's output can be read.
+      # resolve. Confirmed on a real CI run: MariaDB Foundation's
+      # mariadb-server package does declare real dpkg-level Conflicts:
+      # against mysql-server/mysql-server-8.0 (and mariadb-client Breaks:
+      # against it too), so apt-get itself refuses to resolve the held
+      # conflict and install.sh's own existing apt_install_failed path
+      # (EXIT_MUTATION_FAILURE) fires, exactly as for any other apt-get
+      # install failure.
 
       - name: "Scenario 6 setup: hold the runner's pre-installed MySQL packages"
         run: sudo apt-mark hold mysql-server mysql-server-8.0 mysql-community-server 2>/dev/null || true
 
-      - name: "Scenario 6: conflicting (mariadb apply), exploratory, non-zero exit only"
+      - name: "Scenario 6: conflicting (mariadb apply) must reject the held, conflicting MySQL packages"
         run: |
           set +e
           result=$(sudo sh .install/services/mariadb/install.sh --apply --yes 2>/tmp/scenario6-stderr.log)
@@ -690,10 +691,13 @@ jobs:
           echo "${result}"
           echo "--- stderr log ---"
           cat /tmp/scenario6-stderr.log || true
-          if [ "${status}" -eq 0 ]; then
-            echo "expected a non-zero exit (held MySQL packages should block mariadb-server's apt-get install), got 0" >&2
+          if [ "${status}" -ne 20 ]; then
+            echo "expected exit 20 (EXIT_MUTATION_FAILURE), got ${status}" >&2
             exit 1
           fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"apt_install_failed"' \
+            || { echo "expected the result body to contain \"code\":\"apt_install_failed\"" >&2; exit 1; }
 
       - name: "Scenario 6 cleanup: unhold the runner's MySQL packages"
         run: sudo apt-mark unhold mysql-server mysql-server-8.0 mysql-community-server 2>/dev/null || true
