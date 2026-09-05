@@ -18,6 +18,14 @@ export type NodeProvisioningOperation = {
     completed_at: string | null;
 };
 
+export type OrphanedAccountNodeIdentity = {
+    uuid: string;
+    system_username: string;
+    account_id: number;
+    account_name: string | null;
+    created_at: string | null;
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -31,4 +39,5 @@ export type Node = {
     capabilities_count?: number;
     capabilities?: NodeCapability[];
     recent_operations?: NodeProvisioningOperation[];
+    orphaned_identities?: OrphanedAccountNodeIdentity[];
 };

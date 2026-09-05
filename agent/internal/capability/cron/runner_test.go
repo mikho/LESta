@@ -18,10 +18,10 @@ type testExecutionLogEntry struct {
 	Output     string `json:"output"`
 }
 
-func writeSidecar(t *testing.T, cfg cron.Config, resourceID, command string) {
+func writeSidecar(t *testing.T, cfg cron.Config, runAs, resourceID, command string) {
 	t.Helper()
 
-	dir := filepath.Join(cfg.StateRoot, "jobs", "sidecar")
+	dir := filepath.Join(cfg.StateRoot, "accounts", runAs, "jobs", "sidecar")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("creating sidecar directory: %v", err)
 	}
@@ -36,10 +36,10 @@ func writeSidecar(t *testing.T, cfg cron.Config, resourceID, command string) {
 	}
 }
 
-func readLastLogEntry(t *testing.T, cfg cron.Config, resourceID string) testExecutionLogEntry {
+func readLastLogEntry(t *testing.T, cfg cron.Config, runAs, resourceID string) testExecutionLogEntry {
 	t.Helper()
 
-	path := filepath.Join(cfg.StateRoot, "executions", resourceID+".log")
+	path := filepath.Join(cfg.StateRoot, "accounts", runAs, "executions", resourceID+".log")
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -81,14 +81,14 @@ func TestRunJobSuccessfulCommandExitsZeroAndLogsOutput(t *testing.T) {
 	}
 	resourceID := newTestUUID()
 
-	writeSidecar(t, cfg, resourceID, "echo hello && exit 0")
+	writeSidecar(t, cfg, testRunAs, resourceID, "echo hello && exit 0")
 
-	exitCode := cron.RunJob(cfg, resourceID)
+	exitCode := cron.RunJob(cfg, resourceID, testRunAs)
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", exitCode)
 	}
 
-	entry := readLastLogEntry(t, cfg, resourceID)
+	entry := readLastLogEntry(t, cfg, testRunAs, resourceID)
 	if entry.ExitCode != 0 {
 		t.Fatalf("expected logged exit code 0, got %d", entry.ExitCode)
 	}
@@ -109,14 +109,14 @@ func TestRunJobFailingCommandReturnsItsRealExitCode(t *testing.T) {
 	}
 	resourceID := newTestUUID()
 
-	writeSidecar(t, cfg, resourceID, "exit 3")
+	writeSidecar(t, cfg, testRunAs, resourceID, "exit 3")
 
-	exitCode := cron.RunJob(cfg, resourceID)
+	exitCode := cron.RunJob(cfg, resourceID, testRunAs)
 	if exitCode != 3 {
 		t.Fatalf("expected exit code 3, got %d", exitCode)
 	}
 
-	entry := readLastLogEntry(t, cfg, resourceID)
+	entry := readLastLogEntry(t, cfg, testRunAs, resourceID)
 	if entry.ExitCode != 3 {
 		t.Fatalf("expected logged exit code 3, got %d", entry.ExitCode)
 	}
@@ -132,14 +132,14 @@ func TestRunJobTruncatesOutputExceedingTheCap(t *testing.T) {
 	resourceID := newTestUUID()
 
 	// Produces well over the 65536-byte cap.
-	writeSidecar(t, cfg, resourceID, "head -c 200000 /dev/zero | tr '\\0' 'a'")
+	writeSidecar(t, cfg, testRunAs, resourceID, "head -c 200000 /dev/zero | tr '\\0' 'a'")
 
-	exitCode := cron.RunJob(cfg, resourceID)
+	exitCode := cron.RunJob(cfg, resourceID, testRunAs)
 	if exitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", exitCode)
 	}
 
-	entry := readLastLogEntry(t, cfg, resourceID)
+	entry := readLastLogEntry(t, cfg, testRunAs, resourceID)
 	if !strings.HasSuffix(entry.Output, "[truncated]") {
 		t.Fatalf("expected the logged output to end with a truncation note, got a %d-byte tail: %q", len(entry.Output), entry.Output[max(0, len(entry.Output)-40):])
 	}
@@ -156,7 +156,7 @@ func TestRunJobUnreadableSidecarReturnsASyntheticNonZeroExitCode(t *testing.T) {
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
 
-	exitCode := cron.RunJob(cfg, newTestUUID())
+	exitCode := cron.RunJob(cfg, newTestUUID(), testRunAs)
 	if exitCode == 0 {
 		t.Fatal("expected a non-zero exit code when the sidecar cannot be read")
 	}

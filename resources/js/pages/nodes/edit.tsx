@@ -24,7 +24,12 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import nodes from '@/routes/nodes';
-import type { Node, NodeCapability, NodeProvisioningOperation } from '@/types';
+import type {
+    Node,
+    NodeCapability,
+    NodeProvisioningOperation,
+    OrphanedAccountNodeIdentity,
+} from '@/types';
 
 const capabilityOptions = [
     'web.nginx.v1',
@@ -266,9 +271,87 @@ function AddCapabilityForm({ node }: { node: Node }) {
     );
 }
 
+function OrphanedIdentityRow({
+    node,
+    identity,
+}: {
+    node: Node;
+    identity: OrphanedAccountNodeIdentity;
+}) {
+    return (
+        <tr className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border">
+            <td className="px-4 py-2 font-medium">
+                {identity.account_name ?? `Account #${identity.account_id}`}
+            </td>
+            <td className="px-4 py-2 font-mono text-xs">
+                {identity.system_username}
+            </td>
+            <td className="px-4 py-2">
+                <Dialog>
+                    <DialogTrigger asChild>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            data-test={`delete-identity-${identity.uuid}-button`}
+                        >
+                            Delete
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogTitle>
+                            Delete the identity {identity.system_username}?
+                        </DialogTitle>
+                        <DialogDescription>
+                            This account has no remaining cron jobs on this
+                            node. Deleting this identity queues removal of its
+                            underlying system user on the node.
+                        </DialogDescription>
+
+                        <Form
+                            {...nodes.identities.destroy.form([
+                                node,
+                                identity,
+                            ])}
+                            options={{ preserveScroll: true }}
+                        >
+                            {({ processing, errors }) => (
+                                <>
+                                    <InputError message={errors.identity} />
+
+                                    <DialogFooter className="gap-2">
+                                        <DialogClose asChild>
+                                            <Button variant="secondary">
+                                                Cancel
+                                            </Button>
+                                        </DialogClose>
+
+                                        <Button
+                                            variant="destructive"
+                                            disabled={processing}
+                                            asChild
+                                        >
+                                            <button
+                                                type="submit"
+                                                data-test={`confirm-delete-identity-${identity.uuid}-button`}
+                                            >
+                                                Delete identity
+                                            </button>
+                                        </Button>
+                                    </DialogFooter>
+                                </>
+                            )}
+                        </Form>
+                    </DialogContent>
+                </Dialog>
+            </td>
+        </tr>
+    );
+}
+
 export default function Edit({ node }: { node: Node }) {
     const capabilities = node.capabilities ?? [];
     const operations = node.recent_operations ?? [];
+    const orphanedIdentities = node.orphaned_identities ?? [];
 
     return (
         <>

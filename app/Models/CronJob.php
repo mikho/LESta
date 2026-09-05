@@ -97,15 +97,39 @@ class CronJob extends Model
     }
 
     /**
+     * This cron job's own account's dedicated system user on this cron job's own node, resolved
+     * by (account_id, node_id) rather than a stored column: the identity is a sibling resource
+     * (App\Actions\Cron\EnsuresAccountNodeIdentity creates it lazily, on this cron job's own
+     * account+node pair, before this cron job's own row is ever created), not an owned or cached
+     * attribute of this cron job itself, so it is always looked up live rather than duplicated
+     * onto this table.
+     */
+    public function accountNodeIdentity(): ?AccountNodeIdentity
+    {
+        return AccountNodeIdentity::query()
+            ->where('account_id', $this->account_id)
+            ->where('node_id', $this->node_id)
+            ->first();
+    }
+
+    /**
      * Shape the desired-state payload sent to a provisioner. The raw command text is included
      * here (it never appears in the crontab fragment file itself, only in this payload and the
      * node-local JSON sidecar the agent's cron-run wrapper reads at execution time; see
      * agent/internal/capability/cron's own package doc comment for the full security design).
      *
-     * @return array{minute: string, hour: string, day_of_month: string, month: string, day_of_week: string, command: string, suspended: bool}
+     * run_as is this account's own dedicated, per-node Linux system user (see
+     * accountNodeIdentity() above): by the time a cron job is ever created,
+     * EnsuresAccountNodeIdentity has already guaranteed that identity exists (see
+     * App\Actions\CronJobs\CreateCronJob), so this is never null in practice for a row reaching
+     * this method through the normal create path.
+     *
+     * @return array{minute: string, hour: string, day_of_month: string, month: string, day_of_week: string, command: string, suspended: bool, run_as: string}
      */
     public function toProvisioningPayload(): array
     {
+        $identity = $this->accountNodeIdentity();
+
         return [
             'minute' => $this->minute,
             'hour' => $this->hour,
@@ -114,6 +138,7 @@ class CronJob extends Model
             'day_of_week' => $this->day_of_week,
             'command' => $this->command,
             'suspended' => $this->isSuspended(),
+            'run_as' => $identity !== null ? $identity->system_username : '',
         ];
     }
 }

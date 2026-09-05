@@ -28,12 +28,13 @@ func fragmentPath(cfg cron.Config, resourceID string) string {
 	return filepath.Join(cfg.FragmentDir, "lesta-"+resourceID)
 }
 
-func sidecarPath(cfg cron.Config, resourceID string) string {
-	return filepath.Join(cfg.StateRoot, "jobs", "sidecar", resourceID+".json")
+func sidecarPath(cfg cron.Config, runAs, resourceID string) string {
+	return filepath.Join(cfg.StateRoot, "accounts", runAs, "jobs", "sidecar", resourceID+".json")
 }
 
 func TestCreateWritesFragmentAndSidecarWithExpectedContent(t *testing.T) {
 	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
@@ -47,12 +48,12 @@ func TestCreateWritesFragmentAndSidecarWithExpectedContent(t *testing.T) {
 		t.Fatalf("expected the crontab fragment to exist: %v", err)
 	}
 
-	wantLine := fmt.Sprintf("0 3 * * * lesta-cron /var/lib/lesta/agent/bin/lesta-agent cron-run %s\n", resourceID)
+	wantLine := fmt.Sprintf("0 3 * * * %s /var/lib/lesta/agent/bin/lesta-agent cron-run %s %s\n", testRunAs, resourceID, testRunAs)
 	if string(fragment) != wantLine {
 		t.Fatalf("expected fragment content %q, got %q", wantLine, string(fragment))
 	}
 
-	sidecar, err := os.ReadFile(sidecarPath(cfg, resourceID))
+	sidecar, err := os.ReadFile(sidecarPath(cfg, testRunAs, resourceID))
 	if err != nil {
 		t.Fatalf("expected the sidecar to exist: %v", err)
 	}
@@ -69,6 +70,7 @@ func TestCreateWritesFragmentAndSidecarWithExpectedContent(t *testing.T) {
 
 func TestCreateSuspendedWritesCommentOnlyPlaceholder(t *testing.T) {
 	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
@@ -90,6 +92,7 @@ func TestCreateSuspendedWritesCommentOnlyPlaceholder(t *testing.T) {
 
 func TestUpdateRewritesBothFilesIntoANewGeneration(t *testing.T) {
 	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
@@ -111,12 +114,12 @@ func TestUpdateRewritesBothFilesIntoANewGeneration(t *testing.T) {
 		t.Fatalf("expected the crontab fragment to exist: %v", err)
 	}
 
-	want := fmt.Sprintf("30 4 * * 1-5 lesta-cron /var/lib/lesta/agent/bin/lesta-agent cron-run %s\n", resourceID)
+	want := fmt.Sprintf("30 4 * * 1-5 %s /var/lib/lesta/agent/bin/lesta-agent cron-run %s %s\n", testRunAs, resourceID, testRunAs)
 	if string(fragment) != want {
 		t.Fatalf("expected updated fragment content %q, got %q", want, string(fragment))
 	}
 
-	sidecar, err := os.ReadFile(sidecarPath(cfg, resourceID))
+	sidecar, err := os.ReadFile(sidecarPath(cfg, testRunAs, resourceID))
 	if err != nil {
 		t.Fatalf("expected the sidecar to exist: %v", err)
 	}
@@ -127,6 +130,7 @@ func TestUpdateRewritesBothFilesIntoANewGeneration(t *testing.T) {
 
 func TestDeleteRemovesBothFilesAndToleratesRepeat(t *testing.T) {
 	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
@@ -142,7 +146,7 @@ func TestDeleteRemovesBothFilesAndToleratesRepeat(t *testing.T) {
 	if _, err := os.Stat(fragmentPath(cfg, resourceID)); !os.IsNotExist(err) {
 		t.Fatalf("expected the fragment to be removed after delete, stat err=%v", err)
 	}
-	if _, err := os.Stat(sidecarPath(cfg, resourceID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(sidecarPath(cfg, testRunAs, resourceID)); !os.IsNotExist(err) {
 		t.Fatalf("expected the sidecar to be removed after delete, stat err=%v", err)
 	}
 
@@ -155,6 +159,7 @@ func TestDeleteRemovesBothFilesAndToleratesRepeat(t *testing.T) {
 
 func TestObserveDetectsDriftWhenFragmentIsExternallyModified(t *testing.T) {
 	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
@@ -179,6 +184,7 @@ func TestObserveDetectsDriftWhenFragmentIsExternallyModified(t *testing.T) {
 
 func TestDuplicateIdempotencyKeyIsServedFromReceiptNotReapplied(t *testing.T) {
 	capability, _ := newCapability(t)
+	requireChownableGroup(t)
 	ctx := context.Background()
 
 	resourceID := newTestUUID()

@@ -13,6 +13,24 @@
 # checksum/copy portion, which has no capability-specific behavior at all.
 # Each installer still runs its own capability-specific self-test
 # afterward, and calls checkpoint_write itself once that self-test passes.
+#
+# AGENT_BINARY_DEST is installed mode 0755 (world-execute), not the more
+# restrictive 0750 an earlier phase used: since Phase 21, each tenant
+# account's cron jobs run as that account's own dedicated, per-node Linux
+# system user (system.account-identity.v1), not the single shared
+# `lesta-cron` identity every account used to share. Those per-account
+# identities are never added to the shared `lesta` group -- doing so would
+# let one tenant's own identity read another tenant's own cron sidecar/log
+# files under /var/lib/lesta/cron/accounts/<other-account>, which are
+# group-owned `root:<that-account's-own-group>`, precisely to keep that from
+# happening (see internal/capability/cron/runner.go's own per-account
+# directory layout). World-execute of a binary with no embedded secrets
+# (every credential this binary ever touches lives in a root-owned,
+# non-world-readable file it reads at runtime, never in the binary itself)
+# is a standard, safe pattern for exactly this shape of requirement: any
+# local user can invoke the binary, but none of them can read another
+# account's own state through it, since the binary itself enforces no
+# access beyond what its own root-owned config already grants.
 
 AGENT_BINARY_DEST="/var/lib/lesta/agent/bin/lesta-agent"
 AGENT_ARTIFACT_NAME="lesta-agent-linux-amd64"
@@ -37,9 +55,22 @@ agent_install_binary() {
     local agent_binary_src="$1" node_health_manifest="$2" expected_sha256 dest_sha256
 
     install -d -m 0750 -o root -g lesta /etc/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/agent "failed to create /etc/lesta/agent"
-    install -d -m 0750 -o root -g lesta /var/lib/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent "failed to create /var/lib/lesta/agent"
+    # /var/lib/lesta/agent itself needs the same other-execute (traversal)
+    # bit as /var/lib/lesta (see every leaf installer's own
+    # install -d .../var/lib/lesta): a per-account cron identity, not a
+    # member of the `lesta` group, must still be able to traverse down into
+    # its own child directory (bin) to exec AGENT_BINARY_DEST, even though
+    # it can neither list nor read this directory's own contents (no
+    # other-read bit).
+    install -d -m 0751 -o root -g lesta /var/lib/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent "failed to create /var/lib/lesta/agent"
     install -d -m 0750 -o root -g lesta /var/log/lesta/agent || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta/agent "failed to create /var/log/lesta/agent"
-    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/agent/bin || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/bin "failed to create /var/lib/lesta/agent/bin"
+    # /var/lib/lesta/agent/bin itself is mode 0755, not 0750 like its
+    # siblings: it holds nothing but the agent binary (no secrets, no
+    # per-account state), and every per-account cron identity below needs to
+    # traverse into it to exec AGENT_BINARY_DEST -- a 0750 directory would
+    # make the binary's own 0755 mode moot, since a non-`lesta`-group
+    # identity could never reach it in the first place.
+    install -d -m 0755 -o lesta-agent -g lesta /var/lib/lesta/agent/bin || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/bin "failed to create /var/lib/lesta/agent/bin"
     add_change node.health.v1 ensured /var/lib/lesta/agent "agent directories present with correct ownership"
 
     expected_sha256=$(manifest_artifact_sha256 "${node_health_manifest}" "${AGENT_ARTIFACT_NAME}")
@@ -62,7 +93,7 @@ agent_install_binary() {
         # half-written .previous file.
         cp "${AGENT_BINARY_DEST}" "${AGENT_BINARY_DEST}.previous.tmp" \
             || fail_step "${EXIT_MUTATION_FAILURE}" backup_failed "${AGENT_BINARY_DEST}.previous" "failed to copy the currently-installed agent binary (sha256 ${dest_sha256}) to ${AGENT_BINARY_DEST}.previous.tmp before installing a new generation"
-        chmod 0750 "${AGENT_BINARY_DEST}.previous.tmp"
+        chmod 0755 "${AGENT_BINARY_DEST}.previous.tmp"
         chown lesta-agent:lesta "${AGENT_BINARY_DEST}.previous.tmp" 2>/dev/null || true
         mv -f "${AGENT_BINARY_DEST}.previous.tmp" "${AGENT_BINARY_DEST}.previous" \
             || fail_step "${EXIT_MUTATION_FAILURE}" backup_failed "${AGENT_BINARY_DEST}.previous" "failed to rename ${AGENT_BINARY_DEST}.previous.tmp into place"
@@ -77,10 +108,10 @@ agent_install_binary() {
         || fail_step "${EXIT_VERIFICATION_FAILURE}" checksum_mismatch "${agent_binary_src}" "vendored agent binary sha256 does not match node-health manifest's artifacts[] entry"
 
     cp "${agent_binary_src}" "${AGENT_BINARY_DEST}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" copy_failed "${AGENT_BINARY_DEST}" "failed to copy agent binary into place"
-    chmod 0750 "${AGENT_BINARY_DEST}.tmp"
+    chmod 0755 "${AGENT_BINARY_DEST}.tmp"
     chown lesta-agent:lesta "${AGENT_BINARY_DEST}.tmp" 2>/dev/null || true
     mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}"
-    add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${agent_binary_src}, sha256 verified against manifest, mode 0750 lesta-agent:lesta"
+    add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${agent_binary_src}, sha256 verified against manifest, mode 0755 lesta-agent:lesta"
 }
 
 # agent_rollback_binary
@@ -105,7 +136,7 @@ agent_rollback_binary() {
         log_error "agent_rollback_binary: failed to copy ${AGENT_BINARY_DEST}.previous to ${AGENT_BINARY_DEST}.tmp"
         return 2
     }
-    chmod 0750 "${AGENT_BINARY_DEST}.tmp"
+    chmod 0755 "${AGENT_BINARY_DEST}.tmp"
     chown lesta-agent:lesta "${AGENT_BINARY_DEST}.tmp" 2>/dev/null || true
     mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}" || {
         log_error "agent_rollback_binary: failed to rename ${AGENT_BINARY_DEST}.tmp into place over ${AGENT_BINARY_DEST}"

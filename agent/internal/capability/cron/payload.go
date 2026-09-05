@@ -4,9 +4,24 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// runAsPattern enforces standard Linux system-username constraints on
+// RunAs, deliberately duplicated from internal/capability/identity's own
+// identical pattern rather than shared/imported (matching the
+// "duplicate, don't import" precedent internal/capability/acme's own
+// hostnamePattern doc comment already established for this module). RunAs
+// is embedded directly into a crontab fragment's own line AND used to build
+// this resource's own sidecar/execution-log filesystem paths (see
+// capability.go's own sidecarPath/executionLogPath), so rejecting anything
+// outside this charset before either use defends against both crontab-line
+// injection and path traversal via a "../"-laden value, even though Laravel
+// is the one computing this value deterministically and should never send
+// anything else.
+var runAsPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // Payload is the scheduler.account-cron.v1 capability's request body. The
 // five schedule fields are embedded directly into the crontab fragment's own
@@ -23,6 +38,20 @@ type Payload struct {
 	DayOfWeek  string `json:"day_of_week"`
 	Command    string `json:"command"`
 	Suspended  bool   `json:"suspended"`
+	// RunAs is the crontab fragment's own user-column value: the tenant
+	// account's dedicated, per-node Linux system user
+	// (system.account-identity.v1's own deterministic username, e.g.
+	// "lesta-t42"), never a shared identity, except for the installer's own
+	// synthetic self-test job, which points this at the shared "lesta-cron"
+	// identity explicitly (see .install/services/cron/install.sh's own
+	// run_node_health_selftest). Also doubles as this payload's own
+	// per-account state key: renderFragment embeds it directly in the
+	// crontab line, and capability.go/runner.go both key every sidecar and
+	// execution-log path by this same value (see this package's own
+	// sidecarPath/executionLogPath), since RunAs and "the account this job
+	// belongs to" are the same value by construction -- CreateCronJob always
+	// resolves both from the very same AccountNodeIdentity row.
+	RunAs string `json:"run_as"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -78,6 +107,14 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if verr := validateCommand(p.Command); verr != nil {
 		return Payload{}, verr
+	}
+
+	if p.RunAs == "" || !runAsPattern.MatchString(p.RunAs) {
+		return Payload{}, &ValidationError{
+			Code:    "invalid_run_as",
+			Message: "run_as must be a non-empty string matching ^[a-z][a-z0-9_-]{0,31}$",
+			Field:   "run_as",
+		}
 	}
 
 	return p, nil

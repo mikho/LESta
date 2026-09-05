@@ -33,13 +33,14 @@
 # make sure `/etc/cron.d` and this capability's own state root exist with
 # the right ownership -- it never writes a crontab fragment itself.
 #
-# **Disclosed limitation, not a bug**: every account's cron commands run as
-# the SAME shared, non-root `lesta-cron` system user on a given node. There
-# is no per-account OS-level isolation this phase (see README.md's own
-# "Execution isolation" section) -- the ADR's own alternative-design fork for
-# this phase was resolved in favor of the narrowest defensible slice (a
-# fixed shared runner identity, never root) rather than building a full
-# per-account-user mechanism as an unrequested prerequisite.
+# **Phase 21 update**: real per-account OS isolation now exists
+# (system.account-identity.v1; see agent/internal/capability/identity's own
+# package doc comment). Every REAL tenant account's cron commands run as
+# that account's own dedicated, per-node Linux system user, lazily created
+# the first time it gets a cron job on a node. The shared, non-root
+# `lesta-cron` system user this installer creates below is kept, but
+# repurposed: it now runs ONLY this installer's own synthetic self-test job
+# below, never a real tenant's job.
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -304,7 +305,7 @@ bootstrap_base() {
     fi
 
     install -d -m 0750 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
-    install -d -m 0750 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
+    install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
     install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
     add_change base.os.v1 ensured /etc/lesta "directory present, mode 0750 root:lesta"
     add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
@@ -353,8 +354,18 @@ install_cron() {
 
     local out installed_version
 
-    # --- lesta-cron: the fixed, non-root system user every crontab
-    # fragment's own line names -------------------------------------------
+    # --- lesta-cron: the fixed, non-root system user this installer's own
+    # self-test job runs as (see this file's own top comment for why this is
+    # no longer a real tenant-facing identity as of Phase 21)
+    # -------------------------------------------------------------------
+    #
+    # No --no-user-group: relying on useradd's own platform default of also
+    # creating a same-named primary group "lesta-cron", exactly like
+    # system.account-identity.v1's own createSystemUser does for a real
+    # tenant identity (agent/internal/capability/identity/exec.go) -- this
+    # is what lets the self-test below exercise the exact same
+    # ensureAccountDir code path (agent/internal/capability/cron/account.go)
+    # a real tenant account's own first cron job would.
     if ! id "${RUNNER_USER}" >/dev/null 2>&1; then
         useradd --system --no-create-home --shell /usr/sbin/nologin "${RUNNER_USER}" \
             || fail_step "${EXIT_MUTATION_FAILURE}" useradd_failed /etc/passwd "failed to create system user ${RUNNER_USER}"
@@ -363,16 +374,21 @@ install_cron() {
         add_change "${SCHEDULER_CRON_CAPABILITY}" verified /etc/passwd "system user ${RUNNER_USER} already exists"
     fi
 
-    # lesta-cron has no reason to already be a member of the lesta group.
-    # The cron-run wrapper it execs on every scheduled tick
-    # ("<AgentBinaryPath> cron-run <resource_id>") must itself traverse
-    # /var/lib/lesta and /var/lib/lesta/agent (both 0750 root:lesta) to
-    # reach /var/lib/lesta/agent/bin/lesta-agent, and must read its own
-    # job's JSON sidecar and write its own execution log under
-    # ${CRON_STATE_ROOT} -- all of which this function grants group access
-    # to below via ownership on ${CRON_STATE_ROOT}'s own subdirectories.
-    usermod -aG lesta "${RUNNER_USER}" || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta ${RUNNER_USER} failed"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" group_membership_granted "" "${RUNNER_USER} added to the lesta group, so the cron-run wrapper it execs can traverse /var/lib/lesta and reach the agent binary, its own sidecar, and its own execution log"
+    # lesta-cron is deliberately NEVER added to the shared lesta group: since
+    # Phase 21, its own cron-run wrapper invocation ("<AgentBinaryPath>
+    # cron-run <resource_id> lesta-cron") reads its sidecar and writes its
+    # execution log under ${CRON_STATE_ROOT}/accounts/lesta-cron, a
+    # directory owned root:lesta-cron (its own primary group, created
+    # lazily by the agent's own ensureAccountDir the first time the
+    # self-test below runs a create), which lesta-cron already has access
+    # to via that primary group alone. And .install/lib/agent.sh's own
+    # world-execute AGENT_BINARY_DEST (plus the world-traversable
+    # /var/lib/lesta and /var/lib/lesta/agent directories) means reaching
+    # the agent binary itself never required lesta group membership either.
+    # Adding lesta-cron to the shared lesta group would only ever grant it
+    # unnecessary access to ${CRON_STATE_ROOT}/jobs's own bookkeeping and
+    # every OTHER capability's own owned roots -- exactly the blast-radius
+    # this phase exists to shrink.
 
     # --- cron package -------------------------------------------------------
     if ! out=$(apt-get install -y cron 2>&1); then
@@ -400,19 +416,15 @@ install_cron() {
     install -d -m 0750 -o root -g lesta "${CRON_STATE_ROOT}/jobs" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
     add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0750 root:lesta"
 
-    # setgid (mode 2750): every sidecar JSON file written here (by whichever
-    # identity runs the agent's own OperationEnvelope pipeline, today only
-    # this installer's own self-test, running as root) inherits group
-    # lesta, so lesta-cron (a lesta group member) can read its own job's
-    # command at execution time regardless of which identity created it.
-    install -d -m 2750 -o root -g lesta "${CRON_STATE_ROOT}/jobs/sidecar" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs/sidecar" "failed to create ${CRON_STATE_ROOT}/jobs/sidecar"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs/sidecar" "sidecar directory present, mode 2750 root:lesta (setgid, so lesta-cron can read sidecars it did not create)"
-
-    # setgid + group-write (mode 2770): the cron-run wrapper, running as
-    # lesta-cron, creates and appends its own execution-log file here on
-    # every scheduled run.
-    install -d -m 2770 -o root -g lesta "${CRON_STATE_ROOT}/executions" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/executions" "failed to create ${CRON_STATE_ROOT}/executions"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/executions" "execution-log directory present, mode 2770 root:lesta (setgid + group-write, so lesta-cron can create its own log files)"
+    # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar and
+    # execution-log directory, owned root:<run_as> mode 2750 setgid) is
+    # deliberately NOT pre-created here: it is created lazily, on demand, by
+    # the agent's own ensureAccountDir (agent/internal/capability/cron/
+    # account.go) the first time any account -- including lesta-cron itself,
+    # via the self-test just below -- gets its first cron job on this node.
+    # Pre-creating it here for lesta-cron specifically would let the
+    # self-test skip exercising that exact lazy-creation code path, which is
+    # precisely what a real tenant account's own first cron job depends on.
 
     # --- enable + health-probe ------------------------------------------
     systemctl enable --now cron || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now cron failed"
@@ -451,6 +463,14 @@ run_node_health_selftest() {
     delete_corr=$(selftest_new_uuid)
     fragment_path="${FRAGMENT_DIR}/lesta-${resource_id}"
 
+    # run_as: pointed explicitly at the shared lesta-cron identity, matching
+    # this file's own top comment on why lesta-cron survives Phase 21 as the
+    # self-test's own fixed identity, never a real tenant's. This also
+    # doubles as the per-account state key (see agent/internal/capability/
+    # cron/payload.go's own Payload.RunAs doc comment): the self-test's own
+    # sidecar/execution-log land under
+    # ${CRON_STATE_ROOT}/accounts/${RUNNER_USER}, created lazily by
+    # ensureAccountDir the first time this create runs, below.
     payload=$(json_join_object \
         "$(json_kv_str "minute" "*")" \
         "$(json_kv_str "hour" "*")" \
@@ -458,7 +478,8 @@ run_node_health_selftest() {
         "$(json_kv_str "month" "*")" \
         "$(json_kv_str "day_of_week" "*")" \
         "$(json_kv_str "command" "echo lesta-selftest")" \
-        "$(json_kv_raw "suspended" "false")")
+        "$(json_kv_raw "suspended" "false")" \
+        "$(json_kv_str "run_as" "${RUNNER_USER}")")
 
     envelope=$(selftest_envelope "${SCHEDULER_CRON_CAPABILITY}" create "${resource_id}" "${create_idem}" "${create_corr}" 1 "${payload}")
 
@@ -487,12 +508,16 @@ run_node_health_selftest() {
     # Genuine end-to-end proof the wrapper mode itself works: invoke the
     # real, just-installed binary's own "cron-run" CLI mode against the
     # real sidecar this create just wrote, exactly as cron itself would.
+    # The trailing lesta-cron argument matches the crontab line's own
+    # payload.RunAs-derived shape (see agent/internal/capability/cron/
+    # capability.go's own renderFragment doc comment on why run_as is
+    # repeated as an explicit CLI argument, not just the crontab user-column).
     wrapper_status=0
-    "${AGENT_BINARY_DEST}" cron-run "${resource_id}" >/dev/null 2>&1 || wrapper_status=$?
+    "${AGENT_BINARY_DEST}" cron-run "${resource_id}" "${RUNNER_USER}" >/dev/null 2>&1 || wrapper_status=$?
 
     if [ "${wrapper_status}" -ne 0 ]; then
         run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_wrapper_failed "${AGENT_BINARY_DEST}" "${AGENT_BINARY_DEST} cron-run ${resource_id} exited ${wrapper_status}, expected 0"
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_wrapper_failed "${AGENT_BINARY_DEST}" "${AGENT_BINARY_DEST} cron-run ${resource_id} ${RUNNER_USER} exited ${wrapper_status}, expected 0"
     fi
 
     log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 against the real sidecar"
