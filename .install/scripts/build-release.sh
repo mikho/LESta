@@ -10,27 +10,31 @@
 # Assembles a real, working offline installation bundle for the nginx leaf
 # installer, scoped to nginx only (the simplest single-package installer),
 # proving offline installation is possible without any cryptographic
-# signing: 'apt-get install --reinstall --download-only' fetches nginx and
-# its full dependency closure as .deb files into /var/cache/apt/archives
-# without installing or mutating anything else on this build host. Every
-# downloaded .deb is copied into --output-dir alongside a bundle-manifest.json
-# recording its real sha256 (compute_sha256, from lib/checksum.sh -- the
-# exact same function and integrity model lib/agent.sh already uses for the
-# vendored agent binary), name, version (read from the .deb itself via
-# dpkg-deb -f, never parsed out of the filename by hand), a real "source"
-# provenance string, and a real, honest, non-cryptographic "signature"
-# label. This bundle is nginx/install.sh's own --offline-bundle input: that
-# flag verifies every artifact's sha256 against this exact manifest before
-# any dpkg -i mutation is attempted.
+# signing: computes nginx's own full recursive dependency closure via
+# 'apt-cache depends', then fetches every one of those packages plus nginx
+# itself as real .deb files directly into --output-dir via 'apt-get
+# download' (never 'apt-get install --download-only', which silently skips
+# any dependency already installed and already satisfying nginx's own
+# requirement on this build host, producing a real, confirmed-via-CI
+# incomplete bundle; 'apt-get download' has no such install-state awareness
+# and always fetches the named package fresh). A bundle-manifest.json is
+# written alongside the .deb files, recording each one's real sha256
+# (compute_sha256, from lib/checksum.sh -- the exact same function and
+# integrity model lib/agent.sh already uses for the vendored agent binary),
+# name, version (read from the .deb itself via dpkg-deb -f, never parsed out
+# of the filename by hand), a real "source" provenance string, and a real,
+# honest, non-cryptographic "signature" label. This bundle is
+# nginx/install.sh's own --offline-bundle input: that flag verifies every
+# artifact's sha256 against this exact manifest before any dpkg -i mutation
+# is attempted.
 #
 # This is a release-engineering build tool, not a leaf-service installer: it
 # never claims to satisfy the --dry-run/--apply/--version installer contract
 # shape (INSTALLER-CONTRACT.md), it is run once per release on a trusted,
 # apt-connected host (or a CI runner, see Scenario 9 in
 # .github/workflows/tests.yml), never against a tenant node, and it performs
-# one real, intentional mutation of its own: refreshing and populating this
-# build host's own local apt package cache. Nothing on a tenant node is ever
-# touched by this script.
+# one real, intentional mutation of its own: refreshing this build host's own
+# apt package lists. Nothing on a tenant node is ever touched by this script.
 set -eu
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -62,10 +66,11 @@ Usage: build-release.sh --ubuntu-release <version> --output-dir <path> [--help]
                                created if it does not already exist.
   --help                      Print this message and exit.
 
-Downloads nginx and its full dependency closure as .deb files via
-'apt-get install --reinstall --download-only -y nginx' (fetches into this
-host's own apt cache; installs or mutates nothing else), copies every
-resulting .deb into --output-dir, and writes bundle-manifest.json recording
+Downloads nginx and its full recursive dependency closure (computed via
+apt-cache depends) as real .deb files directly into --output-dir via
+'apt-get download' (never 'apt-get install --download-only', which silently
+skips a dependency already installed and already satisfying nginx's own
+requirement on this build host), and writes bundle-manifest.json recording
 each one's real name, version (read via dpkg-deb -f), sha256, source, and
 signature -- consumed by:
 
@@ -141,13 +146,13 @@ validate_ubuntu_release() {
 
 main() {
     local artifact_lines="" deb_path deb_name deb_version deb_sha256 artifact_json copied_count=0
-    local artifacts_json bundle_manifest_json
+    local artifacts_json bundle_manifest_json nginx_deps
 
     parse_args "$@"
     validate_ubuntu_release
 
     if [ "$(id -u)" -ne 0 ]; then
-        fail "must run as root: 'apt-get install --download-only' needs write access to /var/cache/apt/archives"
+        fail "must run as root: 'apt-get update' needs write access to /var/lib/apt/lists"
     fi
 
     command -v apt-get >/dev/null 2>&1 || fail "apt-get not found; this script must run on a real Debian/Ubuntu host with apt access"
@@ -158,16 +163,36 @@ main() {
     printf 'build-release.sh: refreshing apt package lists for ubuntu %s\n' "${UBUNTU_RELEASE}" >&2
     apt-get update
 
-    printf 'build-release.sh: downloading nginx and its full dependency closure (download-only: fetches into /var/cache/apt/archives, installs nothing)\n' >&2
-    apt-get install --reinstall --download-only -y nginx
+    # 'apt-get install --reinstall --download-only' only reliably fetches
+    # packages apt actually needs to CHANGE: a dependency that is already
+    # installed and already satisfies nginx's own requirement is silently
+    # skipped, since apt sees nothing to do for it, even under
+    # --download-only. On a build host that already has some of nginx's own
+    # dependencies present (a real possibility, not just a CI artifact of
+    # re-running this script after a prior scenario already installed
+    # nginx), this would silently produce an incomplete bundle missing
+    # exactly those already-satisfied .deb files, confirmed for real via a
+    # CI failure where nginx-common was missing from the bundle for
+    # precisely this reason. 'apt-get download' has no such install-state
+    # awareness at all: it always fetches the named package's own .deb
+    # fresh, regardless of whether it is already installed, so computing
+    # the full recursive dependency closure ourselves and downloading every
+    # member of it by name is the only reliable way to guarantee a
+    # complete, build-host-state-independent bundle.
+    printf 'build-release.sh: computing nginx'"'"'s full recursive dependency closure\n' >&2
+    nginx_deps=$(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances nginx | grep -E '^[[:alnum:]]' | sort -u)
+    [ -n "${nginx_deps}" ] || fail "apt-cache depends returned no dependency closure for nginx; refusing to build an incomplete bundle"
 
-    for deb_path in /var/cache/apt/archives/*.deb; do
+    printf 'build-release.sh: downloading nginx and its full dependency closure into %s (apt-get download: independent of this host'"'"'s own current install state)\n' "${OUTPUT_DIR}" >&2
+    # shellcheck disable=SC2086
+    (cd "${OUTPUT_DIR}" && apt-get download nginx ${nginx_deps}) || fail "apt-get download failed for nginx and/or one of its dependencies"
+
+    for deb_path in "${OUTPUT_DIR}"/*.deb; do
         [ -e "${deb_path}" ] || continue
 
         deb_name=$(basename "${deb_path}")
-        cp "${deb_path}" "${OUTPUT_DIR}/${deb_name}" || fail "failed to copy ${deb_path} into ${OUTPUT_DIR}"
 
-        deb_version=$(dpkg-deb -f "${OUTPUT_DIR}/${deb_name}" Version) || fail "dpkg-deb could not read the Version field from ${deb_name}"
+        deb_version=$(dpkg-deb -f "${deb_path}" Version) || fail "dpkg-deb could not read the Version field from ${deb_name}"
         deb_sha256=$(compute_sha256 "${OUTPUT_DIR}/${deb_name}")
 
         artifact_json=$(json_join_object \
