@@ -962,3 +962,149 @@ jobs:
 
       - name: "Scenario 8 cleanup: ensure no stray .previous is left behind"
         run: sudo rm -f /var/lib/lesta/agent/bin/lesta-agent.previous
+
+      # --- Scenario 9: offline bundle (nginx, real apt-severed install) --
+      #
+      # Proves .install/scripts/build-release.sh's own offline-bundle
+      # pipeline for real, end to end: a bundle is built while this runner
+      # still has live apt access, the currently-installed nginx package is
+      # then genuinely removed (its conffiles, including nginx.conf's own
+      # lesta.d include line, kept -- that line is an operator-managed
+      # manual prerequisite install.sh never writes itself, live or
+      # offline, so it must already exist before either path's own
+      # preflight runs), every configured apt source is physically moved
+      # out of the way, and only then is
+      # 'nginx/install.sh --offline-bundle' run: it must still install a
+      # genuinely working, health-probed nginx with apt completely unable
+      # to reach any remote archive. A direct 'apt-get install
+      # --download-only' probe (the exact command build-release.sh itself
+      # depends on) is asserted to fail first, as real proof the isolation
+      # is genuine, not simulated.
+
+      - name: "Scenario 9 setup: build a real offline bundle for this runner's own Ubuntu release"
+        run: |
+          ubuntu_release=$(. /etc/os-release && printf '%s' "${VERSION_ID}")
+          echo "ubuntu_release=${ubuntu_release}" >> "${GITHUB_ENV}"
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle
+          ls -la /tmp/lesta-nginx-bundle
+          cat /tmp/lesta-nginx-bundle/bundle-manifest.json
+
+      - name: "Scenario 9 setup: remove the currently-installed nginx package (conffiles kept, so nginx.conf's own lesta.d include line survives), so the offline bundle performs a genuine reinstall"
+        run: |
+          installed_nginx_pkgs=$(dpkg -l | awk '/^ii/{print $2}' | grep -E '^nginx' || true)
+          echo "installed nginx packages: ${installed_nginx_pkgs}"
+          if [ -n "${installed_nginx_pkgs}" ]; then
+            sudo systemctl stop nginx 2>/dev/null || true
+            # shellcheck disable=SC2086
+            sudo apt-get remove -y ${installed_nginx_pkgs}
+          fi
+          test ! -x /usr/sbin/nginx
+          grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf"
+
+      - name: "Scenario 9 setup: sever this runner's apt sources so no live package archive is reachable"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup/sources.list.d/
+          done
+          ls -la /etc/apt/sources.list.d/ 2>/dev/null || true
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 9: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y nginx >/tmp/scenario9-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario9-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y nginx' (the exact command build-release.sh itself depends on) to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 9: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx --offline-bundle /tmp/lesta-nginx-bundle 2>/tmp/scenario9-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario9-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 9 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup
+          sudo apt-get update
+
+      # --- Scenario 10: tampered offline bundle (nginx) -------------------
+      #
+      # A real corruption of one vendored .deb's actual bytes (truncation,
+      # not a fabricated manifest-only checksum mismatch) must be rejected
+      # by verify_offline_bundle_artifacts BEFORE dpkg -i ever runs, exiting
+      # 13 (EXIT_VERIFICATION_FAILURE) with a "checksum_mismatch" error,
+      # leaving the already-installed nginx from Scenario 9 completely
+      # unmutated -- mirroring how Scenario 4 already proves rejection
+      # before mutation for the vendored agent binary.
+
+      - name: "Scenario 10 setup: build a fresh real offline bundle and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-nginx-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle-tampered
+          target_deb=$(ls /tmp/lesta-nginx-bundle-tampered/nginx*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+
+      - name: "Scenario 10: confirm the pre-tamper baseline (nginx's real installed version and binary mtime, from Scenario 9's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' nginx)
+          baseline_mtime=$(stat -c %Y /usr/sbin/nginx)
+          echo "s10_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s10_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 10: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx --offline-bundle /tmp/lesta-nginx-bundle-tampered 2>/tmp/scenario10-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario10-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 10: confirm nginx was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' nginx)
+          post_mtime=$(stat -c %Y /usr/sbin/nginx)
+          if [ "${post_version}" != "${s10_baseline_version}" ] || [ "${post_mtime}" != "${s10_baseline_mtime}" ]; then
+            echo "expected nginx's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s10_baseline_version} mtime=${s10_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 10 cleanup: remove both offline bundles"
+        run: sudo rm -rf /tmp/lesta-nginx-bundle-tampered /tmp/lesta-nginx-bundle

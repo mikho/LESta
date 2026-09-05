@@ -88,6 +88,15 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 NGINX_CONF_PATH="/etc/nginx/nginx.conf"
 NGINX_LIVE_DIR="/etc/nginx/lesta.d"
 
+# BUNDLE_MANIFEST_FILENAME must stay in lockstep with
+# .install/scripts/build-release.sh's own BUNDLE_MANIFEST_FILENAME: this is
+# the one, freshly-generated-at-build-time file name both sides agree on to
+# find a --offline-bundle directory's own artifacts[] manifest. It is never
+# a committed source manifest (unlike NGINX_MANIFEST above) and never
+# touched by .install/scripts/validate-contract.mjs, which only discovers
+# services/*/manifest.json.
+BUNDLE_MANIFEST_FILENAME="bundle-manifest.json"
+
 # CHECKPOINT_PATH/RELEASE_PATH: no longer exported from lib/checkpoint.sh
 # (each installer now sets its own). These are the exact same paths this
 # installer has always used, preserved unchanged so a rerun after this
@@ -103,6 +112,7 @@ export RELEASE_PATH="/etc/lesta/nginx-release"
 MODE=""
 WEB_SERVER=""
 YES=0
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -127,6 +137,15 @@ Usage: install.sh --dry-run|--apply|--version --web-server nginx|apache|both [--
                                    --web-profile both for a loopback-only Apache
                                    backend behind it.
   --yes                    Required with --apply: non-interactive confirmation.
+  --offline-bundle <path>  Optional, --web-server nginx|both only. Installs
+                           nginx from a locally-vendored bundle produced by
+                           .install/scripts/build-release.sh instead of the
+                           live 'apt-get install -y nginx' path: every .deb
+                           in <path> is sha256-verified against
+                           <path>/bundle-manifest.json before any mutation,
+                           then installed offline via 'dpkg -i' (no network
+                           access required). Absent by default: the live
+                           apt-get path is the unconditional default.
   --help                   Print this message.
 USAGE
 }
@@ -177,6 +196,15 @@ parse_args() {
                 WEB_SERVER="${1#--web-server=}"
                 shift
                 ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
+                shift
+                ;;
             --help)
                 usage
                 exit "${EXIT_OK}"
@@ -211,6 +239,10 @@ validate_args() {
 
     if [ "${MODE}" = "apply" ] && [ "${YES}" -ne 1 ]; then
         fail_invocation "--apply requires --yes"
+    fi
+
+    if [ -n "${OFFLINE_BUNDLE}" ] && [ "${WEB_SERVER}" = "apache" ]; then
+        fail_invocation "--offline-bundle has no effect with --web-server apache: nginx is never installed for that profile"
     fi
 }
 
@@ -274,6 +306,23 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# nginx_would_install_note prints the dry-run "how nginx would actually get
+# installed" sentence, offline-bundle-aware: the live apt-get path is the
+# unconditional default (see nginx_would_install_note's own empty-string
+# check), the offline path only ever describes what --offline-bundle itself
+# already documents in usage().
+nginx_would_install_note() {
+    local trailer="$1"
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required); %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "${NGINX_LIVE_DIR}" "${trailer}"
+    else
+        printf 'apt-get install -y nginx would run; %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s' \
+            "${NGINX_LIVE_DIR}" "${trailer}"
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
@@ -284,12 +333,12 @@ emit_dry_run_result_and_exit() {
         nginx)
             add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled"
             add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed nginx"
-            add_change web.nginx.v1 would_install "" "apt-get install -y nginx would run; ${NGINX_LIVE_DIR} and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed"
+            add_change web.nginx.v1 would_install "${OFFLINE_BUNDLE}" "$(nginx_would_install_note "")"
             ;;
         both)
             add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled"
             add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed nginx"
-            add_change web.nginx.v1 would_install "" "apt-get install -y nginx would run; ${NGINX_LIVE_DIR} and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed as this node's public listener"
+            add_change web.nginx.v1 would_install "${OFFLINE_BUNDLE}" "$(nginx_would_install_note " as this node's public listener")"
             add_change web.apache.v1 would_delegate "${INSTALL_ROOT}/services/apache/install.sh" "after nginx is up, apache/install.sh --apply --yes --web-profile both would run: apache2 would be installed as a loopback-only backend (no public ports opened for it), health-probed, and /etc/lesta/web-profile would be written with 'both'"
             ;;
         apache)
@@ -350,6 +399,33 @@ preflight_check_conflicting_lighttpd() {
     return 0
 }
 
+# preflight_check_offline_bundle_present <bundle_dir>
+# Structural-only check (directory and manifest file exist), reported at
+# preflight time for both --dry-run and --apply per
+# INSTALLER-CONTRACT.md's own "package source reachability or offline
+# bundle completeness" preflight requirement. Deliberately does NOT verify
+# any sha256 here: that full checksum verification (the fail-closed-before-
+# any-mutation guarantee) happens once, immediately before install_nginx's
+# own dpkg -i, via verify_offline_bundle_artifacts below -- duplicating it
+# here would only let a bundle that fails preflight but is fixed a moment
+# later go unverified a second time before use.
+preflight_check_offline_bundle_present() {
+    local bundle_dir="$1"
+    local manifest="${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}"
+
+    if [ ! -d "${bundle_dir}" ]; then
+        add_error artifact_missing "offline bundle directory not found: ${bundle_dir}" "${bundle_dir}"
+        return 1
+    fi
+
+    if [ ! -f "${manifest}" ]; then
+        add_error artifact_missing "offline bundle manifest not found: ${manifest} (run .install/scripts/build-release.sh first)" "${manifest}"
+        return 1
+    fi
+
+    return 0
+}
+
 run_preflight() {
     local os_id os_version_id arch supported dir port failed=0
 
@@ -396,6 +472,10 @@ PORTS
 
             preflight_check_lesta_identity || failed=1
             preflight_check_include_line || failed=1
+
+            if [ -n "${OFFLINE_BUNDLE}" ]; then
+                preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+            fi
             ;;
         apache)
             log_info "web-server apache: nginx is never installed this run; this script's own preflight (ports, conflicting packages, nginx.conf include line) is skipped entirely -- apache/install.sh runs its own full preflight when this script delegates to it"
@@ -503,23 +583,113 @@ nginx_health_probe() {
     return 1
 }
 
+# offline_bundle_artifact_names <bundle_manifest_file> -> one .deb filename
+# per line, read from the bundle's own artifacts[].name field. Mirrors
+# lib/preflight.sh's own manifest_artifact_sha256 parsing approach exactly
+# (artifacts[] declared on a single line, no nested braces inside an entry
+# -- guaranteed here since .install/scripts/build-release.sh writes this
+# file with lib/json.sh's own compact json_join_object/json_array_from_lines
+# helpers, never hand-formatted).
+offline_bundle_artifact_names() {
+    local file="$1" line
+
+    line=$(grep -o '"artifacts"[[:space:]]*:[[:space:]]*\[.*\]' "${file}" || true)
+    [ -n "${line}" ] || return 0
+
+    printf '%s' "${line}" \
+        | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+# verify_offline_bundle_artifacts <bundle_dir>
+# The offline counterpart of lib/agent.sh's own agent_install_binary
+# checksum discipline, generalized from one vendored Go binary to a set of
+# vendored .deb files: every artifact bundle-manifest.json declares must
+# exist at <bundle_dir>/<name> and its real sha256 (compute_sha256/
+# verify_sha256, from lib/checksum.sh) must match the manifest's own
+# recorded value. Fails closed via fail_step (EXIT_VERIFICATION_FAILURE)
+# on the FIRST missing file or mismatch, before install_nginx_offline_bundle
+# ever runs dpkg -i against anything -- no partial, partially-verified
+# install is ever attempted.
+verify_offline_bundle_artifacts() {
+    local bundle_dir="$1"
+    local bundle_manifest="${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}"
+    local names name deb_path expected_sha256 found=0
+
+    [ -f "${bundle_manifest}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_missing "${bundle_manifest}" "offline bundle manifest not found; run .install/scripts/build-release.sh first"
+
+    names=$(offline_bundle_artifact_names "${bundle_manifest}")
+    [ -n "${names}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "offline bundle manifest has no artifacts[] entries"
+
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
+        found=1
+        deb_path="${bundle_dir}/${name}"
+
+        expected_sha256=$(manifest_artifact_sha256 "${bundle_manifest}" "${name}")
+        [ -n "${expected_sha256}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "no sha256 recorded for ${name} in ${bundle_manifest}"
+
+        [ -f "${deb_path}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_missing "${deb_path}" "offline bundle artifact ${name} is declared in ${bundle_manifest} but not found at ${deb_path}"
+
+        verify_sha256 "${deb_path}" "${expected_sha256}" \
+            || fail_step "${EXIT_VERIFICATION_FAILURE}" checksum_mismatch "${deb_path}" "offline bundle artifact ${name} sha256 does not match ${bundle_manifest}'s artifacts[] entry; refusing to install any package from a tampered offline bundle"
+    done <<NAMES
+${names}
+NAMES
+
+    [ "${found}" -eq 1 ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "offline bundle manifest artifacts[] parsed as empty"
+}
+
+# install_nginx_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live 'apt-get install -y nginx'
+# branch below: verifies every vendored .deb first (fail closed, no
+# mutation before this returns), then installs via 'dpkg -i', requiring no
+# network access at all. dpkg -i registers the installed packages into the
+# same /var/lib/dpkg/status database an apt-get install would, so a later
+# rerun of this same installer (live or offline) still correctly detects
+# nginx as already installed via dpkg-query, exactly as the live path
+# already relies on below.
+install_nginx_offline_bundle() {
+    local bundle_dir="$1" out
+
+    log_info "install_nginx: installing nginx from offline bundle ${bundle_dir} (no network access required)"
+
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change web.nginx.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+}
+
 install_nginx() {
     log_info "install_nginx: installing nginx package and activating web.nginx.v1"
 
     local out installed_version deb_note include_status=0
 
-    if ! out=$(apt-get install -y nginx 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        install_nginx_offline_bundle "${OFFLINE_BUNDLE}"
 
-    installed_version=$(dpkg-query -W -f='${Version}' nginx 2>/dev/null || true)
-    if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed nginx version after apt-get install"
-    fi
+        installed_version=$(dpkg-query -W -f='${Version}' nginx 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed nginx version after dpkg -i from the offline bundle"
+        fi
+        add_change web.nginx.v1 installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
+    else
+        if ! out=$(apt-get install -y nginx 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
 
-    deb_note=$(nginx_package_provenance_note "${installed_version}")
-    add_change web.nginx.v1 installed "" "apt-get install -y nginx succeeded; dpkg-query reports version ${installed_version}. ${deb_note}"
+        installed_version=$(dpkg-query -W -f='${Version}' nginx 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed nginx version after apt-get install"
+        fi
+
+        deb_note=$(nginx_package_provenance_note "${installed_version}")
+        add_change web.nginx.v1 installed "" "apt-get install -y nginx succeeded; dpkg-query reports version ${installed_version}. ${deb_note}"
+    fi
 
     install -d -m 0755 "${NGINX_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
     install -d -m 0750 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
