@@ -644,22 +644,19 @@ run_node_health_selftest() {
     agent_out=$(selftest_invoke_agent "${envelope}") || agent_status=$?
 
     if [ "${agent_status}" -ne 0 ]; then
-        add_error selftest_create_failed "agent exited ${agent_status}: $(printf '%s' "${agent_out}" | tr '\n' ' ')" "${AGENT_BINARY_DEST}"
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_create_failed "${AGENT_BINARY_DEST}" "agent exited ${agent_status}: $(printf '%s' "${agent_out}" | tr '\n' ' ')"
     fi
 
     status_line=$(selftest_status_from_output "${agent_out}")
     if [ "${status_line}" != "applied" ]; then
-        add_error selftest_create_not_applied "agent returned status=${status_line:-unknown} for create, expected applied: $(printf '%s' "${agent_out}" | tr '\n' ' ')" "${AGENT_BINARY_DEST}"
         run_node_health_selftest_delete "${DNS_BIND9_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_create_not_applied "${AGENT_BINARY_DEST}" "agent returned status=${status_line:-unknown} for create, expected applied: $(printf '%s' "${agent_out}" | tr '\n' ' ')"
     fi
 
     log_info "bootstrap_node_health self-test: create returned status=applied"
 
     if ! run_node_health_selftest_delete "${DNS_BIND9_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
-        add_error selftest_cleanup_failed "self-test create succeeded but the throwaway resource could not be deleted afterward" "${BIND9_LIVE_DIR}"
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${BIND9_LIVE_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward"
     fi
 
     add_change dns.bind9.v1 installed_structural_only "${AGENT_BINARY_DEST}" "self-test create-then-delete of a throwaway zone (selftest.lesta.invalid) against the real, just-installed bind9 returned status=applied both times; remote control-plane registration is not yet built, so dns.bind9.v1 is structurally installed and health-checked but NOT YET control-plane-registered"

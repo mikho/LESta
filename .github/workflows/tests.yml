@@ -150,7 +150,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -531,6 +531,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Go
+        # Needed by Scenarios 7 and 8 below, which each build a second real
+        # agent-shaped Go binary (a trivially modified real build for the
+        # generation-swap scenario, a deliberately broken but genuinely
+        # compiled stand-in for the rollback scenario), never a fabricated
+        # non-executable file.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
       - name: Prepare the runner as a bare nginx-profile node
         run: |
           sudo systemctl stop apache2 2>/dev/null || true
@@ -748,3 +759,202 @@ jobs:
         run: sudo apt-mark unhold mysql-server mysql-server-8.0 mysql-community-server 2>/dev/null || true
 
       # cron gets no conflicting-package scenario, no competing package exists in this project's manifest set for it to reject.
+
+      # --- Scenario 7: generation swap (nginx, real second binary) -------
+      #
+      # Proves the generation-aware half of agent_install_binary
+      # (.install/lib/agent.sh): when the destination binary already exists
+      # and the manifest's own expected sha256 changes to a genuinely
+      # different, still-valid build, the previous generation is backed up
+      # to AGENT_BINARY_DEST.previous before the new one is copied in, and
+      # the new generation's own self-test still passes cleanly.
+      #
+      # The "second, different, still-validly-checksummed agent binary" is a
+      # real compiled build of the actual agent source with one trivial,
+      # behavior-neutral edit (a different agentVersion string constant),
+      # never a fabricated file: `go build` runs against a real copy of the
+      # module, exactly like `composer agent:build` does for the vendored
+      # one, so the resulting binary is byte-different (a real new sha256)
+      # but functionally identical for this self-test's own OperationEnvelope
+      # round trip.
+      #
+      # By this point in the job, Scenario 3 has already driven nginx through
+      # one full successful --apply, so AGENT_BINARY_DEST already holds the
+      # original, committed agent binary. Scenario 4 (tampered) may also have
+      # left a spurious AGENT_BINARY_DEST.previous behind (agent_install_binary
+      # backs up the current destination as soon as its sha256 disagrees with
+      # the manifest's expected value, before the source itself is ever
+      # checksum-verified, so Scenario 4's deliberately-wrong expected value
+      # triggers a backup even though the wrong-source-checksum failure that
+      # follows means no real generation-swap ever intended it) -- removed
+      # explicitly below so this scenario's own before/after assertions are
+      # meaningful.
+
+      - name: "Scenario 7 setup: build a second, real, differently-checksummed agent binary"
+        run: |
+          sudo rm -f /var/lib/lesta/agent/bin/lesta-agent.previous
+          rm -rf /tmp/agent-gen2
+          cp -r agent /tmp/agent-gen2
+          sed -i 's/agentVersion = "1.0.0"/agentVersion = "1.0.0-scenario7-gen2"/' /tmp/agent-gen2/cmd/lesta-agent/main.go
+          grep -q 'agentVersion = "1.0.0-scenario7-gen2"' /tmp/agent-gen2/cmd/lesta-agent/main.go
+          (cd /tmp/agent-gen2 && GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/lesta-agent-gen2 ./cmd/lesta-agent)
+          test -x /tmp/lesta-agent-gen2
+
+      - name: "Scenario 7: confirm the pre-swap baseline (original binary in place, no .previous yet)"
+        run: |
+          [ ! -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+            || { echo "expected no .previous before this scenario's own swap" >&2; exit 1; }
+          orig_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          echo "orig_sha256=${orig_sha256}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 7: point the manifest at the second binary and re-apply -- must swap generations and stay healthy"
+        run: |
+          new_sha256=$(sha256sum /tmp/lesta-agent-gen2 | awk '{print $1}')
+          echo "new_sha256=${new_sha256}" >> "${GITHUB_ENV}"
+          sudo cp /tmp/lesta-agent-gen2 agent/dist/lesta-agent-linux-amd64
+
+          manifest=.install/services/node-health/manifest.json
+          current_sha256=$(grep -oE '"sha256": ?"[a-f0-9]{64}"' "${manifest}" | grep -oE '[a-f0-9]{64}')
+          sudo sed -i "s/${current_sha256}/${new_sha256}/" "${manifest}"
+          grep -q "${new_sha256}" "${manifest}"
+
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario7-stderr.log)
+          status=$?
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario7-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the second binary is real and healthy, only its checksum differs, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+      - name: "Scenario 7: assert the previous generation was backed up and the live binary is now the new generation"
+        run: |
+          [ -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+            || { echo "expected /var/lib/lesta/agent/bin/lesta-agent.previous to exist after a real generation swap" >&2; exit 1; }
+          previous_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent.previous | awk '{print $1}')
+          live_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          if [ "${previous_sha256}" != "${orig_sha256}" ]; then
+            echo "expected .previous sha256 (${previous_sha256}) to equal the original binary's sha256 (${orig_sha256})" >&2
+            exit 1
+          fi
+          if [ "${live_sha256}" != "${new_sha256}" ]; then
+            echo "expected the live binary's sha256 (${live_sha256}) to equal the new generation's sha256 (${new_sha256})" >&2
+            exit 1
+          fi
+          echo "generation swap confirmed: .previous=${previous_sha256} (original), live=${live_sha256} (new)"
+
+      - name: "Scenario 7 cleanup: restore the committed manifest/binary, then reconverge the live binary back to the original generation"
+        run: |
+          git checkout -- .install/services/node-health/manifest.json agent/dist/lesta-agent-linux-amd64
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx
+          sudo rm -f /var/lib/lesta/agent/bin/lesta-agent.previous
+
+      # --- Scenario 8: automatic rollback (nginx, real broken binary) ----
+      #
+      # Proves agent_rollback_binary and the bootstrap_node_health wiring in
+      # nginx/install.sh: a new generation that is checksum-correct against
+      # the manifest (so agent_install_binary's own copy step succeeds, and
+      # AGENT_BINARY_DEST.previous is created) but is not actually a working
+      # lesta-agent (so the self-test that follows fails) must be
+      # automatically rolled back to the previous, still-good generation,
+      # and the overall run must fail (a rejected upgrade), but NOT with
+      # EXIT_ROLLBACK_FAILURE, since the rollback itself succeeds.
+      #
+      # This is a different, more reliable failure-injection technique than
+      # a checksum mismatch (Scenario 4 above): a checksum mismatch is
+      # caught by verify_sha256 BEFORE any copy happens, which would never
+      # exercise agent_rollback_binary's real restore path at all. Instead,
+      # the stand-in binary here is deliberately made checksum-CORRECT
+      # against the manifest (a real `go build` of a trivial always-exits-1
+      # program, not a mock and not a fabricated non-executable file), so
+      # the copy genuinely succeeds and only the self-test that runs
+      # afterward, against the real just-installed binary, fails.
+
+      - name: "Scenario 8 setup: build a real, checksum-valid, but non-functional agent binary"
+        run: |
+          rm -rf /tmp/agent-broken
+          mkdir -p /tmp/agent-broken
+          cat > /tmp/agent-broken/main.go <<'BROKENGO'
+          package main
+
+          import "os"
+
+          // A deliberately broken stand-in for lesta-agent: a real compiled
+          // Go binary (not a mock or a fabricated non-executable file) that
+          // always exits non-zero, simulating a shipped build that is
+          // checksum-correct but non-functional against any real
+          // OperationEnvelope. Used only to force bootstrap_node_health's
+          // own self-test to fail AFTER agent_install_binary has already
+          // copied it into place, so this scenario genuinely exercises
+          // agent_rollback_binary's real restore path end to end.
+          func main() {
+          	os.Exit(1)
+          }
+          BROKENGO
+          (cd /tmp/agent-broken && go mod init lesta-agent-broken && GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/lesta-agent-broken .)
+          test -x /tmp/lesta-agent-broken
+
+      - name: "Scenario 8: confirm the pre-rollback baseline (original binary in place, no .previous yet)"
+        run: |
+          [ ! -f /var/lib/lesta/agent/bin/lesta-agent.previous ] \
+            || { echo "expected no .previous before this scenario's own swap" >&2; exit 1; }
+          orig_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          echo "s8_orig_sha256=${orig_sha256}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 8: swap in the broken binary -- --apply must roll back to the original generation and fail (not with EXIT_ROLLBACK_FAILURE)"
+        run: |
+          broken_sha256=$(sha256sum /tmp/lesta-agent-broken | awk '{print $1}')
+          sudo cp /tmp/lesta-agent-broken agent/dist/lesta-agent-linux-amd64
+
+          manifest=.install/services/node-health/manifest.json
+          current_sha256=$(grep -oE '"sha256": ?"[a-f0-9]{64}"' "${manifest}" | grep -oE '[a-f0-9]{64}')
+          sudo sed -i "s/${current_sha256}/${broken_sha256}/" "${manifest}"
+          grep -q "${broken_sha256}" "${manifest}"
+
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario8-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario8-stderr.log || true
+
+          if [ "${status}" -eq 0 ]; then
+            echo "expected --apply to fail against a non-functional agent binary, got exit 0" >&2
+            exit 1
+          fi
+          if [ "${status}" -eq 22 ]; then
+            echo "expected an exit code other than 22 (EXIT_ROLLBACK_FAILURE): a valid .previous existed and the restore itself should have succeeded, only the upgrade attempt should have failed; got 22" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -qi 'rolled back' \
+            || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
+
+          restored_sha256=$(sha256sum /var/lib/lesta/agent/bin/lesta-agent | awk '{print $1}')
+          if [ "${restored_sha256}" != "${s8_orig_sha256}" ]; then
+            echo "expected the live binary to be restored to the original sha256 ${s8_orig_sha256} after rollback, got ${restored_sha256}" >&2
+            exit 1
+          fi
+          echo "rollback confirmed: live binary restored to ${restored_sha256}"
+
+      - name: "Scenario 8: restore the committed manifest/binary and confirm the rolled-back binary is genuinely healthy via a real subsequent apply"
+        run: |
+          git checkout -- .install/services/node-health/manifest.json agent/dist/lesta-agent-linux-amd64
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx 2>/tmp/scenario8-followup-stderr.log)
+          status=$?
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario8-followup-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the rolled-back binary should pass its own self-test cleanly, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+      - name: "Scenario 8 cleanup: ensure no stray .previous is left behind"
+        run: sudo rm -f /var/lib/lesta/agent/bin/lesta-agent.previous
