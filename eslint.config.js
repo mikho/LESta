@@ -104,6 +104,7 @@ export default [
     },
     {
         ignores: [
+            '.install/**',
             'vendor',
             'node_modules',
             'public',
