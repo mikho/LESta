@@ -402,10 +402,14 @@ bootstrap_agent_daemon() {
     # via a real HTTP call back to the control plane) is not attempted here,
     # since this installer has no route to query Laravel's own database
     # state directly; systemctl's own view of the local service is the
-    # deepest structural probe available to it.
+    # deepest structural probe available to it. This is also the closest
+    # thing this installer has to the other five installers' own
+    # run_node_health_selftest: it is the first real proof the just-placed
+    # agent binary (bootstrap_node_health, just above) actually runs, so a
+    # failure here gets the same rollback treatment theirs do.
     sleep 3
     systemctl is-active --quiet lesta-agent-daemon \
-        || fail_step "${EXIT_HEALTH_FAILURE}" agent_daemon_not_active "" "lesta-agent-daemon did not report active within 3s of enable --now"
+        || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" agent_daemon_not_active "" "lesta-agent-daemon did not report active within 3s of enable --now"
     add_change "${AGENT_DAEMON_CAPABILITY}" healthy "" "systemctl reports lesta-agent-daemon active"
 
     checkpoint_write bootstrap_agent_daemon "${MANIFEST_DIGEST}"
