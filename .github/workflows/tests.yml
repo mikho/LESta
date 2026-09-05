@@ -327,6 +327,20 @@ jobs:
       - name: Diagnose mariadb apply failure (only runs if the step above failed)
         if: failure()
         run: |
+          echo "--- systemctl status mariadb.service (control-plane, default instance) ---"
+          sudo systemctl status mariadb.service --no-pager || true
+          echo "--- journalctl for mariadb.service ---"
+          sudo journalctl -u mariadb.service --no-pager | tail -150 || true
+          echo "--- /var/log/mysql/error.log (control-plane's own stock error log path) ---"
+          sudo cat /var/log/mysql/error.log 2>&1 || true
+          echo "--- ss -tlnp (3306) ---"
+          sudo ss -H -tlnp | grep ':3306 ' || true
+          echo "--- /etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf ---"
+          sudo cat /etc/mysql/mariadb.conf.d/99-lesta-control-plane.cnf 2>&1 || true
+          echo "--- /var/lib/lesta/mariadb/control-plane listing ---"
+          sudo ls -la /var/lib/lesta/mariadb/control-plane 2>&1 || true
+          echo "--- /run/mysqld listing ---"
+          sudo ls -la /run/mysqld 2>&1 || true
           echo "--- systemctl status mariadb@tenant.service ---"
           sudo systemctl status mariadb@tenant.service --no-pager || true
           echo "--- journalctl for mariadb@tenant.service ---"
