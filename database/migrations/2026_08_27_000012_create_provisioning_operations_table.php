@@ -13,7 +13,11 @@ return new class extends Migration
     {
         Schema::create('provisioning_operations', function (Blueprint $table) {
             $table->id();
-            $table->morphs('provisionable');
+            // Explicit, shortened index name: Blueprint::morphs()'s own auto-generated name
+            // ("provisioning_operations_provisionable_type_provisionable_id_index", 69 chars)
+            // exceeds MySQL/MariaDB's 64-character identifier limit. sqlite has no such limit,
+            // so this only surfaces once tests actually run against real MariaDB (ADR 0002).
+            $table->morphs('provisionable', 'provisioning_operations_provisionable_index');
             $table->uuid('resource_id')->index();
             $table->string('capability');
             $table->string('operation');

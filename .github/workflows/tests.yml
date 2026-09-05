@@ -13,6 +13,36 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: lesta_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Real process environment variables, set here rather than relying on .env.example's
+      # own local-dev defaults: composer setup's own migrate --force step runs against the
+      # real .env (freshly copied from .env.example on a clean CI checkout), and
+      # .env.example intentionally carries different local-dev credentials (lesta/lesta) than
+      # this services container (root/root, database lesta_testing). phpdotenv's safeLoad()
+      # never overwrites real process env vars, so this job-level block ensures both the
+      # migration step and the later test run hit the identical, correct database regardless
+      # of what .env itself says.
+      DB_CONNECTION: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: lesta_testing
+      DB_USERNAME: root
+      DB_PASSWORD: root
+
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,6 +54,7 @@ jobs:
         with:
           php-version: '8.5'
           tools: composer:v2
+          extensions: pdo_mysql
           coverage: none
 
       - name: Setup Node

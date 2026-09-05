@@ -13,7 +13,7 @@ use Illuminate\Validation\Rule;
  * Two deliberate scope boundaries, not oversights:
  *
  * 1. No name+type uniqueness rule. Multiple A/NS/MX records sharing a name is valid, desired DNS
- *    (round-robin, multiple mail exchangers) — the database's uniqueness constraint is on
+ *    (round-robin, multiple mail exchangers), the database's uniqueness constraint is on
  *    (zone, name, type, value), not (zone, name, type).
  * 2. No structured parsing of SRV's "weight port target" or CAA's "flags tag value" sub-fields.
  *    `value` stays one opaque string end-to-end, matching Phase 5's own already-made decision.
@@ -43,7 +43,7 @@ class StoreDnsRecordRequest extends FormRequest
         $type = (string) $this->input('type');
 
         return [
-            'name' => ['required', 'string', 'max:255', new ValidDnsRecordName],
+            'name' => ['required', 'string', 'max:191', new ValidDnsRecordName],
             'type' => ['required', 'string', Rule::enum(DnsRecordType::class)],
             'priority' => ['nullable', 'integer', 'min:0', 'max:65535', Rule::requiredIf(in_array($type, ['MX', 'SRV'], true))],
             'value' => match ($type) {
