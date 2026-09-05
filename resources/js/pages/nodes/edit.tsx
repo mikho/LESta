@@ -308,10 +308,7 @@ function OrphanedIdentityRow({
                         </DialogDescription>
 
                         <Form
-                            {...nodes.identities.destroy.form([
-                                node,
-                                identity,
-                            ])}
+                            {...nodes.identities.destroy.form([node, identity])}
                             options={{ preserveScroll: true }}
                         >
                             {({ processing, errors }) => (
@@ -510,6 +507,52 @@ export default function Edit({ node }: { node: Node }) {
                             No provisioning operations yet.
                         </p>
                     )}
+                </div>
+
+                <div className="space-y-4 rounded-lg border p-4">
+                    <Heading
+                        variant="small"
+                        title="Orphaned account identities"
+                        description="Accounts with no remaining cron jobs on this node, but whose dedicated system user has not been removed"
+                    />
+
+                    <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                        <table className="w-full text-left text-sm">
+                            <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
+                                <tr>
+                                    <th className="px-4 py-2 font-medium">
+                                        Account
+                                    </th>
+                                    <th className="px-4 py-2 font-medium">
+                                        System user
+                                    </th>
+                                    <th className="px-4 py-2 font-medium">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {orphanedIdentities.length === 0 && (
+                                    <tr>
+                                        <td
+                                            colSpan={3}
+                                            className="px-4 py-6 text-center text-muted-foreground"
+                                        >
+                                            No orphaned identities.
+                                        </td>
+                                    </tr>
+                                )}
+
+                                {orphanedIdentities.map((identity) => (
+                                    <OrphanedIdentityRow
+                                        key={identity.uuid}
+                                        node={node}
+                                        identity={identity}
+                                    />
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div className="space-y-4 rounded-lg border p-4">
