@@ -407,14 +407,27 @@ offline_bundle_rollback_generation() {
     # than correctly comparing against the generation actually running now.
     offline_bundle_snapshot_current "${service}" "${previous_dir}"
 
-    if ! systemctl daemon-reload 2>&1; then
-        log_error "offline_bundle_rollback_generation: systemctl daemon-reload failed while rolling back ${service}"
+    if ! out=$(systemctl daemon-reload 2>&1); then
+        log_error "offline_bundle_rollback_generation: systemctl daemon-reload failed while rolling back ${service}: ${out}"
         return 2
     fi
 
     for unit in ${systemd_units}; do
-        if ! systemctl restart "${unit}" 2>&1; then
-            log_error "offline_bundle_rollback_generation: systemctl restart ${unit} failed while rolling back ${service}"
+        # reset-failed first, ignoring its own exit code (harmless no-op if
+        # the unit was never in a failed state): the broken generation this
+        # rollback is undoing may have already tried and failed to start
+        # this very unit (a real package's own postinst often attempts a
+        # start/restart during dpkg -i, see offline_bundle_fail_health_
+        # with_rollback's own dpkg_install_failed callers), which can leave
+        # systemd's own start-limit rate-throttling engaged for it --
+        # confirmed for real via a CI failure where the immediately-
+        # following systemctl restart failed here for exactly this reason.
+        # Without clearing that first, a plain restart can fail even though
+        # the binary being restarted this time is the good, restored one.
+        systemctl reset-failed "${unit}" >/dev/null 2>&1 || true
+
+        if ! out=$(systemctl restart "${unit}" 2>&1); then
+            log_error "offline_bundle_rollback_generation: systemctl restart ${unit} failed while rolling back ${service}: ${out}"
             return 2
         fi
     done
