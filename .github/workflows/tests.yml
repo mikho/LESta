@@ -1109,6 +1109,30 @@ jobs:
       - name: "Scenario 10 cleanup: remove both offline bundles"
         run: sudo rm -rf /tmp/lesta-nginx-bundle-tampered /tmp/lesta-nginx-bundle
 
+      # Scenario 9's real bundle build (apt-cache depends --recurse, feeding
+      # apt-get download) can pull in a newer *candidate* version of a
+      # transitively-pulled shared library than what is strictly required
+      # (here, libtinfo6), since that computation has no visibility into
+      # what a real 'apt-get install' transaction would actually choose.
+      # That candidate .deb then gets dpkg -i'd as part of Scenario 9's own
+      # successful offline install, which can silently violate an
+      # already-installed, unrelated package's exact-version pin (this
+      # GitHub Actions runner ships libncurses-dev/libncurses6/libncursesw6
+      # pinned via "=" to an older libtinfo6 than the candidate just
+      # installed) -- confirmed for real via a CI failure where this next
+      # step's own 'apt-get install -y bind9 bind9-utils' failed with
+      # unmet dependencies naming unrelated packages, apt's own
+      # solver refusing any transaction while it sees a broken package
+      # state. A genuinely bare production target node never has this
+      # conflict (it has no such pre-existing dev packages to begin with),
+      # so this is purely an artifact of this one CI job running many
+      # installer scenarios back-to-back against a single, pre-loaded
+      # runner image; 'apt-get install -y -f' (apt's own suggested fix,
+      # "You might want to run 'apt --fix-broken install'") reconciles it
+      # before the next real apt-get install runs.
+      - name: "Post-Scenario-9/10 fixup: reconcile this runner's own apt state after nginx's offline bundle install"
+        run: sudo apt-get install -y -f
+
       # --- Scenario 11: offline bundle (bind9, real apt-severed install) -
       #
       # Extends Scenario 9's own proof from nginx to bind9: a bundle is
