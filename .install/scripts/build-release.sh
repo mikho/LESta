@@ -348,11 +348,21 @@ main() {
     # OR-group and the one real candidate version a fresh install would
     # use, while still listing every dependency as an install candidate
     # regardless of whether THIS build host already happens to satisfy it.
+    # --no-install-recommends is required here too, confirmed by a third
+    # real CI failure: without it, the simulated empty status has no way
+    # to know a Recommends-offered virtual package (systemd-timesyncd,
+    # recommended alongside systemd, providing time-daemon) is already
+    # provided for real by a different, already-installed package (chrony)
+    # -- it happily resolved systemd-timesyncd anyway, which then failed
+    # to install for real, conflicting with the chrony actually on this
+    # host. A real 'apt-get install -y cron' against this host's own real,
+    # non-empty status never hits this, since apt can see chrony already
+    # satisfies it there.
     printf 'build-release.sh: resolving %s'"'"'s full install-time dependency closure via apt'"'"'s own solver (simulated against an empty dpkg status, so it reasons as a genuinely fresh node would)\n' "${PACKAGE_NAMES}" >&2
     fake_status=$(mktemp) || fail "failed to create a temporary file for the simulated-clean apt status"
     : > "${fake_status}"
     # shellcheck disable=SC2086
-    package_names_resolved=$(apt-get install --simulate -y -o Dir::State::status="${fake_status}" ${PACKAGE_NAMES} 2>&1 | awk '/^Inst /{print $2}' | sort -u)
+    package_names_resolved=$(apt-get install --simulate -y --no-install-recommends -o Dir::State::status="${fake_status}" ${PACKAGE_NAMES} 2>&1 | awk '/^Inst /{print $2}' | sort -u)
     rm -f "${fake_status}"
     [ -n "${package_names_resolved}" ] || fail "apt-get install --simulate resolved no packages at all for ${PACKAGE_NAMES}; refusing to build an empty bundle"
 
