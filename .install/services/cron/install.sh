@@ -67,6 +67,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/agent.sh
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
@@ -95,6 +97,7 @@ export RELEASE_PATH="/etc/lesta/cron-release"
 
 MODE=""
 YES=0
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -104,13 +107,22 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version [--yes] [--offline-bundle <path>] [--help]
 
-  --dry-run   Run preflight and report what would change. No mutation.
-  --apply     Apply the installer. Requires --yes.
-  --version   Print installer version and exit.
-  --yes       Required with --apply: non-interactive confirmation.
-  --help      Print this message.
+  --dry-run                Run preflight and report what would change. No mutation.
+  --apply                  Apply the installer. Requires --yes.
+  --version                Print installer version and exit.
+  --yes                    Required with --apply: non-interactive confirmation.
+  --offline-bundle <path>  Optional. Installs the cron package from a
+                           locally-vendored bundle produced by
+                           .install/scripts/build-release.sh instead of the
+                           live 'apt-get install -y cron' path: every .deb
+                           in <path> is sha256-verified against
+                           <path>/bundle-manifest.json before any mutation,
+                           then installed offline via 'dpkg -i' (no network
+                           access required). Absent by default: the live
+                           apt-get path is the unconditional default.
+  --help                   Print this message.
 USAGE
 }
 
@@ -145,6 +157,15 @@ parse_args() {
                 ;;
             --yes)
                 YES=1
+                shift
+                ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
                 shift
                 ;;
             --help)
@@ -222,13 +243,26 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# cron_would_install_note prints the dry-run "how the cron package would
+# actually get installed" sentence, offline-bundle-aware: the live apt-get
+# path is the unconditional default, mirroring nginx/install.sh's own
+# nginx_would_install_note exactly.
+cron_would_install_note() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+    else
+        printf 'the cron package would be installed via apt-get install -y cron'
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway cron job against the real, just-installed cron, including a direct invocation of the cron-run wrapper"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "" "the lesta-cron system user would be created; the cron package would be installed; ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -272,6 +306,10 @@ run_preflight() {
     # No port-free preflight check at all: this service's own manifest
     # declares ports: [], and cron never binds a network listener.
     preflight_check_lesta_identity || failed=1
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+    fi
 
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
@@ -349,6 +387,27 @@ cron_health_probe() {
     return 1
 }
 
+# install_cron_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live 'apt-get install -y cron'
+# branch below: verifies every vendored .deb first (fail closed, no
+# mutation before this returns), then installs via 'dpkg -i', requiring no
+# network access at all. Mirrors nginx/install.sh's own
+# install_nginx_offline_bundle exactly (see lib/offline-bundle.sh for the
+# shared verification logic).
+install_cron_offline_bundle() {
+    local bundle_dir="$1" out
+
+    log_info "install_cron: installing cron from offline bundle ${bundle_dir} (no network access required)"
+
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+}
+
 install_cron() {
     log_info "install_cron: creating lesta-cron identity, installing cron package, and activating ${SCHEDULER_CRON_CAPABILITY}"
 
@@ -391,16 +450,26 @@ install_cron() {
     # this phase exists to shrink.
 
     # --- cron package -------------------------------------------------------
-    if ! out=$(apt-get install -y cron 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        install_cron_offline_bundle "${OFFLINE_BUNDLE}"
 
-    installed_version=$(dpkg-query -W -f='${Version}' cron 2>/dev/null || true)
-    if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed cron version after apt-get install"
+        installed_version=$(dpkg-query -W -f='${Version}' cron 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed cron version after dpkg -i from the offline bundle"
+        fi
+        add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
+    else
+        if ! out=$(apt-get install -y cron 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+
+        installed_version=$(dpkg-query -W -f='${Version}' cron 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed cron version after apt-get install"
+        fi
+        add_change "${SCHEDULER_CRON_CAPABILITY}" installed "" "apt-get install -y cron succeeded; dpkg-query reports cron version ${installed_version}"
     fi
-    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "" "apt-get install -y cron succeeded; dpkg-query reports cron version ${installed_version}"
 
     # --- owned roots ---------------------------------------------------------
     #

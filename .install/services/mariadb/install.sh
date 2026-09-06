@@ -124,6 +124,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -179,6 +181,7 @@ export RELEASE_PATH="/etc/lesta/mariadb-release"
 
 MODE=""
 YES=0
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -189,13 +192,35 @@ MARIADB_CODENAME=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version [--yes] [--offline-bundle <path>] [--help]
 
-  --dry-run   Run preflight and report what would change. No mutation.
-  --apply     Apply the installer. Requires --yes.
-  --version   Print installer version and exit.
-  --yes       Required with --apply: non-interactive confirmation.
-  --help      Print this message.
+  --dry-run                Run preflight and report what would change. No mutation.
+  --apply                  Apply the installer. Requires --yes.
+  --version                Print installer version and exit.
+  --yes                    Required with --apply: non-interactive confirmation.
+  --offline-bundle <path>  Optional. Installs mariadb-server and
+                           mariadb-client from a locally-vendored bundle
+                           produced by
+                           '.install/scripts/build-release.sh --mariadb-repo'
+                           instead of the live repo-registration +
+                           'apt-get install -y mariadb-server mariadb-client'
+                           path: every .deb in <path> is sha256-verified
+                           against <path>/bundle-manifest.json before any
+                           mutation, then installed offline via 'dpkg -i'
+                           (no network access required). The MariaDB
+                           Foundation apt repository is NEVER registered on
+                           this node when installing offline (no network is
+                           needed for that either, since the .deb files
+                           themselves are already vendored) -- this only
+                           replaces the package-install step itself, not the
+                           separate control-plane/tenant instance bootstrap
+                           that follows it (datadir relocation/creation,
+                           config fragments, account provisioning, and the
+                           real SELECT 1 health probes still run exactly as
+                           they do on the live path). Absent by default: the
+                           live repo-registration + apt-get path is the
+                           unconditional default.
+  --help                   Print this message.
 USAGE
 }
 
@@ -230,6 +255,15 @@ parse_args() {
                 ;;
             --yes)
                 YES=1
+                shift
+                ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
                 shift
                 ;;
             --help)
@@ -310,6 +344,27 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# mariadb_would_install_note prints the dry-run "how mariadb-server/
+# mariadb-client would actually get installed" sentence, offline-bundle-
+# aware: the live repo-registration + apt-get path is the unconditional
+# default, mirroring nginx/install.sh's own nginx_would_install_note. Unlike
+# every other service's own equivalent helper, the offline branch here is
+# explicit that ONLY the package-install step is replaced: the MariaDB
+# Foundation apt repository is never registered on this node when
+# installing offline, and the separate control-plane/tenant instance
+# bootstrap that follows (datadir relocation/creation, config fragments,
+# account provisioning, real SELECT 1 health probes) is unaffected either
+# way.
+mariadb_would_install_note() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required; the MariaDB Foundation apt repository would NOT be registered on this node at all for this path)' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+    else
+        printf 'MariaDB Foundation'"'"'s apt repository (pinned to the %s series, codename %s) would be registered; mariadb-server/mariadb-client would be installed' \
+            "${MARIADB_PINNED_SERIES}" "${MARIADB_CODENAME:-unresolved}"
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
@@ -317,8 +372,8 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway tenant database against the real, just-installed tenant MariaDB instance"
-    add_change database.control-plane.v1 would_install "" "MariaDB Foundation's apt repository (pinned to the ${MARIADB_PINNED_SERIES} series, codename ${MARIADB_CODENAME:-unresolved}) would be registered; mariadb-server/mariadb-client would be installed; the default mariadb.service instance would be stopped, its stock ${CONTROL_PLANE_STOCK_DATADIR} content relocated to ${CONTROL_PLANE_DATADIR}, ${CONTROL_PLANE_CONF_FRAGMENT} written, and mariadb.service re-enabled and started; a dedicated least-privilege application account and ${CONTROL_PLANE_APP_CREDENTIALS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
-    add_change database.tenant.v1 would_install "" "MariaDB Foundation's apt repository (pinned to the ${MARIADB_PINNED_SERIES} series, codename ${MARIADB_CODENAME:-unresolved}) would be registered; mariadb-server/mariadb-client would be installed; ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
+    add_change database.control-plane.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); the default mariadb.service instance would be stopped, its stock ${CONTROL_PLANE_STOCK_DATADIR} content relocated to ${CONTROL_PLANE_DATADIR}, ${CONTROL_PLANE_CONF_FRAGMENT} written, and mariadb.service re-enabled and started; a dedicated least-privilege application account and ${CONTROL_PLANE_APP_CREDENTIALS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
+    add_change database.tenant.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -401,8 +456,17 @@ run_preflight() {
     # The repo-availability check can itself fail this node's OS release
     # outright (the disclosed 26.04 gap); it must run before any apt
     # mutation is attempted, matching every other hard preflight gate here.
-    if ! preflight_check_mariadb_repo_available "${os_version_id}"; then
-        emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+    # Skipped entirely when --offline-bundle is given: the offline path
+    # never registers the MariaDB Foundation repository at all (the .deb
+    # files are already vendored, so no network access -- and no repo --
+    # is needed for the package-install step), so this node's OS release
+    # must not be rejected here just because 26.04 has no *repository*
+    # mapping; MARIADB_CODENAME is left unset in that case and never read by
+    # the offline path.
+    if [ -z "${OFFLINE_BUNDLE}" ]; then
+        if ! preflight_check_mariadb_repo_available "${os_version_id}"; then
+            emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+        fi
     fi
 
     for dir in /etc /var/lib /var/log; do
@@ -413,11 +477,15 @@ run_preflight() {
     preflight_check_tenant_port_free || failed=1
     preflight_check_lesta_identity || failed=1
 
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+    fi
+
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
     fi
 
-    log_info "preflight passed (MariaDB Foundation repo codename: ${MARIADB_CODENAME})"
+    log_info "preflight passed (MariaDB Foundation repo codename: ${MARIADB_CODENAME:-n/a, offline bundle})"
 }
 
 # --- phase 1: bootstrap_base -------------------------------------------
@@ -488,91 +556,150 @@ bootstrap_firewall_baseline_mariadb() {
 
 # --- phase 3: ensure_mariadb_package_installed --------------------------
 
-# ensure_mariadb_package_installed pins the MariaDB Foundation apt
-# repository, installs mariadb-server/mariadb-client, and verifies both the
-# installed version and its provenance. Shared by both instance phases
-# below (control-plane and tenant): there is exactly one mariadb-server
-# package on this node, so this step runs once from main(), before either
-# instance-specific phase.
-ensure_mariadb_package_installed() {
-    log_info "ensure_mariadb_package_installed: pinning MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME}) and installing"
+# install_mariadb_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live repo-registration +
+# 'apt-get install -y mariadb-server mariadb-client' path below: verifies
+# every vendored .deb first (fail closed, no mutation before this returns),
+# then installs via 'dpkg -i', requiring no network access at all. Unlike
+# every other service's own equivalent wrapper, this one is called from a
+# branch that also skips the ENTIRE repo-registration sequence outright (see
+# ensure_mariadb_package_installed below): the MariaDB Foundation apt
+# repository must never be registered on this node at all when installing
+# offline, not merely have its failure ignored, since the .deb files
+# themselves are already vendored and no network access -- and no repo -- is
+# needed for this step either way.
+install_mariadb_offline_bundle() {
+    local bundle_dir="$1" out
 
-    local out installed_version installed_version_no_epoch
+    log_info "ensure_mariadb_package_installed: installing mariadb-server/mariadb-client from offline bundle ${bundle_dir} (no network access required; the MariaDB Foundation repository is never registered on this node for this path)"
 
-    # --- pin the MariaDB Foundation apt repository --------------------------
-    #
-    # Manual (non-mariadb_repo_setup-script) setup, deliberately: piping a
-    # remote script into `sudo bash` is exactly the kind of unauditable
-    # supply-chain step .install/INSTALLER-CONTRACT.md's own "Supply chain"
-    # section warns against, so this installer downloads the same GPG
-    # keyring MariaDB's own documentation names explicitly (installing-
-    # mariadb-deb-files.md / gpg.md: key fingerprint 177F 4010 FE56 CA33
-    # 3630 0305 F165 6F24 C74C D1D8, "MariaDB Community Server Debian /
-    # Ubuntu key") and writes the sources list entry by hand instead.
-    if ! out=$(curl -fsSL -o "${MARIADB_KEYRING}" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
-        add_error mariadb_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_KEYRING}"
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change mariadb verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
-    chmod 0644 "${MARIADB_KEYRING}"
-    add_change mariadb installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing key (fingerprint 177F4010FE56CA333630 0305F1656F24C74CD1D8) downloaded to the modern apt trusted-keyring location"
+}
 
-    cat > "${MARIADB_SOURCES_LIST}.tmp" <<SOURCES
+# ensure_mariadb_package_installed pins the MariaDB Foundation apt
+# repository, installs mariadb-server/mariadb-client, and verifies both the
+# installed version and its provenance -- or, when --offline-bundle is
+# given, installs the same two packages from the vendored bundle instead,
+# skipping repo registration entirely. Shared by both instance phases below
+# (control-plane and tenant): there is exactly one mariadb-server package on
+# this node, so this step runs once from main(), before either
+# instance-specific phase.
+ensure_mariadb_package_installed() {
+    local out installed_version installed_version_no_epoch
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        log_info "ensure_mariadb_package_installed: installing from offline bundle (no repo registration)"
+
+        install_mariadb_offline_bundle "${OFFLINE_BUNDLE}"
+
+        installed_version=$(dpkg-query -W -f='${Version}' mariadb-server 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed mariadb-server version after dpkg -i from the offline bundle"
+        fi
+
+        # Same series check as the live path below (the vendored bundle
+        # must still be a real 11.4.x build), but deliberately WITHOUT the
+        # live path's own "apt-cache policy shows deb.mariadb.org" provenance
+        # check immediately below this comment: that check depends on a
+        # live, registered apt source to compare against, which the offline
+        # path never has by design (see this function's own top comment).
+        # sha256 verification against bundle-manifest.json, already done by
+        # install_mariadb_offline_bundle above, is this path's own
+        # provenance guarantee instead.
+        installed_version_no_epoch="${installed_version#*:}"
+        case "${installed_version_no_epoch}" in
+            "${MARIADB_PINNED_SERIES}".*) ;;
+            *)
+                add_error mariadb_wrong_version_installed "expected a ${MARIADB_PINNED_SERIES}.* version, but dpkg-query reports ${installed_version}" ""
+                emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
+                ;;
+        esac
+
+        add_change mariadb installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used, MariaDB Foundation repository never registered); dpkg-query reports version ${installed_version}"
+    else
+        log_info "ensure_mariadb_package_installed: pinning MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME}) and installing"
+
+        # --- pin the MariaDB Foundation apt repository ----------------------
+        #
+        # Manual (non-mariadb_repo_setup-script) setup, deliberately: piping a
+        # remote script into `sudo bash` is exactly the kind of unauditable
+        # supply-chain step .install/INSTALLER-CONTRACT.md's own "Supply chain"
+        # section warns against, so this installer downloads the same GPG
+        # keyring MariaDB's own documentation names explicitly (installing-
+        # mariadb-deb-files.md / gpg.md: key fingerprint 177F 4010 FE56 CA33
+        # 3630 0305 F165 6F24 C74C D1D8, "MariaDB Community Server Debian /
+        # Ubuntu key") and writes the sources list entry by hand instead.
+        if ! out=$(curl -fsSL -o "${MARIADB_KEYRING}" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
+            add_error mariadb_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_KEYRING}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        chmod 0644 "${MARIADB_KEYRING}"
+        add_change mariadb installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing key (fingerprint 177F4010FE56CA333630 0305F1656F24C74CD1D8) downloaded to the modern apt trusted-keyring location"
+
+        cat > "${MARIADB_SOURCES_LIST}.tmp" <<SOURCES
 # MariaDB ${MARIADB_PINNED_SERIES} LTS repository (MariaDB Foundation), pinned to the
 # ${MARIADB_PINNED_SERIES} major series so it tracks that series' own minor updates.
 # Managed by LESta; do not edit by hand.
 deb [arch=amd64 signed-by=${MARIADB_KEYRING}] https://deb.mariadb.org/${MARIADB_PINNED_SERIES}/ubuntu ${MARIADB_CODENAME} main
 SOURCES
-    mv -f "${MARIADB_SOURCES_LIST}.tmp" "${MARIADB_SOURCES_LIST}"
-    add_change mariadb installed "${MARIADB_SOURCES_LIST}" "apt source pinned to MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME})"
+        mv -f "${MARIADB_SOURCES_LIST}.tmp" "${MARIADB_SOURCES_LIST}"
+        add_change mariadb installed "${MARIADB_SOURCES_LIST}" "apt source pinned to MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME})"
 
-    if ! out=$(apt-get update 2>&1); then
-        add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_SOURCES_LIST}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+        if ! out=$(apt-get update 2>&1); then
+            add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_SOURCES_LIST}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
 
-    if ! out=$(apt-get install -y mariadb-server mariadb-client 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+        if ! out=$(apt-get install -y mariadb-server mariadb-client 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
 
-    installed_version=$(dpkg-query -W -f='${Version}' mariadb-server 2>/dev/null || true)
-    if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed mariadb-server version after apt-get install"
-    fi
+        installed_version=$(dpkg-query -W -f='${Version}' mariadb-server 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed mariadb-server version after apt-get install"
+        fi
 
-    # Debian/Ubuntu package versions may carry an "epoch:" prefix
-    # (dpkg-query's own ${Version} field includes it when present); MariaDB
-    # Foundation's own noble build is versioned "1:11.4.13+maria~ubu2404",
-    # confirmed directly via a real CI run -- a bare
-    # `case "${installed_version}" in "${MARIADB_PINNED_SERIES}".*)` never
-    # matches a string starting "1:", producing a false "wrong version"
-    # failure even when the correct, pinned package installed successfully.
-    # Strip up to and including the first ':' (a no-op if there is none)
-    # before comparing the series prefix.
-    installed_version_no_epoch="${installed_version#*:}"
+        # Debian/Ubuntu package versions may carry an "epoch:" prefix
+        # (dpkg-query's own ${Version} field includes it when present); MariaDB
+        # Foundation's own noble build is versioned "1:11.4.13+maria~ubu2404",
+        # confirmed directly via a real CI run -- a bare
+        # `case "${installed_version}" in "${MARIADB_PINNED_SERIES}".*)` never
+        # matches a string starting "1:", producing a false "wrong version"
+        # failure even when the correct, pinned package installed successfully.
+        # Strip up to and including the first ':' (a no-op if there is none)
+        # before comparing the series prefix.
+        installed_version_no_epoch="${installed_version#*:}"
 
-    case "${installed_version_no_epoch}" in
-        "${MARIADB_PINNED_SERIES}".*) ;;
-        *)
-            add_error mariadb_wrong_version_installed "expected a ${MARIADB_PINNED_SERIES}.* version, but dpkg-query reports ${installed_version}" ""
+        case "${installed_version_no_epoch}" in
+            "${MARIADB_PINNED_SERIES}".*) ;;
+            *)
+                add_error mariadb_wrong_version_installed "expected a ${MARIADB_PINNED_SERIES}.* version, but dpkg-query reports ${installed_version}" ""
+                emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
+                ;;
+        esac
+
+        # The version prefix alone only proves "some 11.4.x is installed", not
+        # that it came from OUR pinned, signed repository rather than Ubuntu's
+        # own default archive happening to ship a same-numbered build (the ADR's
+        # own pinning requirement is about verified provenance, not just a
+        # matching version string). apt-cache policy's own output marks the
+        # currently-installed version with a leading "***" and lists its actual
+        # source origin on the very next line; checking that line names
+        # deb.mariadb.org is a real provenance check, not a guess.
+        if ! apt-cache policy mariadb-server 2>/dev/null | awk '/\*\*\*/{getline; print}' | grep -q 'deb\.mariadb\.org'; then
+            add_error mariadb_wrong_repo_installed "mariadb-server ${installed_version} is installed, but apt-cache policy does not show deb.mariadb.org as its source -- the pinned MariaDB Foundation repository was likely shadowed by another apt source offering the same version number" ""
             emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
-            ;;
-    esac
+        fi
 
-    # The version prefix alone only proves "some 11.4.x is installed", not
-    # that it came from OUR pinned, signed repository rather than Ubuntu's
-    # own default archive happening to ship a same-numbered build (the ADR's
-    # own pinning requirement is about verified provenance, not just a
-    # matching version string). apt-cache policy's own output marks the
-    # currently-installed version with a leading "***" and lists its actual
-    # source origin on the very next line; checking that line names
-    # deb.mariadb.org is a real provenance check, not a guess.
-    if ! apt-cache policy mariadb-server 2>/dev/null | awk '/\*\*\*/{getline; print}' | grep -q 'deb\.mariadb\.org'; then
-        add_error mariadb_wrong_repo_installed "mariadb-server ${installed_version} is installed, but apt-cache policy does not show deb.mariadb.org as its source -- the pinned MariaDB Foundation repository was likely shadowed by another apt source offering the same version number" ""
-        emit_result_and_exit failed "${EXIT_VERIFICATION_FAILURE}"
+        add_change mariadb installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
     fi
-
-    add_change mariadb installed "" "apt-get install -y mariadb-server mariadb-client succeeded; dpkg-query reports version ${installed_version}, apt-cache policy confirms deb.mariadb.org as its source"
 
     # mysql (the package's own system user, running as the mariadbd worker
     # identity for BOTH instances) has no reason to already be a member of
