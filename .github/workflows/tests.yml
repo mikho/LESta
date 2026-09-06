@@ -1940,8 +1940,16 @@ jobs:
           echo "--- stderr log ---"
           cat /tmp/scenario22-stderr.log || true
 
-          if [ "${status}" -ne 21 ]; then
-            echo "expected exit 21 (EXIT_HEALTH_FAILURE): the rollback itself should succeed, only the upgrade attempt should fail, got exit ${status}" >&2
+          # Accept either EXIT_MUTATION_FAILURE (20) or EXIT_HEALTH_FAILURE
+          # (21): a real package's own postinst script can itself try to
+          # start the service during dpkg -i (so a broken binary is often
+          # caught right there, exit 20, before this installer's own later,
+          # separate health checks ever run, exit 21, if postinst somehow
+          # let it through) -- either is a correctly-rejected upgrade with a
+          # successful rollback; only EXIT_ROLLBACK_FAILURE (22, rollback
+          # itself failed) or exit 0 (should have failed at all) are wrong.
+          if [ "${status}" -ne 20 ] && [ "${status}" -ne 21 ]; then
+            echo "expected exit 20 (EXIT_MUTATION_FAILURE) or 21 (EXIT_HEALTH_FAILURE): the rollback itself should succeed, only the upgrade attempt should fail, got exit ${status}" >&2
             exit 1
           fi
           printf '%s' "${result}" | grep -qi 'rolled back' \
@@ -2030,8 +2038,13 @@ jobs:
           echo "--- stderr log ---"
           cat /tmp/scenario23-stderr.log || true
 
-          if [ "${status}" -ne 21 ]; then
-            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+          # Accept either EXIT_MUTATION_FAILURE (20) or EXIT_HEALTH_FAILURE
+          # (21): see Scenario 22's own identical comment for why (a real
+          # package's own postinst script can itself try to start the
+          # service during dpkg -i, so a broken binary is often caught
+          # right there rather than by this installer's own later checks).
+          if [ "${status}" -ne 20 ] && [ "${status}" -ne 21 ]; then
+            echo "expected exit 20 (EXIT_MUTATION_FAILURE) or 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
             exit 1
           fi
           printf '%s' "${result}" | grep -qi 'rolled back' \
@@ -2108,8 +2121,13 @@ jobs:
           echo "--- stderr log ---"
           cat /tmp/scenario24-stderr.log || true
 
-          if [ "${status}" -ne 21 ]; then
-            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+          # Accept either EXIT_MUTATION_FAILURE (20) or EXIT_HEALTH_FAILURE
+          # (21): see Scenario 22's own identical comment for why (a real
+          # package's own postinst script can itself try to start the
+          # service during dpkg -i, so a broken binary is often caught
+          # right there rather than by this installer's own later checks).
+          if [ "${status}" -ne 20 ] && [ "${status}" -ne 21 ]; then
+            echo "expected exit 20 (EXIT_MUTATION_FAILURE) or 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
             exit 1
           fi
           printf '%s' "${result}" | grep -qi 'rolled back' \
@@ -2197,8 +2215,13 @@ jobs:
           echo "--- stderr log ---"
           cat /tmp/scenario25-stderr.log || true
 
-          if [ "${status}" -ne 21 ]; then
-            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+          # Accept either EXIT_MUTATION_FAILURE (20) or EXIT_HEALTH_FAILURE
+          # (21): see Scenario 22's own identical comment for why (a real
+          # package's own postinst script can itself try to start the
+          # service during dpkg -i, so a broken binary is often caught
+          # right there rather than by this installer's own later checks).
+          if [ "${status}" -ne 20 ] && [ "${status}" -ne 21 ]; then
+            echo "expected exit 20 (EXIT_MUTATION_FAILURE) or 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
             exit 1
           fi
           printf '%s' "${result}" | grep -qi 'rolled back' \
