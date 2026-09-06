@@ -402,7 +402,7 @@ install_cron_offline_bundle() {
     verify_offline_bundle_artifacts "${bundle_dir}"
     add_change "${SCHEDULER_CRON_CAPABILITY}" verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
 
-    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+    if ! out=$(install_offline_bundle_debs "${bundle_dir}"); then
         add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi

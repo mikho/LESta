@@ -116,3 +116,34 @@ NAMES
 
     [ "${found}" -eq 1 ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "offline bundle manifest artifacts[] parsed as empty"
 }
+
+# install_offline_bundle_debs <bundle_dir>
+# Installs every vendored .deb in <bundle_dir> via 'dpkg -i', requiring no
+# network access at all. Runs dpkg -i up to twice: 'dpkg -i <dir>/*.deb'
+# relies on the shell glob's own alphabetical ordering, which does not
+# always respect a package's own Pre-Depends relationships -- confirmed for
+# real via a CI failure where mariadb-server (which Pre-Depends on
+# mysql-common, sorting alphabetically AFTER it) failed to unpack with
+# "pre-dependency problem" on the first pass, before mysql-common had been
+# configured yet. A second pass, run only if the first one fails, retries
+# with every order-independent package (including mysql-common) already
+# configured by the first pass, which is the standard, purely-offline
+# technique for this -- apt's own solver never hits this on the live path,
+# since it always computes a Pre-Depends-respecting install order itself.
+# On stdout: the failed pass's own captured output, if both passes failed
+# (empty on success). Returns 0 on success (from either pass), 1 if both
+# failed.
+install_offline_bundle_debs() {
+    local bundle_dir="$1" out
+
+    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        return 0
+    fi
+
+    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        return 0
+    fi
+
+    printf '%s' "${out}"
+    return 1
+}
