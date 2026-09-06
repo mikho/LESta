@@ -1109,27 +1109,24 @@ jobs:
       - name: "Scenario 10 cleanup: remove both offline bundles"
         run: sudo rm -rf /tmp/lesta-nginx-bundle-tampered /tmp/lesta-nginx-bundle
 
-      # Scenario 9's real bundle build (apt-cache depends --recurse, feeding
-      # apt-get download) can pull in a newer *candidate* version of a
-      # transitively-pulled shared library than what is strictly required
-      # (here, libtinfo6), since that computation has no visibility into
-      # what a real 'apt-get install' transaction would actually choose.
-      # That candidate .deb then gets dpkg -i'd as part of Scenario 9's own
-      # successful offline install, which can silently violate an
-      # already-installed, unrelated package's exact-version pin (this
-      # GitHub Actions runner ships libncurses-dev/libncurses6/libncursesw6
-      # pinned via "=" to an older libtinfo6 than the candidate just
-      # installed) -- confirmed for real via a CI failure where this next
-      # step's own 'apt-get install -y bind9 bind9-utils' failed with
-      # unmet dependencies naming unrelated packages, apt's own
-      # solver refusing any transaction while it sees a broken package
-      # state. A genuinely bare production target node never has this
-      # conflict (it has no such pre-existing dev packages to begin with),
-      # so this is purely an artifact of this one CI job running many
-      # installer scenarios back-to-back against a single, pre-loaded
-      # runner image; 'apt-get install -y -f' (apt's own suggested fix,
-      # "You might want to run 'apt --fix-broken install'") reconciles it
-      # before the next real apt-get install runs.
+      # A real bundle's own dependency closure can include a newer
+      # *candidate* version of a transitively-pulled shared library than
+      # what this runner's own pre-existing dev packages require exactly
+      # (libncurses-dev/libncurses6/libncursesw6 pin libtinfo6 via "=" to an
+      # older version than nginx's and bind9's own closures both resolve).
+      # Installing that candidate via a real offline-bundle dpkg -i (as
+      # Scenario 9 and Scenario 11 both just did) silently breaks that
+      # exact-version pin, leaving apt refusing ANY further transaction
+      # until reconciled -- confirmed for real via a CI failure where the
+      # very next scenario's own live 'apt-get install' failed with unmet
+      # dependencies naming unrelated packages. A genuinely bare production
+      # target node never has this conflict (it has no such pre-existing
+      # dev packages to begin with), so this recurs after every scenario in
+      # this one job whose own real dpkg -i happens to touch libtinfo6, not
+      # because of anything wrong with the offline-bundle mechanism itself;
+      # 'apt-get install -y -f' (apt's own suggested fix, "You might want
+      # to run 'apt --fix-broken install'") reconciles it each time, before
+      # the next real apt-get install runs.
       - name: "Post-Scenario-9/10 fixup: reconcile this runner's own apt state after nginx's offline bundle install"
         run: sudo apt-get install -y -f
 
@@ -1274,6 +1271,13 @@ jobs:
       - name: "Scenario 12 cleanup: remove both bind9 offline bundles"
         run: sudo rm -rf /tmp/lesta-bind9-bundle-tampered /tmp/lesta-bind9-bundle
 
+      # See the identical fixup between Scenario 10 and 11 above: Scenario
+      # 11's own real offline-bundle dpkg -i can touch libtinfo6 again too,
+      # so this runner's apt state needs reconciling again before the next
+      # scenario's own live apt-get install.
+      - name: "Post-Scenario-11/12 fixup: reconcile this runner's own apt state after bind9's offline bundle install"
+        run: sudo apt-get install -y -f
+
       # --- Scenario 13: offline bundle (apache, real apt-severed install) -
       #
       # Extends Scenario 9's own proof to apache2. nginx already owns
@@ -1410,6 +1414,10 @@ jobs:
       - name: "Scenario 14 cleanup: remove both apache2 offline bundles"
         run: sudo rm -rf /tmp/lesta-apache-bundle-tampered /tmp/lesta-apache-bundle
 
+      # See the identical fixup between Scenario 10 and 11 above.
+      - name: "Post-Scenario-13/14 fixup: reconcile this runner's own apt state after apache2's offline bundle install"
+        run: sudo apt-get install -y -f
+
       # --- Scenario 15: offline bundle (cron, real apt-severed install) --
       #
       # Extends Scenario 9's own proof to cron. cron has no listening port
@@ -1537,6 +1545,10 @@ jobs:
 
       - name: "Scenario 16 cleanup: remove both cron offline bundles"
         run: sudo rm -rf /tmp/lesta-cron-bundle-tampered /tmp/lesta-cron-bundle
+
+      # See the identical fixup between Scenario 10 and 11 above.
+      - name: "Post-Scenario-15/16 fixup: reconcile this runner's own apt state after cron's offline bundle install"
+        run: sudo apt-get install -y -f
 
       # --- Scenario 17: offline bundle (mariadb, real apt-severed install)
       #
