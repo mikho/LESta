@@ -677,8 +677,19 @@ install_nginx_offline_bundle() {
     add_change web.nginx.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
 
     if ! out=$(install_offline_bundle_debs "${bundle_dir}"); then
-        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        # A real package's own postinst script can itself try to start the
+        # service (nginx's own nginx.service unit runs `nginx -t` via
+        # ExecStartPre during that very postinst), so a genuinely broken new
+        # generation can make dpkg -i itself fail here -- BEFORE this
+        # function ever reaches its own later, separate nginx -t/enable/
+        # health-probe checks below. offline_bundle_retain_generation above
+        # has already retired the last-good generation to previous/ (before
+        # this dpkg -i ever ran, per its own ordering), so a real rollback
+        # is exactly as available and exactly as warranted here as it is
+        # for a failure caught by this installer's own later, explicit
+        # checks -- confirmed for real via a CI failure where a genuinely
+        # broken nginx binary was caught right here, not later.
+        nginx_fail_health "${EXIT_MUTATION_FAILURE}" dpkg_install_failed "${bundle_dir}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
 
     offline_bundle_snapshot_current nginx "${bundle_dir}"

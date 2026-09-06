@@ -380,7 +380,8 @@ offline_bundle_would_retain_note() {
 #       rollback attempt is needed later.
 offline_bundle_rollback_generation() {
     local service="$1" systemd_units="$2" unit
-    local previous_dir="/var/lib/lesta/${service}/bundle-generations/previous"
+    local retain_root="/var/lib/lesta/${service}/bundle-generations"
+    local previous_dir="${retain_root}/previous"
     local out
 
     if [ ! -d "${previous_dir}" ]; then
@@ -394,6 +395,17 @@ offline_bundle_rollback_generation() {
             return 2
         fi
     fi
+
+    # current/ must be made to reflect previous/ again once the restore
+    # above actually succeeds: the failed generation-swap attempt this
+    # rollback is undoing may have already cleared current/ (see
+    # offline_bundle_retain_generation's own "current/ is removed outright"
+    # step, which runs before install_offline_bundle_debs -- including when
+    # THAT is what failed and triggered this very rollback), so without
+    # this, the next --apply's own offline_bundle_retain_generation would
+    # wrongly see no current/ at all and treat it as a fresh install rather
+    # than correctly comparing against the generation actually running now.
+    offline_bundle_snapshot_current "${service}" "${previous_dir}"
 
     if ! systemctl daemon-reload 2>&1; then
         log_error "offline_bundle_rollback_generation: systemctl daemon-reload failed while rolling back ${service}"

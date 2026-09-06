@@ -579,8 +579,15 @@ install_mariadb_offline_bundle() {
     add_change mariadb verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
 
     if ! out=$(install_offline_bundle_debs "${bundle_dir}"); then
-        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        # A real package's own postinst script can itself try to start the
+        # service, so a genuinely broken new generation can make dpkg -i
+        # itself fail here, before this function's own later, separate
+        # checks below ever run. offline_bundle_retain_generation above has
+        # already retired the last-good generation to previous/, so a real
+        # rollback is exactly as available and warranted here as it is for
+        # a failure caught later (see nginx/install.sh's own identical
+        # comment for the real CI failure that confirmed this).
+        mariadb_fail_health "${EXIT_MUTATION_FAILURE}" dpkg_install_failed "${bundle_dir}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
 
     offline_bundle_snapshot_current mariadb "${bundle_dir}"
