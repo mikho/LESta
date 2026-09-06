@@ -70,6 +70,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
+# shellcheck source=../../lib/prepare-config.sh
+. "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -118,11 +120,25 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version --web-server nginx|apache|both [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version|--prepare-config --web-server nginx|apache|both [--yes] [--help]
 
   --dry-run                Run preflight and report what would change. No mutation.
   --apply                  Apply the installer. Requires --yes.
   --version                Print installer version and exit.
+  --prepare-config         Opt-in alternative to the documented manual
+                           prerequisite (see README.md's "Manual
+                           prerequisite" section): automatically inserts
+                           'include /etc/nginx/lesta.d/*.conf;' into
+                           nginx.conf's own http {} block if it is not
+                           already present, then exits -- it never runs
+                           preflight or performs any of --dry-run/--apply's
+                           own mutations. Requires --yes. --web-server is not
+                           required and is ignored in this mode (this edit
+                           has nothing to do with which web-server profile is
+                           chosen later). Idempotent: a rerun against a
+                           conf file that already has the line is a no-op.
+                           Never invoked implicitly by --dry-run or --apply;
+                           an operator (or CI) must opt into it explicitly.
   --web-server <profile>   Required for --dry-run/--apply.
                            nginx:  installs nginx alone (unchanged from before).
                            apache: never installs nginx at all; delegates the
@@ -132,7 +148,7 @@ Usage: install.sh --dry-run|--apply|--version --web-server nginx|apache|both [--
                                    above), then delegates to apache/install.sh
                                    --web-profile both for a loopback-only Apache
                                    backend behind it.
-  --yes                    Required with --apply: non-interactive confirmation.
+  --yes                    Required with --apply/--prepare-config: non-interactive confirmation.
   --offline-bundle <path>  Optional, --web-server nginx|both only. Installs
                            nginx from a locally-vendored bundle produced by
                            .install/scripts/build-release.sh instead of the
@@ -159,24 +175,29 @@ fail_invocation() {
 
 parse_args() {
     if [ "$#" -eq 0 ]; then
-        fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+        fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
     fi
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --dry-run)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="dry-run"
                 shift
                 ;;
             --apply)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="apply"
                 shift
                 ;;
             --version)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="version"
+                shift
+                ;;
+            --prepare-config)
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
+                MODE="prepare-config"
                 shift
                 ;;
             --yes)
@@ -217,9 +238,18 @@ validate_args() {
         version)
             return 0
             ;;
+        prepare-config)
+            if [ "${YES}" -ne 1 ]; then
+                fail_invocation "--prepare-config requires --yes"
+            fi
+            if [ -n "${OFFLINE_BUNDLE}" ]; then
+                fail_invocation "--offline-bundle has no effect with --prepare-config: no package is installed in this mode"
+            fi
+            return 0
+            ;;
         dry-run | apply) ;;
         *)
-            fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+            fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
             ;;
     esac
 
@@ -371,6 +401,37 @@ preflight_check_include_line() {
         *)
             add_error nginx_conf_missing_include "${NGINX_CONF_PATH} exists but has no include ${NGINX_LIVE_DIR}/*.conf; line inside its http {} block. Add that exact line by hand -- do not remove any other existing include lines. This installer never writes to nginx.conf itself." "${NGINX_CONF_PATH}"
             return 1
+            ;;
+    esac
+}
+
+# run_prepare_config is the --prepare-config mode's own entry point: calls
+# the shared insert_lesta_include_if_missing (lib/prepare-config.sh) with
+# this installer's own nginx.conf path/glob/keyword/line/mode (the exact same
+# values preflight_check_include_line above already uses), then emits its
+# own result and exits -- it never runs run_preflight or performs any of
+# --dry-run/--apply's own mutations.
+run_prepare_config() {
+    local status=0
+
+    insert_lesta_include_if_missing "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" "include ${NGINX_LIVE_DIR}/*.conf;" http_block || status=$?
+
+    case "${status}" in
+        0)
+            add_change web.nginx.v1 config_prepared "${NGINX_CONF_PATH}" "include ${NGINX_LIVE_DIR}/*.conf; is now present in nginx.conf's own http {} block (either it was already there, a no-op, or it was just inserted and re-verified present)"
+            emit_result_and_exit applied "${EXIT_OK}"
+            ;;
+        1)
+            add_error nginx_conf_missing "nginx.conf not found at ${NGINX_CONF_PATH}; install nginx first (apt-get install -y nginx), then rerun --prepare-config or add the include line by hand." "${NGINX_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+            ;;
+        3)
+            add_error nginx_conf_no_http_block "${NGINX_CONF_PATH} has no top-level 'http {' line; this looks like a non-stock or heavily-customized nginx.conf, so --prepare-config refuses to guess where to insert the include line rather than risk placing it outside any real http context. Add this line by hand, inside your own http {} block: include ${NGINX_LIVE_DIR}/*.conf;" "${NGINX_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+            ;;
+        *)
+            add_error nginx_conf_insert_verify_failed "inserted a line into ${NGINX_CONF_PATH}'s http {} block, but a re-check afterward still does not find include ${NGINX_LIVE_DIR}/*.conf; present; investigate manually before retrying." "${NGINX_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
             ;;
     esac
 }
@@ -769,12 +830,22 @@ main() {
     RUN_ID=$(run_generate_id)
     run_install_cleanup_trap
 
+    log_info "starting install.sh mode=${MODE} web_server=${WEB_SERVER} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
+
+    # --prepare-config is dispatched here, AFTER RUN_ID/the cleanup trap are
+    # set up (so its own result JSON carries a real run id) but BEFORE
+    # run_preflight: the normal preflight's own preflight_check_include_line
+    # requires the include line to already be present, which would wrongly
+    # block --prepare-config from ever running when that line is exactly
+    # what it exists to insert.
+    if [ "${MODE}" = "prepare-config" ]; then
+        run_prepare_config
+    fi
+
     # No mutation happens before this point: log_init itself would create a
     # directory, and ensure_lesta_group would run groupadd, so both wait
     # until after run_preflight has passed. LOG_PATH is empty here, so
     # log_info below writes to stderr only, matching every other mode.
-    log_info "starting install.sh mode=${MODE} web_server=${WEB_SERVER} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
-
     run_preflight
 
     if [ "${MODE}" = "dry-run" ]; then

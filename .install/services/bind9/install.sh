@@ -72,6 +72,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
+# shellcheck source=../../lib/prepare-config.sh
+. "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -116,12 +118,23 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--yes] [--offline-bundle <path>] [--help]
+Usage: install.sh --dry-run|--apply|--version|--prepare-config [--yes] [--offline-bundle <path>] [--help]
 
   --dry-run                Run preflight and report what would change. No mutation.
   --apply                  Apply the installer. Requires --yes.
   --version                Print installer version and exit.
-  --yes                    Required with --apply: non-interactive confirmation.
+  --prepare-config         Opt-in alternative to the documented manual
+                           prerequisite (see README.md's "Manual
+                           prerequisite" section): automatically appends
+                           'include "/etc/bind/lesta.d/*.conf";' to
+                           named.conf itself if it is not already present,
+                           then exits -- it never runs preflight or performs
+                           any of --dry-run/--apply's own mutations.
+                           Requires --yes. Idempotent: a rerun against a
+                           conf file that already has the line is a no-op.
+                           Never invoked implicitly by --dry-run or --apply;
+                           an operator (or CI) must opt into it explicitly.
+  --yes                    Required with --apply/--prepare-config: non-interactive confirmation.
   --offline-bundle <path>  Optional. Installs bind9 and bind9-utils from a
                            locally-vendored bundle produced by
                            .install/scripts/build-release.sh instead of the
@@ -148,24 +161,29 @@ fail_invocation() {
 
 parse_args() {
     if [ "$#" -eq 0 ]; then
-        fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+        fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
     fi
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --dry-run)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="dry-run"
                 shift
                 ;;
             --apply)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="apply"
                 shift
                 ;;
             --version)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="version"
+                shift
+                ;;
+            --prepare-config)
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
+                MODE="prepare-config"
                 shift
                 ;;
             --yes)
@@ -197,9 +215,18 @@ validate_args() {
         version)
             return 0
             ;;
+        prepare-config)
+            if [ "${YES}" -ne 1 ]; then
+                fail_invocation "--prepare-config requires --yes"
+            fi
+            if [ -n "${OFFLINE_BUNDLE}" ]; then
+                fail_invocation "--offline-bundle has no effect with --prepare-config: no package is installed in this mode"
+            fi
+            return 0
+            ;;
         dry-run | apply) ;;
         *)
-            fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+            fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
             ;;
     esac
 
@@ -321,6 +348,35 @@ preflight_check_include_line() {
         *)
             add_error bind9_named_conf_missing_include "${NAMED_CONF_PATH} exists but has no include \"${BIND9_LIVE_DIR}/*.conf\"; line. Add that exact line by hand, inside named.conf itself (NOT named.conf.local -- despite that being Ubuntu's own usual convention for adding zones, the agent's Config only ever reads named.conf, never named.conf.local) -- do not remove any other existing include lines. This installer never writes to named.conf itself." "${NAMED_CONF_PATH}"
             return 1
+            ;;
+    esac
+}
+
+# run_prepare_config is the --prepare-config mode's own entry point: calls
+# the shared insert_lesta_include_if_missing (lib/prepare-config.sh) with
+# this installer's own named.conf path/glob/keyword/line/mode (the exact
+# same values preflight_check_include_line above already uses; "append"
+# mode, since named.conf has no http{}-style block to insert inside -- a
+# bare end-of-file line is a syntactically valid place for its own include
+# statement), then emits its own result and exits -- it never runs
+# run_preflight or performs any of --dry-run/--apply's own mutations.
+run_prepare_config() {
+    local status=0
+
+    insert_lesta_include_if_missing "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" "include \"${BIND9_LIVE_DIR}/*.conf\";" append || status=$?
+
+    case "${status}" in
+        0)
+            add_change dns.bind9.v1 config_prepared "${NAMED_CONF_PATH}" "include \"${BIND9_LIVE_DIR}/*.conf\"; is now present in named.conf itself (either it was already there, a no-op, or it was just appended)"
+            emit_result_and_exit applied "${EXIT_OK}"
+            ;;
+        1)
+            add_error bind9_named_conf_missing "named.conf not found at ${NAMED_CONF_PATH}; install bind9 first (apt-get install -y bind9 bind9-utils), then rerun --prepare-config or add the include line by hand." "${NAMED_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+            ;;
+        *)
+            add_error bind9_named_conf_prepare_failed "failed to append the include line to ${NAMED_CONF_PATH}; investigate manually before retrying." "${NAMED_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
             ;;
     esac
 }
@@ -763,12 +819,20 @@ main() {
     RUN_ID=$(run_generate_id)
     run_install_cleanup_trap
 
+    log_info "starting install.sh mode=${MODE} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
+
+    # --prepare-config is dispatched here, AFTER RUN_ID/the cleanup trap are
+    # set up but BEFORE run_preflight: the normal preflight's own
+    # preflight_check_include_line requires the include line to already be
+    # present, matching nginx/install.sh's own identical ordering rationale.
+    if [ "${MODE}" = "prepare-config" ]; then
+        run_prepare_config
+    fi
+
     # No mutation happens before this point, matching nginx/install.sh's own
     # ordering: log_init itself would create a directory, and
     # ensure_lesta_group would run groupadd, so both wait until after
     # run_preflight has passed.
-    log_info "starting install.sh mode=${MODE} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
-
     run_preflight
 
     if [ "${MODE}" = "dry-run" ]; then

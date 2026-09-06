@@ -5,7 +5,7 @@ Every future installer and the shared bootstrap runner must satisfy this contrac
 ## Invocation
 
 - Non-interactive by default. `--yes` is required for unattended mutation; stdin prompts are forbidden.
-- Required modes: `--dry-run`, `--apply`, and `--version`.
+- Required modes: `--dry-run`, `--apply`, and `--version`. A leaf-service installer whose own precondition includes an operator-managed config edit (nginx, bind9, apache: see Preflight below) may also offer `--prepare-config`, a separate, explicitly opt-in mode that performs only that one edit and exits; it is never invoked implicitly by `--dry-run` or `--apply`, and it never runs their own preflight or mutation logic.
 - Dry-run performs manifest verification and complete preflight without changing packages, services, files, users, ports, or firewall state.
 - The installer accepts only a release bundle path and declared options, including `--web-server nginx|apache|both` (the web installer's own profile choice; other leaf-service installers, e.g. the DNS installer, have no such flag) and Apache's own narrower `--web-profile apache|both` (topology-awareness only, never a dispatch flag: it never orchestrates another service the way nginx's `--web-server` does). It does not accept shell fragments, arbitrary package names, arbitrary service names, or arbitrary commands.
 - The web profile is immutable after bootstrap. Changing it requires an explicit operator migration workflow with a preflight, backup, port plan, staged validation, and rollback.
@@ -33,6 +33,8 @@ Preflight must run before any mutation and report:
 - whether an upgrade, repair, or fresh installation is being attempted
 
 Conflicts fail closed. The installer never removes or takes ownership of an operator-managed service without a separate explicit migration workflow.
+
+A service manifest's own `read_only_roots`/`refused_roots` (e.g. nginx's `/etc/nginx/nginx.conf`, bind9's `/etc/bind/named.conf`, apache's `/etc/apache2/apache2.conf`) describe `--dry-run`/`--apply` behavior only: those two modes only ever read the file, detecting the required LESta include line via the exact substring check the running agent's own capability validator also uses, never writing to it. `--prepare-config`, where an installer offers it, is a separate, explicitly-invoked, opt-in exception to that read-only stance -- it inserts exactly that one documented include line and nothing else, is never triggered implicitly by either `--dry-run` or `--apply`, and never touches, matches, or removes any other line already in the file.
 
 ## Output and exit codes
 

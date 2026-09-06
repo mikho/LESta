@@ -104,6 +104,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
+# shellcheck source=../../lib/prepare-config.sh
+. "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -157,11 +159,25 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--web-profile apache|both] [--yes] [--offline-bundle <path>] [--help]
+Usage: install.sh --dry-run|--apply|--version|--prepare-config [--web-profile apache|both] [--yes] [--offline-bundle <path>] [--help]
 
   --dry-run                 Run preflight and report what would change. No mutation.
   --apply                   Apply the installer. Requires --yes.
   --version                 Print installer version and exit.
+  --prepare-config          Opt-in alternative to the documented manual
+                            prerequisite (see README.md's "Manual
+                            prerequisite" section): automatically appends
+                            'IncludeOptional /etc/apache2/lesta.d/*.conf' to
+                            apache2.conf if it is not already present, then
+                            exits -- it never runs preflight or performs any
+                            of --dry-run/--apply's own mutations. Requires
+                            --yes. --web-profile is not required and is
+                            ignored in this mode (this edit has nothing to do
+                            with which web profile is chosen later).
+                            Idempotent: a rerun against a conf file that
+                            already has the line is a no-op. Never invoked
+                            implicitly by --dry-run or --apply; an operator
+                            (or CI) must opt into it explicitly.
   --web-profile <profile>   apache (default): this node's own Apache owns
                             public ports 80/443 directly.
                             both: Apache is a LESta-owned loopback-only
@@ -169,7 +185,7 @@ Usage: install.sh --dry-run|--apply|--version [--web-profile apache|both] [--yes
                             this installer then skips its own port/package
                             preflight and never registers or opens 80/443
                             for Apache.
-  --yes                     Required with --apply: non-interactive confirmation.
+  --yes                     Required with --apply/--prepare-config: non-interactive confirmation.
   --offline-bundle <path>   Optional. Installs apache2 from a
                             locally-vendored bundle produced by
                             .install/scripts/build-release.sh instead of
@@ -197,24 +213,29 @@ fail_invocation() {
 
 parse_args() {
     if [ "$#" -eq 0 ]; then
-        fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+        fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
     fi
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --dry-run)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="dry-run"
                 shift
                 ;;
             --apply)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="apply"
                 shift
                 ;;
             --version)
-                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version may be given"
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
                 MODE="version"
+                shift
+                ;;
+            --prepare-config)
+                [ -z "${MODE}" ] || fail_invocation "only one of --dry-run/--apply/--version/--prepare-config may be given"
+                MODE="prepare-config"
                 shift
                 ;;
             --yes)
@@ -255,9 +276,18 @@ validate_args() {
         version)
             return 0
             ;;
+        prepare-config)
+            if [ "${YES}" -ne 1 ]; then
+                fail_invocation "--prepare-config requires --yes"
+            fi
+            if [ -n "${OFFLINE_BUNDLE}" ]; then
+                fail_invocation "--offline-bundle has no effect with --prepare-config: no package is installed in this mode"
+            fi
+            return 0
+            ;;
         dry-run | apply) ;;
         *)
-            fail_invocation "exactly one of --dry-run, --apply, or --version is required"
+            fail_invocation "exactly one of --dry-run, --apply, --version, or --prepare-config is required"
             ;;
     esac
 
@@ -401,6 +431,35 @@ preflight_check_include_line() {
         *)
             add_error apache_conf_missing_include "${APACHE_CONF_PATH} exists but has no IncludeOptional ${APACHE_LIVE_DIR}/*.conf line. Add that exact line by hand -- do not remove any other existing Include/IncludeOptional lines. This installer never writes to apache2.conf itself." "${APACHE_CONF_PATH}"
             return 1
+            ;;
+    esac
+}
+
+# run_prepare_config is the --prepare-config mode's own entry point: calls
+# the shared insert_lesta_include_if_missing (lib/prepare-config.sh) with
+# this installer's own apache2.conf path/glob/keyword/line/mode (the exact
+# same values preflight_check_include_line above already uses; "append"
+# mode, mirroring bind9/install.sh's own choice, since Apache's own
+# IncludeOptional tolerates a plain trailing line just fine), then emits its
+# own result and exits -- it never runs run_preflight or performs any of
+# --dry-run/--apply's own mutations.
+run_prepare_config() {
+    local status=0
+
+    insert_lesta_include_if_missing "${APACHE_CONF_PATH}" "${APACHE_LIVE_DIR}/*.conf" "Include" "IncludeOptional ${APACHE_LIVE_DIR}/*.conf" append || status=$?
+
+    case "${status}" in
+        0)
+            add_change web.apache.v1 config_prepared "${APACHE_CONF_PATH}" "IncludeOptional ${APACHE_LIVE_DIR}/*.conf is now present in apache2.conf (either it was already there, a no-op, or it was just appended)"
+            emit_result_and_exit applied "${EXIT_OK}"
+            ;;
+        1)
+            add_error apache_conf_missing "apache2.conf not found at ${APACHE_CONF_PATH}; install apache2 first (apt-get install -y apache2), then rerun --prepare-config or add the include line by hand." "${APACHE_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+            ;;
+        *)
+            add_error apache_conf_prepare_failed "failed to append the IncludeOptional line to ${APACHE_CONF_PATH}; investigate manually before retrying." "${APACHE_CONF_PATH}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
             ;;
     esac
 }
@@ -886,12 +945,21 @@ main() {
     RUN_ID=$(run_generate_id)
     run_install_cleanup_trap
 
+    log_info "starting install.sh mode=${MODE} web_profile=${WEB_PROFILE} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
+
+    # --prepare-config is dispatched here, AFTER RUN_ID/the cleanup trap are
+    # set up but BEFORE run_preflight: the normal preflight's own
+    # preflight_check_include_line requires the include line to already be
+    # present, matching nginx/install.sh's and bind9/install.sh's own
+    # identical ordering rationale.
+    if [ "${MODE}" = "prepare-config" ]; then
+        run_prepare_config
+    fi
+
     # No mutation happens before this point, matching nginx/install.sh's and
     # bind9/install.sh's own ordering: log_init itself would create a
     # directory, and ensure_lesta_group would run groupadd, so both wait
     # until after run_preflight has passed.
-    log_info "starting install.sh mode=${MODE} web_profile=${WEB_PROFILE} run_id=${RUN_ID} installer_version=${SCRIPT_VERSION}"
-
     run_preflight
 
     if [ "${MODE}" = "dry-run" ]; then
