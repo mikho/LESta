@@ -985,7 +985,7 @@ jobs:
         run: |
           ubuntu_release=$(. /etc/os-release && printf '%s' "${VERSION_ID}")
           echo "ubuntu_release=${ubuntu_release}" >> "${GITHUB_ENV}"
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle --manifest .install/services/nginx/manifest.json --package nginx --bundle-name nginx
           ls -la /tmp/lesta-nginx-bundle
           cat /tmp/lesta-nginx-bundle/bundle-manifest.json
 
@@ -1066,7 +1066,7 @@ jobs:
       - name: "Scenario 10 setup: build a fresh real offline bundle and corrupt one vendored .deb's actual bytes"
         run: |
           sudo rm -rf /tmp/lesta-nginx-bundle-tampered
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle-tampered --manifest .install/services/nginx/manifest.json --package nginx --bundle-name nginx
           target_deb=$(ls /tmp/lesta-nginx-bundle-tampered/nginx*.deb | head -n1)
           echo "corrupting ${target_deb}"
           sudo truncate -s 128 "${target_deb}"
@@ -1108,3 +1108,542 @@ jobs:
 
       - name: "Scenario 10 cleanup: remove both offline bundles"
         run: sudo rm -rf /tmp/lesta-nginx-bundle-tampered /tmp/lesta-nginx-bundle
+
+      # --- Scenario 11: offline bundle (bind9, real apt-severed install) -
+      #
+      # Extends Scenario 9's own proof from nginx to bind9: a bundle is
+      # built while this runner still has live apt access, the currently-
+      # installed bind9 packages are then genuinely removed (conffiles kept,
+      # so named.conf's own lesta.d include line survives), every configured
+      # apt source is physically moved out of the way, and only then is
+      # 'bind9/install.sh --offline-bundle' run: it must still install a
+      # genuinely working, health-probed bind9 (including the full
+      # create-then-delete self-test against a real zone) with apt
+      # completely unable to reach any remote archive.
+
+      - name: "Scenario 11 setup: install bind9 live and satisfy its own named.conf include-line prerequisite"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bind9 bind9-utils
+          if ! grep -F "include" /etc/bind/named.conf | grep -F "/etc/bind/lesta.d/*.conf" >/dev/null 2>&1; then
+            sudo sed -i '$a\include "/etc/bind/lesta.d/*.conf";' /etc/bind/named.conf
+          fi
+
+      - name: "Scenario 11 setup: build a real offline bundle for bind9 (bind9 + bind9-utils) for this runner's own Ubuntu release"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-bind9-bundle --manifest .install/services/bind9/manifest.json --package "bind9 bind9-utils" --bundle-name bind9
+          ls -la /tmp/lesta-bind9-bundle
+          cat /tmp/lesta-bind9-bundle/bundle-manifest.json
+
+      - name: "Scenario 11 setup: remove the currently-installed bind9 packages (conffiles kept, so named.conf's own lesta.d include line survives), so the offline bundle performs a genuine reinstall"
+        run: |
+          sudo systemctl stop named 2>/dev/null || true
+          installed_bind9_pkgs=$(dpkg -l | awk '/^ii/{print $2}' | grep -E '^bind9' || true)
+          echo "installed bind9 packages: ${installed_bind9_pkgs}"
+          if [ -n "${installed_bind9_pkgs}" ]; then
+            # shellcheck disable=SC2086
+            sudo apt-get remove -y ${installed_bind9_pkgs}
+          fi
+          test ! -x /usr/sbin/named
+          grep -F "include" /etc/bind/named.conf | grep -F "/etc/bind/lesta.d/*.conf"
+
+      - name: "Scenario 11 setup: sever this runner's apt sources so no live package archive is reachable"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup-bind9/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup-bind9/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup-bind9/sources.list.d/
+          done
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 11: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y bind9 bind9-utils >/tmp/scenario11-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario11-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y bind9 bind9-utils' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 11: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/bind9/install.sh --apply --yes --offline-bundle /tmp/lesta-bind9-bundle 2>/tmp/scenario11-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario11-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          sudo systemctl is-active named
+          sudo ss -H -tlnp | grep ':53 ' | grep -q named
+
+      - name: "Scenario 11 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup-bind9/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup-bind9/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup-bind9
+          sudo apt-get update
+
+      # --- Scenario 12: tampered offline bundle (bind9) -------------------
+      #
+      # Mirrors Scenario 10's own proof for bind9: a real corruption of one
+      # vendored .deb's actual bytes must be rejected by
+      # verify_offline_bundle_artifacts BEFORE dpkg -i ever runs, exiting 13
+      # with a "checksum_mismatch" error, leaving the already-installed
+      # bind9 from Scenario 11 completely unmutated.
+
+      - name: "Scenario 12 setup: build a fresh real offline bundle for bind9 and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-bind9-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-bind9-bundle-tampered --manifest .install/services/bind9/manifest.json --package "bind9 bind9-utils" --bundle-name bind9
+          target_deb=$(ls /tmp/lesta-bind9-bundle-tampered/bind9_*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+
+      - name: "Scenario 12: confirm the pre-tamper baseline (bind9's real installed version and binary mtime, from Scenario 11's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' bind9)
+          baseline_mtime=$(stat -c %Y /usr/sbin/named)
+          echo "s12_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s12_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 12: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/bind9/install.sh --apply --yes --offline-bundle /tmp/lesta-bind9-bundle-tampered 2>/tmp/scenario12-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario12-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 12: confirm bind9 was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' bind9)
+          post_mtime=$(stat -c %Y /usr/sbin/named)
+          if [ "${post_version}" != "${s12_baseline_version}" ] || [ "${post_mtime}" != "${s12_baseline_mtime}" ]; then
+            echo "expected bind9's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s12_baseline_version} mtime=${s12_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active named
+
+      - name: "Scenario 12 cleanup: remove both bind9 offline bundles"
+        run: sudo rm -rf /tmp/lesta-bind9-bundle-tampered /tmp/lesta-bind9-bundle
+
+      # --- Scenario 13: offline bundle (apache, real apt-severed install) -
+      #
+      # Extends Scenario 9's own proof to apache2. nginx already owns
+      # 80/443 elsewhere in this same job (Scenarios 1-10), so this scenario
+      # uses --web-profile both throughout (apache as a loopback-only
+      # backend on 127.0.0.1:8080), mirroring the "installer-both-profile"
+      # job's own precedent for avoiding that exact port conflict, rather
+      # than a real --web-profile apache run.
+
+      - name: "Scenario 13 setup: install apache2 live (stopped immediately, nginx already owns 80/443) and satisfy its own apache2.conf include-line prerequisite"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apache2
+          sudo systemctl stop apache2 2>/dev/null || true
+          if ! grep -F "Include" /etc/apache2/apache2.conf | grep -F "/etc/apache2/lesta.d/*.conf" >/dev/null 2>&1; then
+            printf '\nIncludeOptional /etc/apache2/lesta.d/*.conf\n' | sudo tee -a /etc/apache2/apache2.conf >/dev/null
+          fi
+
+      - name: "Scenario 13 setup: build a real offline bundle for apache2 for this runner's own Ubuntu release"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-apache-bundle --manifest .install/services/apache/manifest.json --package apache2 --bundle-name apache2
+          ls -la /tmp/lesta-apache-bundle
+          cat /tmp/lesta-apache-bundle/bundle-manifest.json
+
+      - name: "Scenario 13 setup: remove the currently-installed apache2 packages (conffiles kept, so apache2.conf's own lesta.d include line survives), so the offline bundle performs a genuine reinstall"
+        run: |
+          installed_apache_pkgs=$(dpkg -l | awk '/^ii/{print $2}' | grep -E '^apache2' || true)
+          echo "installed apache2 packages: ${installed_apache_pkgs}"
+          if [ -n "${installed_apache_pkgs}" ]; then
+            # shellcheck disable=SC2086
+            sudo apt-get remove -y ${installed_apache_pkgs}
+          fi
+          test ! -x /usr/sbin/apache2
+          grep -F "Include" /etc/apache2/apache2.conf | grep -F "/etc/apache2/lesta.d/*.conf"
+
+      - name: "Scenario 13 setup: sever this runner's apt sources so no live package archive is reachable"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup-apache/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup-apache/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup-apache/sources.list.d/
+          done
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 13: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y apache2 >/tmp/scenario13-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario13-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y apache2' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 13: --offline-bundle install (--web-profile both) must succeed with zero configured apt sources (real network isolation, not simulated)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/apache/install.sh --apply --yes --web-profile both --offline-bundle /tmp/lesta-apache-bundle 2>/tmp/scenario13-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario13-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          sudo systemctl is-active apache2
+          sudo ss -H -tlnp | grep ':8080 ' | grep -q apache2
+          ! sudo ss -H -tlnp | grep ':80 ' | grep -q apache2
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 13 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup-apache/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup-apache/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup-apache
+          sudo apt-get update
+
+      # --- Scenario 14: tampered offline bundle (apache) ------------------
+      #
+      # Mirrors Scenario 10's own proof for apache2.
+
+      - name: "Scenario 14 setup: build a fresh real offline bundle for apache2 and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-apache-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-apache-bundle-tampered --manifest .install/services/apache/manifest.json --package apache2 --bundle-name apache2
+          target_deb=$(ls /tmp/lesta-apache-bundle-tampered/apache2_*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+
+      - name: "Scenario 14: confirm the pre-tamper baseline (apache2's real installed version and binary mtime, from Scenario 13's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' apache2)
+          baseline_mtime=$(stat -c %Y /usr/sbin/apache2)
+          echo "s14_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s14_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 14: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/apache/install.sh --apply --yes --web-profile both --offline-bundle /tmp/lesta-apache-bundle-tampered 2>/tmp/scenario14-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario14-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 14: confirm apache2 was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' apache2)
+          post_mtime=$(stat -c %Y /usr/sbin/apache2)
+          if [ "${post_version}" != "${s14_baseline_version}" ] || [ "${post_mtime}" != "${s14_baseline_mtime}" ]; then
+            echo "expected apache2's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s14_baseline_version} mtime=${s14_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active apache2
+
+      - name: "Scenario 14 cleanup: remove both apache2 offline bundles"
+        run: sudo rm -rf /tmp/lesta-apache-bundle-tampered /tmp/lesta-apache-bundle
+
+      # --- Scenario 15: offline bundle (cron, real apt-severed install) --
+      #
+      # Extends Scenario 9's own proof to cron. cron has no listening port
+      # to health-probe; the real proof here is install_cron's own
+      # bootstrap_node_health self-test (create-then-delete of a real
+      # crontab fragment plus a direct cron-run wrapper invocation) and
+      # systemctl is-active cron.
+
+      - name: "Scenario 15 setup: install cron live"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cron
+
+      - name: "Scenario 15 setup: build a real offline bundle for cron for this runner's own Ubuntu release"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-cron-bundle --manifest .install/services/cron/manifest.json --package cron --bundle-name cron
+          ls -la /tmp/lesta-cron-bundle
+          cat /tmp/lesta-cron-bundle/bundle-manifest.json
+
+      - name: "Scenario 15 setup: remove the currently-installed cron package, so the offline bundle performs a genuine reinstall"
+        run: |
+          sudo systemctl stop cron 2>/dev/null || true
+          installed_cron_pkgs=$(dpkg -l | awk '/^ii/{print $2}' | grep -E '^cron$' || true)
+          echo "installed cron packages: ${installed_cron_pkgs}"
+          if [ -n "${installed_cron_pkgs}" ]; then
+            # shellcheck disable=SC2086
+            sudo apt-get remove -y ${installed_cron_pkgs}
+          fi
+          test ! -x /usr/sbin/cron
+
+      - name: "Scenario 15 setup: sever this runner's apt sources so no live package archive is reachable"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup-cron/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup-cron/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup-cron/sources.list.d/
+          done
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 15: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y cron >/tmp/scenario15-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario15-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y cron' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 15: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/cron/install.sh --apply --yes --offline-bundle /tmp/lesta-cron-bundle 2>/tmp/scenario15-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario15-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          sudo systemctl is-active cron
+
+      - name: "Scenario 15 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup-cron/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup-cron/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup-cron
+          sudo apt-get update
+
+      # --- Scenario 16: tampered offline bundle (cron) --------------------
+      #
+      # Mirrors Scenario 10's own proof for cron.
+
+      - name: "Scenario 16 setup: build a fresh real offline bundle for cron and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-cron-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-cron-bundle-tampered --manifest .install/services/cron/manifest.json --package cron --bundle-name cron
+          target_deb=$(ls /tmp/lesta-cron-bundle-tampered/cron_*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+
+      - name: "Scenario 16: confirm the pre-tamper baseline (cron's real installed version and binary mtime, from Scenario 15's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' cron)
+          baseline_mtime=$(stat -c %Y /usr/sbin/cron)
+          echo "s16_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s16_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 16: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/cron/install.sh --apply --yes --offline-bundle /tmp/lesta-cron-bundle-tampered 2>/tmp/scenario16-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario16-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 16: confirm cron was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' cron)
+          post_mtime=$(stat -c %Y /usr/sbin/cron)
+          if [ "${post_version}" != "${s16_baseline_version}" ] || [ "${post_mtime}" != "${s16_baseline_mtime}" ]; then
+            echo "expected cron's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s16_baseline_version} mtime=${s16_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active cron
+
+      - name: "Scenario 16 cleanup: remove both cron offline bundles"
+        run: sudo rm -rf /tmp/lesta-cron-bundle-tampered /tmp/lesta-cron-bundle
+
+      # --- Scenario 17: offline bundle (mariadb, real apt-severed install)
+      #
+      # Extends Scenario 9's own proof to mariadb. Unlike nginx/bind9/
+      # apache/cron, mariadb-server/mariadb-client are never installed live
+      # first in this scenario (they live outside Ubuntu's own default
+      # archive, so a live install would need the same --mariadb-repo
+      # registration build-release.sh itself performs): the apt-source-
+      # severing step below happens only around the offline-bundle
+      # installer run itself, never around build-release.sh's own execution
+      # (which still needs live network to register the MariaDB Foundation
+      # repository and download from it, exactly matching how the real
+      # installer's own live path already needs network).
+
+      - name: "Scenario 17 setup: purge any pre-installed MySQL/MariaDB so the offline install starts from a genuinely clean slate"
+        run: |
+          sudo systemctl stop mysql mariadb 2>/dev/null || true
+          sudo apt-get purge -y mysql-server mysql-server-core-* mysql-client-core-* mariadb-server mariadb-server-core-* 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo rm -rf /var/lib/mysql /etc/mysql
+
+      - name: "Scenario 17 setup: build a real offline bundle for mariadb (registering the MariaDB Foundation repo on this build host first, live network required for this step only)"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mariadb-bundle --manifest .install/services/mariadb/manifest.json --package "mariadb-server mariadb-client" --bundle-name mariadb --mariadb-repo
+          ls -la /tmp/lesta-mariadb-bundle
+          cat /tmp/lesta-mariadb-bundle/bundle-manifest.json
+
+      - name: "Scenario 17 setup: sever this runner's apt sources so no live package archive is reachable (only around the offline installer run itself)"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup-mariadb/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup-mariadb/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup-mariadb/sources.list.d/
+          done
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 17: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y mariadb-server mariadb-client >/tmp/scenario17-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario17-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y mariadb-server mariadb-client' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 17: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated; the MariaDB Foundation repo is never registered on this node for this path)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mariadb/install.sh --apply --yes --offline-bundle /tmp/lesta-mariadb-bundle 2>/tmp/scenario17-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario17-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          test ! -f /etc/apt/sources.list.d/mariadb.list
+          sudo systemctl is-active mariadb.service
+          sudo systemctl is-active mariadb@tenant.service
+          sudo mariadb --socket=/run/mysqld/mysqld.sock -u root -e "SELECT 1;"
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -e "SELECT 1;"
+
+      - name: "Scenario 17 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup-mariadb/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup-mariadb/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup-mariadb
+          sudo apt-get update
+
+      # --- Scenario 18: tampered offline bundle (mariadb) -----------------
+      #
+      # Mirrors Scenario 10's own proof for mariadb: verify_offline_bundle_
+      # artifacts must reject a corrupted vendored .deb BEFORE dpkg -i ever
+      # runs, before ensure_mariadb_package_installed's own offline branch
+      # ever touches the already-installed mariadb-server from Scenario 17.
+
+      - name: "Scenario 18 setup: build a fresh real offline bundle for mariadb and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-mariadb-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mariadb-bundle-tampered --manifest .install/services/mariadb/manifest.json --package "mariadb-server mariadb-client" --bundle-name mariadb --mariadb-repo
+          target_deb=$(ls /tmp/lesta-mariadb-bundle-tampered/mariadb-server*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+          sudo rm -f /etc/apt/sources.list.d/mariadb.list
+
+      - name: "Scenario 18: confirm the pre-tamper baseline (mariadb-server's real installed version and binary mtime, from Scenario 17's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' mariadb-server)
+          baseline_mtime=$(stat -c %Y /usr/sbin/mariadbd)
+          echo "s18_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s18_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 18: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mariadb/install.sh --apply --yes --offline-bundle /tmp/lesta-mariadb-bundle-tampered 2>/tmp/scenario18-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario18-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 18: confirm mariadb was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' mariadb-server)
+          post_mtime=$(stat -c %Y /usr/sbin/mariadbd)
+          if [ "${post_version}" != "${s18_baseline_version}" ] || [ "${post_mtime}" != "${s18_baseline_mtime}" ]; then
+            echo "expected mariadb-server's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s18_baseline_version} mtime=${s18_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active mariadb.service
+          sudo systemctl is-active mariadb@tenant.service
+          sudo mariadb --socket=/run/mysqld/mysqld.sock -u root -e "SELECT 1;"
+
+      - name: "Scenario 18 cleanup: remove both mariadb offline bundles"
+        run: sudo rm -rf /tmp/lesta-mariadb-bundle-tampered /tmp/lesta-mariadb-bundle

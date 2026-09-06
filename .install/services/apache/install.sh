@@ -102,6 +102,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -145,6 +147,7 @@ export RELEASE_PATH="/etc/lesta/apache-release"
 MODE=""
 WEB_PROFILE=""
 YES=0
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -154,7 +157,7 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--web-profile apache|both] [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version [--web-profile apache|both] [--yes] [--offline-bundle <path>] [--help]
 
   --dry-run                 Run preflight and report what would change. No mutation.
   --apply                   Apply the installer. Requires --yes.
@@ -167,6 +170,16 @@ Usage: install.sh --dry-run|--apply|--version [--web-profile apache|both] [--yes
                             preflight and never registers or opens 80/443
                             for Apache.
   --yes                     Required with --apply: non-interactive confirmation.
+  --offline-bundle <path>   Optional. Installs apache2 from a
+                            locally-vendored bundle produced by
+                            .install/scripts/build-release.sh instead of
+                            the live 'apt-get install -y apache2' path:
+                            every .deb in <path> is sha256-verified against
+                            <path>/bundle-manifest.json before any
+                            mutation, then installed offline via 'dpkg -i'
+                            (no network access required). Absent by
+                            default: the live apt-get path is the
+                            unconditional default.
   --help                    Print this message.
 USAGE
 }
@@ -215,6 +228,15 @@ parse_args() {
                 ;;
             --web-profile=*)
                 WEB_PROFILE="${1#--web-profile=}"
+                shift
+                ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
                 shift
                 ;;
             --help)
@@ -312,6 +334,19 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# apache_would_install_note prints the dry-run "how apache2 would actually
+# get installed" sentence, offline-bundle-aware: the live apt-get path is
+# the unconditional default, mirroring nginx/install.sh's own
+# nginx_would_install_note exactly.
+apache_would_install_note() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+    else
+        printf 'apt-get install -y apache2 would run'
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
@@ -327,9 +362,9 @@ emit_dry_run_result_and_exit() {
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed apache2"
 
     if [ "${WEB_PROFILE}" = "both" ]; then
-        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
+        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
     else
-        add_change web.apache.v1 would_install "" "apt-get install -y apache2 would run; ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
+        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
     fi
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -434,6 +469,10 @@ PORTS
 
     preflight_check_lesta_identity || failed=1
     preflight_check_include_line || failed=1
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+    fi
 
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
@@ -547,23 +586,54 @@ apache_health_probe() {
     return 1
 }
 
+# install_apache_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live 'apt-get install -y apache2'
+# branch below: verifies every vendored .deb first (fail closed, no
+# mutation before this returns), then installs via 'dpkg -i', requiring no
+# network access at all. Mirrors nginx/install.sh's own
+# install_nginx_offline_bundle exactly (see lib/offline-bundle.sh for the
+# shared verification logic).
+install_apache_offline_bundle() {
+    local bundle_dir="$1" out
+
+    log_info "install_apache: installing apache2 from offline bundle ${bundle_dir} (no network access required)"
+
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change web.apache.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+}
+
 install_apache() {
     log_info "install_apache: installing apache2 package and activating web.apache.v1"
 
     local out installed_version deb_note include_status=0 listen_port apache_apparmor_local
 
-    if ! out=$(apt-get install -y apache2 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        install_apache_offline_bundle "${OFFLINE_BUNDLE}"
 
-    installed_version=$(dpkg-query -W -f='${Version}' apache2 2>/dev/null || true)
-    if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed apache2 version after apt-get install"
-    fi
+        installed_version=$(dpkg-query -W -f='${Version}' apache2 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed apache2 version after dpkg -i from the offline bundle"
+        fi
+        add_change web.apache.v1 installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
+    else
+        if ! out=$(apt-get install -y apache2 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
 
-    deb_note=$(apache_package_provenance_note "${installed_version}")
-    add_change web.apache.v1 installed "" "apt-get install -y apache2 succeeded; dpkg-query reports version ${installed_version}. ${deb_note}"
+        installed_version=$(dpkg-query -W -f='${Version}' apache2 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed apache2 version after apt-get install"
+        fi
+
+        deb_note=$(apache_package_provenance_note "${installed_version}")
+        add_change web.apache.v1 installed "" "apt-get install -y apache2 succeeded; dpkg-query reports version ${installed_version}. ${deb_note}"
+    fi
 
     if [ ! -f "${ASIS_MODULE_PATH}" ]; then
         fail_step "${EXIT_VERIFICATION_FAILURE}" mod_asis_missing "${ASIS_MODULE_PATH}" "expected mod_asis.so at the fixed path agent/internal/capability/apache/content.go hardcodes, but it is not present after apt-get install -y apache2; failing fast here beats failing silently at first domain-creation time"

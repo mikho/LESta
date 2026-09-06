@@ -68,6 +68,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -88,14 +90,8 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 NGINX_CONF_PATH="/etc/nginx/nginx.conf"
 NGINX_LIVE_DIR="/etc/nginx/lesta.d"
 
-# BUNDLE_MANIFEST_FILENAME must stay in lockstep with
-# .install/scripts/build-release.sh's own BUNDLE_MANIFEST_FILENAME: this is
-# the one, freshly-generated-at-build-time file name both sides agree on to
-# find a --offline-bundle directory's own artifacts[] manifest. It is never
-# a committed source manifest (unlike NGINX_MANIFEST above) and never
-# touched by .install/scripts/validate-contract.mjs, which only discovers
-# services/*/manifest.json.
-BUNDLE_MANIFEST_FILENAME="bundle-manifest.json"
+# BUNDLE_MANIFEST_FILENAME is declared in lib/offline-bundle.sh (shared by
+# every leaf-service installer's own --offline-bundle wiring).
 
 # CHECKPOINT_PATH/RELEASE_PATH: no longer exported from lib/checkpoint.sh
 # (each installer now sets its own). These are the exact same paths this
@@ -399,33 +395,6 @@ preflight_check_conflicting_lighttpd() {
     return 0
 }
 
-# preflight_check_offline_bundle_present <bundle_dir>
-# Structural-only check (directory and manifest file exist), reported at
-# preflight time for both --dry-run and --apply per
-# INSTALLER-CONTRACT.md's own "package source reachability or offline
-# bundle completeness" preflight requirement. Deliberately does NOT verify
-# any sha256 here: that full checksum verification (the fail-closed-before-
-# any-mutation guarantee) happens once, immediately before install_nginx's
-# own dpkg -i, via verify_offline_bundle_artifacts below -- duplicating it
-# here would only let a bundle that fails preflight but is fixed a moment
-# later go unverified a second time before use.
-preflight_check_offline_bundle_present() {
-    local bundle_dir="$1"
-    local manifest="${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}"
-
-    if [ ! -d "${bundle_dir}" ]; then
-        add_error artifact_missing "offline bundle directory not found: ${bundle_dir}" "${bundle_dir}"
-        return 1
-    fi
-
-    if [ ! -f "${manifest}" ]; then
-        add_error artifact_missing "offline bundle manifest not found: ${manifest} (run .install/scripts/build-release.sh first)" "${manifest}"
-        return 1
-    fi
-
-    return 0
-}
-
 run_preflight() {
     local os_id os_version_id arch supported dir port failed=0
 
@@ -581,63 +550,6 @@ nginx_health_probe() {
     fi
 
     return 1
-}
-
-# offline_bundle_artifact_names <bundle_manifest_file> -> one .deb filename
-# per line, read from the bundle's own artifacts[].name field. Mirrors
-# lib/preflight.sh's own manifest_artifact_sha256 parsing approach exactly
-# (artifacts[] declared on a single line, no nested braces inside an entry
-# -- guaranteed here since .install/scripts/build-release.sh writes this
-# file with lib/json.sh's own compact json_join_object/json_array_from_lines
-# helpers, never hand-formatted).
-offline_bundle_artifact_names() {
-    local file="$1" line
-
-    line=$(grep -o '"artifacts"[[:space:]]*:[[:space:]]*\[.*\]' "${file}" || true)
-    [ -n "${line}" ] || return 0
-
-    printf '%s' "${line}" \
-        | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
-        | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
-}
-
-# verify_offline_bundle_artifacts <bundle_dir>
-# The offline counterpart of lib/agent.sh's own agent_install_binary
-# checksum discipline, generalized from one vendored Go binary to a set of
-# vendored .deb files: every artifact bundle-manifest.json declares must
-# exist at <bundle_dir>/<name> and its real sha256 (compute_sha256/
-# verify_sha256, from lib/checksum.sh) must match the manifest's own
-# recorded value. Fails closed via fail_step (EXIT_VERIFICATION_FAILURE)
-# on the FIRST missing file or mismatch, before install_nginx_offline_bundle
-# ever runs dpkg -i against anything -- no partial, partially-verified
-# install is ever attempted.
-verify_offline_bundle_artifacts() {
-    local bundle_dir="$1"
-    local bundle_manifest="${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}"
-    local names name deb_path expected_sha256 found=0
-
-    [ -f "${bundle_manifest}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_missing "${bundle_manifest}" "offline bundle manifest not found; run .install/scripts/build-release.sh first"
-
-    names=$(offline_bundle_artifact_names "${bundle_manifest}")
-    [ -n "${names}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "offline bundle manifest has no artifacts[] entries"
-
-    while IFS= read -r name; do
-        [ -n "${name}" ] || continue
-        found=1
-        deb_path="${bundle_dir}/${name}"
-
-        expected_sha256=$(manifest_artifact_sha256 "${bundle_manifest}" "${name}")
-        [ -n "${expected_sha256}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "no sha256 recorded for ${name} in ${bundle_manifest}"
-
-        [ -f "${deb_path}" ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_missing "${deb_path}" "offline bundle artifact ${name} is declared in ${bundle_manifest} but not found at ${deb_path}"
-
-        verify_sha256 "${deb_path}" "${expected_sha256}" \
-            || fail_step "${EXIT_VERIFICATION_FAILURE}" checksum_mismatch "${deb_path}" "offline bundle artifact ${name} sha256 does not match ${bundle_manifest}'s artifacts[] entry; refusing to install any package from a tampered offline bundle"
-    done <<NAMES
-${names}
-NAMES
-
-    [ "${found}" -eq 1 ] || fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${bundle_manifest}" "offline bundle manifest artifacts[] parsed as empty"
 }
 
 # install_nginx_offline_bundle <bundle_dir>

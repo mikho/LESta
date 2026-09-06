@@ -70,6 +70,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
 . "${INSTALL_ROOT}/lib/firewall.sh"
 # shellcheck source=../../lib/agent.sh
@@ -104,6 +106,7 @@ export RELEASE_PATH="/etc/lesta/bind9-release"
 
 MODE=""
 YES=0
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -113,13 +116,22 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version [--yes] [--offline-bundle <path>] [--help]
 
-  --dry-run   Run preflight and report what would change. No mutation.
-  --apply     Apply the installer. Requires --yes.
-  --version   Print installer version and exit.
-  --yes       Required with --apply: non-interactive confirmation.
-  --help      Print this message.
+  --dry-run                Run preflight and report what would change. No mutation.
+  --apply                  Apply the installer. Requires --yes.
+  --version                Print installer version and exit.
+  --yes                    Required with --apply: non-interactive confirmation.
+  --offline-bundle <path>  Optional. Installs bind9 and bind9-utils from a
+                           locally-vendored bundle produced by
+                           .install/scripts/build-release.sh instead of the
+                           live 'apt-get install -y bind9 bind9-utils' path:
+                           every .deb in <path> is sha256-verified against
+                           <path>/bundle-manifest.json before any mutation,
+                           then installed offline via 'dpkg -i' (no network
+                           access required). Absent by default: the live
+                           apt-get path is the unconditional default.
+  --help                   Print this message.
 USAGE
 }
 
@@ -158,6 +170,15 @@ parse_args() {
                 ;;
             --yes)
                 YES=1
+                shift
+                ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
                 shift
                 ;;
             --help)
@@ -246,6 +267,19 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# bind9_would_install_note prints the dry-run "how bind9 would actually get
+# installed" sentence, offline-bundle-aware: the live apt-get path is the
+# unconditional default, mirroring nginx/install.sh's own
+# nginx_would_install_note exactly.
+bind9_would_install_note() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+    else
+        printf 'apt-get install -y bind9 bind9-utils would run'
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
@@ -253,7 +287,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway zone against the real, just-installed bind9"
-    add_change dns.bind9.v1 would_install "" "apt-get install -y bind9 bind9-utils would run; ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; bind9 would be enabled, restarted, and health-probed"
+    add_change dns.bind9.v1 would_install "${OFFLINE_BUNDLE}" "$(bind9_would_install_note); ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; bind9 would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -351,6 +385,10 @@ PORTS
     preflight_check_conflicting_dns_packages || failed=1
     preflight_check_lesta_identity || failed=1
     preflight_check_include_line || failed=1
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+    fi
 
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
@@ -459,23 +497,54 @@ bind9_health_probe() {
     return 1
 }
 
+# install_bind9_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live 'apt-get install -y bind9
+# bind9-utils' branch below: verifies every vendored .deb first (fail
+# closed, no mutation before this returns), then installs via 'dpkg -i',
+# requiring no network access at all. Mirrors
+# nginx/install.sh's own install_nginx_offline_bundle exactly (see
+# lib/offline-bundle.sh for the shared verification logic).
+install_bind9_offline_bundle() {
+    local bundle_dir="$1" out
+
+    log_info "install_bind9: installing bind9 from offline bundle ${bundle_dir} (no network access required)"
+
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change dns.bind9.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+}
+
 install_bind9() {
     log_info "install_bind9: installing bind9 package and activating dns.bind9.v1"
 
     local out installed_version deb_note include_status=0 apparmor_local_named
 
-    if ! out=$(apt-get install -y bind9 bind9-utils 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        install_bind9_offline_bundle "${OFFLINE_BUNDLE}"
 
-    installed_version=$(dpkg-query -W -f='${Version}' bind9 2>/dev/null || true)
-    if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed bind9 version after apt-get install"
-    fi
+        installed_version=$(dpkg-query -W -f='${Version}' bind9 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed bind9 version after dpkg -i from the offline bundle"
+        fi
+        add_change dns.bind9.v1 installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
+    else
+        if ! out=$(apt-get install -y bind9 bind9-utils 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
 
-    deb_note=$(bind9_package_provenance_note "${installed_version}")
-    add_change dns.bind9.v1 installed "" "apt-get install -y bind9 bind9-utils succeeded; dpkg-query reports bind9 version ${installed_version}. ${deb_note}"
+        installed_version=$(dpkg-query -W -f='${Version}' bind9 2>/dev/null || true)
+        if [ -z "${installed_version}" ]; then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed bind9 version after apt-get install"
+        fi
+
+        deb_note=$(bind9_package_provenance_note "${installed_version}")
+        add_change dns.bind9.v1 installed "" "apt-get install -y bind9 bind9-utils succeeded; dpkg-query reports bind9 version ${installed_version}. ${deb_note}"
+    fi
 
     # named runs as the bind9 package's own system user (bind on Ubuntu, see
     # named.service's own `-u bind`), which apt-get install just created --
