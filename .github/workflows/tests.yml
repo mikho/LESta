@@ -167,9 +167,7 @@ jobs:
           sudo apt-get autoremove -y
           sudo apt-get update
           sudo apt-get install -y nginx
-          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
-            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
-          fi
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
           cat /etc/nginx/nginx.conf
 
       - name: Dry-run against a real Ubuntu host (must mutate nothing)
@@ -241,9 +239,7 @@ jobs:
           # install.sh itself never touches named.conf.
           sudo apt-get update
           sudo apt-get install -y bind9 bind9-utils
-          if ! grep -F "include" /etc/bind/named.conf | grep -F "/etc/bind/lesta.d/*.conf" >/dev/null 2>&1; then
-            sudo sed -i '$a\include "/etc/bind/lesta.d/*.conf";' /etc/bind/named.conf
-          fi
+          sudo sh .install/services/bind9/install.sh --prepare-config --yes
           cat /etc/bind/named.conf
 
       - name: Dry-run bind9 against a real Ubuntu host (must mutate nothing)
@@ -467,15 +463,11 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y nginx
-          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
-            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
-          fi
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
           cat /etc/nginx/nginx.conf
 
           sudo apt-get install -y apache2
-          if ! grep -F "Include" /etc/apache2/apache2.conf | grep -F "/etc/apache2/lesta.d/*.conf" >/dev/null 2>&1; then
-            printf '\nIncludeOptional /etc/apache2/lesta.d/*.conf\n' | sudo tee -a /etc/apache2/apache2.conf >/dev/null
-          fi
+          sudo sh .install/services/apache/install.sh --prepare-config --yes
           cat /etc/apache2/apache2.conf
           sudo systemctl stop apache2
 
@@ -549,9 +541,7 @@ jobs:
           sudo apt-get autoremove -y
           sudo apt-get update
           sudo apt-get install -y nginx
-          if ! grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
-            sudo sed -i '/^http {/a\    include /etc/nginx/lesta.d/*.conf;' /etc/nginx/nginx.conf
-          fi
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
 
       # --- Scenario 1: failed-validation (nginx, dry-run) ---------------
       #
@@ -1142,13 +1132,14 @@ jobs:
       # create-then-delete self-test against a real zone) with apt
       # completely unable to reach any remote archive.
 
-      - name: "Scenario 11 setup: install bind9 live and satisfy its own named.conf include-line prerequisite"
+      - name: "Scenario 11 setup: install bind9 live and satisfy its own named.conf include-line prerequisite via --prepare-config (called twice, proving the shared append-mode code path is idempotent)"
         run: |
           sudo apt-get update
           sudo apt-get install -y bind9 bind9-utils
-          if ! grep -F "include" /etc/bind/named.conf | grep -F "/etc/bind/lesta.d/*.conf" >/dev/null 2>&1; then
-            sudo sed -i '$a\include "/etc/bind/lesta.d/*.conf";' /etc/bind/named.conf
-          fi
+          sudo sh .install/services/bind9/install.sh --prepare-config --yes
+          sudo sh .install/services/bind9/install.sh --prepare-config --yes
+          [ "$(grep -c 'include "/etc/bind/lesta.d/\*.conf";' /etc/bind/named.conf)" -eq 1 ] \
+            || { echo "expected the include line to appear exactly once in named.conf after two --prepare-config calls" >&2; exit 1; }
 
       - name: "Scenario 11 setup: build a real offline bundle for bind9 (bind9 + bind9-utils) for this runner's own Ubuntu release"
         run: |
@@ -1287,14 +1278,15 @@ jobs:
       # job's own precedent for avoiding that exact port conflict, rather
       # than a real --web-profile apache run.
 
-      - name: "Scenario 13 setup: install apache2 live (stopped immediately, nginx already owns 80/443) and satisfy its own apache2.conf include-line prerequisite"
+      - name: "Scenario 13 setup: install apache2 live (stopped immediately, nginx already owns 80/443) and satisfy its own apache2.conf include-line prerequisite via --prepare-config (called twice, proving the shared append-mode code path is idempotent)"
         run: |
           sudo apt-get update
           sudo apt-get install -y apache2
           sudo systemctl stop apache2 2>/dev/null || true
-          if ! grep -F "Include" /etc/apache2/apache2.conf | grep -F "/etc/apache2/lesta.d/*.conf" >/dev/null 2>&1; then
-            printf '\nIncludeOptional /etc/apache2/lesta.d/*.conf\n' | sudo tee -a /etc/apache2/apache2.conf >/dev/null
-          fi
+          sudo sh .install/services/apache/install.sh --prepare-config --yes
+          sudo sh .install/services/apache/install.sh --prepare-config --yes
+          [ "$(grep -c 'IncludeOptional /etc/apache2/lesta.d/\*.conf' /etc/apache2/apache2.conf)" -eq 1 ] \
+            || { echo "expected the include line to appear exactly once in apache2.conf after two --prepare-config calls" >&2; exit 1; }
 
       - name: "Scenario 13 setup: build a real offline bundle for apache2 for this runner's own Ubuntu release"
         run: |
@@ -1683,3 +1675,114 @@ jobs:
 
       - name: "Scenario 18 cleanup: remove both mariadb offline bundles"
         run: sudo rm -rf /tmp/lesta-mariadb-bundle-tampered /tmp/lesta-mariadb-bundle
+
+      # --- Scenario 19: --prepare-config idempotent double-insertion (nginx)
+      #
+      # Proves lib/prepare-config.sh's own insert_lesta_include_if_missing,
+      # http_block mode, end to end against a genuinely fresh nginx.conf: a
+      # first --prepare-config call must insert the line, a second call
+      # against the now-already-satisfied file must be a real no-op (not a
+      # second insertion), so the include line appears exactly once either
+      # way. This is the "prepare-config replaces the operator's manual
+      # edit" mechanism's own real double-insertion-safety proof.
+
+      - name: "Scenario 19 setup: purge nginx (conffiles included this time) and reinstall live, so nginx.conf is genuinely stock, with no include line at all"
+        run: |
+          sudo systemctl stop nginx 2>/dev/null || true
+          sudo apt-get purge -y nginx nginx-common nginx-core 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get update
+          sudo apt-get install -y nginx
+          if grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf" >/dev/null 2>&1; then
+            echo "expected a freshly (re)installed, stock nginx.conf to have no lesta.d include line yet -- this scenario's own premise does not hold" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 19: first --prepare-config call must insert the include line exactly once"
+        run: |
+          result=$(sudo sh .install/services/nginx/install.sh --prepare-config --yes 2>/tmp/scenario19a-stderr.log)
+          status=$?
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario19a-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK) for the first --prepare-config call, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+          count=$(grep -c "include /etc/nginx/lesta.d/\*.conf;" /etc/nginx/nginx.conf)
+          if [ "${count}" -ne 1 ]; then
+            echo "expected the include line to appear exactly once after the first --prepare-config call, got ${count}" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 19: second --prepare-config call against an already-satisfied nginx.conf must be a real no-op, not a second insertion"
+        run: |
+          result=$(sudo sh .install/services/nginx/install.sh --prepare-config --yes 2>/tmp/scenario19b-stderr.log)
+          status=$?
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario19b-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK) for the second, idempotent --prepare-config call, got exit ${status}" >&2
+            exit 1
+          fi
+          count=$(grep -c "include /etc/nginx/lesta.d/\*.conf;" /etc/nginx/nginx.conf)
+          if [ "${count}" -ne 1 ]; then
+            echo "expected the include line to STILL appear exactly once after a second --prepare-config call (real idempotence, not a second insertion), got ${count}" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 19: confirm nginx converges to healthy with the --prepare-config-inserted include line (leaves nginx.conf in a good state for good measure, though this is the last scenario in this job)"
+        run: |
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      # --- Scenario 20: --prepare-config refuses to guess with no http{} block (nginx)
+      #
+      # Proves insert_lesta_include_if_missing's own http_block-mode refusal
+      # path: a synthetic nginx.conf with no top-level `http {` line at all
+      # (a stand-in for a non-stock or heavily customized config) must be
+      # rejected outright -- never a blind append to some arbitrary location
+      # -- with exit 12 (EXIT_PREFLIGHT_CONFLICT), the nginx_conf_no_http_block
+      # error code, and, critically, no mutation of the file at all.
+
+      - name: "Scenario 20 setup: back up the real nginx.conf (left healthy by Scenario 19) and write a synthetic minimal one with no http {} block"
+        run: |
+          sudo cp -p /etc/nginx/nginx.conf /tmp/scenario20-nginx.conf.real-backup
+          printf 'events {}\npid /run/nginx.pid;\n' | sudo tee /etc/nginx/nginx.conf >/dev/null
+          sudo sha256sum /etc/nginx/nginx.conf > /tmp/scenario20-nginx.conf.sha256-before
+          cat /etc/nginx/nginx.conf
+
+      - name: "Scenario 20: --prepare-config against a conf file with no http {} block must refuse to guess and fail closed, unmutated"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --prepare-config --yes 2>/tmp/scenario20-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario20-stderr.log || true
+          if [ "${status}" -ne 12 ]; then
+            echo "expected exit 12 (EXIT_PREFLIGHT_CONFLICT), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -oE '"exit_code":[0-9]+'
+          printf '%s' "${result}" | grep -q '"code":"nginx_conf_no_http_block"' \
+            || { echo "expected the result body to contain \"code\":\"nginx_conf_no_http_block\"" >&2; exit 1; }
+
+      - name: "Scenario 20: confirm the synthetic nginx.conf was not mutated by the rejected --prepare-config attempt"
+        run: |
+          sudo sha256sum /etc/nginx/nginx.conf > /tmp/scenario20-nginx.conf.sha256-after
+          diff /tmp/scenario20-nginx.conf.sha256-before /tmp/scenario20-nginx.conf.sha256-after \
+            || { echo "expected the synthetic nginx.conf to be byte-identical after the rejected --prepare-config attempt" >&2; exit 1; }
+
+      - name: "Scenario 20 cleanup: restore the real nginx.conf so this job ends in the same good state Scenario 19 left it in"
+        run: |
+          sudo cp -p /tmp/scenario20-nginx.conf.real-backup /etc/nginx/nginx.conf
+          sudo rm -f /tmp/scenario20-nginx.conf.real-backup /tmp/scenario20-nginx.conf.sha256-before /tmp/scenario20-nginx.conf.sha256-after
+          sudo nginx -t
+          sudo systemctl reload nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
