@@ -523,6 +523,35 @@ install_bind9() {
 
     local out installed_version deb_note include_status=0 apparmor_local_named
 
+    # named's own `include "<dir>/*.conf";` glob-include fails outright
+    # ("file not found") if the glob matches zero files (verified directly
+    # against a local BIND9 install; unlike nginx's equivalent include,
+    # which tolerates an empty match). preflight_check_include_line above
+    # already guarantees named.conf itself contains this include line
+    # before install_bind9 ever runs, so BIND9_LIVE_DIR (with a placeholder
+    # fragment if empty) MUST exist before the package-install step below,
+    # not after it: bind9's own package postinst script re-validates
+    # named.conf's syntax during a real reinstall (dpkg -i, always
+    # unconditional, unlike apt-get install against an already-installed
+    # package, which is a no-op and never re-triggers postinst) --
+    # confirmed for real via a CI failure where --offline-bundle's own
+    # dpkg -i failed with "named.conf:12: parsing failed: file not found"
+    # because this directory did not yet exist at that point. Same
+    # filename/content as agent/internal/capability/bind9/validate.go's own
+    # ensurePlaceholderFragment, so its own idempotent glob check sees this
+    # file as already-present and does nothing later.
+    install -d -m 0755 "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
+    add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0755"
+
+    if [ -z "$(find "${BIND9_LIVE_DIR}" -maxdepth 1 -name '*.conf' -print -quit 2>/dev/null)" ]; then
+        cat > "${BIND9_LIVE_DIR}/_lesta-placeholder.conf" <<'PLACEHOLDER'
+# Managed by LESta. Do not remove: keeps named's glob include
+# valid when no zones have been created yet.
+PLACEHOLDER
+        chmod 0644 "${BIND9_LIVE_DIR}/_lesta-placeholder.conf"
+        add_change dns.bind9.v1 seeded "${BIND9_LIVE_DIR}/_lesta-placeholder.conf" "placeholder fragment written so named's glob include has at least one match before any real zone exists"
+    fi
+
     if [ -n "${OFFLINE_BUNDLE}" ]; then
         install_bind9_offline_bundle "${OFFLINE_BUNDLE}"
 
@@ -598,30 +627,6 @@ install_bind9() {
         fi
     else
         log_info "AppArmor local override file for named not present (${apparmor_local_named}); assuming AppArmor is not enforcing named on this host, skipping"
-    fi
-
-    install -d -m 0755 "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
-    add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0755"
-
-    # named's own `include "<dir>/*.conf";` glob-include fails outright
-    # ("file not found") if the glob matches zero files (verified directly
-    # against a local BIND9 install; unlike nginx's equivalent include,
-    # which tolerates an empty match). A freshly-provisioned node
-    # legitimately starts with zero zones, so this seeds the identical
-    # placeholder fragment agent/internal/capability/bind9/validate.go's
-    # own ensurePlaceholderFragment would otherwise write on its own first
-    # invocation -- but that is too late for named-checkconf below, which
-    # this installer runs before the agent (and thus before
-    # ensurePlaceholderFragment) ever gets a chance to run. Same filename
-    # and content as that Go function, so its own idempotent glob check
-    # sees this file as already-present and does nothing later.
-    if [ -z "$(find "${BIND9_LIVE_DIR}" -maxdepth 1 -name '*.conf' -print -quit 2>/dev/null)" ]; then
-        cat > "${BIND9_LIVE_DIR}/_lesta-placeholder.conf" <<'PLACEHOLDER'
-# Managed by LESta. Do not remove: keeps named's glob include
-# valid when no zones have been created yet.
-PLACEHOLDER
-        chmod 0644 "${BIND9_LIVE_DIR}/_lesta-placeholder.conf"
-        add_change dns.bind9.v1 seeded "${BIND9_LIVE_DIR}/_lesta-placeholder.conf" "placeholder fragment written so named's glob include has at least one match before any real zone exists"
     fi
 
     install -d -m 0750 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
