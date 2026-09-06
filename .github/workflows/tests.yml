@@ -1814,13 +1814,13 @@ jobs:
       # bookkeeping) without depending on which nginx point releases happen
       # to be available in the Ubuntu archive on a given day.
 
-      - name: "Scenario 21 setup: clear any prior generation bookkeeping and remove nginx entirely, for a genuinely fresh offline-bundle install"
+      - name: "Scenario 21 setup: clear any prior generation bookkeeping and remove the nginx package (conffiles kept, so nginx.conf's own lesta.d include line survives), for a genuinely fresh offline-bundle install"
         run: |
           sudo systemctl stop nginx 2>/dev/null || true
-          sudo apt-get purge -y nginx nginx-common nginx-core 2>/dev/null || true
+          sudo apt-get remove -y nginx nginx-common nginx-core 2>/dev/null || true
           sudo apt-get autoremove -y
           sudo rm -rf /var/lib/lesta/nginx/bundle-generations
-          sudo sh .install/services/nginx/install.sh --prepare-config --yes
+          grep -F "include" /etc/nginx/nginx.conf | grep -F "/etc/nginx/lesta.d/*.conf"
 
       - name: "Scenario 21 setup: build the first real offline bundle"
         run: |
