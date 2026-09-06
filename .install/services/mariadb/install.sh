@@ -357,8 +357,8 @@ emit_version_and_exit() {
 # way.
 mariadb_would_install_note() {
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required; the MariaDB Foundation apt repository would NOT be registered on this node at all for this path)' \
-            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required; the MariaDB Foundation apt repository would NOT be registered on this node at all for this path)%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note mariadb "${OFFLINE_BUNDLE}" mariadb-server)"
     else
         printf 'MariaDB Foundation'"'"'s apt repository (pinned to the %s series, codename %s) would be registered; mariadb-server/mariadb-client would be installed' \
             "${MARIADB_PINNED_SERIES}" "${MARIADB_CODENAME:-unresolved}"
@@ -573,12 +573,36 @@ install_mariadb_offline_bundle() {
 
     log_info "ensure_mariadb_package_installed: installing mariadb-server/mariadb-client from offline bundle ${bundle_dir} (no network access required; the MariaDB Foundation repository is never registered on this node for this path)"
 
+    offline_bundle_retain_generation mariadb "${bundle_dir}" mariadb-server
+
     verify_offline_bundle_artifacts "${bundle_dir}"
     add_change mariadb verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
 
     if ! out=$(install_offline_bundle_debs "${bundle_dir}"); then
         add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+
+    offline_bundle_snapshot_current mariadb "${bundle_dir}"
+    add_change mariadb generation_retained "/var/lib/lesta/mariadb/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if the mariadb-server version actually changed. One shared mariadb-server package underlies both the control-plane and tenant instances, so this single retention root covers both."
+}
+
+# mariadb_fail_health <exit_code> <error_code> <path> <message>
+# Wraps every package/instance-level health-check failure site in
+# install_mariadb_control_plane and install_mariadb_tenant below (both
+# instances' own systemctl enable and mariadb_health_probe-driven
+# failures): on the live path (OFFLINE_BUNDLE empty) this is byte-for-byte
+# the same plain fail_step call these sites always made; only the
+# --offline-bundle path additionally attempts an automatic rollback to the
+# previous retained generation first. One shared mariadb-server package
+# underlies BOTH instances, so a rollback triggered by either instance's
+# own health failure restarts BOTH mariadb.service and
+# mariadb@tenant.service, never just the one instance whose check failed.
+mariadb_fail_health() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mariadb "mariadb.service mariadb@tenant.service"
+    else
+        fail_step "$1" "$2" "$3" "$4"
     fi
 }
 
@@ -773,12 +797,11 @@ install_mariadb_control_plane() {
 
         systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
         if ! out=$(systemctl enable --now mariadb.service 2>&1); then
-            add_error mariadb_control_plane_enable_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-            emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+            mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_control_plane_enable_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
         fi
         add_change database.control-plane.v1 enabled "" "systemctl enable --now mariadb.service succeeded"
 
-        mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
+        mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
         add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
 
         checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
@@ -868,12 +891,11 @@ CONF
     systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
 
     if ! out=$(systemctl enable --now mariadb.service 2>&1); then
-        add_error mariadb_control_plane_enable_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_control_plane_enable_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change database.control-plane.v1 enabled "" "systemctl enable --now mariadb.service succeeded, reading the relocated ${CONTROL_PLANE_DATADIR}"
 
-    mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
+    mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
     add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
 
     # --- dedicated least-privilege Laravel application account -------------
@@ -998,12 +1020,11 @@ CONF
     systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
 
     if ! out=$(systemctl enable --now mariadb@tenant.service 2>&1); then
-        add_error mariadb_tenant_enable_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_tenant_enable_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change database.tenant.v1 enabled "" "systemctl enable --now mariadb@tenant.service succeeded (--defaults-group-suffix=.tenant, reading [mysqld.tenant])"
 
-    mariadb_health_probe "${TENANT_SOCKET}" || fail_step "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
+    mariadb_health_probe "${TENANT_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
     add_change database.tenant.v1 healthy "" "a real SELECT 1 round-trip over ${TENANT_SOCKET} succeeded"
 
     # --- dedicated admin account + --defaults-extra-file -------------------

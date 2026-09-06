@@ -300,8 +300,8 @@ emit_version_and_exit() {
 # nginx_would_install_note exactly.
 bind9_would_install_note() {
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)' \
-            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note bind9 "${OFFLINE_BUNDLE}" bind9)"
     else
         printf 'apt-get install -y bind9 bind9-utils would run'
     fi
@@ -553,17 +553,38 @@ bind9_health_probe() {
     return 1
 }
 
+# bind9_fail_health <exit_code> <error_code> <path> <message>
+# Wraps every package-level health-check failure site below
+# (named-checkconf / systemctl enable named / systemctl restart named /
+# bind9_health_probe): on the live apt-get path (OFFLINE_BUNDLE empty) this
+# is byte-for-byte the same plain fail_step call these sites always made;
+# only the --offline-bundle path additionally attempts an automatic
+# rollback to the previous retained generation first. named.service is the
+# real unit (bind9.service is only a systemd alias, see this file's own
+# comment at its systemctl enable named call below), so that is the unit
+# restarted on rollback.
+bind9_fail_health() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" bind9 named
+    else
+        fail_step "$1" "$2" "$3" "$4"
+    fi
+}
+
 # install_bind9_offline_bundle <bundle_dir>
 # The --offline-bundle counterpart to the live 'apt-get install -y bind9
 # bind9-utils' branch below: verifies every vendored .deb first (fail
 # closed, no mutation before this returns), then installs via 'dpkg -i',
 # requiring no network access at all. Mirrors
 # nginx/install.sh's own install_nginx_offline_bundle exactly (see
-# lib/offline-bundle.sh for the shared verification logic).
+# lib/offline-bundle.sh for the shared verification logic), including the
+# retain-then-verify-then-install-then-snapshot ordering.
 install_bind9_offline_bundle() {
     local bundle_dir="$1" out
 
     log_info "install_bind9: installing bind9 from offline bundle ${bundle_dir} (no network access required)"
+
+    offline_bundle_retain_generation bind9 "${bundle_dir}" bind9
 
     verify_offline_bundle_artifacts "${bundle_dir}"
     add_change dns.bind9.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
@@ -572,6 +593,9 @@ install_bind9_offline_bundle() {
         add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
+
+    offline_bundle_snapshot_current bind9 "${bundle_dir}"
+    add_change dns.bind9.v1 generation_retained "/var/lib/lesta/bind9/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if the bind9 version actually changed"
 }
 
 install_bind9() {
@@ -694,8 +718,7 @@ PLACEHOLDER
     fi
 
     if ! out=$(named-checkconf "${NAMED_CONF_PATH}" 2>&1); then
-        add_error bind9_checkconf_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${NAMED_CONF_PATH}"
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        bind9_fail_health "${EXIT_HEALTH_FAILURE}" bind9_checkconf_failed "${NAMED_CONF_PATH}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change dns.bind9.v1 validated "" "named-checkconf ${NAMED_CONF_PATH} passed"
 
@@ -705,7 +728,7 @@ PLACEHOLDER
     # `systemctl enable` (and `enable --now`) refuses to operate on an alias
     # name outright ("Refusing to operate on alias name or linked unit
     # file"), so the real unit name must be used here.
-    systemctl enable named || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable named failed"
+    systemctl enable named || bind9_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable named failed"
 
     # A restart, not `enable --now` or a bare `rndc reload`: the bind9
     # package's own postinst starts named automatically during `apt-get
@@ -724,12 +747,11 @@ PLACEHOLDER
     # fresh exec that picks up the just-granted group, whether named was
     # already running from the postinst or not started yet.
     if ! out=$(systemctl restart named 2>&1); then
-        add_error bind9_restart_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        bind9_fail_health "${EXIT_HEALTH_FAILURE}" bind9_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change dns.bind9.v1 enabled "" "systemctl enable named + systemctl restart named succeeded"
 
-    bind9_health_probe || fail_step "${EXIT_HEALTH_FAILURE}" bind9_health_check_failed "" "bind9 did not answer a TCP health probe on 127.0.0.1:53 after enable --now"
+    bind9_health_probe || bind9_fail_health "${EXIT_HEALTH_FAILURE}" bind9_health_check_failed "" "bind9 did not answer a TCP health probe on 127.0.0.1:53 after enable --now"
     add_change dns.bind9.v1 healthy "" "TCP health probe against 127.0.0.1:53 succeeded"
 
     checkpoint_write install_bind9 "${MANIFEST_DIGEST}"

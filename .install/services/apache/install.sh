@@ -370,8 +370,8 @@ emit_version_and_exit() {
 # nginx_would_install_note exactly.
 apache_would_install_note() {
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)' \
-            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}"
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note apache "${OFFLINE_BUNDLE}" apache2)"
     else
         printf 'apt-get install -y apache2 would run'
     fi
@@ -645,17 +645,35 @@ apache_health_probe() {
     return 1
 }
 
+# apache_fail_health <exit_code> <error_code> <path> <message>
+# Wraps every package-level health-check failure site below
+# (apache2ctl configtest / systemctl enable apache2 / systemctl restart
+# apache2 / apache_health_probe): on the live apt-get path (OFFLINE_BUNDLE
+# empty) this is byte-for-byte the same plain fail_step call these sites
+# always made; only the --offline-bundle path additionally attempts an
+# automatic rollback to the previous retained generation first.
+apache_fail_health() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" apache apache2
+    else
+        fail_step "$1" "$2" "$3" "$4"
+    fi
+}
+
 # install_apache_offline_bundle <bundle_dir>
 # The --offline-bundle counterpart to the live 'apt-get install -y apache2'
 # branch below: verifies every vendored .deb first (fail closed, no
 # mutation before this returns), then installs via 'dpkg -i', requiring no
 # network access at all. Mirrors nginx/install.sh's own
 # install_nginx_offline_bundle exactly (see lib/offline-bundle.sh for the
-# shared verification logic).
+# shared verification logic), including the retain-then-verify-then-
+# install-then-snapshot ordering.
 install_apache_offline_bundle() {
     local bundle_dir="$1" out
 
     log_info "install_apache: installing apache2 from offline bundle ${bundle_dir} (no network access required)"
+
+    offline_bundle_retain_generation apache "${bundle_dir}" apache2
 
     verify_offline_bundle_artifacts "${bundle_dir}"
     add_change web.apache.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
@@ -664,6 +682,9 @@ install_apache_offline_bundle() {
         add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
+
+    offline_bundle_snapshot_current apache "${bundle_dir}"
+    add_change web.apache.v1 generation_retained "/var/lib/lesta/apache/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if the apache2 version actually changed"
 }
 
 install_apache() {
@@ -797,12 +818,11 @@ install_apache() {
     # apache2 binary, a completely separate code path from this installer's
     # own one-time validation call.
     if ! out=$(apache2ctl configtest 2>&1); then
-        add_error apache_test_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${APACHE_CONF_PATH}"
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        apache_fail_health "${EXIT_HEALTH_FAILURE}" apache_test_failed "${APACHE_CONF_PATH}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change web.apache.v1 validated "" "apache2ctl configtest passed"
 
-    systemctl enable apache2 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
+    systemctl enable apache2 || apache_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
 
     # A restart, not `enable --now`: the apache2 package's own postinst
     # starts apache2 automatically during `apt-get install` above, before
@@ -821,13 +841,12 @@ install_apache() {
     # that picks up the just-granted group, whether apache2 was already
     # running from the postinst or not started yet.
     if ! out=$(systemctl restart apache2 2>&1); then
-        add_error apache_restart_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        apache_fail_health "${EXIT_HEALTH_FAILURE}" apache_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change web.apache.v1 enabled "" "systemctl enable apache2 + systemctl restart apache2 succeeded"
 
     listen_port=$(apache_listen_port)
-    apache_health_probe "${listen_port}" || fail_step "${EXIT_HEALTH_FAILURE}" apache_health_check_failed "" "apache2 did not answer a health probe on 127.0.0.1:${listen_port} after enable + restart"
+    apache_health_probe "${listen_port}" || apache_fail_health "${EXIT_HEALTH_FAILURE}" apache_health_check_failed "" "apache2 did not answer a health probe on 127.0.0.1:${listen_port} after enable + restart"
     add_change web.apache.v1 healthy "" "TCP health probe against 127.0.0.1:${listen_port} succeeded"
 
     checkpoint_write install_apache "${MANIFEST_DIGEST}"

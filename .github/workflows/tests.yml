@@ -1793,3 +1793,439 @@ jobs:
           sudo nginx -t
           sudo systemctl reload nginx
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      # --- Scenario 21: offline-bundle generation swap + idempotent no-op (nginx)
+      #
+      # Proves lib/offline-bundle.sh's own offline_bundle_retain_generation/
+      # offline_bundle_snapshot_current for real: a fresh --offline-bundle
+      # install creates current/ with no previous/ (mirroring
+      # agent_install_binary's own "dest absent -> no backup" branch); a
+      # second bundle whose bundle-manifest.json records a genuinely
+      # different nginx version retires current/ to previous/ before
+      # installing; re-applying that SAME second bundle again is a true
+      # no-op that leaves previous/ completely untouched. The second
+      # bundle's own real .deb bytes are intentionally identical to the
+      # first (only its manifest's own recorded version string is bumped):
+      # offline_bundle_retain_generation reads ONLY the two manifests being
+      # compared to decide whether a real generation change occurred, never
+      # cross-checking against dpkg's own installed-version reality, so this
+      # is a legitimate, deterministic way to force "a real generation
+      # change" for this scenario's own purpose (proving the retention
+      # bookkeeping) without depending on which nginx point releases happen
+      # to be available in the Ubuntu archive on a given day.
+
+      - name: "Scenario 21 setup: clear any prior generation bookkeeping and remove nginx entirely, for a genuinely fresh offline-bundle install"
+        run: |
+          sudo systemctl stop nginx 2>/dev/null || true
+          sudo apt-get purge -y nginx nginx-common nginx-core 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo rm -rf /var/lib/lesta/nginx/bundle-generations
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
+
+      - name: "Scenario 21 setup: build the first real offline bundle"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle-gen1 --manifest .install/services/nginx/manifest.json --package nginx --bundle-name nginx
+
+      - name: "Scenario 21: fresh --offline-bundle install must create current/ with no previous/ yet"
+        run: |
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server both --offline-bundle /tmp/lesta-nginx-bundle-gen1
+          sudo test -f /var/lib/lesta/nginx/bundle-generations/current/bundle-manifest.json \
+            || { echo "expected current/bundle-manifest.json to exist after a fresh offline-bundle install" >&2; exit 1; }
+          sudo test ! -d /var/lib/lesta/nginx/bundle-generations/previous \
+            || { echo "expected no previous/ after a genuinely fresh offline-bundle install" >&2; exit 1; }
+          sudo cp -a /var/lib/lesta/nginx/bundle-generations/current /tmp/scenario21-gen1-snapshot
+          gen1_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/nginx/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('nginx_')][0])")
+          echo "s21_gen1_version=${gen1_version}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 21 setup: build a second bundle whose manifest records a bumped-but-fake nginx version (same real .deb bytes)"
+        run: |
+          sudo rm -rf /tmp/lesta-nginx-bundle-gen2
+          sudo cp -a /tmp/lesta-nginx-bundle-gen1 /tmp/lesta-nginx-bundle-gen2
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-nginx-bundle-gen2/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'].startswith('nginx_'):
+                  a['version'] = a['version'] + '+lesta-scenario21-gen2'
+          json.dump(d, open(p, 'w'))
+          "
+          gen2_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/tmp/lesta-nginx-bundle-gen2/bundle-manifest.json'))['artifacts'] if a['name'].startswith('nginx_')][0])")
+          echo "s21_gen2_version=${gen2_version}" >> "${GITHUB_ENV}"
+          [ "${gen2_version}" != "${s21_gen1_version}" ] \
+            || { echo "expected the second bundle's own recorded version to differ from the first" >&2; exit 1; }
+
+      - name: "Scenario 21: applying the second bundle must swap generations -- previous/ now holds generation 1, current/ holds generation 2"
+        run: |
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server both --offline-bundle /tmp/lesta-nginx-bundle-gen2
+          sudo test -d /var/lib/lesta/nginx/bundle-generations/previous \
+            || { echo "expected previous/ to exist after a real generation change" >&2; exit 1; }
+          previous_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/nginx/bundle-generations/previous/bundle-manifest.json'))['artifacts'] if a['name'].startswith('nginx_')][0])")
+          current_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/nginx/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('nginx_')][0])")
+          if [ "${previous_version}" != "${s21_gen1_version}" ]; then
+            echo "expected previous/ to record generation 1's own version (${s21_gen1_version}), got ${previous_version}" >&2
+            exit 1
+          fi
+          if [ "${current_version}" != "${s21_gen2_version}" ]; then
+            echo "expected current/ to record generation 2's own version (${s21_gen2_version}), got ${current_version}" >&2
+            exit 1
+          fi
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 21: re-applying the SAME second bundle again must be a true no-op -- previous/ untouched"
+        run: |
+          previous_mtime_before=$(sudo stat -c %Y /var/lib/lesta/nginx/bundle-generations/previous/bundle-manifest.json)
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server both --offline-bundle /tmp/lesta-nginx-bundle-gen2
+          previous_mtime_after=$(sudo stat -c %Y /var/lib/lesta/nginx/bundle-generations/previous/bundle-manifest.json)
+          if [ "${previous_mtime_before}" != "${previous_mtime_after}" ]; then
+            echo "expected previous/ to be completely untouched by re-applying the same, already-current bundle (no spurious generation swap)" >&2
+            exit 1
+          fi
+          sudo diff -r /tmp/scenario21-gen1-snapshot /var/lib/lesta/nginx/bundle-generations/previous \
+            || { echo "expected previous/ to still hold generation 1's own exact retained content" >&2; exit 1; }
+
+      - name: "Scenario 21 cleanup: remove the temporary bundle directories"
+        run: sudo rm -rf /tmp/lesta-nginx-bundle-gen1 /tmp/lesta-nginx-bundle-gen2 /tmp/scenario21-gen1-snapshot
+
+      # --- Scenario 22: automatic rollback on a real health-check failure (nginx)
+      #
+      # Proves offline_bundle_rollback_generation and
+      # offline_bundle_fail_health_with_rollback end to end: a third bundle
+      # is built whose own real nginx .deb is repacked with its shipped
+      # /usr/sbin/nginx binary replaced by a trivial always-exits-1 script --
+      # a real, checksum-valid-against-its-own-manifest, but non-functional
+      # artifact, mirroring Scenario 8's own philosophy for the agent binary
+      # exactly, just applied to a .deb-packaged executable instead of a
+      # raw vendored one. dpkg -i genuinely succeeds (the binary is a real,
+      # executable file; it is not a conffile, so it is unconditionally
+      # overwritten, unlike nginx.conf), so this exercises nginx -t's real
+      # failure path (nginx -t literally execs this broken binary with -t),
+      # which must trigger a real automatic rollback back to generation 2
+      # (Scenario 21's own good, healthy generation), not EXIT_ROLLBACK_
+      # FAILURE (22): the rollback itself must succeed, only the rejected
+      # upgrade attempt fails.
+
+      - name: "Scenario 22 setup: build a third bundle whose real nginx binary is replaced with a broken stand-in inside its own real .deb"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-nginx-bundle-gen3 --manifest .install/services/nginx/manifest.json --package nginx --bundle-name nginx
+
+          nginx_deb=$(ls /tmp/lesta-nginx-bundle-gen3/nginx_*.deb | head -n1)
+          nginx_deb_name=$(basename "${nginx_deb}")
+          sudo rm -rf /tmp/scenario22-nginx-deb-extract
+          sudo dpkg-deb -R "${nginx_deb}" /tmp/scenario22-nginx-deb-extract
+          printf '#!/bin/sh\n# Deliberately broken stand-in for /usr/sbin/nginx (Scenario 22): a\n# real, executable file that always fails, forcing install_nginx'"'"'s own\n# real nginx -t call to fail for real after a genuine dpkg -i succeeds.\nexit 1\n' | sudo tee /tmp/scenario22-nginx-deb-extract/usr/sbin/nginx >/dev/null
+          sudo chmod 0755 /tmp/scenario22-nginx-deb-extract/usr/sbin/nginx
+          sudo dpkg-deb -b /tmp/scenario22-nginx-deb-extract "${nginx_deb}"
+
+          new_sha256=$(sha256sum "${nginx_deb}" | awk '{print $1}')
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-nginx-bundle-gen3/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'] == '${nginx_deb_name}':
+                  a['sha256'] = '${new_sha256}'
+                  a['version'] = a['version'] + '+lesta-scenario22-gen3'
+          json.dump(d, open(p, 'w'))
+          "
+
+      - name: "Scenario 22: applying the broken generation must fail nginx -t and roll back automatically to generation 2 (not EXIT_ROLLBACK_FAILURE)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/nginx/install.sh --apply --yes --web-server both --offline-bundle /tmp/lesta-nginx-bundle-gen3 2>/tmp/scenario22-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario22-stderr.log || true
+
+          if [ "${status}" -ne 21 ]; then
+            echo "expected exit 21 (EXIT_HEALTH_FAILURE): the rollback itself should succeed, only the upgrade attempt should fail, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -qi 'rolled back' \
+            || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
+
+          restored_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/nginx/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('nginx_')][0])")
+          if [ "${restored_version}" != "${s21_gen2_version}" ]; then
+            echo "expected current/ to be restored back to generation 2's own version (${s21_gen2_version}) after rollback, got ${restored_version}" >&2
+            exit 1
+          fi
+
+          real_dpkg_version=$(dpkg-query -W -f='${Version}' nginx)
+          echo "real dpkg-reported nginx version after rollback: ${real_dpkg_version}"
+
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 22 cleanup: remove the temporary bundle directory and generation-retention state"
+        run: |
+          sudo rm -rf /tmp/lesta-nginx-bundle-gen3 /tmp/scenario22-nginx-deb-extract
+          sudo rm -rf /var/lib/lesta/nginx/bundle-generations
+
+      # --- Scenario 23: offline-bundle generation swap + rollback smoke (bind9)
+      #
+      # Reuses Scenario 21/22's own two proven techniques (a manifest-only
+      # version bump to force a real generation change; a real .deb's own
+      # shipped binary replaced with a broken stand-in to force a real,
+      # non-mocked health-check failure) in one combined flow, since the
+      # underlying shared mechanism (lib/offline-bundle.sh) is already
+      # exhaustively proven on nginx above -- this only needs to confirm
+      # bind9/install.sh's own wiring (directory/package/unit names) is
+      # correct, not re-prove the mechanism itself. Targets named-checkconf
+      # bind9-utils' own binary (bind9's own named-checkconf validation step
+      # is what bind9_fail_health guards), not named itself.
+
+      - name: "Scenario 23 setup: build a bind9 generation-2 bundle (manifest-only version bump) and apply it as a real generation swap over Scenario 11's own already-installed bind9"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-bind9-bundle-gen2 --manifest .install/services/bind9/manifest.json --package "bind9 bind9-utils" --bundle-name bind9
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-bind9-bundle-gen2/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'].startswith('bind9_'):
+                  a['version'] = a['version'] + '+lesta-scenario23-gen2'
+          json.dump(d, open(p, 'w'))
+          "
+          sudo sh .install/services/bind9/install.sh --apply --yes --offline-bundle /tmp/lesta-bind9-bundle-gen2
+          sudo test -d /var/lib/lesta/bind9/bundle-generations/previous \
+            || { echo "expected previous/ after a real generation swap over the already-installed bind9 from Scenario 11" >&2; exit 1; }
+          gen2_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/bind9/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('bind9_')][0])")
+          echo "s23_gen2_version=${gen2_version}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 23 setup: build a bind9 generation-3 bundle whose real named-checkconf binary is broken"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-bind9-bundle-gen3 --manifest .install/services/bind9/manifest.json --package "bind9 bind9-utils" --bundle-name bind9
+
+          utils_deb=$(ls /tmp/lesta-bind9-bundle-gen3/bind9-utils_*.deb | head -n1)
+          utils_deb_name=$(basename "${utils_deb}")
+          sudo rm -rf /tmp/scenario23-bind9-deb-extract
+          sudo dpkg-deb -R "${utils_deb}" /tmp/scenario23-bind9-deb-extract
+          printf '#!/bin/sh\nexit 1\n' | sudo tee /tmp/scenario23-bind9-deb-extract/usr/sbin/named-checkconf >/dev/null
+          sudo chmod 0755 /tmp/scenario23-bind9-deb-extract/usr/sbin/named-checkconf
+          sudo dpkg-deb -b /tmp/scenario23-bind9-deb-extract "${utils_deb}"
+
+          new_sha256=$(sha256sum "${utils_deb}" | awk '{print $1}')
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-bind9-bundle-gen3/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'] == '${utils_deb_name}':
+                  a['sha256'] = '${new_sha256}'
+              if a['name'].startswith('bind9_'):
+                  a['version'] = a['version'] + '+lesta-scenario23-gen3'
+          json.dump(d, open(p, 'w'))
+          "
+
+      - name: "Scenario 23: applying the broken generation must fail named-checkconf and roll back automatically to generation 2 (not EXIT_ROLLBACK_FAILURE)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/bind9/install.sh --apply --yes --offline-bundle /tmp/lesta-bind9-bundle-gen3 2>/tmp/scenario23-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario23-stderr.log || true
+
+          if [ "${status}" -ne 21 ]; then
+            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -qi 'rolled back' \
+            || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
+
+          restored_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/bind9/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('bind9_')][0])")
+          if [ "${restored_version}" != "${s23_gen2_version}" ]; then
+            echo "expected current/ to be restored back to generation 2's own version (${s23_gen2_version}) after rollback, got ${restored_version}" >&2
+            exit 1
+          fi
+
+          sudo systemctl is-active named
+
+      - name: "Scenario 23 cleanup: remove temporary bundle directories and generation-retention state"
+        run: |
+          sudo rm -rf /tmp/lesta-bind9-bundle-gen2 /tmp/lesta-bind9-bundle-gen3 /tmp/scenario23-bind9-deb-extract
+          sudo rm -rf /var/lib/lesta/bind9/bundle-generations
+
+      # --- Scenario 24: offline-bundle generation swap + rollback smoke (apache)
+      #
+      # Same combined flow as Scenario 23, targeting apache2ctl (the real
+      # script apache_fail_health's own config-validation call site,
+      # apache2ctl configtest, actually invokes).
+
+      - name: "Scenario 24 setup: build an apache2 generation-2 bundle (manifest-only version bump) and apply it as a real generation swap over Scenario 13's own already-installed apache2"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-apache-bundle-gen2 --manifest .install/services/apache/manifest.json --package apache2 --bundle-name apache2
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-apache-bundle-gen2/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'].startswith('apache2_'):
+                  a['version'] = a['version'] + '+lesta-scenario24-gen2'
+          json.dump(d, open(p, 'w'))
+          "
+          sudo sh .install/services/apache/install.sh --apply --yes --web-profile both --offline-bundle /tmp/lesta-apache-bundle-gen2
+          sudo test -d /var/lib/lesta/apache/bundle-generations/previous \
+            || { echo "expected previous/ after a real generation swap over the already-installed apache2 from Scenario 13" >&2; exit 1; }
+          gen2_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/apache/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('apache2_')][0])")
+          echo "s24_gen2_version=${gen2_version}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 24 setup: build an apache2 generation-3 bundle whose real apache2ctl script is broken"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-apache-bundle-gen3 --manifest .install/services/apache/manifest.json --package apache2 --bundle-name apache2
+
+          apache_deb=$(ls /tmp/lesta-apache-bundle-gen3/apache2_*.deb | head -n1)
+          apache_deb_name=$(basename "${apache_deb}")
+          sudo rm -rf /tmp/scenario24-apache-deb-extract
+          sudo dpkg-deb -R "${apache_deb}" /tmp/scenario24-apache-deb-extract
+          printf '#!/bin/sh\nexit 1\n' | sudo tee /tmp/scenario24-apache-deb-extract/usr/sbin/apache2ctl >/dev/null
+          sudo chmod 0755 /tmp/scenario24-apache-deb-extract/usr/sbin/apache2ctl
+          sudo dpkg-deb -b /tmp/scenario24-apache-deb-extract "${apache_deb}"
+
+          new_sha256=$(sha256sum "${apache_deb}" | awk '{print $1}')
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-apache-bundle-gen3/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'] == '${apache_deb_name}':
+                  a['sha256'] = '${new_sha256}'
+                  a['version'] = a['version'] + '+lesta-scenario24-gen3'
+          json.dump(d, open(p, 'w'))
+          "
+
+      - name: "Scenario 24: applying the broken generation must fail apache2ctl configtest and roll back automatically to generation 2 (not EXIT_ROLLBACK_FAILURE)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/apache/install.sh --apply --yes --web-profile both --offline-bundle /tmp/lesta-apache-bundle-gen3 2>/tmp/scenario24-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario24-stderr.log || true
+
+          if [ "${status}" -ne 21 ]; then
+            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -qi 'rolled back' \
+            || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
+
+          restored_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/apache/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('apache2_')][0])")
+          if [ "${restored_version}" != "${s24_gen2_version}" ]; then
+            echo "expected current/ to be restored back to generation 2's own version (${s24_gen2_version}) after rollback, got ${restored_version}" >&2
+            exit 1
+          fi
+
+          sudo systemctl is-active apache2
+
+      - name: "Scenario 24 cleanup: remove temporary bundle directories and generation-retention state"
+        run: |
+          sudo rm -rf /tmp/lesta-apache-bundle-gen2 /tmp/lesta-apache-bundle-gen3 /tmp/scenario24-apache-deb-extract
+          sudo rm -rf /var/lib/lesta/apache/bundle-generations
+
+      # --- Scenario 25: offline-bundle generation swap + rollback smoke (mariadb)
+      #
+      # Same combined flow as Scenario 23/24, targeting mariadbd itself (the
+      # real server daemon binary both mariadb.service and
+      # mariadb@tenant.service exec): breaking it fails BOTH instances'
+      # own systemctl enable/health probe, exercising mariadb_fail_health's
+      # own "one shared package, roll back once, restart both instances"
+      # design. Asserts both mariadb.service and mariadb@tenant.service are
+      # healthy again after rollback, not just whichever instance's own
+      # health check happened to fail first.
+
+      - name: "Scenario 25 setup: build a mariadb generation-2 bundle (manifest-only version bump) and apply it as a real generation swap over Scenario 17's own already-installed mariadb"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mariadb-bundle-gen2 --manifest .install/services/mariadb/manifest.json --package "mariadb-server mariadb-client" --bundle-name mariadb --mariadb-repo
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-mariadb-bundle-gen2/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'].startswith('mariadb-server_'):
+                  a['version'] = a['version'] + '+lesta-scenario25-gen2'
+          json.dump(d, open(p, 'w'))
+          "
+          sudo sh .install/services/mariadb/install.sh --apply --yes --offline-bundle /tmp/lesta-mariadb-bundle-gen2
+          sudo test -d /var/lib/lesta/mariadb/bundle-generations/previous \
+            || { echo "expected previous/ after a real generation swap over the already-installed mariadb from Scenario 17" >&2; exit 1; }
+          gen2_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/mariadb/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('mariadb-server_')][0])")
+          echo "s25_gen2_version=${gen2_version}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 25 setup: build a mariadb generation-3 bundle whose real mariadbd binary is broken"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mariadb-bundle-gen3 --manifest .install/services/mariadb/manifest.json --package "mariadb-server mariadb-client" --bundle-name mariadb --mariadb-repo
+
+          server_deb=$(ls /tmp/lesta-mariadb-bundle-gen3/mariadb-server-core*.deb /tmp/lesta-mariadb-bundle-gen3/mariadb-server_*.deb 2>/dev/null | head -n1)
+          server_deb_name=$(basename "${server_deb}")
+          sudo rm -rf /tmp/scenario25-mariadb-deb-extract
+          sudo dpkg-deb -R "${server_deb}" /tmp/scenario25-mariadb-deb-extract
+          if [ -f /tmp/scenario25-mariadb-deb-extract/usr/sbin/mariadbd ]; then
+            mariadbd_path=/tmp/scenario25-mariadb-deb-extract/usr/sbin/mariadbd
+          else
+            mariadbd_path=$(find /tmp/scenario25-mariadb-deb-extract -type f -name mariadbd | head -n1)
+          fi
+          printf '#!/bin/sh\nexit 1\n' | sudo tee "${mariadbd_path}" >/dev/null
+          sudo chmod 0755 "${mariadbd_path}"
+          sudo dpkg-deb -b /tmp/scenario25-mariadb-deb-extract "${server_deb}"
+
+          new_sha256=$(sha256sum "${server_deb}" | awk '{print $1}')
+          sudo python3 -c "
+          import json
+          p = '/tmp/lesta-mariadb-bundle-gen3/bundle-manifest.json'
+          d = json.load(open(p))
+          for a in d['artifacts']:
+              if a['name'] == '${server_deb_name}':
+                  a['sha256'] = '${new_sha256}'
+              if a['name'].startswith('mariadb-server_'):
+                  a['version'] = a['version'] + '+lesta-scenario25-gen3'
+          json.dump(d, open(p, 'w'))
+          "
+
+      - name: "Scenario 25: applying the broken generation must fail mariadb's own health check and roll back automatically, restarting BOTH instances (not EXIT_ROLLBACK_FAILURE)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mariadb/install.sh --apply --yes --offline-bundle /tmp/lesta-mariadb-bundle-gen3 2>/tmp/scenario25-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario25-stderr.log || true
+
+          if [ "${status}" -ne 21 ]; then
+            echo "expected exit 21 (EXIT_HEALTH_FAILURE), got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -qi 'rolled back' \
+            || { echo "expected the failure message to mention the automatic rollback" >&2; exit 1; }
+
+          restored_version=$(sudo python3 -c "import json; print([a['version'] for a in json.load(open('/var/lib/lesta/mariadb/bundle-generations/current/bundle-manifest.json'))['artifacts'] if a['name'].startswith('mariadb-server_')][0])")
+          if [ "${restored_version}" != "${s25_gen2_version}" ]; then
+            echo "expected current/ to be restored back to generation 2's own version (${s25_gen2_version}) after rollback, got ${restored_version}" >&2
+            exit 1
+          fi
+
+          sudo systemctl is-active mariadb.service
+          sudo systemctl is-active mariadb@tenant.service
+          sudo mariadb --socket=/run/mysqld/mysqld.sock -u root -e "SELECT 1;"
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -e "SELECT 1;"
+
+      - name: "Scenario 25 cleanup: remove temporary bundle directories and generation-retention state"
+        run: |
+          sudo rm -rf /tmp/lesta-mariadb-bundle-gen2 /tmp/lesta-mariadb-bundle-gen3 /tmp/scenario25-mariadb-deb-extract
+          sudo rm -rf /var/lib/lesta/mariadb/bundle-generations
+
+      # --- Live-path non-regression note --------------------------------
+      #
+      # No new scenario is needed to prove the live apt-get install path
+      # (every installer's own non---offline-bundle branch) is unaffected
+      # by this phase: none of Scenarios 1-18's own existing live-path
+      # assertions were touched by any of the changes above (every new
+      # code path here is reached only when OFFLINE_BUNDLE is set), so
+      # their own continuing to pass unmodified in this same job run is
+      # itself the proof.
