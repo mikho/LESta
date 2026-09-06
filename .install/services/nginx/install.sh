@@ -338,11 +338,12 @@ emit_version_and_exit() {
 # check), the offline path only ever describes what --offline-bundle itself
 # already documents in usage().
 nginx_would_install_note() {
-    local trailer="$1"
+    local trailer="$1" retain_note
 
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required); %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s' \
-            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "${NGINX_LIVE_DIR}" "${trailer}"
+        retain_note=$(offline_bundle_would_retain_note nginx "${OFFLINE_BUNDLE}" "$(nginx_offline_bundle_seed_artifact_name "${OFFLINE_BUNDLE}/${BUNDLE_MANIFEST_FILENAME}")")
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required); %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "${NGINX_LIVE_DIR}" "${trailer}" "${retain_note}"
     else
         printf 'apt-get install -y nginx would run; %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s' \
             "${NGINX_LIVE_DIR}" "${trailer}"
@@ -613,6 +614,40 @@ nginx_health_probe() {
     return 1
 }
 
+# nginx_offline_bundle_seed_artifact_name <bundle_manifest_file> -> "nginx"
+# or "nginx-core", whichever the bundle's own artifacts[] actually vendored
+# as the metapackage on this Ubuntu release -- offline_bundle_retain_
+# generation's own generation identity is read from this one package's
+# version. Same either/or ambiguity nginx_package_provenance_note above
+# already resolves for the live apt-cache path, applied here to a
+# bundle-manifest.json's own artifacts[].name entries instead of
+# /var/cache/apt/archives filenames.
+nginx_offline_bundle_seed_artifact_name() {
+    local bundle_manifest="$1"
+
+    if offline_bundle_artifact_names "${bundle_manifest}" | grep -q '^nginx_'; then
+        printf 'nginx'
+    else
+        printf 'nginx-core'
+    fi
+}
+
+# nginx_fail_health <exit_code> <error_code> <path> <message>
+# Wraps every package-level health-check failure site below
+# (nginx -t / systemctl enable --now nginx / nginx_health_probe): on the
+# live apt-get path (OFFLINE_BUNDLE empty) this is byte-for-byte the same
+# plain fail_step call these sites always made; only the --offline-bundle
+# path additionally attempts an automatic rollback to the previous
+# retained generation first (see lib/offline-bundle.sh's own
+# offline_bundle_fail_health_with_rollback).
+nginx_fail_health() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" nginx nginx
+    else
+        fail_step "$1" "$2" "$3" "$4"
+    fi
+}
+
 # install_nginx_offline_bundle <bundle_dir>
 # The --offline-bundle counterpart to the live 'apt-get install -y nginx'
 # branch below: verifies every vendored .deb first (fail closed, no
@@ -622,10 +657,21 @@ nginx_health_probe() {
 # rerun of this same installer (live or offline) still correctly detects
 # nginx as already installed via dpkg-query, exactly as the live path
 # already relies on below.
+#
+# offline_bundle_retain_generation runs BEFORE verification/install (so a
+# verify/install failure right after still leaves a good previous/ in
+# place, mirroring agent_install_binary's own backup-before-verify
+# ordering); offline_bundle_snapshot_current runs AFTER a successful
+# install, unconditionally, on both the fresh-install and generation-swap
+# path alike (see both functions' own comments in lib/offline-bundle.sh for
+# the full retain/snapshot split rationale).
 install_nginx_offline_bundle() {
-    local bundle_dir="$1" out
+    local bundle_dir="$1" out seed_name
 
     log_info "install_nginx: installing nginx from offline bundle ${bundle_dir} (no network access required)"
+
+    seed_name=$(nginx_offline_bundle_seed_artifact_name "${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}")
+    offline_bundle_retain_generation nginx "${bundle_dir}" "${seed_name}"
 
     verify_offline_bundle_artifacts "${bundle_dir}"
     add_change web.nginx.v1 verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
@@ -634,6 +680,9 @@ install_nginx_offline_bundle() {
         add_error dpkg_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${bundle_dir}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
+
+    offline_bundle_snapshot_current nginx "${bundle_dir}"
+    add_change web.nginx.v1 generation_retained "/var/lib/lesta/nginx/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if the ${seed_name} version actually changed"
 }
 
 install_nginx() {
@@ -675,15 +724,14 @@ install_nginx() {
     fi
 
     if ! out=$(nginx -t 2>&1); then
-        add_error nginx_test_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${NGINX_CONF_PATH}"
-        emit_result_and_exit failed "${EXIT_HEALTH_FAILURE}"
+        nginx_fail_health "${EXIT_HEALTH_FAILURE}" nginx_test_failed "${NGINX_CONF_PATH}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change web.nginx.v1 validated "" "nginx -t passed"
 
-    systemctl enable --now nginx || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now nginx failed"
+    systemctl enable --now nginx || nginx_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now nginx failed"
     add_change web.nginx.v1 enabled "" "systemctl enable --now nginx succeeded"
 
-    nginx_health_probe || fail_step "${EXIT_HEALTH_FAILURE}" nginx_health_check_failed "" "nginx did not answer a health probe on 127.0.0.1:80 after enable --now"
+    nginx_health_probe || nginx_fail_health "${EXIT_HEALTH_FAILURE}" nginx_health_check_failed "" "nginx did not answer a health probe on 127.0.0.1:80 after enable --now"
     add_change web.nginx.v1 healthy "" "TCP health probe against 127.0.0.1:80 succeeded"
 
     checkpoint_write install_nginx "${MANIFEST_DIGEST}"
