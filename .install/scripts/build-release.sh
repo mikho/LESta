@@ -9,15 +9,20 @@
 #
 # Assembles a real, working offline installation bundle for one leaf
 # installer's own seed package(s), proving offline installation is possible
-# without any cryptographic signing: computes the seed package(s)' own full
-# recursive dependency closure via 'apt-cache depends', then fetches every
-# one of those packages plus the seed package(s) themselves as real .deb
-# files directly into --output-dir via 'apt-get download' (never 'apt-get
-# install --download-only', which silently skips any dependency already
-# installed and already satisfying a requirement on this build host,
-# producing a real, confirmed-via-CI incomplete bundle; 'apt-get download'
-# has no such install-state awareness and always fetches the named package
-# fresh). A bundle-manifest.json is written alongside the .deb files,
+# without any cryptographic signing: resolves the seed package(s)' own full
+# install-time dependency closure via apt's own real solver (simulated
+# against an empty dpkg status, so it reasons as a genuinely fresh node
+# would -- never 'apt-cache depends --recurse', a naive textual graph walk
+# with no real dependency solving, confirmed via CI to spuriously pull in
+# packages a real install never touches at all when a dependency's own
+# Depends field offers alternatives), then fetches every one of those
+# packages plus the seed package(s) themselves as real .deb files directly
+# into --output-dir via 'apt-get download' (never 'apt-get install
+# --download-only', which silently skips any dependency already installed
+# and already satisfying a requirement on this build host, producing a
+# real, confirmed-via-CI incomplete bundle; 'apt-get download' has no such
+# install-state awareness and always fetches the named package fresh). A
+# bundle-manifest.json is written alongside the .deb files,
 # recording each one's real sha256 (compute_sha256, from lib/checksum.sh --
 # the exact same function and integrity model lib/agent.sh already uses for
 # the vendored agent binary), name, version (read from the .deb itself via
@@ -114,11 +119,12 @@ Usage: build-release.sh --ubuntu-release <version> --output-dir <path>
                                mariadb/install.sh's own disclosed 26.04 gap).
   --help                       Print this message and exit.
 
-Downloads --package's own named package(s) and their full recursive
-dependency closure (computed via apt-cache depends) as real .deb files
-directly into --output-dir via 'apt-get download' (never 'apt-get install
---download-only', which silently skips a dependency already installed and
-already satisfying a requirement on this build host), and writes
+Downloads --package's own named package(s) and their full install-time
+dependency closure (resolved via apt's own real solver, simulated against
+an empty dpkg status) as real .deb files directly into --output-dir via
+'apt-get download' (never 'apt-get install --download-only', which
+silently skips a dependency already installed and already satisfying a
+requirement on this build host), and writes
 bundle-manifest.json recording each one's real name, version (read via
 dpkg-deb -f), sha256, source, and signature -- consumed by a leaf
 installer's own --offline-bundle flag (e.g. 'nginx/install.sh --apply --yes
@@ -292,7 +298,7 @@ SOURCES
 
 main() {
     local artifact_lines="" deb_path deb_name deb_version deb_sha256 artifact_json copied_count=0
-    local artifacts_json bundle_manifest_json package_deps
+    local artifacts_json bundle_manifest_json fake_status package_names_resolved
 
     parse_args "$@"
     validate_ubuntu_release
@@ -316,27 +322,43 @@ main() {
     # 'apt-get install --reinstall --download-only' only reliably fetches
     # packages apt actually needs to CHANGE: a dependency that is already
     # installed and already satisfies a requirement is silently skipped,
-    # since apt sees nothing to do for it, even under --download-only. On a
-    # build host that already has some of these dependencies present (a real
-    # possibility, not just a CI artifact of re-running this script after a
-    # prior scenario already installed the package), this would silently
-    # produce an incomplete bundle missing exactly those already-satisfied
-    # .deb files, confirmed for real via a CI failure where nginx-common was
-    # missing from the bundle for precisely this reason. 'apt-get download'
-    # has no such install-state awareness at all: it always fetches the
-    # named package's own .deb fresh, regardless of whether it is already
-    # installed, so computing the full recursive dependency closure
-    # ourselves and downloading every member of it by name is the only
-    # reliable way to guarantee a complete, build-host-state-independent
-    # bundle.
-    printf 'build-release.sh: computing %s'"'"'s full recursive dependency closure\n' "${PACKAGE_NAMES}" >&2
+    # since apt sees nothing to do for it, even under --download-only,
+    # confirmed for real via a CI failure where nginx-common was missing
+    # from the bundle for precisely this reason.
+    #
+    # The naive fix ('apt-cache depends --recurse', a plain textual graph
+    # walk with no real dependency solving) is ALSO wrong, confirmed by a
+    # separate real CI failure: it walks every alternative in an OR-style
+    # Depends field as if each one were independently required, so it can
+    # pull in packages a real install would never touch at all (apache2's
+    # own closure this way spuriously included libpq5, an unrelated
+    # PostgreSQL client library that real apache2 installs never need,
+    # because one of its dependencies' Depends field offers a PostgreSQL
+    # backend as one alternative among several -- confirmed directly
+    # against this same job's own real, successful live apache2 install,
+    # which chose a completely different alternative and never touched
+    # libpq5 at all). It also has no awareness of already-installed
+    # exact-version pins when picking a candidate version.
+    #
+    # apt's REAL solver ('apt-get install', pointed via
+    # -o Dir::State::status at an empty, temporary dpkg status file so it
+    # reasons as if nothing on this build host were already installed --
+    # exactly the perspective a genuinely fresh target node has) resolves
+    # both problems at once: it picks the one real alternative per
+    # OR-group and the one real candidate version a fresh install would
+    # use, while still listing every dependency as an install candidate
+    # regardless of whether THIS build host already happens to satisfy it.
+    printf 'build-release.sh: resolving %s'"'"'s full install-time dependency closure via apt'"'"'s own solver (simulated against an empty dpkg status, so it reasons as a genuinely fresh node would)\n' "${PACKAGE_NAMES}" >&2
+    fake_status=$(mktemp) || fail "failed to create a temporary file for the simulated-clean apt status"
+    : > "${fake_status}"
     # shellcheck disable=SC2086
-    package_deps=$(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances ${PACKAGE_NAMES} | grep -E '^[[:alnum:]]' | sort -u)
-    [ -n "${package_deps}" ] || fail "apt-cache depends returned no dependency closure for ${PACKAGE_NAMES}; refusing to build an incomplete bundle"
+    package_names_resolved=$(apt-get install --simulate -y -o Dir::State::status="${fake_status}" ${PACKAGE_NAMES} 2>&1 | awk '/^Inst /{print $2}' | sort -u)
+    rm -f "${fake_status}"
+    [ -n "${package_names_resolved}" ] || fail "apt-get install --simulate resolved no packages at all for ${PACKAGE_NAMES}; refusing to build an empty bundle"
 
     printf 'build-release.sh: downloading %s and its full dependency closure into %s (apt-get download: independent of this host'"'"'s own current install state)\n' "${PACKAGE_NAMES}" "${OUTPUT_DIR}" >&2
     # shellcheck disable=SC2086
-    (cd "${OUTPUT_DIR}" && apt-get download ${PACKAGE_NAMES} ${package_deps}) || fail "apt-get download failed for ${PACKAGE_NAMES} and/or one of its dependencies"
+    (cd "${OUTPUT_DIR}" && apt-get download ${package_names_resolved}) || fail "apt-get download failed for ${PACKAGE_NAMES} and/or one of its dependencies"
 
     for deb_path in "${OUTPUT_DIR}"/*.deb; do
         [ -e "${deb_path}" ] || continue
