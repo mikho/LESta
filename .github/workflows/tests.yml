@@ -1736,7 +1736,14 @@ jobs:
 
       - name: "Scenario 19: confirm nginx converges to healthy with the --prepare-config-inserted include line (leaves nginx.conf in a good state for good measure, though this is the last scenario in this job)"
         run: |
-          sudo sh .install/services/nginx/install.sh --apply --yes --web-server nginx
+          # --web-server both, not nginx: apache2 is genuinely still
+          # installed on this runner from Scenario 13/14 earlier in this
+          # same job (never uninstalled since), so a plain --web-server
+          # nginx apply would correctly, and expectedly, fail its own
+          # conflicting_package preflight check here -- confirmed for real
+          # via a CI failure with exactly that error. --web-server both is
+          # the profile designed to coexist with apache2 already present.
+          sudo sh .install/services/nginx/install.sh --apply --yes --web-server both
           sudo systemctl is-active nginx
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
 
