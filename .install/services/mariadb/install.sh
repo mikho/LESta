@@ -1107,7 +1107,7 @@ DEFAULTS
 # leaving no residue for a control plane that never heard of this resource
 # to reconcile.
 run_node_health_selftest() {
-    local resource_id create_idem create_corr delete_idem delete_corr selftest_password create_payload delete_payload envelope agent_out agent_status status_line
+    local resource_id create_idem create_corr delete_idem delete_corr selftest_password selftest_stats_password create_payload delete_payload envelope agent_out agent_status status_line
 
     resource_id=$(selftest_new_uuid)
     create_idem=$(selftest_new_uuid)
@@ -1115,16 +1115,27 @@ run_node_health_selftest() {
     delete_idem=$(selftest_new_uuid)
     delete_corr=$(selftest_new_uuid)
     selftest_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+    selftest_stats_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
 
+    # stats_user/stats_password: the companion least-privilege statistics
+    # reader database.tenant.v1 now provisions alongside the tenant's own
+    # account (see agent/internal/capability/mariadb's own payload.go), in
+    # lockstep, one resource, one lifecycle -- so this self-test's create
+    # payload must carry both credentials and every payload (create and
+    # delete alike) must always carry stats_user, exactly like
+    # TenantDatabase::toProvisioningPayload() does on the real Laravel side.
     create_payload=$(json_join_object \
         "$(json_kv_str "database_name" "lesta_0_selftest")" \
         "$(json_kv_str "database_user" "lesta_0_selftest")" \
         "$(json_kv_str "password" "${selftest_password}")" \
+        "$(json_kv_str "stats_user" "lesta_0_selftest_ro")" \
+        "$(json_kv_str "stats_password" "${selftest_stats_password}")" \
         "$(json_kv_raw "suspended" "false")")
 
     delete_payload=$(json_join_object \
         "$(json_kv_str "database_name" "lesta_0_selftest")" \
         "$(json_kv_str "database_user" "lesta_0_selftest")" \
+        "$(json_kv_str "stats_user" "lesta_0_selftest_ro")" \
         "$(json_kv_raw "suspended" "false")")
 
     envelope=$(selftest_envelope "${DATABASE_TENANT_CAPABILITY}" create "${resource_id}" "${create_idem}" "${create_corr}" 1 "${create_payload}")
