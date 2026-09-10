@@ -62,6 +62,35 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Setup Go
+        # Needed only for `go install`ing a real, disposable Pebble ACME
+        # test server below; this job builds/tests no Go code itself
+        # (that's the "agent" job's own responsibility).
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+
+      - name: Install Pebble
+        # Pinned to v2.5.0, NOT @latest: see
+        # tests/Feature/Acme/IssueAcmeCertificatePebbleTest.php's own top
+        # comment for the real acmephp/core compatibility gap with newer
+        # Pebble versions' additional challenge types (dns-account-01,
+        # dns-persist-01), which the agent module's own unpinned Go-side
+        # Pebble test never hits since it decodes JSON into plain Go
+        # structs that tolerate an absent field.
+        run: go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.5.0
+
+      - name: Install nginx
+        # tests/Feature/Acme/IssueAcmeCertificatePebbleTest.php's own
+        # AcmePebbleHarness starts a real, disposable nginx of its own
+        # (a throwaway prefix/config, ephemeral ports, no sudo, no
+        # interaction with a system-wide nginx service) to serve the
+        # ACME HTTP-01 challenge file. Only the binary needs to be on
+        # PATH; this test never touches this step's own installed
+        # system service.
+        run: sudo apt-get update && sudo apt-get install -y nginx
+
       - name: Setup Application
         run: composer setup
 
@@ -112,9 +141,9 @@ jobs:
         # tolerates newer Pebble versions' additional challenge types
         # (dns-account-01, dns-persist-01) without issue -- unlike the
         # separate PHP-side Pebble tests (acmephp/core-based, in the `ci`
-        # job... not yet wired into CI -- see this phase's own final
-        # report), which need a specific older Pebble version pinned due to
-        # a real acmephp/core compatibility gap with those newer types.
+        # job, wired up separately there), which need a specific older
+        # Pebble version pinned due to a real acmephp/core compatibility
+        # gap with those newer types.
         run: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
 
       - name: Test (fake, real nginx, real bind9, real apache, and real Pebble-backed ACME capability, nothing skips)
