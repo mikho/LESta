@@ -47,7 +47,9 @@ class CreateTenantDatabase
 
             $label = $data['label'];
             $databaseName = TenantDatabase::deriveDatabaseName($account->id, $label);
+            $statsUsername = TenantDatabase::deriveStatsUsername($databaseName);
             $password = bin2hex(random_bytes(24));
+            $statsPassword = bin2hex(random_bytes(24));
 
             $tenantDatabase = TenantDatabase::query()->create([
                 'account_id' => $account->id,
@@ -56,6 +58,8 @@ class CreateTenantDatabase
                 'database_name' => $databaseName,
                 'database_user' => $databaseName,
                 'password' => $password,
+                'stats_user' => $statsUsername,
+                'stats_password' => $statsPassword,
                 'desired_state_version' => 1,
             ]);
 
@@ -74,7 +78,7 @@ class CreateTenantDatabase
                 $tenantDatabase,
                 $capability,
                 ProvisioningVerb::Create,
-                $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: $password),
+                $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: $password, statsPlaintextPassword: $statsPassword),
                 $correlationId,
                 1,
             );

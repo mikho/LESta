@@ -280,19 +280,34 @@ func newOp(operation protocol.Operation, resourceID, idempotencyKey string, desi
 }
 
 // tenantPayload builds the fixed database.tenant.v1 payload shape.
-// password/suspended are the only fields that vary per call site.
+// statsUser is always derived from databaseUser (mirroring
+// TenantDatabase::deriveStatsUsername on the Laravel side); password/
+// statsPassword/suspended are the only fields that vary per call site, and
+// statsPassword always travels alongside password, lockstep, never alone.
 func tenantPayload(databaseName, databaseUser string, password *string, suspended bool) map[string]any {
 	payload := map[string]any{
 		"database_name": databaseName,
 		"database_user": databaseUser,
+		"stats_user":    databaseUser + "_ro",
 		"suspended":     suspended,
 	}
 
 	if password != nil {
 		payload["password"] = *password
+		payload["stats_password"] = statsPasswordFor(*password)
 	}
 
 	return payload
+}
+
+// statsPasswordFor derives a distinct, still-well-formed 48-hex-char stats
+// password from a test's own main password, so create/rotate test cases
+// never need a second explicit password argument threaded through every
+// call site: flipping the first byte's case-independent hex digit keeps the
+// two credentials different (proving they are tracked as two independent
+// grants, not the same secret reused) while staying deterministic per test.
+func statsPasswordFor(password string) string {
+	return "ab" + password[2:]
 }
 
 func strPtr(s string) *string { return &s }

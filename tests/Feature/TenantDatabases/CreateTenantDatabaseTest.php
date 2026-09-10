@@ -32,6 +32,9 @@ test('an owner can create a tenant database and it is provisioned after commit',
         ->and($tenantDatabase->database_user)->toBe($tenantDatabase->database_name)
         ->and($tenantDatabase->password)->toBe($password)
         ->and($password)->toMatch('/^[0-9a-f]{48}$/')
+        ->and($tenantDatabase->stats_user)->toBe("{$tenantDatabase->database_name}_ro")
+        ->and($tenantDatabase->stats_password)->toMatch('/^[0-9a-f]{48}$/')
+        ->and($tenantDatabase->stats_password)->not->toBe($password)
         ->and($tenantDatabase->desired_state_version)->toBe(1)
         ->and(AuditEvent::where('action', 'tenant_database.created')->where('auditable_id', $tenantDatabase->id)->exists())->toBeTrue();
 
@@ -43,7 +46,9 @@ test('an owner can create a tenant database and it is provisioned after commit',
         ->and($operation->status)->toBe(ProvisioningStatus::Applied)
         ->and($operation->capability)->toBe('database.tenant.v1')
         ->and($operation->operation->value)->toBe('create')
-        ->and($operation->payload['password'])->toBe($password);
+        ->and($operation->payload['password'])->toBe($password)
+        ->and($operation->payload['stats_user'])->toBe($tenantDatabase->stats_user)
+        ->and($operation->payload['stats_password'])->toBe($tenantDatabase->stats_password);
 });
 
 test('a non-owner member cannot create a tenant database', function () {

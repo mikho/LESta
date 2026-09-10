@@ -23,6 +23,16 @@ use InvalidArgumentException;
  * field, and it gets its own dedicated RotateTenantDatabasePassword action
  * rather than folding into a generic update.
  *
+ * Also carries a companion least-privilege read-only account (stats_user/
+ * stats_password), per the Foundations decision log: "statistics reads
+ * tenant-database state directly, through a dedicated least-privilege
+ * read-only database account, in addition to web logs, not web logs
+ * alone." It is provisioned, suspended, and dropped in lockstep with the
+ * tenant's own account (one resource, one lifecycle -- see
+ * database.tenant.v1's own exec.go for the actual GRANT/REVOKE DDL), and its
+ * password rotates alongside the tenant's own whenever
+ * RotateTenantDatabasePassword runs, never on an independent schedule.
+ *
  * @property int $id
  * @property string $uuid
  * @property int $account_id
@@ -31,13 +41,15 @@ use InvalidArgumentException;
  * @property string $database_name
  * @property string $database_user
  * @property string $password
+ * @property string $stats_user
+ * @property string $stats_password
  * @property int $desired_state_version
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'label', 'database_name', 'database_user', 'password', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'label', 'database_name', 'database_user', 'password', 'stats_user', 'stats_password', 'desired_state_version'])]
 class TenantDatabase extends Model
 {
     /** @use HasFactory<TenantDatabaseFactory> */
@@ -52,6 +64,7 @@ class TenantDatabase extends Model
     {
         return [
             'password' => 'encrypted',
+            'stats_password' => 'encrypted',
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,
         ];
@@ -81,6 +94,29 @@ class TenantDatabase extends Model
 
         if (mb_strlen($name) > 64) {
             throw new InvalidArgumentException("Derived database name [{$name}] exceeds MariaDB's 64-character identifier limit.");
+        }
+
+        return $name;
+    }
+
+    /**
+     * Derive the companion read-only statistics account's username from an
+     * already-derived database_name/database_user: the same identifier with
+     * a literal "_ro" suffix, never derived independently (the Go
+     * database.tenant.v1 capability's own statsIdentifierPattern enforces
+     * this exact relationship on the wire, defense in depth against this
+     * method ever drifting from it). MariaDB's own username length limit is
+     * 128 characters (since 10.4, well before this project's pinned 11.4),
+     * comfortably wider than the 64-character general identifier limit
+     * deriveDatabaseName already enforces for its own input, so the "_ro"
+     * suffix can never overflow it.
+     */
+    public static function deriveStatsUsername(string $databaseName): string
+    {
+        $name = "{$databaseName}_ro";
+
+        if (mb_strlen($name) > 128) {
+            throw new InvalidArgumentException("Derived stats username [{$name}] exceeds MariaDB's 128-character username limit.");
         }
 
         return $name;
@@ -117,22 +153,30 @@ class TenantDatabase extends Model
     }
 
     /**
-     * Shape the desired-state payload sent to a provisioner. $includePassword
-     * and $plaintextPassword are explicit, never implicit: this method never
-     * decrypts $this->password itself, so a call site can only ever include
-     * a password by deliberately passing the plaintext it just generated or
+     * Shape the desired-state payload sent to a provisioner. $includePassword,
+     * $plaintextPassword, and $statsPlaintextPassword are explicit, never
+     * implicit: this method never decrypts $this->password or
+     * $this->stats_password itself, so a call site can only ever include a
+     * credential by deliberately passing the plaintext it just generated or
      * rotated in the very same request -- keeping the ADR's "database
      * credentials are never included in normal desired-state payloads"
      * restriction visible and enforced at every call site, not just trusted
      * by convention. Every verb except create and the dedicated password-
-     * rotate operation calls this with no arguments, so 'password' is
-     * genuinely absent from the encoded payload (not merely null) for
-     * suspend/unsuspend/delete/observe.
+     * rotate operation calls this with no arguments, so 'password'/
+     * 'stats_password' are genuinely absent from the encoded payload (not
+     * merely null) for suspend/unsuspend/delete/observe. stats_user, unlike
+     * stats_password, is always present: every verb's DDL needs to name the
+     * companion statistics account, not just create/update (mirroring
+     * database_user).
      *
-     * @return array{database_name: string, database_user: string, password?: string, suspended: bool}
+     * @return array{database_name: string, database_user: string, password?: string, stats_user: string, stats_password?: string, suspended: bool}
      */
-    public function toProvisioningPayload(bool $includePassword = false, ?string $plaintextPassword = null): array
+    public function toProvisioningPayload(bool $includePassword = false, ?string $plaintextPassword = null, ?string $statsPlaintextPassword = null): array
     {
+        if ($includePassword && $statsPlaintextPassword === null) {
+            throw new InvalidArgumentException('statsPlaintextPassword must be provided whenever includePassword is true: the two accounts rotate in lockstep.');
+        }
+
         $payload = [
             'database_name' => $this->database_name,
             'database_user' => $this->database_user,
@@ -140,6 +184,12 @@ class TenantDatabase extends Model
 
         if ($includePassword) {
             $payload['password'] = $plaintextPassword;
+        }
+
+        $payload['stats_user'] = $this->stats_user;
+
+        if ($includePassword) {
+            $payload['stats_password'] = $statsPlaintextPassword;
         }
 
         $payload['suspended'] = $this->isSuspended();

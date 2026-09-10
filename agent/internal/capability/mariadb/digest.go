@@ -61,14 +61,15 @@ func grantsFor(ctx context.Context, cfg Config, databaseUser string) ([]string, 
 }
 
 // computeDigest fingerprints databaseName's live existence, databaseUser's
-// live existence, and databaseUser's live grants -- deliberately, disclosedly
-// never the password itself. Comparing the password would require either
+// (the tenant's own account) and statsUser's (the companion read-only
+// statistics account) live existence and grants -- deliberately, disclosedly
+// never either password. Comparing a password would require either
 // persisting a comparable secret locally (a second, unencrypted copy of what
-// the Laravel `password` column already keeps encrypted at rest) or sending
-// the plaintext on every observe (worse than the gap it would close): both
-// strictly worse than the narrow, disclosed limitation of not detecting an
-// out-of-band manual password change.
-func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser string) (string, error) {
+// the Laravel `password`/`stats_password` columns already keep encrypted at
+// rest) or sending the plaintext on every observe (worse than the gap it
+// would close): both strictly worse than the narrow, disclosed limitation of
+// not detecting an out-of-band manual password change.
+func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser, statsUser string) (string, error) {
 	schemaLive, err := schemaExists(ctx, cfg, databaseName)
 	if err != nil {
 		return "", fmt.Errorf("checking schema existence: %w", err)
@@ -88,6 +89,20 @@ func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser s
 		}
 	}
 
+	statsUserLive, err := userExists(ctx, cfg, statsUser)
+	if err != nil {
+		return "", fmt.Errorf("checking stats user existence: %w", err)
+	}
+
+	var statsGrants []string
+
+	if statsUserLive {
+		statsGrants, err = grantsFor(ctx, cfg, statsUser)
+		if err != nil {
+			return "", fmt.Errorf("reading stats user grants: %w", err)
+		}
+	}
+
 	var manifest strings.Builder
 
 	fmt.Fprintf(&manifest, "schema_exists=%s\n", strconv.FormatBool(schemaLive))
@@ -95,6 +110,12 @@ func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser s
 
 	for _, g := range grants {
 		fmt.Fprintf(&manifest, "grant: %s\n", g)
+	}
+
+	fmt.Fprintf(&manifest, "stats_user_exists=%s\n", strconv.FormatBool(statsUserLive))
+
+	for _, g := range statsGrants {
+		fmt.Fprintf(&manifest, "stats_grant: %s\n", g)
 	}
 
 	sum := sha256.Sum256([]byte(manifest.String()))

@@ -20,12 +20,18 @@ use Illuminate\Support\Str;
  * update. This is also why the Go capability's own `update` handler can assume its payload
  * always contains a password: this action is the only thing that ever issues `update` for
  * database.tenant.v1 at all.
+ *
+ * Rotates the companion statistics account's password in the same operation, lockstep: there is
+ * no independent rotation trigger for it today (see TenantDatabase's own class doc comment).
  */
 class RotateTenantDatabasePassword
 {
     /**
      * @return array{0: TenantDatabase, 1: string} The row and its new one-time plaintext
-     *                                             password.
+     *                                             password (the tenant's own; the rotated
+     *                                             statistics-account password is never handed
+     *                                             back here, since nothing outside this
+     *                                             provisioning round trip consumes it yet).
      */
     public function handle(User $actor, TenantDatabase $tenantDatabase): array
     {
@@ -33,16 +39,18 @@ class RotateTenantDatabasePassword
 
         return DB::transaction(function () use ($actor, $tenantDatabase): array {
             $password = bin2hex(random_bytes(24));
+            $statsPassword = bin2hex(random_bytes(24));
 
             $tenantDatabase->forceFill([
                 'password' => $password,
+                'stats_password' => $statsPassword,
                 'desired_state_version' => $tenantDatabase->desired_state_version + 1,
             ])->save();
 
             $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
             $correlationId = (string) Str::uuid();
 
-            // Deliberately never logs the password itself, only that a rotation happened.
+            // Deliberately never logs either password itself, only that a rotation happened.
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),
                 'actor_id' => $actor->getKey(),
@@ -56,7 +64,7 @@ class RotateTenantDatabasePassword
                 $tenantDatabase,
                 $capability,
                 ProvisioningVerb::Update,
-                $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: $password),
+                $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: $password, statsPlaintextPassword: $statsPassword),
                 $correlationId,
                 $tenantDatabase->desired_state_version,
             );

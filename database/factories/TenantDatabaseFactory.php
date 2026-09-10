@@ -30,6 +30,8 @@ class TenantDatabaseFactory extends Factory
             'database_name' => $databaseName,
             'database_user' => $databaseName,
             'password' => bin2hex(random_bytes(24)),
+            'stats_user' => TenantDatabase::deriveStatsUsername($databaseName),
+            'stats_password' => bin2hex(random_bytes(24)),
             'desired_state_version' => 1,
             'suspended_at' => null,
             'suspension_source' => null,

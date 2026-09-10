@@ -18,6 +18,11 @@ import (
 // also catches a malformed/forged account_id segment.
 var identifierPattern = regexp.MustCompile(`^lesta_[0-9]+_[a-z][a-z0-9_]{0,32}$`)
 
+// statsIdentifierPattern matches TenantDatabase::deriveStatsUsername's own
+// "<database_user>_ro" scheme: the same identifierPattern shape with a
+// literal "_ro" suffix, never derived independently on this side.
+var statsIdentifierPattern = regexp.MustCompile(`^lesta_[0-9]+_[a-z][a-z0-9_]{0,32}_ro$`)
+
 // passwordPattern matches exactly what CreateTenantDatabase/
 // RotateTenantDatabasePassword generate: bin2hex(random_bytes(24)), 48
 // lowercase hex characters. This charset can never contain a quote or
@@ -29,16 +34,21 @@ var passwordPattern = regexp.MustCompile(`^[0-9a-f]{48}$`)
 // Payload is the database.tenant.v1 capability's request body: one fixed
 // shape for every operation (unlike acme's two-kind payload, this capability
 // only ever manages one resource shape, so there is no `kind` discriminator
-// at all). Password is a pointer because it is only ever populated for
-// create and the dedicated password-rotate (`update`) operation -- suspend/
-// unsuspend/delete/observe payloads never carry it, mirroring
-// TenantDatabase::toProvisioningPayload()'s own explicit-parameter
-// invariant on the Laravel side.
+// at all). Password/StatsPassword are pointers because they are only ever
+// populated for create and the dedicated password-rotate (`update`)
+// operation -- suspend/unsuspend/delete/observe payloads never carry either,
+// mirroring TenantDatabase::toProvisioningPayload()'s own explicit-parameter
+// invariant on the Laravel side. StatsUser (the companion least-privilege
+// read-only account for the statistics service, per the Foundations
+// decision log) is, unlike StatsPassword, always present, mirroring
+// DatabaseUser: every verb's DDL needs to name it, not just create/update.
 type Payload struct {
-	DatabaseName string  `json:"database_name"`
-	DatabaseUser string  `json:"database_user"`
-	Password     *string `json:"password,omitempty"`
-	Suspended    bool    `json:"suspended"`
+	DatabaseName  string  `json:"database_name"`
+	DatabaseUser  string  `json:"database_user"`
+	Password      *string `json:"password,omitempty"`
+	StatsUser     string  `json:"stats_user"`
+	StatsPassword *string `json:"stats_password,omitempty"`
+	Suspended     bool    `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -83,32 +93,55 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "database_user_mismatch", Message: "database_user must always equal database_name", Field: "database_user"}
 	}
 
+	if !statsIdentifierPattern.MatchString(p.StatsUser) {
+		return Payload{}, &ValidationError{Code: "invalid_stats_user", Message: "stats_user does not match the expected lesta_<account_id>_<label>_ro shape", Field: "stats_user"}
+	}
+
+	if p.StatsUser != p.DatabaseUser+"_ro" {
+		return Payload{}, &ValidationError{Code: "stats_user_mismatch", Message: "stats_user must always equal database_user with a _ro suffix", Field: "stats_user"}
+	}
+
 	if p.Password != nil && !passwordPattern.MatchString(*p.Password) {
 		return Payload{}, &ValidationError{Code: "invalid_password", Message: "password must be exactly 48 lowercase hex characters", Field: "password"}
+	}
+
+	if p.StatsPassword != nil && !passwordPattern.MatchString(*p.StatsPassword) {
+		return Payload{}, &ValidationError{Code: "invalid_stats_password", Message: "stats_password must be exactly 48 lowercase hex characters", Field: "stats_password"}
 	}
 
 	return p, nil
 }
 
-// requirePassword returns a *ValidationError if p has no password -- used by
-// create/update, the only two verbs whose DDL needs one.
-func (p Payload) requirePassword() *ValidationError {
+// requirePasswords returns a *ValidationError if p is missing either
+// credential -- used by create/update, the only two verbs whose DDL needs
+// them. Both travel together, lockstep, per the Foundations decision to
+// give the statistics service's read-only account its own credential
+// rotated alongside the tenant's own, never independently.
+func (p Payload) requirePasswords() *ValidationError {
 	if p.Password == nil {
 		return &ValidationError{Code: "password_required", Message: "password is required for this operation", Field: "password"}
+	}
+
+	if p.StatsPassword == nil {
+		return &ValidationError{Code: "stats_password_required", Message: "stats_password is required for this operation", Field: "stats_password"}
 	}
 
 	return nil
 }
 
-// forbidPassword returns a *ValidationError if p carries a password -- used
-// by suspend/unsuspend/delete/observe, which must never receive one at all
-// (see this package's own doc comment and TenantDatabase::
+// forbidPasswords returns a *ValidationError if p carries either credential
+// -- used by suspend/unsuspend/delete/observe, which must never receive one
+// at all (see this package's own doc comment and TenantDatabase::
 // toProvisioningPayload()'s explicit-parameter invariant on the Laravel
 // side). Defense in depth: Laravel already never sends one for these verbs,
 // but this capability does not trust that from the wire alone.
-func (p Payload) forbidPassword() *ValidationError {
+func (p Payload) forbidPasswords() *ValidationError {
 	if p.Password != nil {
 		return &ValidationError{Code: "password_not_allowed", Message: "password must not be present for this operation", Field: "password"}
+	}
+
+	if p.StatsPassword != nil {
+		return &ValidationError{Code: "stats_password_not_allowed", Message: "stats_password must not be present for this operation", Field: "stats_password"}
 	}
 
 	return nil
@@ -128,6 +161,7 @@ func (p Payload) forbidPassword() *ValidationError {
 func (p Payload) marshalMeta() ([]byte, error) {
 	redacted := p
 	redacted.Password = nil
+	redacted.StatsPassword = nil
 
 	raw, err := json.Marshal(redacted)
 	if err != nil {
