@@ -127,7 +127,7 @@ func (c *MariaDBCapability) applyCreate(ctx context.Context, op protocol.Operati
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.requirePassword(); verr != nil {
+	if verr := payload.requirePasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -139,7 +139,7 @@ func (c *MariaDBCapability) applyCreate(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, createDDL(payload.DatabaseName, payload.DatabaseUser, *payload.Password)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, createDDL(payload.DatabaseName, payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword)); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -159,7 +159,7 @@ func (c *MariaDBCapability) applyRotate(ctx context.Context, op protocol.Operati
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.requirePassword(); verr != nil {
+	if verr := payload.requirePasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -171,7 +171,7 @@ func (c *MariaDBCapability) applyRotate(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, rotateDDL(payload.DatabaseUser, *payload.Password)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, rotateDDL(payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword)); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -189,7 +189,7 @@ func (c *MariaDBCapability) applySuspend(ctx context.Context, op protocol.Operat
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.forbidPassword(); verr != nil {
+	if verr := payload.forbidPasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -205,7 +205,7 @@ func (c *MariaDBCapability) applySuspend(ctx context.Context, op protocol.Operat
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, suspendDDL(payload.DatabaseUser)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, suspendDDL(payload.DatabaseUser, payload.StatsUser)); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -221,7 +221,7 @@ func (c *MariaDBCapability) applyUnsuspend(ctx context.Context, op protocol.Oper
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.forbidPassword(); verr != nil {
+	if verr := payload.forbidPasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -237,7 +237,7 @@ func (c *MariaDBCapability) applyUnsuspend(ctx context.Context, op protocol.Oper
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, unsuspendDDL(payload.DatabaseName, payload.DatabaseUser)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, unsuspendDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -252,7 +252,7 @@ func (c *MariaDBCapability) applyDelete(ctx context.Context, op protocol.Operati
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.forbidPassword(); verr != nil {
+	if verr := payload.forbidPasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -264,7 +264,7 @@ func (c *MariaDBCapability) applyDelete(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, deleteDDL(payload.DatabaseName, payload.DatabaseUser)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, deleteDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -280,7 +280,7 @@ func (c *MariaDBCapability) observe(ctx context.Context, op protocol.OperationEn
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.forbidPassword(); verr != nil {
+	if verr := payload.forbidPasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -297,7 +297,7 @@ func (c *MariaDBCapability) observe(ctx context.Context, op protocol.OperationEn
 		return protocol.ResultEnvelope{}, err
 	}
 
-	liveDigest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser)
+	liveDigest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)
 	if err != nil {
 		return c.failed(ctx, op, "observe_query_failed", err.Error())
 	}
@@ -321,7 +321,7 @@ func (c *MariaDBCapability) recordGenerationAndBuildResult(ctx context.Context, 
 		return protocol.ResultEnvelope{}, err
 	}
 
-	digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser)
+	digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
@@ -403,7 +403,7 @@ func (c *MariaDBCapability) buildResult(ctx context.Context, op protocol.Operati
 // query, so the fallback path below is used instead).
 func (c *MariaDBCapability) currentDigestOrFallback(ctx context.Context, op protocol.OperationEnvelope) string {
 	if payload, verr := ParsePayload(op.Payload); verr == nil {
-		if digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser); err == nil {
+		if digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser); err == nil {
 			return digest
 		}
 	}

@@ -11,6 +11,7 @@ test('toProvisioningPayload returns exactly the expected keys with no password b
     $tenantDatabase = TenantDatabase::factory()->for($node)->create([
         'database_name' => 'lesta_1_app1',
         'database_user' => 'lesta_1_app1',
+        'stats_user' => 'lesta_1_app1_ro',
     ]);
 
     $payload = $tenantDatabase->toProvisioningPayload();
@@ -18,30 +19,45 @@ test('toProvisioningPayload returns exactly the expected keys with no password b
     expect($payload)->toBe([
         'database_name' => 'lesta_1_app1',
         'database_user' => 'lesta_1_app1',
+        'stats_user' => 'lesta_1_app1_ro',
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'suspended'])
-        ->and($payload)->not->toHaveKey('password');
+        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'stats_user', 'suspended'])
+        ->and($payload)->not->toHaveKey('password')
+        ->and($payload)->not->toHaveKey('stats_password');
 });
 
-test('toProvisioningPayload includes the password only when explicitly requested', function () {
+test('toProvisioningPayload includes both passwords only when explicitly requested', function () {
     $node = Node::factory()->create();
     $tenantDatabase = TenantDatabase::factory()->for($node)->create();
 
-    $payload = $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: 'a-plaintext-password');
+    $payload = $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: 'a-plaintext-password', statsPlaintextPassword: 'a-stats-plaintext-password');
 
     expect($payload['password'])->toBe('a-plaintext-password')
-        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'password', 'suspended']);
+        ->and($payload['stats_password'])->toBe('a-stats-plaintext-password')
+        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'password', 'stats_user', 'stats_password', 'suspended']);
 });
 
-test('toProvisioningPayload never leaks the encrypted-at-rest password when includePassword is false, regardless of the model own stored value', function () {
+test('toProvisioningPayload throws when includePassword is true but statsPlaintextPassword is omitted', function () {
     $node = Node::factory()->create();
-    $tenantDatabase = TenantDatabase::factory()->for($node)->create(['password' => 'super-secret-stored-password']);
+    $tenantDatabase = TenantDatabase::factory()->for($node)->create();
+
+    $tenantDatabase->toProvisioningPayload(includePassword: true, plaintextPassword: 'a-plaintext-password');
+})->throws(InvalidArgumentException::class);
+
+test('toProvisioningPayload never leaks the encrypted-at-rest passwords when includePassword is false, regardless of the model own stored values', function () {
+    $node = Node::factory()->create();
+    $tenantDatabase = TenantDatabase::factory()->for($node)->create([
+        'password' => 'super-secret-stored-password',
+        'stats_password' => 'super-secret-stored-stats-password',
+    ]);
 
     $payload = $tenantDatabase->toProvisioningPayload();
 
-    expect($payload)->not->toHaveKey('password');
+    expect($payload)->not->toHaveKey('password')
+        ->and($payload)->not->toHaveKey('stats_password');
     expect(json_encode($payload))->not->toContain('super-secret-stored-password');
+    expect(json_encode($payload))->not->toContain('super-secret-stored-stats-password');
 });
 
 test('toProvisioningPayload reflects the current suspension state', function () {

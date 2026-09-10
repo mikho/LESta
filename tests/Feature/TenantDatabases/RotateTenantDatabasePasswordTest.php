@@ -13,7 +13,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 test('an owner can rotate their tenant database password', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'database.tenant.v1']);
-    $tenantDatabase = TenantDatabase::factory()->for($node)->create(['password' => 'old-password']);
+    $tenantDatabase = TenantDatabase::factory()->for($node)->create(['password' => 'old-password', 'stats_password' => 'old-stats-password']);
     $owner = Membership::factory()->for($tenantDatabase->account)->owner()->create()->user;
 
     [$rotated, $newPassword] = app(RotateTenantDatabasePassword::class)->handle($owner, $tenantDatabase);
@@ -21,6 +21,8 @@ test('an owner can rotate their tenant database password', function () {
     expect($newPassword)->toMatch('/^[0-9a-f]{48}$/')
         ->and($newPassword)->not->toBe('old-password')
         ->and($rotated->password)->toBe($newPassword)
+        ->and($rotated->stats_password)->toMatch('/^[0-9a-f]{48}$/')
+        ->and($rotated->stats_password)->not->toBe('old-stats-password')
         ->and($rotated->desired_state_version)->toBe(2)
         ->and(AuditEvent::where('action', 'tenant_database.password_rotated')->where('auditable_id', $tenantDatabase->id)->exists())->toBeTrue();
 
@@ -30,6 +32,7 @@ test('an owner can rotate their tenant database password', function () {
 
     expect($operation)->not->toBeNull()
         ->and($operation->payload['password'])->toBe($newPassword)
+        ->and($operation->payload['stats_password'])->toBe($rotated->stats_password)
         ->and($operation->payload['database_name'])->toBe($tenantDatabase->database_name);
 });
 

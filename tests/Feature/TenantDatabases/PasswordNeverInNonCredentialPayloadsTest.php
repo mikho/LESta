@@ -10,12 +10,13 @@ use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 
 /**
- * Security-critical, non-negotiable per the ADR: the tenant database password must never appear
- * in ProvisioningOperation.payload for suspend/unsuspend/delete (or observe, which this phase's
- * Laravel side never issues at all -- see ResolvesTenantDatabaseCapableNode's own suite for the
- * only two verbs, create and update/rotate, that are allowed to carry it). This is a literal
- * array_key_exists check, not merely "the password value isn't visible": a null-valued 'password'
- * key would still fail this assertion, exactly as it should.
+ * Security-critical, non-negotiable per the ADR: neither the tenant database password nor the
+ * companion statistics account's password must ever appear in ProvisioningOperation.payload for
+ * suspend/unsuspend/delete (or observe, which this phase's Laravel side never issues at all --
+ * see ResolvesTenantDatabaseCapableNode's own suite for the only two verbs, create and
+ * update/rotate, that are allowed to carry either). This is a literal array_key_exists check, not
+ * merely "the password value isn't visible": a null-valued 'password'/'stats_password' key would
+ * still fail this assertion, exactly as it should.
  */
 function setUpTenantDatabaseForPasswordAssertions(): array
 {
@@ -46,6 +47,8 @@ test('suspend never includes a password key in the recorded provisioning payload
 
     expect($payload)->not->toHaveKey('password');
     expect(array_key_exists('password', $payload))->toBeFalse();
+    expect($payload)->not->toHaveKey('stats_password');
+    expect(array_key_exists('stats_password', $payload))->toBeFalse();
 });
 
 test('unsuspend never includes a password key in the recorded provisioning payload', function () {
@@ -58,6 +61,8 @@ test('unsuspend never includes a password key in the recorded provisioning paylo
 
     expect($payload)->not->toHaveKey('password');
     expect(array_key_exists('password', $payload))->toBeFalse();
+    expect($payload)->not->toHaveKey('stats_password');
+    expect(array_key_exists('stats_password', $payload))->toBeFalse();
 });
 
 test('delete never includes a password key in the recorded provisioning payload', function () {
@@ -74,4 +79,6 @@ test('delete never includes a password key in the recorded provisioning payload'
 
     expect($payload)->not->toHaveKey('password');
     expect(array_key_exists('password', $payload))->toBeFalse();
+    expect($payload)->not->toHaveKey('stats_password');
+    expect(array_key_exists('stats_password', $payload))->toBeFalse();
 });

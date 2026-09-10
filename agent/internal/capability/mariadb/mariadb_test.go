@@ -24,10 +24,12 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 	const (
 		databaseName = "lesta_1_app1"
 		databaseUser = "lesta_1_app1"
+		statsUser    = "lesta_1_app1_ro"
 	)
 
 	resourceID := newTestUUID()
 	password1 := randomHex(t, 24)
+	statsPassword1 := statsPasswordFor(password1)
 
 	createOp := newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, tenantPayload(databaseName, databaseUser, strPtr(password1), false))
 
@@ -41,6 +43,20 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 		}
 		if !strings.Contains(out, "1") {
 			t.Fatalf("expected the query output to reflect the inserted row, got %q", out)
+		}
+	})
+
+	t.Run("create also provisions a real least-privilege statistics reader: it can read, but not write", func(t *testing.T) {
+		out, err := d.connectAsTenant(statsUser, statsPassword1, databaseName, "SELECT * FROM t;")
+		if err != nil {
+			t.Fatalf("expected the statistics reader to connect and SELECT immediately after create: %v", err)
+		}
+		if !strings.Contains(out, "1") {
+			t.Fatalf("expected the statistics reader to see the tenant's own row, got %q", out)
+		}
+
+		if _, err := d.connectAsTenant(statsUser, statsPassword1, databaseName, "INSERT INTO t VALUES (99);"); err == nil {
+			t.Fatal("expected the statistics reader's INSERT to be rejected (SELECT-only grant), but it succeeded")
 		}
 	})
 
@@ -62,17 +78,21 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 		requireApplied(t, "observe with no drift", result, err)
 	})
 
-	t.Run("suspend revokes access; the same credentials now fail against the database", func(t *testing.T) {
+	t.Run("suspend revokes access for both the tenant's own account and the statistics reader", func(t *testing.T) {
 		op := newOp(protocol.OperationSuspend, resourceID, newTestUUID(), 2, tenantPayload(databaseName, databaseUser, nil, true))
 		result, err := capability.Apply(ctx, op)
 		requireApplied(t, "suspend", result, err)
 
 		if _, err := d.connectAsTenant(databaseUser, password1, databaseName, "SELECT 1 FROM t;"); err == nil {
-			t.Fatal("expected the query to fail after suspend, but it succeeded")
+			t.Fatal("expected the tenant's own query to fail after suspend, but it succeeded")
+		}
+
+		if _, err := d.connectAsTenant(statsUser, statsPassword1, databaseName, "SELECT 1 FROM t;"); err == nil {
+			t.Fatal("expected the statistics reader's query to fail after suspend too, but it succeeded")
 		}
 	})
 
-	t.Run("unsuspend restores access without any password change", func(t *testing.T) {
+	t.Run("unsuspend restores access for both accounts without any password change", func(t *testing.T) {
 		op := newOp(protocol.OperationUnsuspend, resourceID, newTestUUID(), 3, tenantPayload(databaseName, databaseUser, nil, false))
 		result, err := capability.Apply(ctx, op)
 		requireApplied(t, "unsuspend", result, err)
@@ -84,17 +104,29 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 		if !strings.Contains(out, "1") {
 			t.Fatalf("expected the pre-suspend row to still be there, got %q", out)
 		}
+
+		out, err = d.connectAsTenant(statsUser, statsPassword1, databaseName, "SELECT * FROM t;")
+		if err != nil {
+			t.Fatalf("expected the statistics reader's same, never-changed password to work again after unsuspend: %v", err)
+		}
+		if !strings.Contains(out, "1") {
+			t.Fatalf("expected the statistics reader to see the pre-suspend row again, got %q", out)
+		}
 	})
 
 	password2 := randomHex(t, 24)
+	statsPassword2 := statsPasswordFor(password2)
 
-	t.Run("rotate changes only the password: old password fails, new succeeds, and existing grants survive", func(t *testing.T) {
+	t.Run("rotate changes both accounts' passwords in lockstep: old passwords fail, new succeed, and existing grants survive", func(t *testing.T) {
 		op := newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 4, tenantPayload(databaseName, databaseUser, strPtr(password2), false))
 		result, err := capability.Apply(ctx, op)
 		requireApplied(t, "rotate", result, err)
 
 		if _, err := d.connectAsTenant(databaseUser, password1, databaseName, "SELECT 1;"); err == nil {
-			t.Fatal("expected the old password to be rejected after rotation, but it was accepted")
+			t.Fatal("expected the old tenant password to be rejected after rotation, but it was accepted")
+		}
+		if _, err := d.connectAsTenant(statsUser, statsPassword1, databaseName, "SELECT 1;"); err == nil {
+			t.Fatal("expected the old statistics reader password to be rejected after rotation, but it was accepted")
 		}
 
 		// The test that would have caught a wrong CREATE OR REPLACE USER
@@ -102,10 +134,18 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 		// pre-existing grant, not just a SELECT.
 		out, err := d.connectAsTenant(databaseUser, password2, databaseName, "CREATE TABLE t2 (id INT); INSERT INTO t2 VALUES (2); SELECT * FROM t2;")
 		if err != nil {
-			t.Fatalf("expected the new password to work AND existing grants to survive rotation: %v", err)
+			t.Fatalf("expected the new tenant password to work AND existing grants to survive rotation: %v", err)
 		}
 		if !strings.Contains(out, "2") {
 			t.Fatalf("expected the newly inserted row, got %q", out)
+		}
+
+		out, err = d.connectAsTenant(statsUser, statsPassword2, databaseName, "SELECT * FROM t2;")
+		if err != nil {
+			t.Fatalf("expected the new statistics reader password to work AND its SELECT grant to survive rotation: %v", err)
+		}
+		if !strings.Contains(out, "2") {
+			t.Fatalf("expected the statistics reader to see the newly inserted row, got %q", out)
 		}
 	})
 
@@ -120,13 +160,16 @@ func TestMariaDBCapability_FullLifecycle(t *testing.T) {
 		requireErrorCode(t, "observe after drift", result, "drift_detected")
 	})
 
-	t.Run("delete removes both the schema and the user, regardless of the drifted grant state", func(t *testing.T) {
+	t.Run("delete removes the schema and both users, regardless of the drifted grant state", func(t *testing.T) {
 		op := newOp(protocol.OperationDelete, resourceID, newTestUUID(), 5, tenantPayload(databaseName, databaseUser, nil, false))
 		result, err := capability.Apply(ctx, op)
 		requireApplied(t, "delete", result, err)
 
 		if _, err := d.connectAsTenant(databaseUser, password2, databaseName, "SELECT 1;"); err == nil {
 			t.Fatal("expected the tenant user to be gone after delete, but it could still authenticate")
+		}
+		if _, err := d.connectAsTenant(statsUser, statsPassword2, databaseName, "SELECT 1;"); err == nil {
+			t.Fatal("expected the statistics reader to be gone after delete, but it could still authenticate")
 		}
 
 		out, err := d.adminSQL("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '" + databaseName + "';\n")
@@ -213,6 +256,42 @@ func TestMariaDBCapability_PayloadValidationRejections(t *testing.T) {
 		result, err := capability.Apply(ctx, op)
 		requireStatus(t, "create without password", result, err, protocol.StatusRejected)
 		requireErrorCode(t, "create without password", result, "password_required")
+	})
+
+	t.Run("invalid stats_user shape is rejected", func(t *testing.T) {
+		payload := tenantPayload("lesta_1_app1", "lesta_1_app1", strPtr(randomHexStatic()), false)
+		payload["stats_user"] = "not-a-valid-name"
+		op := newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1, payload)
+		result, err := capability.Apply(ctx, op)
+		requireStatus(t, "invalid stats_user", result, err, protocol.StatusRejected)
+		requireErrorCode(t, "invalid stats_user", result, "invalid_stats_user")
+	})
+
+	t.Run("stats_user not matching database_user plus _ro is rejected", func(t *testing.T) {
+		payload := tenantPayload("lesta_1_app1", "lesta_1_app1", strPtr(randomHexStatic()), false)
+		payload["stats_user"] = "lesta_1_app2_ro"
+		op := newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1, payload)
+		result, err := capability.Apply(ctx, op)
+		requireStatus(t, "stats_user mismatch", result, err, protocol.StatusRejected)
+		requireErrorCode(t, "stats_user mismatch", result, "stats_user_mismatch")
+	})
+
+	t.Run("create with a password but no stats_password is rejected", func(t *testing.T) {
+		payload := tenantPayload("lesta_1_app1", "lesta_1_app1", strPtr(randomHexStatic()), false)
+		delete(payload, "stats_password")
+		op := newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1, payload)
+		result, err := capability.Apply(ctx, op)
+		requireStatus(t, "create without stats_password", result, err, protocol.StatusRejected)
+		requireErrorCode(t, "create without stats_password", result, "stats_password_required")
+	})
+
+	t.Run("suspend carrying a stats_password is rejected", func(t *testing.T) {
+		payload := tenantPayload("lesta_1_app1", "lesta_1_app1", nil, true)
+		payload["stats_password"] = randomHexStatic()
+		op := newOp(protocol.OperationSuspend, newTestUUID(), newTestUUID(), 1, payload)
+		result, err := capability.Apply(ctx, op)
+		requireStatus(t, "suspend with stats_password", result, err, protocol.StatusRejected)
+		requireErrorCode(t, "suspend with stats_password", result, "stats_password_not_allowed")
 	})
 
 	t.Run("suspend carrying a password is rejected", func(t *testing.T) {
