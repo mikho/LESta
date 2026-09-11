@@ -68,4 +68,17 @@ class User extends Authenticatable implements PasskeyUser
         return $this->memberships()->where('account_id', $account->id)
             ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists();
     }
+
+    /**
+     * Whether this user's platform-scope membership's role carries $name (a
+     * Permission::CATALOG entry), via the real permission_role grant --
+     * never a role-name check. Mirrors isProviderAdmin()'s own
+     * whereNull('account_id') scoping: a permission is always a platform-
+     * wide grant, never derived from any one account-scoped membership.
+     */
+    public function hasPermission(string $name): bool
+    {
+        return $this->memberships()->whereNull('account_id')
+            ->whereHas('role.permissions', fn ($query) => $query->where('name', $name))->exists();
+    }
 }

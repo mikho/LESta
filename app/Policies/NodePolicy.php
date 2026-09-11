@@ -6,67 +6,47 @@ use App\Models\Node;
 use App\Models\User;
 
 /**
- * Node implements ProviderAdminManaged, so AuthorizationServiceProvider's global Gate::before
- * grants a provider admin every ability here before any of these methods ever run. Every method
- * below returning false is therefore complete, not a stub: a non-admin (an account owner,
- * member, or stranger) must never gain any Node ability, since a node is platform infrastructure
- * with no account scoping at all.
+ * Node implements ProviderAdminManaged, but AuthorizationServiceProvider's PERMISSION_BACKED_MODELS
+ * excludes it from the blanket Gate::before bypass: every ability below is a real
+ * Permission::CATALOG check instead, so a platform role can be granted, say, nodes.view without
+ * nodes.delete. A non-admin (an account owner, member, or stranger) has no path to any Node
+ * ability regardless, since hasPermission() only ever consults a platform-scope membership, and a
+ * node is platform infrastructure with no account scoping at all.
  */
 class NodePolicy
 {
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->hasPermission('nodes.view_any');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function view(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.view');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function create(User $user): bool
     {
-        return false;
+        return $user->hasPermission('nodes.create');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function update(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.update');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function delete(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.delete');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function suspend(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.suspend');
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function unsuspend(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.unsuspend');
     }
 }
