@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Enums\RoleScope;
 use App\Models\Account;
 use App\Models\Membership;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -48,14 +49,31 @@ class MembershipFactory extends Factory
         ]);
     }
 
+    /**
+     * A provider admin with the full permission catalog attached, matching
+     * PermissionSeeder's own real-world grant: tests that build an admin
+     * this way keep today's blanket-everything behavior without needing to
+     * run the real seeders. A test that wants to prove finer-grained
+     * permission gating instead builds its own platform-scope Role with
+     * only a subset of Permission::CATALOG attached, rather than using this
+     * state.
+     */
     public function providerAdmin(): static
     {
-        return $this->state(fn (): array => [
-            'account_id' => null,
-            'role_id' => Role::query()->firstOrCreate(
+        return $this->state(function (): array {
+            $role = Role::query()->firstOrCreate(
                 ['name' => 'provider_admin'],
                 ['scope' => RoleScope::Platform]
-            )->id,
-        ]);
+            );
+
+            $role->permissions()->syncWithoutDetaching(
+                collect(Permission::CATALOG)->map(fn (string $name): int => Permission::query()->firstOrCreate(['name' => $name])->id)
+            );
+
+            return [
+                'account_id' => null,
+                'role_id' => $role->id,
+            ];
+        });
     }
 }

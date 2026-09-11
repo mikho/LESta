@@ -24,6 +24,31 @@ class Permission extends Model implements ProviderAdminManaged
     use HasFactory;
 
     /**
+     * The full permission catalog: one entry per real, admin-gateable ability
+     * on the four resources that have moved off a blanket role-name check
+     * (see AuthorizationServiceProvider's own PERMISSION_BACKED_MODELS and
+     * Account/Membership/Package/NodePolicy). The single source of truth for
+     * both PermissionSeeder (the real catalog) and
+     * MembershipFactory::providerAdmin() (so a factory-built provider admin
+     * in tests keeps exactly today's blanket-everything behavior without
+     * duplicating this list a second time and risking drift).
+     *
+     * Deliberately excludes Account's own `view` ability: that stays
+     * member-scoped forever, never permission-gated, per the Foundations
+     * decision log's explicit "read-only support view, distinct from and
+     * logged separately" design -- `accounts.view_as_support` is the
+     * permission-gated ability instead, never `view` itself.
+     *
+     * @var list<string>
+     */
+    public const array CATALOG = [
+        'accounts.view_as_support', 'accounts.update', 'accounts.suspend', 'accounts.unsuspend', 'accounts.delete',
+        'memberships.view', 'memberships.create', 'memberships.update', 'memberships.delete', 'memberships.impersonate',
+        'packages.view_any', 'packages.view', 'packages.create', 'packages.update', 'packages.delete',
+        'nodes.view_any', 'nodes.view', 'nodes.create', 'nodes.update', 'nodes.delete', 'nodes.suspend', 'nodes.unsuspend',
+    ];
+
+    /**
      * @return BelongsToMany<Role, $this>
      */
     public function roles(): BelongsToMany
