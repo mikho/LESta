@@ -161,7 +161,20 @@ jobs:
 
       - name: Test (fake, real nginx, real bind9, real apache, real exim/dovecot, and real Pebble-backed ACME capability, nothing skips)
         working-directory: agent
-        run: go test ./...
+        # -count=1: forces a genuine re-execution rather than reusing Go's
+        # own test-result cache. Confirmed directly (a local repro, not a
+        # hypothetical): Go's cache tracks the PATH env var's own literal
+        # string value, not the filesystem contents of directories already
+        # listed in it, so a package installed via apt into an
+        # already-on-PATH directory (exactly what every "Install ..." step
+        # above this one does) is invisible to it -- without -count=1, this
+        # step would silently replay the PRECEDING step's own "not
+        # installed yet, self-skipped" result for every real-capability
+        # package (nginx/bind9/apache/mail/pebble-backed acme alike), never
+        # actually re-running any of them against the real binaries this
+        # job just installed, despite this step's own name and every one of
+        # this repository's real-capability tests appearing to pass.
+        run: go test -count=1 ./...
 
   installer:
     runs-on: ubuntu-latest
