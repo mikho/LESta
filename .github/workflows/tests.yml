@@ -159,6 +159,24 @@ jobs:
         # gap with those newer types.
         run: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
 
+      - name: Relax AppArmor for named before running the disposable-harness tests
+        # Mirrors the "installer" job's own identical step exactly: bind9's
+        # own disposable test harness (agent/internal/capability/bind9/
+        # harness_test.go) points a real named at a config under
+        # t.TempDir() (/tmp/...), a path outside the production AppArmor
+        # profile the just-installed bind9 package ships, which confines
+        # named to /etc/bind, /var/lib/bind, and /var/cache/bind only. This
+        # step's own real-capability test run (the one right below,
+        # -count=1'd so it can no longer hide behind a stale cache) is the
+        # first time this exact job has ever genuinely exercised that
+        # harness rather than silently replaying an earlier self-skip (see
+        # this job's own preceding go-test-cache fix), which is exactly how
+        # this real, pre-existing gap went undetected until now: nothing
+        # about bind9/acme's own code is new or wrong here, only this job's
+        # own missing prerequisite, already known and already fixed once
+        # for the "installer" job.
+        run: sudo apparmor_parser -r -C /etc/apparmor.d/usr.sbin.named
+
       - name: Test (fake, real nginx, real bind9, real apache, real exim/dovecot, and real Pebble-backed ACME capability, nothing skips)
         working-directory: agent
         # -count=1: forces a genuine re-execution rather than reusing Go's
