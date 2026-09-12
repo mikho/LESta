@@ -1,0 +1,166 @@
+<?php
+
+namespace App\Models;
+
+use App\Concerns\HasUuid;
+use App\Concerns\Suspendable;
+use App\Enums\SuspensionSource;
+use Database\Factories\MailDomainFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Support\Carbon;
+
+/**
+ * A tenant-owned mail domain, the single provisioning resource for
+ * mail.smtp-imap.v1 (one resource per domain, every account embedded into
+ * its own toProvisioningPayload(), mirroring DnsZone's own zone-embeds-
+ * records precedent -- both render one artifact per domain on the real
+ * node, a real Exim virtual-domain config block for mail, a real zone file
+ * for DNS). See the vault's "Mail Threat Model and Operational Readiness
+ * Review" for why antivirus_enabled/antispam_enabled default true while
+ * dkim_enabled defaults false, and for why this phase deliberately stops at
+ * the relational foundation: no real Exim/Dovecot/DKIM capability exists
+ * yet, only the model, policy, quota, and fake-provisioning wiring.
+ *
+ * @property int $id
+ * @property string $uuid
+ * @property int $account_id
+ * @property int $node_id
+ * @property string $domain
+ * @property bool $antivirus_enabled
+ * @property bool $antispam_enabled
+ * @property bool $dkim_enabled
+ * @property string|null $catchall_email
+ * @property int $desired_state_version
+ * @property Carbon|null $suspended_at
+ * @property SuspensionSource|null $suspension_source
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ */
+#[Fillable(['account_id', 'node_id', 'domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'catchall_email', 'desired_state_version'])]
+class MailDomain extends Model
+{
+    /** @use HasFactory<MailDomainFactory> */
+    use HasFactory, HasUuid, Suspendable;
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'antivirus_enabled' => 'boolean',
+            'antispam_enabled' => 'boolean',
+            'dkim_enabled' => 'boolean',
+            'suspended_at' => 'datetime',
+            'suspension_source' => SuspensionSource::class,
+        ];
+    }
+
+    /**
+     * Route model binding resolves by uuid, not the internal auto-increment id.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
+
+    /**
+     * Normalize a domain name to its canonical ASCII/punycode form: lowercased, trimmed, and
+     * IDN-converted. Deliberately duplicated from WebDomain::normalizeDomain()/
+     * DnsZone::normalizeDomain() rather than extracted into a shared trait, matching this
+     * project's own established rule-of-three precedent for this exact method.
+     */
+    public static function normalizeDomain(string $domain): string
+    {
+        $trimmed = mb_strtolower(trim($domain));
+
+        $converted = idn_to_ascii($trimmed, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+
+        return $converted === false ? $trimmed : $converted;
+    }
+
+    /**
+     * @return BelongsTo<Account, $this>
+     */
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
+    }
+
+    /**
+     * @return BelongsTo<Node, $this>
+     */
+    public function node(): BelongsTo
+    {
+        return $this->belongsTo(Node::class);
+    }
+
+    /**
+     * @return HasMany<MailAccount, $this>
+     */
+    public function accounts(): HasMany
+    {
+        return $this->hasMany(MailAccount::class);
+    }
+
+    /**
+     * The single most recent provisioning operation for this domain. `MorphMany::latestOfMany()`
+     * does not exist in this Laravel version (only `HasOne`/`MorphOne`/`HasOneThrough` support
+     * the "of many" relation subquery); `morphOne()->latestOfMany()` is the idiomatic equivalent.
+     *
+     * @return MorphOne<ProvisioningOperation, $this>
+     */
+    public function latestProvisioningOperation(): MorphOne
+    {
+        return $this->morphOne(ProvisioningOperation::class, 'provisionable')->latestOfMany();
+    }
+
+    /**
+     * Shape the desired-state payload sent to a provisioner. $includePasswordForAccountId and
+     * $plaintextPassword are explicit, never implicit, mirroring TenantDatabase::
+     * toProvisioningPayload()'s own invariant: this method never decrypts any account's stored
+     * password, so a call site can only ever include one account's password by deliberately
+     * passing the plaintext it just generated or rotated in the very same request. Every other
+     * account embedded here never carries a 'password' key at all (not merely null), keeping the
+     * ADR's "database/mail credentials are never included in normal desired-state payloads"
+     * restriction true even though this payload embeds every sibling account.
+     *
+     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, suspended: bool}
+     */
+    public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null): array
+    {
+        return [
+            'domain' => $this->domain,
+            'antivirus_enabled' => $this->antivirus_enabled,
+            'antispam_enabled' => $this->antispam_enabled,
+            'dkim_enabled' => $this->dkim_enabled,
+            'catchall_email' => $this->catchall_email,
+            'accounts' => $this->accounts()->get()->map(function (MailAccount $a) use ($includePasswordForAccountId, $plaintextPassword): array {
+                $account = [
+                    'local_part' => $a->local_part,
+                ];
+
+                if ($includePasswordForAccountId === $a->id) {
+                    $account['password'] = $plaintextPassword;
+                }
+
+                $account['quota_mb'] = $a->quota_mb;
+                $account['forward_to'] = $a->forward_to;
+                $account['forward_only'] = $a->forward_only;
+                $account['autoreply_enabled'] = $a->autoreply_enabled;
+                $account['autoreply_message'] = $a->autoreply_message;
+                $account['suspended'] = $a->isSuspended();
+
+                return $account;
+            })->all(),
+            'suspended' => $this->isSuspended(),
+        ];
+    }
+}

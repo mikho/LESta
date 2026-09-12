@@ -4,10 +4,12 @@ namespace App\Actions\Accounts;
 
 use App\Actions\Dns\SuspendDnsZone;
 use App\Actions\Domains\SuspendWebDomain;
+use App\Actions\Mail\SuspendMailDomain;
 use App\Enums\SuspensionSource;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\DnsZone;
+use App\Models\MailDomain;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +34,9 @@ class SuspendAccount
 
             $account->dnsZones()->whereNull('suspended_at')->get()
                 ->each(fn (DnsZone $z) => app(SuspendDnsZone::class)->handle($actor, $z, SuspensionSource::Cascade));
+
+            $account->mailDomains()->whereNull('suspended_at')->get()
+                ->each(fn (MailDomain $d) => app(SuspendMailDomain::class)->handle($actor, $d, SuspensionSource::Cascade));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),
