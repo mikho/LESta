@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
 class CreateMailDomain
 {
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, antivirus_enabled?: bool, antispam_enabled?: bool, catchall_email?: string|null}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, antivirus_enabled?: bool, antispam_enabled?: bool, dkim_enabled?: bool, catchall_email?: string|null}
      */
     public function handle(User $actor, Account $account, array $data): MailDomain
     {
@@ -46,7 +46,7 @@ class CreateMailDomain
                 'domain' => MailDomain::normalizeDomain($data['domain']),
                 'antivirus_enabled' => $data['antivirus_enabled'] ?? true,
                 'antispam_enabled' => $data['antispam_enabled'] ?? true,
-                'dkim_enabled' => false,
+                'dkim_enabled' => $data['dkim_enabled'] ?? false,
                 'catchall_email' => $data['catchall_email'] ?? null,
                 'desired_state_version' => 1,
             ]);

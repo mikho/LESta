@@ -44,7 +44,7 @@ test('an owner can create a mail domain and it is provisioned after commit', fun
         ->and($operation->operation->value)->toBe('create');
 });
 
-test('dkim_enabled cannot be turned on at creation, regardless of what is requested', function () {
+test('dkim_enabled can be turned on at creation, now that the real capability backs it', function () {
     $package = Package::factory()->withLimit('mail_domains', 5)->create();
     $account = Account::factory()->for($package)->create();
     $owner = Membership::factory()->for($account)->owner()->create()->user;
@@ -55,6 +55,18 @@ test('dkim_enabled cannot be turned on at creation, regardless of what is reques
         'domain' => 'example.com',
         'dkim_enabled' => true,
     ]);
+
+    expect($mailDomain->dkim_enabled)->toBeTrue();
+});
+
+test('dkim_enabled defaults to false when not requested', function () {
+    $package = Package::factory()->withLimit('mail_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'mail.smtp-imap.v1']);
+
+    $mailDomain = app(CreateMailDomain::class)->handle($owner, $account, ['domain' => 'example.com']);
 
     expect($mailDomain->dkim_enabled)->toBeFalse();
 });
