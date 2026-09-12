@@ -120,7 +120,7 @@ jobs:
         working-directory: agent
         run: go vet ./...
 
-      - name: Test (nginx/pebble not installed yet; real-capability suite self-skips)
+      - name: Test (nginx/bind9/apache/exim/dovecot/pebble not installed yet; real-capability suite self-skips)
         working-directory: agent
         run: go test ./...
 
@@ -132,6 +132,19 @@ jobs:
 
       - name: Install apache2
         run: sudo apt-get update && sudo apt-get install -y apache2
+
+      - name: Install exim4 and dovecot
+        # exim4-daemon-heavy (not -light): needs the dovecot authenticator's
+        # own SASL socket support and the full lookup-type set this
+        # capability's own aggregate data files rely on (lsearch), matching
+        # this job's own real-binary precedent for nginx/bind9/apache2/
+        # Pebble. dovecot-lmtpd/dovecot-sieve (Pigeonhole, providing sievec)
+        # are separate packages from dovecot-core on Debian/Ubuntu.
+        # DEBIAN_FRONTEND=noninteractive: exim4-config's own postinst would
+        # otherwise prompt via debconf for a mail configuration type.
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends exim4-daemon-heavy dovecot-core dovecot-lmtpd dovecot-sieve
 
       - name: Install Pebble
         # Let's Encrypt's own official ACME v2 test server (never a live
@@ -146,7 +159,7 @@ jobs:
         # gap with those newer types.
         run: go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
 
-      - name: Test (fake, real nginx, real bind9, real apache, and real Pebble-backed ACME capability, nothing skips)
+      - name: Test (fake, real nginx, real bind9, real apache, real exim/dovecot, and real Pebble-backed ACME capability, nothing skips)
         working-directory: agent
         run: go test ./...
 
