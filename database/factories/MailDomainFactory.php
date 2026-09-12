@@ -1,0 +1,44 @@
+<?php
+
+namespace Database\Factories;
+
+use App\Enums\SuspensionSource;
+use App\Models\Account;
+use App\Models\MailDomain;
+use App\Models\Node;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+/**
+ * @extends Factory<MailDomain>
+ */
+class MailDomainFactory extends Factory
+{
+    /**
+     * Define the model's default state.
+     *
+     * @return array<string, mixed>
+     */
+    public function definition(): array
+    {
+        return [
+            'account_id' => Account::factory(),
+            'node_id' => Node::factory(),
+            'domain' => MailDomain::normalizeDomain(fake()->unique()->domainName()),
+            'antivirus_enabled' => true,
+            'antispam_enabled' => true,
+            'dkim_enabled' => false,
+            'catchall_email' => null,
+            'desired_state_version' => 1,
+            'suspended_at' => null,
+            'suspension_source' => null,
+        ];
+    }
+
+    public function suspended(): static
+    {
+        return $this->state(fn (): array => [
+            'suspended_at' => now(),
+            'suspension_source' => SuspensionSource::Manual,
+        ]);
+    }
+}

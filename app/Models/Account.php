@@ -90,4 +90,12 @@ class Account extends Model
     {
         return $this->hasMany(CronJob::class);
     }
+
+    /**
+     * @return HasMany<MailDomain, $this>
+     */
+    public function mailDomains(): HasMany
+    {
+        return $this->hasMany(MailDomain::class);
+    }
 }
