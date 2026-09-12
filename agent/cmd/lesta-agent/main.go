@@ -5,9 +5,9 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Seven capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
-// tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1, and
-// system.account-identity.v1.
+// Eight capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1,
+// system.account-identity.v1, and mail.smtp-imap.v1.
 //
 // A third CLI mode, "daemon", is a genuinely long-running process (unlike
 // the one-shot envelope pipe and the "cron-run" wrapper mode): it heartbeats
@@ -30,6 +30,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/cron"
 	"github.com/mikho/LESta/agent/internal/capability/identity"
+	"github.com/mikho/LESta/agent/internal/capability/mail"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/daemon"
@@ -44,6 +45,7 @@ const (
 	databaseTenantCapability        = "database.tenant.v1"
 	schedulerCronCapability         = "scheduler.account-cron.v1"
 	systemAccountIdentityCapability = "system.account-identity.v1"
+	mailSmtpImapCapability          = "mail.smtp-imap.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -133,8 +135,10 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = cron.New(cronProductionConfig())
 	case systemAccountIdentityCapability:
 		capability = identity.New(identityProductionConfig())
+	case mailSmtpImapCapability:
+		capability = mail.New(mailProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -385,6 +389,48 @@ func cronProductionConfig() cron.Config {
 		StateRoot:       "/var/lib/lesta/cron",
 		RunnerUser:      "lesta-cron",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
+	}
+}
+
+// mailProductionConfig points at the real, fixed host paths and binaries
+// this phase's own Mail Threat Model settled on for mail.smtp-imap.v1,
+// mirroring every other capability's own non-configurability rationale:
+// EximBinary/DoveadmBinary/DoveconfBinary/SievecBinary/OpensslBinary are
+// each passed straight into an exec.Command call, so making any of them
+// externally overridable would let anything able to set this process's
+// environment redirect a privileged exec to an arbitrary executable.
+//
+// EximStaticConfPath/DovecotConfPath are LESta's own dedicated static
+// config files (mirroring nginx.conf's/named.conf's own real, operator-
+// added include-line prerequisite): `/etc/exim4/lesta.conf` and
+// `/etc/dovecot/lesta.conf`, each expected to already be `.include`d from
+// the distribution's own real main config, a manual bootstrap prerequisite
+// this phase's code requires but does not create (no installer exists yet
+// for mail.smtp-imap.v1 -- see this package's own doc comment). Reload is
+// deliberately left at its own default (SIGHUP to EximPIDFile; `doveadm
+// reload` for Dovecot) rather than a `systemctl reload` override: neither
+// service unit is guaranteed to exist yet on a node this phase's own code
+// has never installed anything onto.
+func mailProductionConfig() mail.Config {
+	return mail.Config{
+		EximStaticConfPath: "/etc/exim4/lesta.conf",
+		EximDataDir:        "/etc/exim4/lesta.d/data",
+		EximBinary:         "exim",
+		EximPIDFile:        "/var/run/exim4/exim.pid",
+		EximListenPort:     25,
+
+		DovecotConfPath:   "/etc/dovecot/lesta.conf",
+		DovecotPasswdPath: "/etc/dovecot/lesta.d/passwd",
+		DoveadmBinary:     "doveadm",
+		DoveconfBinary:    "doveconf",
+
+		SieveDir:     "/var/lib/lesta/mail/sieve",
+		SievecBinary: "sievec",
+
+		DKIMKeyRoot:   "/var/lib/lesta/mail/dkim",
+		OpensslBinary: "openssl",
+
+		StateRoot: "/var/lib/lesta/mail",
 	}
 }
 
