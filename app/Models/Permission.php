@@ -25,10 +25,10 @@ class Permission extends Model implements ProviderAdminManaged
 
     /**
      * The full permission catalog: one entry per real, admin-gateable ability
-     * on the four resources that have moved off a blanket role-name check
-     * (see AuthorizationServiceProvider's own PERMISSION_BACKED_MODELS and
-     * Account/Membership/Package/NodePolicy). The single source of truth for
-     * both PermissionSeeder (the real catalog) and
+     * on the resources that have moved off a blanket role-name check (see
+     * AuthorizationServiceProvider's own PERMISSION_BACKED_MODELS and
+     * Account/Membership/Package/Node/BackupPolicy). The single source of
+     * truth for both PermissionSeeder (the real catalog) and
      * MembershipFactory::providerAdmin() (so a factory-built provider admin
      * in tests keeps exactly today's blanket-everything behavior without
      * duplicating this list a second time and risking drift).
@@ -39,6 +39,16 @@ class Permission extends Model implements ProviderAdminManaged
      * logged separately" design -- `accounts.view_as_support` is the
      * permission-gated ability instead, never `view` itself.
      *
+     * backups.* is deliberately never tenant-facing at all (no `Account`
+     * scoping, no owner/member OR-clause the way MailDomain's suspend/
+     * unsuspend/delete gained in Phase 30): a real backup artifact captures
+     * an entire node's own state today, commingling every account hosted on
+     * it, since no capability yet tags its own on-disk state by account
+     * (disclosed, deferred -- see the Backups design decision this catalog
+     * entry belongs to). Making backups admin-only rather than pretending
+     * per-account isolation exists is the actual safety property this
+     * scoping protects.
+     *
      * @var list<string>
      */
     public const array CATALOG = [
@@ -46,6 +56,7 @@ class Permission extends Model implements ProviderAdminManaged
         'memberships.view', 'memberships.create', 'memberships.update', 'memberships.delete', 'memberships.impersonate',
         'packages.view_any', 'packages.view', 'packages.create', 'packages.update', 'packages.delete',
         'nodes.view_any', 'nodes.view', 'nodes.create', 'nodes.update', 'nodes.delete', 'nodes.suspend', 'nodes.unsuspend',
+        'backups.view_any', 'backups.view', 'backups.create', 'backups.delete',
     ];
 
     /**

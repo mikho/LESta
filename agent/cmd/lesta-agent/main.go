@@ -5,9 +5,10 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Eight capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// Nine capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
 // tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1,
-// system.account-identity.v1, and mail.smtp-imap.v1.
+// system.account-identity.v1, mail.smtp-imap.v1, and
+// backup.encrypted-artifacts.v1.
 //
 // A third CLI mode, "daemon", is a genuinely long-running process (unlike
 // the one-shot envelope pipe and the "cron-run" wrapper mode): it heartbeats
@@ -27,6 +28,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
+	"github.com/mikho/LESta/agent/internal/capability/backup"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/cron"
 	"github.com/mikho/LESta/agent/internal/capability/identity"
@@ -38,14 +40,15 @@ import (
 )
 
 const (
-	webNginxCapability              = "web.nginx.v1"
-	dnsBind9Capability              = "dns.bind9.v1"
-	webApacheCapability             = "web.apache.v1"
-	tlsAcmeCapability               = "tls.acme.v1"
-	databaseTenantCapability        = "database.tenant.v1"
-	schedulerCronCapability         = "scheduler.account-cron.v1"
-	systemAccountIdentityCapability = "system.account-identity.v1"
-	mailSmtpImapCapability          = "mail.smtp-imap.v1"
+	webNginxCapability                 = "web.nginx.v1"
+	dnsBind9Capability                 = "dns.bind9.v1"
+	webApacheCapability                = "web.apache.v1"
+	tlsAcmeCapability                  = "tls.acme.v1"
+	databaseTenantCapability           = "database.tenant.v1"
+	schedulerCronCapability            = "scheduler.account-cron.v1"
+	systemAccountIdentityCapability    = "system.account-identity.v1"
+	mailSmtpImapCapability             = "mail.smtp-imap.v1"
+	backupEncryptedArtifactsCapability = "backup.encrypted-artifacts.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -137,8 +140,10 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = identity.New(identityProductionConfig())
 	case mailSmtpImapCapability:
 		capability = mail.New(mailProductionConfig())
+	case backupEncryptedArtifactsCapability:
+		capability = backup.New(backupProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -431,6 +436,34 @@ func mailProductionConfig() mail.Config {
 		OpensslBinary: "openssl",
 
 		StateRoot: "/var/lib/lesta/mail",
+	}
+}
+
+// backupProductionConfig points at the real, fixed host paths this phase's
+// own Backups design decision settled on for backup.encrypted-artifacts.v1.
+// ArtifactsRoot is .install/services/backups/manifest.json's own owned
+// root. StateRoots deliberately covers only rendered config-plane state
+// (nginx/apache/bind9/mail/cron), each mirroring that capability's own
+// *ProductionConfig StateRoot literal exactly, and deliberately excludes
+// database.control-plane.v1/database.tenant.v1's own live MariaDB data
+// directories: a raw filesystem copy of a running InnoDB data directory,
+// taken with no FLUSH TABLES WITH READ LOCK / consistent snapshot / mysqldump
+// step around it, is not a safe backup (ongoing writes can leave it
+// internally inconsistent on restore) -- a real, disclosed v1 boundary, not
+// an oversight. A future pass can add a real mysqldump-based (or
+// mariadb-backup-based) capture for those two capabilities specifically;
+// until then, .install/services/backups/manifest.json's own backs_up list
+// names only the capabilities this function can genuinely, safely include.
+func backupProductionConfig() backup.Config {
+	return backup.Config{
+		ArtifactsRoot: "/var/lib/lesta/backups",
+		StateRoots: map[string]string{
+			webNginxCapability:      "/var/lib/lesta/nginx",
+			webApacheCapability:     "/var/lib/lesta/apache",
+			dnsBind9Capability:      "/var/lib/lesta/bind",
+			mailSmtpImapCapability:  "/var/lib/lesta/mail",
+			schedulerCronCapability: "/var/lib/lesta/cron",
+		},
 	}
 }
 
