@@ -56,7 +56,21 @@ test('dkim_enabled can be turned on at creation, now that the real capability ba
         'dkim_enabled' => true,
     ]);
 
-    expect($mailDomain->dkim_enabled)->toBeTrue();
+    expect($mailDomain->dkim_enabled)->toBeTrue()
+        ->and($mailDomain->dkim_selector)->toBe('lesta1')
+        ->and($mailDomain->dkim_selector_activated_at)->not->toBeNull();
+});
+
+test('dkim_selector_activated_at stays null when dkim is not enabled at creation', function () {
+    $package = Package::factory()->withLimit('mail_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'mail.smtp-imap.v1']);
+
+    $mailDomain = app(CreateMailDomain::class)->handle($owner, $account, ['domain' => 'example.com']);
+
+    expect($mailDomain->dkim_selector_activated_at)->toBeNull();
 });
 
 test('dkim_enabled defaults to false when not requested', function () {

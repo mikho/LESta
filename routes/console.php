@@ -15,3 +15,6 @@ Schedule::command('metrics:rollup')->daily()->withoutOverlapping();
 Schedule::command('metrics:prune')->daily()->withoutOverlapping();
 Schedule::command('backups:prune-expired-downloads')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:create-scheduled')->daily()->withoutOverlapping();
+Schedule::command('mail:rotate-dkim-selectors')->daily()->withoutOverlapping();
+Schedule::command('mail:promote-pending-dkim-selectors')->hourly()->withoutOverlapping();
+Schedule::command('mail:retire-old-dkim-selectors')->hourly()->withoutOverlapping();

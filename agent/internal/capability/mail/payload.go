@@ -30,6 +30,12 @@ var localPartPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?$`
 // validation authority for a genuinely malformed target).
 var emailPattern = regexp.MustCompile(`^[^@\s]+@` + `[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 
+// dkimSelectorPattern matches a DKIM selector as MailDomain::nextDkimSelector
+// (Laravel) generates it: never raw tenant input, always this project's own
+// fixed "lesta" + an incrementing digit shape, but validated here anyway as
+// defense in depth like every other pattern in this file.
+var dkimSelectorPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
 // Account is one embedded MailAccount within a Payload, mirroring
 // MailDomain::toProvisioningPayload()'s own 'accounts' array shape exactly.
 // Password is a pointer because it is only ever populated for the one
@@ -52,14 +58,30 @@ type Account struct {
 // MailDomain::toProvisioningPayload()'s exact shape: one fixed shape for
 // every operation, the domain as the single resource with every account
 // embedded (see this package's own doc comment for why).
+// DkimActiveSelector is the selector Exim actually signs outgoing mail with
+// right now, mirroring MailDomain.dkim_selector on the Laravel side exactly.
+// DkimPendingSelector, when present, names a second selector this apply
+// should also generate a real key for and report on ResultEnvelope.Data (so
+// Laravel can publish its own DNS TXT record) without switching signing to
+// it yet -- the real "publish before you sign" half of selector rotation
+// (see dkim.go's own doc comment). DkimRetireSelector, when present, is a
+// one-shot instruction (never persisted desired state, unlike the other two
+// selector fields, which is why MailDomain::toProvisioningPayload's own
+// retireSelector parameter is explicit rather than reading a stored column):
+// delete that selector's real key material from this node now, because
+// Laravel has already finished retiring its own DNS record and rotation
+// bookkeeping for it.
 type Payload struct {
-	Domain           string    `json:"domain"`
-	AntivirusEnabled bool      `json:"antivirus_enabled"`
-	AntispamEnabled  bool      `json:"antispam_enabled"`
-	DkimEnabled      bool      `json:"dkim_enabled"`
-	CatchallEmail    *string   `json:"catchall_email"`
-	Accounts         []Account `json:"accounts"`
-	Suspended        bool      `json:"suspended"`
+	Domain              string    `json:"domain"`
+	AntivirusEnabled    bool      `json:"antivirus_enabled"`
+	AntispamEnabled     bool      `json:"antispam_enabled"`
+	DkimEnabled         bool      `json:"dkim_enabled"`
+	DkimActiveSelector  string    `json:"dkim_active_selector"`
+	DkimPendingSelector *string   `json:"dkim_pending_selector"`
+	DkimRetireSelector  *string   `json:"dkim_retire_selector"`
+	CatchallEmail       *string   `json:"catchall_email"`
+	Accounts            []Account `json:"accounts"`
+	Suspended           bool      `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -94,6 +116,20 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.CatchallEmail != nil && !emailPattern.MatchString(*p.CatchallEmail) {
 		return Payload{}, &ValidationError{Code: "invalid_catchall_email", Message: "catchall_email does not match the expected local@domain shape", Field: "catchall_email"}
+	}
+
+	if p.DkimEnabled {
+		if !dkimSelectorPattern.MatchString(p.DkimActiveSelector) {
+			return Payload{}, &ValidationError{Code: "invalid_dkim_active_selector", Message: "dkim_active_selector is required and must match the expected shape when dkim_enabled is true", Field: "dkim_active_selector"}
+		}
+	}
+
+	if p.DkimPendingSelector != nil && !dkimSelectorPattern.MatchString(*p.DkimPendingSelector) {
+		return Payload{}, &ValidationError{Code: "invalid_dkim_pending_selector", Message: "dkim_pending_selector does not match the expected shape", Field: "dkim_pending_selector"}
+	}
+
+	if p.DkimRetireSelector != nil && !dkimSelectorPattern.MatchString(*p.DkimRetireSelector) {
+		return Payload{}, &ValidationError{Code: "invalid_dkim_retire_selector", Message: "dkim_retire_selector does not match the expected shape", Field: "dkim_retire_selector"}
 	}
 
 	seen := make(map[string]struct{}, len(p.Accounts))

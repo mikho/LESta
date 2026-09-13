@@ -32,6 +32,9 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'antivirus_enabled' => true,
         'antispam_enabled' => false,
         'dkim_enabled' => false,
+        'dkim_active_selector' => 'lesta1',
+        'dkim_pending_selector' => null,
+        'dkim_retire_selector' => null,
         'catchall_email' => 'catchall@example.com',
         'accounts' => [
             [
@@ -46,8 +49,21 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         ],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'catchall_email', 'accounts', 'suspended'])
+        ->and(array_keys($payload))->toBe(['domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'dkim_active_selector', 'dkim_pending_selector', 'dkim_retire_selector', 'catchall_email', 'accounts', 'suspended'])
         ->and(array_keys($payload['accounts'][0]))->not->toContain('password');
+});
+
+test('toProvisioningPayload includes the pending selector when a rotation is in progress, and an explicit retireSelector only when passed', function () {
+    $node = Node::factory()->create();
+    $mailDomain = MailDomain::factory()->for($node)->create([
+        'dkim_selector' => 'lesta2',
+        'dkim_pending_selector' => 'lesta3',
+    ]);
+
+    expect($mailDomain->toProvisioningPayload())
+        ->toMatchArray(['dkim_active_selector' => 'lesta2', 'dkim_pending_selector' => 'lesta3', 'dkim_retire_selector' => null])
+        ->and($mailDomain->toProvisioningPayload(retireSelector: 'lesta1'))
+        ->toMatchArray(['dkim_active_selector' => 'lesta2', 'dkim_pending_selector' => 'lesta3', 'dkim_retire_selector' => 'lesta1']);
 });
 
 test('toProvisioningPayload includes a password only for the one account explicitly requested', function () {

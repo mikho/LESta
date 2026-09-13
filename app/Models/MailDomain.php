@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Carbon;
+use RuntimeException;
 
 /**
  * A tenant-owned mail domain, the single provisioning resource for
@@ -34,6 +35,12 @@ use Illuminate\Support\Carbon;
  * @property bool $antivirus_enabled
  * @property bool $antispam_enabled
  * @property bool $dkim_enabled
+ * @property string $dkim_selector
+ * @property Carbon|null $dkim_selector_activated_at
+ * @property string|null $dkim_pending_selector
+ * @property Carbon|null $dkim_pending_selector_published_at
+ * @property string|null $dkim_retiring_selector
+ * @property Carbon|null $dkim_retiring_selector_demoted_at
  * @property string|null $catchall_email
  * @property int $desired_state_version
  * @property Carbon|null $suspended_at
@@ -41,7 +48,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'catchall_email', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'dkim_selector', 'dkim_selector_activated_at', 'dkim_pending_selector', 'dkim_pending_selector_published_at', 'dkim_retiring_selector', 'dkim_retiring_selector_demoted_at', 'catchall_email', 'desired_state_version'])]
 class MailDomain extends Model
 {
     /** @use HasFactory<MailDomainFactory> */
@@ -58,6 +65,9 @@ class MailDomain extends Model
             'antivirus_enabled' => 'boolean',
             'antispam_enabled' => 'boolean',
             'dkim_enabled' => 'boolean',
+            'dkim_selector_activated_at' => 'datetime',
+            'dkim_pending_selector_published_at' => 'datetime',
+            'dkim_retiring_selector_demoted_at' => 'datetime',
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,
         ];
@@ -84,6 +94,24 @@ class MailDomain extends Model
         $converted = idn_to_ascii($trimmed, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
 
         return $converted === false ? $trimmed : $converted;
+    }
+
+    /**
+     * The next selector name a rotation should generate, incrementing the trailing digit of the
+     * current dkim_selector ("lesta1" -> "lesta2" -> "lesta3", ...). Selectors are never reused:
+     * a fresh rotation always starts from whatever the currently active selector's own number is,
+     * never a retired one's, so there is no risk of colliding with a selector whose own DNS
+     * record/key retirement (see App\Console\Commands\RetiresOldDkimSelectors) has not finished
+     * yet -- App\Console\Commands\RotateDkimSelectors refuses to start a new rotation while one is
+     * already in progress in the first place.
+     */
+    public function nextDkimSelector(): string
+    {
+        if (! preg_match('/^(.*?)(\d+)$/', $this->dkim_selector, $matches)) {
+            throw new RuntimeException("dkim_selector [{$this->dkim_selector}] does not end in a digit; cannot compute the next selector.");
+        }
+
+        return $matches[1].((int) $matches[2] + 1);
     }
 
     /**
@@ -132,15 +160,24 @@ class MailDomain extends Model
      * ADR's "database/mail credentials are never included in normal desired-state payloads"
      * restriction true even though this payload embeds every sibling account.
      *
-     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, suspended: bool}
+     * $retireSelector mirrors that same explicit-parameter discipline for a different reason: it
+     * is a one-shot instruction ("delete this selector's key material now"), never standing
+     * desired state the way dkim_selector/dkim_pending_selector are, so it is never read from a
+     * stored column here -- only App\Console\Commands\RetireOldDkimSelectors ever passes it, for
+     * exactly the one apply that actually performs a retirement.
+     *
+     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, suspended: bool}
      */
-    public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null): array
+    public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null, ?string $retireSelector = null): array
     {
         return [
             'domain' => $this->domain,
             'antivirus_enabled' => $this->antivirus_enabled,
             'antispam_enabled' => $this->antispam_enabled,
             'dkim_enabled' => $this->dkim_enabled,
+            'dkim_active_selector' => $this->dkim_selector,
+            'dkim_pending_selector' => $this->dkim_pending_selector,
+            'dkim_retire_selector' => $retireSelector,
             'catchall_email' => $this->catchall_email,
             'accounts' => $this->accounts()->get()->map(function (MailAccount $a) use ($includePasswordForAccountId, $plaintextPassword): array {
                 $account = [

@@ -27,6 +27,7 @@ func (c *MailCapability) aggregateFiles(data renderedData) []aggregateFile {
 		{c.cfg.EximDataDir + "/antivirus.list", data.antivirus},
 		{c.cfg.EximDataDir + "/antispam.list", data.antispam},
 		{c.cfg.EximDataDir + "/dkim_keys.list", data.dkimKeys},
+		{c.cfg.EximDataDir + "/dkim_selector.list", data.dkimSelectors},
 		{c.cfg.EximDataDir + "/catchall.list", data.catchall},
 		{c.cfg.DovecotPasswdPath, data.dovecotPasswd},
 	}

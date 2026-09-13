@@ -71,15 +71,29 @@ func account(localPart string, password *string) map[string]any {
 	}
 }
 
+// domainPayload builds a test payload with DKIM either off, or on and
+// signing with "lesta1" (this project's own always-first selector name,
+// matching what a freshly created real MailDomain always gets) -- every
+// existing call site's own assumption before selector rotation existed.
+// Rotation-specific tests (pending/retiring selectors) build their own
+// payload map directly instead of extending this helper's signature.
 func domainPayload(domain string, antivirus, antispam, dkim bool, accounts []map[string]any, suspended bool) map[string]any {
+	activeSelector := ""
+	if dkim {
+		activeSelector = "lesta1"
+	}
+
 	return map[string]any{
-		"domain":            domain,
-		"antivirus_enabled": antivirus,
-		"antispam_enabled":  antispam,
-		"dkim_enabled":      dkim,
-		"catchall_email":    nil,
-		"accounts":          accounts,
-		"suspended":         suspended,
+		"domain":                domain,
+		"antivirus_enabled":     antivirus,
+		"antispam_enabled":      antispam,
+		"dkim_enabled":          dkim,
+		"dkim_active_selector":  activeSelector,
+		"dkim_pending_selector": nil,
+		"dkim_retire_selector":  nil,
+		"catchall_email":        nil,
+		"accounts":              accounts,
+		"suspended":             suspended,
 	}
 }
 
@@ -327,27 +341,36 @@ func TestMailCapability_DKIM(t *testing.T) {
 
 	assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_keys.list"), domain+": "+keyPath)
 
-	t.Run("a successful apply reports the DKIM selector and public key on ResultEnvelope.Data, never the private key", func(t *testing.T) {
+	t.Run("a successful apply reports the active DKIM selector and public key on ResultEnvelope.Data, never the private key", func(t *testing.T) {
 		if len(result.Data) == 0 {
 			t.Fatal("expected ResultEnvelope.Data to be populated when dkim_enabled is true, got none")
 		}
 
 		var data struct {
-			Selector  string `json:"selector"`
-			PublicKey string `json:"public_key"`
+			Active struct {
+				Selector  string `json:"selector"`
+				PublicKey string `json:"public_key"`
+			} `json:"active"`
+			Pending *struct {
+				Selector  string `json:"selector"`
+				PublicKey string `json:"public_key"`
+			} `json:"pending"`
 		}
 		if err := json.Unmarshal(result.Data, &data); err != nil {
 			t.Fatalf("unmarshaling ResultEnvelope.Data: %v", err)
 		}
 
-		if data.Selector != "lesta1" {
-			t.Fatalf("expected selector %q, got %q", "lesta1", data.Selector)
+		if data.Active.Selector != "lesta1" {
+			t.Fatalf("expected active selector %q, got %q", "lesta1", data.Active.Selector)
 		}
-		if data.PublicKey == "" {
-			t.Fatal("expected a non-empty public key")
+		if data.Active.PublicKey == "" {
+			t.Fatal("expected a non-empty active public key")
 		}
-		if strings.Contains(data.PublicKey, "BEGIN") || strings.Contains(data.PublicKey, "\n") {
-			t.Fatalf("expected a bare base64 public key with no PEM header or newlines, got %q", data.PublicKey)
+		if strings.Contains(data.Active.PublicKey, "BEGIN") || strings.Contains(data.Active.PublicKey, "\n") {
+			t.Fatalf("expected a bare base64 public key with no PEM header or newlines, got %q", data.Active.PublicKey)
+		}
+		if data.Pending != nil {
+			t.Fatalf("expected no pending selector for a non-rotating domain, got %+v", data.Pending)
 		}
 
 		privateKeyBytes, err := os.ReadFile(keyPath)
@@ -378,6 +401,116 @@ func TestMailCapability_DKIM(t *testing.T) {
 		if string(before) != string(after) {
 			t.Fatal("expected the same DKIM key to survive an update that keeps dkim_enabled true, but it changed")
 		}
+	})
+}
+
+// TestMailCapability_DKIMRotation proves the full real selector-rotation
+// state machine this capability supports, end to end at the filesystem/
+// ResultEnvelope level (a real daemon signing proof for one selector already
+// exists in TestMailCapability_DKIMSigningProof; this test is about the
+// multi-selector key lifecycle a rotation drives, not re-proving that Exim
+// itself can sign with a key):
+//  1. dkim_pending_selector generates a second real key without disturbing
+//     the active one, and reports both on ResultEnvelope.Data.
+//  2. Promoting (switching dkim_active_selector to the former pending one)
+//     switches dkim_keys.list/dkim_selector.list over, while the OLD
+//     selector's own key material is left untouched on disk.
+//  3. dkim_retire_selector actually deletes that old key material once
+//     Laravel decides the rotation is fully done.
+func TestMailCapability_DKIMRotation(t *testing.T) {
+	requireRealExim(t)
+
+	d := newDisposableExim(t)
+	capability := mail.New(d.Config)
+	ctx := context.Background()
+
+	const domain = "dkim-rotation-example.com"
+
+	resourceID := newTestUUID()
+	password := randomPassword(t)
+
+	create := newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1,
+		domainPayload(domain, false, false, true, []map[string]any{account("sales", &password)}, false))
+	result, err := capability.Apply(ctx, create)
+	requireApplied(t, "create with dkim enabled (lesta1)", result, err)
+
+	lesta1Private := filepath.Join(d.Config.DKIMKeyRoot, domain, "lesta1.private")
+	lesta1Public := filepath.Join(d.Config.DKIMKeyRoot, domain, "lesta1.public")
+	lesta2Private := filepath.Join(d.Config.DKIMKeyRoot, domain, "lesta2.private")
+
+	t.Run("a pending selector generates its own real key without switching signing", func(t *testing.T) {
+		payload := domainPayload(domain, false, false, true, []map[string]any{account("sales", nil)}, false)
+		payload["dkim_pending_selector"] = "lesta2"
+
+		op := newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 2, payload)
+		result, err := capability.Apply(ctx, op)
+		requireApplied(t, "update with lesta2 pending", result, err)
+
+		if _, err := os.Stat(lesta2Private); err != nil {
+			t.Fatalf("expected a real pending DKIM key to exist at %s: %v", lesta2Private, err)
+		}
+
+		assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_selector.list"), domain+": lesta1")
+		assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_keys.list"), domain+": "+lesta1Private)
+
+		var data struct {
+			Active struct {
+				Selector string `json:"selector"`
+			} `json:"active"`
+			Pending *struct {
+				Selector  string `json:"selector"`
+				PublicKey string `json:"public_key"`
+			} `json:"pending"`
+		}
+		if err := json.Unmarshal(result.Data, &data); err != nil {
+			t.Fatalf("unmarshaling ResultEnvelope.Data: %v", err)
+		}
+
+		if data.Active.Selector != "lesta1" {
+			t.Fatalf("expected signing to still be active on lesta1 during the propagation window, got %q", data.Active.Selector)
+		}
+		if data.Pending == nil || data.Pending.Selector != "lesta2" || data.Pending.PublicKey == "" {
+			t.Fatalf("expected a real pending lesta2 selector/public_key on ResultEnvelope.Data, got %+v", data.Pending)
+		}
+	})
+
+	t.Run("promoting the pending selector switches signing over, leaving the old key untouched", func(t *testing.T) {
+		payload := domainPayload(domain, false, false, true, []map[string]any{account("sales", nil)}, false)
+		payload["dkim_active_selector"] = "lesta2"
+
+		op := newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 3, payload)
+		result, err := capability.Apply(ctx, op)
+		requireApplied(t, "promote lesta2 to active", result, err)
+
+		assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_selector.list"), domain+": lesta2")
+		assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_keys.list"), domain+": "+lesta2Private)
+
+		if _, err := os.Stat(lesta1Private); err != nil {
+			t.Fatalf("expected the retiring lesta1 key to still exist right after promotion (not yet retired): %v", err)
+		}
+	})
+
+	t.Run("retiring the old selector deletes its real key material for good", func(t *testing.T) {
+		payload := domainPayload(domain, false, false, true, []map[string]any{account("sales", nil)}, false)
+		payload["dkim_active_selector"] = "lesta2"
+		payload["dkim_retire_selector"] = "lesta1"
+
+		op := newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 4, payload)
+		result, err := capability.Apply(ctx, op)
+		requireApplied(t, "retire lesta1", result, err)
+
+		if _, err := os.Stat(lesta1Private); !os.IsNotExist(err) {
+			t.Fatalf("expected the retired lesta1 private key to be deleted, got err=%v", err)
+		}
+		if _, err := os.Stat(lesta1Public); !os.IsNotExist(err) {
+			t.Fatalf("expected the retired lesta1 public key to be deleted, got err=%v", err)
+		}
+
+		// lesta2 keeps signing throughout: retiring lesta1 must not disturb it.
+		if _, err := os.Stat(lesta2Private); err != nil {
+			t.Fatalf("expected the active lesta2 key to be unaffected by retiring lesta1: %v", err)
+		}
+		assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_selector.list"), domain+": lesta2")
 	})
 }
 

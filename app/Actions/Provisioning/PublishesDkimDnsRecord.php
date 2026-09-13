@@ -17,19 +17,21 @@ use Illuminate\Support\Str;
 /**
  * Mirrors RecordsBackupArtifact's role: the one place "a mail domain operation just completed,
  * and it reported a real DKIM public key" knowledge lives. mail.smtp-imap.v1's own
- * MailCapability reports {selector, public_key} on a successful create/update/suspend/
- * unsuspend's ResultEnvelope.Data whenever dkim_enabled is actively true (see
- * agent/internal/capability/mail/dkim.go); this hook publishes the matching
- * "<selector>._domainkey.<domain>" TXT record to whichever DnsZone, owned by the same account,
- * has a domain exactly matching the mail domain's own -- creating it on first publish, updating
- * it in place if the value ever changes (a future selector rotation), and doing nothing beyond a
- * logged warning when no matching zone exists or its own node has no active dns.bind9.v1
- * capability: DNS is a fully separate, independently-managed resource this project has never
- * auto-created on a tenant's behalf (no DnsZone<->MailDomain relationship exists at all), and a
- * provisioning-completion hook has no HTTP request to surface a validation error to. Deliberately
- * bypasses the account's own dns_records PackageLimit: this is an infrastructure-required record
- * for the mail domain the tenant already provisioned, not a tenant-authored one counted against
- * their own quota.
+ * MailCapability reports {active: {selector, public_key}, pending?: {...}} on a successful
+ * create/update/suspend/unsuspend's ResultEnvelope.Data whenever dkim_enabled is actively true
+ * (see agent/internal/capability/mail/dkim.go); this hook publishes the matching
+ * "<selector>._domainkey.<domain>" TXT record, for EACH of active and (if present, mid-rotation)
+ * pending, to whichever DnsZone, owned by the same account, has a domain exactly matching the
+ * mail domain's own -- creating it on first publish, updating it in place if the value ever
+ * changes, and doing nothing beyond a logged warning when no matching zone exists or its own node
+ * has no active dns.bind9.v1 capability: DNS is a fully separate, independently-managed resource
+ * this project has never auto-created on a tenant's behalf (no DnsZone<->MailDomain relationship
+ * exists at all), and a provisioning-completion hook has no HTTP request to surface a validation
+ * error to. Deliberately bypasses the account's own dns_records PackageLimit: this is an
+ * infrastructure-required record for the mail domain the tenant already provisioned, not a
+ * tenant-authored one counted against their own quota. A retiring selector's own record is never
+ * touched here at all -- deleting it is App\Console\Commands\RetireOldDkimSelectors' own job,
+ * once it decides the rotation is fully done, not something this completion hook ever infers.
  */
 class PublishesDkimDnsRecord
 {
@@ -45,13 +47,26 @@ class PublishesDkimDnsRecord
         }
 
         $data = $operation->data ?? [];
-        $selector = $data['selector'] ?? null;
-        $publicKey = $data['public_key'] ?? null;
 
-        if (! is_string($selector) || $selector === '' || ! is_string($publicKey) || $publicKey === '') {
-            return;
+        foreach (['active', 'pending'] as $role) {
+            $entry = $data[$role] ?? null;
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $selector = $entry['selector'] ?? null;
+            $publicKey = $entry['public_key'] ?? null;
+
+            if (! is_string($selector) || $selector === '' || ! is_string($publicKey) || $publicKey === '') {
+                continue;
+            }
+
+            $this->publishSelector($mailDomain, $selector, $publicKey);
         }
+    }
 
+    private function publishSelector(MailDomain $mailDomain, string $selector, string $publicKey): void
+    {
         $dnsZone = DnsZone::query()
             ->where('account_id', $mailDomain->account_id)
             ->where('domain', $mailDomain->domain)

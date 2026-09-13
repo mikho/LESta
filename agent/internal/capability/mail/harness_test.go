@@ -86,7 +86,7 @@ func newDisposableExim(t *testing.T) *disposableExim {
 		t.Fatalf("creating empty passwd file: %v", err)
 	}
 
-	for _, name := range []string{"domains.list", "accounts.list", "antivirus.list", "antispam.list", "dkim_keys.list", "catchall.list"} {
+	for _, name := range []string{"domains.list", "accounts.list", "antivirus.list", "antispam.list", "dkim_keys.list", "dkim_selector.list", "catchall.list"} {
 		if err := os.WriteFile(filepath.Join(dataDir, name), nil, 0o644); err != nil {
 			t.Fatalf("creating empty %s: %v", name, err)
 		}
