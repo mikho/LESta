@@ -6,8 +6,9 @@ use App\Models\Membership;
 use App\Models\Node;
 use App\Models\Permission;
 use App\Models\Role;
-use App\Models\User;
 use App\Models\UsageSnapshot;
+use App\Models\User;
+use App\Policies\UsageSnapshotPolicy;
 use Illuminate\Support\Facades\Gate;
 
 test('usage snapshot authorization: any account member can view their own account, a stranger cannot, an admin with usage.view_any can view any', function () {
@@ -43,7 +44,7 @@ test('a platform role without usage.view_any cannot view a stranger account own 
 });
 
 test('UsageSnapshotPolicy exposes no create, update, or delete ability: rows are system-written and system-pruned only', function () {
-    expect(method_exists(\App\Policies\UsageSnapshotPolicy::class, 'create'))->toBeFalse()
-        ->and(method_exists(\App\Policies\UsageSnapshotPolicy::class, 'update'))->toBeFalse()
-        ->and(method_exists(\App\Policies\UsageSnapshotPolicy::class, 'delete'))->toBeFalse();
+    expect(method_exists(UsageSnapshotPolicy::class, 'create'))->toBeFalse()
+        ->and(method_exists(UsageSnapshotPolicy::class, 'update'))->toBeFalse()
+        ->and(method_exists(UsageSnapshotPolicy::class, 'delete'))->toBeFalse();
 });

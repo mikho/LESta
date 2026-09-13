@@ -12,6 +12,7 @@ use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\UsageSnapshot;
 use App\Models\WebDomain;
+use Illuminate\Support\Str;
 
 function metricsCollectionOperation(MetricsCollection $collection, array $overrides = []): ProvisioningOperation
 {
@@ -117,7 +118,7 @@ test('an unknown resource_uuid in the response is skipped gracefully, never a ha
     $collection = MetricsCollection::factory()->for($node)->create();
 
     $operation = metricsCollectionOperation($collection, [
-        'data' => ['mail_accounts' => [['resource_uuid' => (string) \Illuminate\Support\Str::uuid(), 'disk_bytes' => 999]], 'tenant_databases' => [], 'web_resources' => []],
+        'data' => ['mail_accounts' => [['resource_uuid' => (string) Str::uuid(), 'disk_bytes' => 999]], 'tenant_databases' => [], 'web_resources' => []],
     ]);
 
     app(RecordsUsageSnapshot::class)->handle($operation);
