@@ -126,6 +126,11 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 APACHE_CONF_PATH="/etc/apache2/apache2.conf"
 APACHE_LIVE_DIR="/etc/apache2/lesta.d"
 
+# APACHE_LOG_DIR: must stay in lockstep with
+# agent/cmd/lesta-agent/main.go's own apacheProductionConfig() LogDir
+# literal.
+APACHE_LOG_DIR="/var/log/lesta/apache"
+
 # ASIS_MODULE_PATH is mod_asis.so's fixed installation path under
 # Debian/Ubuntu's apache2-bin package layout -- the exact same literal
 # agent/internal/capability/apache/content.go hardcodes as asisModulePath.
@@ -790,6 +795,27 @@ install_apache() {
     install -d -m 0750 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
     add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0755"
     add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0750 root:lesta"
+
+    # APACHE_LOG_DIR must exist before apache2ctl configtest below: every
+    # rendered vhost's own CustomLog directive names a path under it, and
+    # configtest opens every configured log file as part of validating the
+    # config -- the same "must exist before the thing that validates
+    # against it runs" ordering mail/install.sh's own lesta.conf-before-
+    # package-install fix already had to learn the hard way.
+    install -d -m 0750 -o root -g lesta "${APACHE_LOG_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LOG_DIR}" "failed to create ${APACHE_LOG_DIR}"
+    add_change web.apache.v1 ensured "${APACHE_LOG_DIR}" "per-vhost access-log directory present, mode 0750 root:lesta"
+
+    cat > /etc/logrotate.d/lesta-apache <<LOGROTATE
+${APACHE_LOG_DIR}/*.access.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+    add_change web.apache.v1 written /etc/logrotate.d/lesta-apache "logrotate policy installed: daily, 14 rotations, copytruncate (never signals apache2 -- metrics.usage.v1's own offset-tracked reader treats a shorter file as freshly rotated)"
 
     if [ "${WEB_PROFILE}" = "both" ]; then
         # apache2.conf's own stock `Include ports.conf` line (untouched by

@@ -3,6 +3,7 @@
 server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+    access_log {{.AccessLogPath}};
 
     location /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;

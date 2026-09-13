@@ -14,6 +14,14 @@ type Config struct {
 	// /var/lib/lesta/apache). Generations live at
 	// StateRoot/domains/<resource_id>/generations/<n>/.
 	StateRoot string
+	// LogDir is the directory every rendered vhost's own CustomLog directive
+	// points into: one <resource_id>.access.log per resource (e.g.
+	// /var/log/lesta/apache), never Apache's own combined access.log.
+	// Mirrors nginx.Config's own LogDir exactly (see that field's doc
+	// comment for the full rationale): metrics.usage.v1 reads these,
+	// offset-tracked, to collect real bandwidth/request-count usage per
+	// domain.
+	LogDir string
 	// ApacheConfPath is the real, read-only main apache2.conf. It must already
 	// contain an `IncludeOptional <LiveDir>/*.conf` line; this phase's code
 	// requires that precondition, it does not create it.

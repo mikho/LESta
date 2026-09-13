@@ -51,6 +51,10 @@ type vhostData struct {
 	// address (see Config's own field of the same name). Unused by every
 	// other template.
 	SSLPort int
+	// AccessLogPath backs every vhost template's own CustomLog directive
+	// (see Config.LogDir's own doc comment for why this is per-resource,
+	// never Apache's own combined access.log).
+	AccessLogPath string
 	// Marker is a known string embedded in the rendered default content file's
 	// body, so a health check can assert that *this* resource answered, not
 	// just that some apache2 vhost is alive. It is deliberately a function of

@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -130,6 +131,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		CertificatePath:  payload.SSL.CertificatePath,
 		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
 		SSLPort:          c.cfg.SSLPort,
+		AccessLogPath:    filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"),
 	}, payload.Suspended)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
