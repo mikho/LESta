@@ -546,10 +546,12 @@ jobs:
           sudo systemctl status clamav-freshclam --no-pager || true
           echo "--- /var/lib/clamav ---"
           sudo ls -la /var/lib/clamav || true
-          echo "--- systemctl status spamassassin ---"
-          sudo systemctl status spamassassin --no-pager || true
-          echo "--- journalctl for spamassassin ---"
-          sudo journalctl -u spamassassin --no-pager | tail -100 || true
+          spamd_unit=$(systemctl list-unit-files --no-legend --full 'spamd.service' 'spamassassin.service' 2>/dev/null | awk '{print $1}' | head -n1)
+          spamd_unit="${spamd_unit:-spamassassin}"
+          echo "--- systemctl status ${spamd_unit} ---"
+          sudo systemctl status "${spamd_unit}" --no-pager || true
+          echo "--- journalctl for ${spamd_unit} ---"
+          sudo journalctl -u "${spamd_unit}" --no-pager | tail -100 || true
           echo "--- /etc/default/spamassassin ---"
           sudo cat /etc/default/spamassassin || true
           echo "--- /etc/exim4/exim4.conf ---"
