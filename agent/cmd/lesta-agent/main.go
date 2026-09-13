@@ -5,10 +5,10 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Nine capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
+// Ten capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
 // tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1,
-// system.account-identity.v1, mail.smtp-imap.v1, and
-// backup.encrypted-artifacts.v1.
+// system.account-identity.v1, mail.smtp-imap.v1,
+// backup.encrypted-artifacts.v1, and metrics.usage.v1.
 //
 // A third CLI mode, "daemon", is a genuinely long-running process (unlike
 // the one-shot envelope pipe and the "cron-run" wrapper mode): it heartbeats
@@ -34,6 +34,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/identity"
 	"github.com/mikho/LESta/agent/internal/capability/mail"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
+	"github.com/mikho/LESta/agent/internal/capability/metrics"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/daemon"
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -49,6 +50,7 @@ const (
 	systemAccountIdentityCapability    = "system.account-identity.v1"
 	mailSmtpImapCapability             = "mail.smtp-imap.v1"
 	backupEncryptedArtifactsCapability = "backup.encrypted-artifacts.v1"
+	metricsUsageCapability             = "metrics.usage.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -142,8 +144,10 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = mail.New(mailProductionConfig())
 	case backupEncryptedArtifactsCapability:
 		capability = backup.New(backupProductionConfig())
+	case metricsUsageCapability:
+		capability = metrics.New(metricsProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability, metricsUsageCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -495,6 +499,29 @@ func backupProductionConfig() backup.Config {
 			mailSmtpImapCapability:  "/var/lib/lesta/mail",
 			schedulerCronCapability: "/var/lib/lesta/cron",
 		},
+	}
+}
+
+// metricsProductionConfig points at the real, fixed host paths this phase's
+// own statistics design settled on for metrics.usage.v1: the exact same
+// NginxLogDir/ApacheLogDir literals nginxProductionConfig's/
+// apacheProductionConfig's own LogDir fields resolve to, the exact same
+// VmailRoot mailProductionConfig's own SieveDir/DKIMKeyRoot sibling
+// directory resolves to (see .install/services/mail/install.sh's own
+// VMAIL_HOME), and the exact same MariaDBHost/MariaDBPort
+// mariadbProductionConfig's own tenant instance targets -- but connected to
+// with each request's own per-database stats_user/stats_password (see
+// dbsize.go), never mariadbProductionConfig's own tenant-admin
+// DefaultsExtraFile.
+func metricsProductionConfig() metrics.Config {
+	return metrics.Config{
+		NginxLogDir:     "/var/log/lesta/nginx",
+		ApacheLogDir:    "/var/log/lesta/apache",
+		VmailRoot:       "/var/lib/lesta/mail/vmail",
+		MariaDBHost:     "127.0.0.1",
+		MariaDBPort:     3307,
+		MariaDBBinary:   "mariadb",
+		OffsetStateRoot: "/var/lib/lesta/statistics/offsets",
 	}
 }
 
