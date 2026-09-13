@@ -13,3 +13,4 @@ Schedule::command('acme:renew-certificates')->daily()->withoutOverlapping();
 Schedule::command('metrics:collect')->daily()->withoutOverlapping();
 Schedule::command('metrics:prune')->daily()->withoutOverlapping();
 Schedule::command('backups:prune-expired-downloads')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('backups:create-scheduled')->daily()->withoutOverlapping();

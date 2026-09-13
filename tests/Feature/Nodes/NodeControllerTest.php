@@ -30,6 +30,8 @@ test('a regular tenant-account user is denied on every node route', function () 
     $this->actingAs($owner)->put(route('nodes.update', $node), ['name' => 'n', 'hostname' => 'h'])->assertForbidden();
     $this->actingAs($owner)->post(route('nodes.suspend', $node))->assertForbidden();
     $this->actingAs($owner)->post(route('nodes.unsuspend', $node))->assertForbidden();
+    $this->actingAs($owner)->post(route('nodes.enable-scheduled-backups', $node))->assertForbidden();
+    $this->actingAs($owner)->post(route('nodes.disable-scheduled-backups', $node))->assertForbidden();
     $this->actingAs($owner)->post(route('nodes.enrollment-token', $node))->assertForbidden();
     $this->actingAs($owner)->post(route('nodes.capabilities.store', $node), ['capability' => 'web.nginx.v1'])->assertForbidden();
     $this->actingAs($owner)->delete(route('nodes.destroy', $node))->assertForbidden();
@@ -86,6 +88,27 @@ test('a provider admin can suspend and unsuspend a node', function () {
         ->assertRedirect(route('nodes.edit', $node));
 
     expect($node->refresh()->isSuspended())->toBeFalse();
+});
+
+test('a provider admin can enable and disable scheduled backups for a node', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create();
+
+    expect($node->refresh()->backups_scheduled)->toBeFalse();
+
+    $this->actingAs($admin)
+        ->from(route('nodes.edit', $node))
+        ->post(route('nodes.enable-scheduled-backups', $node))
+        ->assertRedirect(route('nodes.edit', $node));
+
+    expect($node->refresh()->backups_scheduled)->toBeTrue();
+
+    $this->actingAs($admin)
+        ->from(route('nodes.edit', $node))
+        ->post(route('nodes.disable-scheduled-backups', $node))
+        ->assertRedirect(route('nodes.edit', $node));
+
+    expect($node->refresh()->backups_scheduled)->toBeFalse();
 });
 
 test('issuing an enrollment token returns a token once and the node becomes pending with a fresh hash', function () {

@@ -9,6 +9,7 @@ use App\Actions\Nodes\IssueNodeEnrollmentToken;
 use App\Actions\Nodes\SuspendNode;
 use App\Actions\Nodes\UnsuspendNode;
 use App\Actions\Nodes\UpdateNode;
+use App\Actions\Nodes\UpdateNodeScheduledBackups;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Nodes\StoreNodeRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
@@ -146,6 +147,30 @@ class NodeController extends Controller
     }
 
     /**
+     * Turn on scheduled backups for the given node.
+     */
+    public function enableScheduledBackups(Request $request, Node $node): RedirectResponse
+    {
+        app(UpdateNodeScheduledBackups::class)->handle($request->user(), $node, true);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Scheduled backups enabled.')]);
+
+        return back();
+    }
+
+    /**
+     * Turn off scheduled backups for the given node.
+     */
+    public function disableScheduledBackups(Request $request, Node $node): RedirectResponse
+    {
+        app(UpdateNodeScheduledBackups::class)->handle($request->user(), $node, false);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Scheduled backups disabled.')]);
+
+        return back();
+    }
+
+    /**
      * Delete the given node. DeleteNode throws a ValidationException when the node still has
      * dependent resources, which Laravel's own exception handling turns into the standard
      * Inertia error-bag response the edit page's delete dialog renders.
@@ -212,6 +237,7 @@ class NodeController extends Controller
             'last_seen_at' => $node->last_seen_at?->toIso8601String(),
             'suspended_at' => $node->suspended_at?->toIso8601String(),
             'suspension_source' => $node->suspension_source?->value,
+            'backups_scheduled' => $node->backups_scheduled,
             'capabilities' => $node->capabilities
                 ->map(fn (NodeCapability $capability): array => $this->presentCapability($capability))
                 ->all(),

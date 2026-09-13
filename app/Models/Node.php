@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property string $uuid
  * @property string $name
  * @property string $hostname
+ * @property bool $backups_scheduled
  * @property string|null $enrollment_token_hash
  * @property Carbon|null $enrollment_token_expires_at
  * @property string|null $node_credential_hash
@@ -59,6 +60,7 @@ class Node extends Model implements ProviderAdminManaged
             'enrollment_token_expires_at' => 'datetime',
             'enrollment_status' => NodeEnrollmentStatus::class,
             'last_seen_at' => 'datetime',
+            'backups_scheduled' => 'boolean',
         ];
     }
 
