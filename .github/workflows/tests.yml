@@ -2411,6 +2411,152 @@ jobs:
           sudo rm -rf /tmp/lesta-mariadb-bundle-gen2 /tmp/lesta-mariadb-bundle-gen3 /tmp/scenario25-mariadb-deb-extract
           sudo rm -rf /var/lib/lesta/mariadb/bundle-generations
 
+      # --- Scenario 26: offline bundle (mail, real apt-severed install) --
+      #
+      # Extends Scenario 9's own proof to mail: unlike bind9/apache, no mail
+      # package has ever been live-installed earlier in this same job, so
+      # there is no "remove the currently-installed packages" step -- this
+      # is a genuinely fresh install of exim4-daemon-heavy and
+      # dovecot-imapd/dovecot-lmtpd/dovecot-sieve together, as one bundle,
+      # from nothing. dovecot-core itself IS installed live first (a real
+      # dependency of dovecot-imapd/lmtpd/sieve, already satisfied before
+      # dpkg -i ever runs, exactly like a real production node that ran
+      # --prepare-config's own documented prerequisite beforehand), so the
+      # offline bundle only ever needs to vendor the same four packages
+      # install_mail installs live.
+
+      - name: "Scenario 26 setup: install dovecot-core live and satisfy dovecot.conf's own include-line prerequisite via --prepare-config (called twice, proving the shared append-mode code path is idempotent)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dovecot-core
+          sudo sh .install/services/mail/install.sh --prepare-config --yes
+          sudo sh .install/services/mail/install.sh --prepare-config --yes
+          [ "$(grep -c '!include /etc/dovecot/lesta.conf' /etc/dovecot/dovecot.conf)" -eq 1 ] \
+            || { echo "expected the include line to appear exactly once in dovecot.conf after two --prepare-config calls" >&2; exit 1; }
+
+      - name: "Scenario 26 setup: a real self-signed certificate standing in for a real ACME-issued one, at tls.acme.v1's own fixed path convention"
+        run: |
+          sudo mkdir -p /var/lib/lesta/acme/certs/mail.lesta-ci.invalid
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=mail.lesta-ci.invalid" \
+            -keyout /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/privkey.pem \
+            -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
+
+      - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
+        run: |
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve" --bundle-name mail
+          ls -la /tmp/lesta-mail-bundle
+          cat /tmp/lesta-mail-bundle/bundle-manifest.json
+
+      - name: "Scenario 26 setup: sever this runner's apt sources so no live package archive is reachable"
+        run: |
+          sudo mkdir -p /tmp/lesta-apt-sources-backup-mail/sources.list.d
+          sudo mv /etc/apt/sources.list /tmp/lesta-apt-sources-backup-mail/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /tmp/lesta-apt-sources-backup-mail/sources.list.d/
+          done
+          test ! -f /etc/apt/sources.list
+
+      - name: "Scenario 26: prove apt itself cannot fetch anything with every source removed"
+        run: |
+          set +e
+          sudo apt-get install --reinstall --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve >/tmp/scenario26-apt-check.log 2>&1
+          apt_status=$?
+          set -e
+          cat /tmp/scenario26-apt-check.log
+          if [ "${apt_status}" -eq 0 ]; then
+            echo "expected 'apt-get install --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            exit 1
+          fi
+
+      - name: "Scenario 26: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated)"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --offline-bundle /tmp/lesta-mail-bundle 2>/tmp/scenario26-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario26-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK): the offline bundle install should succeed with no network access, got exit ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the result body to contain \"status\":\"applied\"" >&2; exit 1; }
+
+          sudo systemctl is-active exim4
+          sudo systemctl is-active dovecot
+          sudo ss -H -tlnp | grep ':25 ' | grep -q exim4
+          sudo ss -H -tlnp | grep ':993 ' | grep -q dovecot
+
+      - name: "Scenario 26 cleanup: restore this runner's real apt sources"
+        run: |
+          sudo mv /tmp/lesta-apt-sources-backup-mail/sources.list /etc/apt/sources.list 2>/dev/null || true
+          for f in /tmp/lesta-apt-sources-backup-mail/sources.list.d/*; do
+            [ -e "${f}" ] || continue
+            sudo mv "${f}" /etc/apt/sources.list.d/
+          done
+          sudo rm -rf /tmp/lesta-apt-sources-backup-mail
+          sudo apt-get update
+
+      # --- Scenario 27: tampered offline bundle (mail) --------------------
+      #
+      # Mirrors Scenario 10's own proof for mail: a real corruption of one
+      # vendored .deb's actual bytes must be rejected by
+      # verify_offline_bundle_artifacts BEFORE dpkg -i ever runs, exiting 13
+      # with a "checksum_mismatch" error, leaving the already-installed mail
+      # from Scenario 26 completely unmutated.
+
+      - name: "Scenario 27 setup: build a fresh real offline bundle for mail and corrupt one vendored .deb's actual bytes"
+        run: |
+          sudo rm -rf /tmp/lesta-mail-bundle-tampered
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle-tampered --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve" --bundle-name mail
+          target_deb=$(ls /tmp/lesta-mail-bundle-tampered/exim4-daemon-heavy_*.deb | head -n1)
+          echo "corrupting ${target_deb}"
+          sudo truncate -s 128 "${target_deb}"
+
+      - name: "Scenario 27: confirm the pre-tamper baseline (exim4-daemon-heavy's real installed version and binary mtime, from Scenario 26's successful offline install)"
+        run: |
+          baseline_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy)
+          baseline_mtime=$(stat -c %Y /usr/sbin/exim4)
+          echo "s27_baseline_version=${baseline_version}" >> "${GITHUB_ENV}"
+          echo "s27_baseline_mtime=${baseline_mtime}" >> "${GITHUB_ENV}"
+
+      - name: "Scenario 27: tampered offline bundle must be rejected with exit 13 before any mutation"
+        run: |
+          set +e
+          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --offline-bundle /tmp/lesta-mail-bundle-tampered 2>/tmp/scenario27-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario27-stderr.log || true
+          if [ "${status}" -ne 13 ]; then
+            echo "expected exit 13 (EXIT_VERIFICATION_FAILURE), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"checksum_mismatch"' \
+            || { echo "expected the result body to contain \"code\":\"checksum_mismatch\"" >&2; exit 1; }
+
+      - name: "Scenario 27: confirm mail was never mutated by the rejected tampered install"
+        run: |
+          post_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy)
+          post_mtime=$(stat -c %Y /usr/sbin/exim4)
+          if [ "${post_version}" != "${s27_baseline_version}" ] || [ "${post_mtime}" != "${s27_baseline_mtime}" ]; then
+            echo "expected exim4-daemon-heavy's installed version/binary to be completely unchanged after the rejected tampered install (baseline version=${s27_baseline_version} mtime=${s27_baseline_mtime}; got version=${post_version} mtime=${post_mtime})" >&2
+            exit 1
+          fi
+          sudo systemctl is-active exim4
+          sudo systemctl is-active dovecot
+
+      - name: "Scenario 27 cleanup: remove both mail offline bundles"
+        run: sudo rm -rf /tmp/lesta-mail-bundle-tampered /tmp/lesta-mail-bundle
+
+      - name: "Post-Scenario-26/27 fixup: reconcile this runner's own apt state after mail's offline bundle install"
+        run: sudo apt-get install -y -f
+
       # --- Live-path non-regression note --------------------------------
       #
       # No new scenario is needed to prove the live apt-get install path

@@ -45,18 +45,20 @@
 # privkey}.pem). Preflight fails closed if that certificate doesn't exist
 # yet -- this installer never issues one itself.
 #
+# --offline-bundle support mirrors mariadb/install.sh's own precedent
+# exactly (the closest existing multi-package bundle): exim4-daemon-heavy
+# and dovecot-imapd/dovecot-lmtpd/dovecot-sieve are vendored and retained
+# together as one bundle/one generation, since they are installed and rolled
+# back as a unit here, the same "one shared package underlies both" framing
+# mariadb/install.sh's own comment uses for its two systemd instances.
+#
 # Deliberately out of scope for this pass, disclosed rather than silently
-# absent: --offline-bundle support (every other real-package installer in
-# this family has it; wiring exim4-daemon-heavy/dovecot into
-# build-release.sh's own vendoring is separate infrastructure work), real
-# antivirus/antispam daemon installation (clamd/spamd -- domains.list's own
-# sibling antivirus.list/antispam.list flag files are rendered by the Go
-# agent unconditionally already, but this installer never wires an
-# acl_smtp_data malware/spam ACL condition to them, since referencing those
-# conditions with no scanner daemon actually running would make Exim fail
-# outright rather than degrade), and DKIM DNS TXT record publication (no
-# protocol channel carries the derived public key back to Laravel yet --
-# see dkim.go's own doc comment).
+# absent: real antivirus/antispam daemon installation (clamd/spamd --
+# domains.list's own sibling antivirus.list/antispam.list flag files are
+# rendered by the Go agent unconditionally already, but this installer never
+# wires an acl_smtp_data malware/spam ACL condition to them, since
+# referencing those conditions with no scanner daemon actually running would
+# make Exim fail outright rather than degrade).
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -91,6 +93,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
 . "${INSTALL_ROOT}/lib/selftest.sh"
+# shellcheck source=../../lib/offline-bundle.sh
+. "${INSTALL_ROOT}/lib/offline-bundle.sh"
 
 BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
 FIREWALL_MANIFEST="${INSTALL_ROOT}/services/firewall/manifest.json"
@@ -132,6 +136,7 @@ export RELEASE_PATH="/etc/lesta/mail-release"
 MODE=""
 YES=0
 MAIL_HOSTNAME=""
+OFFLINE_BUNDLE=""
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -141,7 +146,7 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--offline-bundle <path>] [--yes] [--help]
 
   --dry-run                Run preflight and report what would change. No mutation.
   --apply                  Apply the installer. Requires --yes and --mail-hostname.
@@ -165,6 +170,13 @@ Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname 
                            /var/lib/lesta/acme/certs/<fqdn>/{fullchain,
                            privkey}.pem before this installer will apply --
                            see this file's own top comment.
+  --offline-bundle <path>  Optional. Installs exim4-daemon-heavy and
+                           dovecot-imapd/dovecot-lmtpd/dovecot-sieve from a
+                           pre-vendored, checksum-verified bundle (see
+                           .install/scripts/build-release.sh) instead of a
+                           live apt-get install, requiring no network
+                           access. All four packages are retained and
+                           rolled back together as one generation.
   --yes                    Required with --apply/--prepare-config: non-interactive confirmation.
   --help                   Print this message.
 USAGE
@@ -211,6 +223,15 @@ parse_args() {
                 ;;
             --mail-hostname=*)
                 MAIL_HOSTNAME="${1#--mail-hostname=}"
+                shift
+                ;;
+            --offline-bundle)
+                [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires a value"
+                OFFLINE_BUNDLE="$2"
+                shift 2
+                ;;
+            --offline-bundle=*)
+                OFFLINE_BUNDLE="${1#--offline-bundle=}"
                 shift
                 ;;
             --yes)
@@ -315,6 +336,15 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+mail_would_install_note() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note mail "${OFFLINE_BUNDLE}" exim4-daemon-heavy)"
+    else
+        printf 'exim4-daemon-heavy and dovecot-imapd/dovecot-lmtpd/dovecot-sieve would be installed'
+    fi
+}
+
 emit_dry_run_result_and_exit() {
     local install_state
     install_state=$(preflight_classify_install_state)
@@ -322,7 +352,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway mail domain against the real, just-installed exim/dovecot"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "" "exim4-daemon-heavy and dovecot-imapd/dovecot-lmtpd/dovecot-sieve would be installed; ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; both services would be enabled, restarted, and health-probed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "$(mail_would_install_note); ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; both services would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -456,6 +486,10 @@ PORTS
     preflight_check_lesta_identity || failed=1
     preflight_check_dovecot_include || failed=1
     preflight_check_mail_tls_certificate || failed=1
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+    fi
 
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
@@ -720,6 +754,60 @@ mail_health_probe() {
     return 1
 }
 
+# install_mail_offline_bundle <bundle_dir>
+# The --offline-bundle counterpart to the live 'apt-get install -y
+# exim4-daemon-heavy' + 'apt-get install -y dovecot-imapd dovecot-lmtpd
+# dovecot-sieve' path below: verifies every vendored .deb first (fail
+# closed, no mutation before this returns), then installs all four packages
+# in one dpkg -i, requiring no network access at all. Mirrors
+# mariadb/install.sh's own install_mariadb_offline_bundle exactly, generation-
+# retained under exim4-daemon-heavy's own version (the seed artifact), since
+# all four packages are installed and rolled back together as one unit.
+install_mail_offline_bundle() {
+    local bundle_dir="$1" out
+
+    log_info "install_mail_offline_bundle: installing exim4-daemon-heavy/dovecot-imapd/dovecot-lmtpd/dovecot-sieve from offline bundle ${bundle_dir} (no network access required)"
+
+    offline_bundle_retain_generation mail "${bundle_dir}" exim4-daemon-heavy
+
+    verify_offline_bundle_artifacts "${bundle_dir}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "${bundle_dir}" "every vendored .deb in the offline bundle matched its ${BUNDLE_MANIFEST_FILENAME} sha256; proceeding to offline install"
+
+    if ! out=$(install_offline_bundle_debs "${bundle_dir}"); then
+        # A real package's own postinst script can itself try to start the
+        # service, so a genuinely broken new generation can make dpkg -i
+        # itself fail here, before this function's own later, separate
+        # checks below ever run. offline_bundle_retain_generation above has
+        # already retired the last-good generation to previous/, so a real
+        # rollback is exactly as available and warranted here as it is for
+        # a failure caught later (see nginx/install.sh's own identical
+        # comment for the real CI failure that confirmed this).
+        mail_fail_health "${EXIT_MUTATION_FAILURE}" dpkg_install_failed "${bundle_dir}" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+
+    offline_bundle_snapshot_current mail "${bundle_dir}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" generation_retained "/var/lib/lesta/mail/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if exim4-daemon-heavy's own version actually changed. All four vendored packages are retained and rolled back together as one unit."
+}
+
+# mail_fail_health <exit_code> <error_code> <path> <message>
+# Wraps every package-version-dependent failure site in install_mail below
+# (systemctl enable/restart and TCP health-probe failures for both exim4
+# and dovecot): on the live path (OFFLINE_BUNDLE empty) this is byte-for-byte
+# the same plain fail_step call these sites always made; only the
+# --offline-bundle path additionally attempts an automatic rollback to the
+# previous retained generation first. One shared bundle/generation underlies
+# both exim4 and dovecot here, so a rollback triggered by either service's
+# own health failure restarts BOTH exim4 and dovecot, never just the one
+# whose check failed -- mirroring mariadb_fail_health's own identical
+# reasoning for its two systemd instances.
+mail_fail_health() {
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mail "exim4 dovecot"
+    else
+        fail_step "$1" "$2" "$3" "$4"
+    fi
+}
+
 install_mail() {
     log_info "install_mail: installing exim4/dovecot and activating ${MAIL_SMTP_IMAP_CAPABILITY}"
 
@@ -758,30 +846,36 @@ install_mail() {
     mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
 
-    # --- exim4-daemon-heavy: the "heavy" variant is required for DKIM
-    # support (exim4-daemon-light is compiled without it) --------------------
-    if ! out=$(apt-get install -y exim4-daemon-heavy 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    # --- exim4-daemon-heavy (the "heavy" variant is required for DKIM
+    # support; exim4-daemon-light is compiled without it) and
+    # dovecot-imapd/dovecot-lmtpd/dovecot-sieve ------------------------------
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        install_mail_offline_bundle "${OFFLINE_BUNDLE}"
+    else
+        if ! out=$(apt-get install -y exim4-daemon-heavy 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y exim4-daemon-heavy succeeded"
+
+        if ! out=$(apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve succeeded"
     fi
 
     installed_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy 2>/dev/null || true)
     if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed exim4-daemon-heavy version after apt-get install"
+        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed exim4-daemon-heavy version after install"
     fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y exim4-daemon-heavy succeeded; dpkg-query reports version ${installed_version}"
-
-    # --- dovecot-imapd/dovecot-lmtpd/dovecot-sieve ---------------------------
-    if ! out=$(apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1); then
-        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "" "dpkg-query reports exim4-daemon-heavy version ${installed_version}"
 
     installed_version=$(dpkg-query -W -f='${Version}' dovecot-core 2>/dev/null || true)
     if [ -z "${installed_version}" ]; then
-        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed dovecot-core version after apt-get install"
+        fail_step "${EXIT_MUTATION_FAILURE}" apt_install_unverifiable "" "dpkg-query could not report an installed dovecot-core version after install"
     fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve succeeded; dpkg-query reports dovecot-core version ${installed_version}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "" "dpkg-query reports dovecot-core version ${installed_version}"
 
     # --- force Exim into non-split mode: Debian's own sanctioned "I want
     # full manual control over exim4.conf" switch, required by this file's
@@ -804,7 +898,7 @@ install_mail() {
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" regenerated "/var/lib/exim4/config.autogenerated" "update-exim4.conf -v regenerated the live config from ${EXIM_CONF_PATH} (non-split mode: this is a direct reflection of it, not a separate assembly)"
 
     if ! out=$(exim4 -bV 2>&1); then
-        fail_step "${EXIT_HEALTH_FAILURE}" exim_config_invalid "${EXIM_CONF_PATH}" "exim4 -bV (validating the real, live-resolved config, no -C override) failed: $(printf '%s' "${out}" | tr '\n' ' ')"
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" exim_config_invalid "${EXIM_CONF_PATH}" "exim4 -bV (validating the real, live-resolved config, no -C override) failed: $(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" validated "" "exim4 -bV passed against the real, live-resolved config"
 
@@ -834,32 +928,32 @@ install_mail() {
     install -d -m 0750 -o root -g lesta "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 0750 root:lesta"
 
-    systemctl enable exim4 || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable exim4 failed"
+    systemctl enable exim4 || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable exim4 failed"
 
     if ! out=$(systemctl restart exim4 2>&1); then
-        fail_step "${EXIT_HEALTH_FAILURE}" exim_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" exim_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable exim4 + systemctl restart exim4 succeeded"
 
-    mail_health_probe 25 || fail_step "${EXIT_HEALTH_FAILURE}" exim_health_check_failed "" "exim4 did not answer a TCP health probe on 127.0.0.1:25 after restart"
+    mail_health_probe 25 || mail_fail_health "${EXIT_HEALTH_FAILURE}" exim_health_check_failed "" "exim4 did not answer a TCP health probe on 127.0.0.1:25 after restart"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:25 succeeded"
 
     # lesta.conf (Dovecot) was already written above, before the dovecot
     # packages were installed (see this function's own comment on why).
 
     if ! out=$(doveconf -n 2>&1 >/dev/null); then
-        fail_step "${EXIT_HEALTH_FAILURE}" dovecot_config_invalid "${LESTA_DOVECOT_CONF}" "doveconf -n reported errors: $(printf '%s' "${out}" | tr '\n' ' ')"
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_config_invalid "${LESTA_DOVECOT_CONF}" "doveconf -n reported errors: $(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" validated "" "doveconf -n passed against the real, live-resolved config"
 
-    systemctl enable dovecot || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable dovecot failed"
+    systemctl enable dovecot || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable dovecot failed"
 
     if ! out=$(systemctl restart dovecot 2>&1); then
-        fail_step "${EXIT_HEALTH_FAILURE}" dovecot_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable dovecot + systemctl restart dovecot succeeded"
 
-    mail_health_probe 993 || fail_step "${EXIT_HEALTH_FAILURE}" dovecot_health_check_failed "" "dovecot did not answer a TCP health probe on 127.0.0.1:993 after restart"
+    mail_health_probe 993 || mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_health_check_failed "" "dovecot did not answer a TCP health probe on 127.0.0.1:993 after restart"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:993 succeeded"
 
     checkpoint_write install_mail "${MANIFEST_DIGEST}"
