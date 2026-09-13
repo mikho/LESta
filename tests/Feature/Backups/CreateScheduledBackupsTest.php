@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AuditEvent;
 use App\Models\Backup;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -57,7 +58,7 @@ test('the created backup has no attributed actor, since this is a system-initiat
 
     $backup = Backup::where('node_id', $node->id)->first();
 
-    expect(\App\Models\AuditEvent::where('action', 'backup.created')
+    expect(AuditEvent::where('action', 'backup.created')
         ->where('auditable_id', $backup->id)
         ->whereNull('actor_id')
         ->exists())->toBeTrue();
