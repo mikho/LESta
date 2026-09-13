@@ -312,8 +312,8 @@ func TestMailCapability_DKIM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected a real DKIM private key to exist at %s: %v", keyPath, err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("expected the DKIM private key to be mode 0600, got %v", info.Mode().Perm())
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("expected the DKIM private key to be mode 0640 (group-lesta readable, so the mail installer's Debian-exim group membership can actually sign with it), got %v", info.Mode().Perm())
 	}
 
 	pubPath := filepath.Join(d.Config.DKIMKeyRoot, domain, "lesta1.public")

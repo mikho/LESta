@@ -28,10 +28,17 @@ func (c *MailCapability) dkimPublicKeyPath(domain string) string {
 }
 
 // ensureDKIMKey generates a real RSA keypair for domain if dkim is enabled
-// and no key exists yet. The private key is written mode 0600 under
-// DKIMKeyRoot and NEVER read back into this process's own return values,
-// any generation meta, or any ResultEnvelope field -- per the Mail Threat
-// Model's own non-negotiable prohibition, it must never leave this node.
+// and no key exists yet. The private key is written mode 0640, owned
+// lesta-agent:lesta (the daemon's own real identity and primary group --
+// see .install/services/agent-daemon/install.sh), under DKIMKeyRoot and
+// NEVER read back into this process's own return values, any generation
+// meta, or any ResultEnvelope field -- per the Mail Threat Model's own
+// non-negotiable prohibition, it must never leave this node. It is not
+// mode 0600: real signing happens inside the Exim daemon process (a
+// different system identity, Debian-exim on Debian/Ubuntu), which the
+// mail installer adds to the lesta group specifically so it can read this
+// file -- 0600 would make every real signing attempt fail outright with a
+// permission error, discovered while building that installer.
 //
 // The derived PUBLIC key is written alongside it (mode 0644: it is not a
 // secret) so an operator or a future control-plane mechanism can read it to
@@ -60,7 +67,7 @@ func (c *MailCapability) ensureDKIMKey(domain string, enabled bool) error {
 		return fmt.Errorf("checking for existing DKIM key for %s: %w", domain, err)
 	}
 
-	if err := os.MkdirAll(c.dkimKeyDir(domain), 0o700); err != nil {
+	if err := os.MkdirAll(c.dkimKeyDir(domain), 0o750); err != nil {
 		return fmt.Errorf("creating DKIM key directory for %s: %w", domain, err)
 	}
 
@@ -71,7 +78,7 @@ func (c *MailCapability) ensureDKIMKey(domain string, enabled bool) error {
 		return fmt.Errorf("generating DKIM private key for %s: %w: %s", domain, err, string(out))
 	}
 
-	if err := os.Chmod(privPath, 0o600); err != nil {
+	if err := os.Chmod(privPath, 0o640); err != nil {
 		return fmt.Errorf("setting DKIM private key permissions for %s: %w", domain, err)
 	}
 
