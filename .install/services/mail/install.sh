@@ -731,6 +731,23 @@ install_mail() {
     install -d -m 0700 -o vmail -g vmail "${VMAIL_HOME}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${VMAIL_HOME}" "failed to create ${VMAIL_HOME}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${VMAIL_HOME}" "virtual mailbox root present, mode 0700 vmail:vmail"
 
+    # --- lesta.conf (Dovecot) is written BEFORE dovecot-imapd/dovecot-lmtpd/
+    # dovecot-sieve are installed below, not after: dovecot.conf's own
+    # !include ${LESTA_DOVECOT_CONF} line already exists at this point
+    # (preflight_check_dovecot_include already required it), and installing
+    # those packages triggers dovecot-core's own postinst to restart the
+    # service immediately -- which re-parses dovecot.conf right then.
+    # Dovecot's plain !include (unlike !include_try) hard-fails with "No
+    # matches" if the target doesn't exist yet, exactly like bind9/
+    # install.sh's own placeholder-fragment-before-package-install
+    # precedent (see that file's own comment on the identical ordering
+    # requirement for named.conf's include).
+    install -d -m 0750 -o root -g lesta "${DOVECOT_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0750 root:lesta"
+
+    mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
+
     # --- exim4-daemon-heavy: the "heavy" variant is required for DKIM
     # support (exim4-daemon-light is compiled without it) --------------------
     if ! out=$(apt-get install -y exim4-daemon-heavy 2>&1); then
@@ -817,13 +834,8 @@ install_mail() {
     mail_health_probe 25 || fail_step "${EXIT_HEALTH_FAILURE}" exim_health_check_failed "" "exim4 did not answer a TCP health probe on 127.0.0.1:25 after restart"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:25 succeeded"
 
-    # --- lesta.conf (Dovecot): written outright, !include-d from
-    # dovecot.conf (preflight already confirmed the include line exists) ----
-    install -d -m 0750 -o root -g lesta "${DOVECOT_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0750 root:lesta"
-
-    mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}"
+    # lesta.conf (Dovecot) was already written above, before the dovecot
+    # packages were installed (see this function's own comment on why).
 
     if ! out=$(doveconf -n 2>&1 >/dev/null); then
         fail_step "${EXIT_HEALTH_FAILURE}" dovecot_config_invalid "${LESTA_DOVECOT_CONF}" "doveconf -n reported errors: $(printf '%s' "${out}" | tr '\n' ' ')"
