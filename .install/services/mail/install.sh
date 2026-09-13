@@ -433,11 +433,21 @@ run_preflight() {
         preflight_check_capacity "${dir}" || failed=1
     done
 
+    # Port 993 is owned by dovecot, not exim4: an idempotent re-apply must
+    # recognize each daemon's own already-listening process as expected,
+    # not just exim4's -- discovered via a real CI failure where a
+    # perfectly healthy re-apply was rejected as "port 993/tcp is already
+    # in use by 'dovecot'" because this loop named exim4 as the expected
+    # owner for every port uniformly.
     while IFS=' ' read -r protocol port; do
         if [ -z "${protocol}" ] || [ -z "${port}" ]; then
             continue
         fi
-        preflight_check_port_free "${port}" "${protocol}" exim4 || failed=1
+
+        case "${port}" in
+            993) preflight_check_port_free "${port}" "${protocol}" dovecot || failed=1 ;;
+            *) preflight_check_port_free "${port}" "${protocol}" exim4 || failed=1 ;;
+        esac
     done <<PORTS
 $(manifest_extract_port_specs "${MAIL_MANIFEST}")
 PORTS
