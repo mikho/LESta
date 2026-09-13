@@ -62,3 +62,54 @@ test('a user with no account membership at all is denied', function () {
 
     $this->actingAs($stranger)->get(route('usage.index'))->assertNotFound();
 });
+
+test('a provider admin can view an arbitrary account own usage via the account query param', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $account = Account::factory()->create();
+    $node = Node::factory()->create();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create();
+    $mailAccount = MailAccount::factory()->for($mailDomain)->create(['local_part' => 'sales']);
+
+    UsageSnapshot::factory()
+        ->for($account)
+        ->for($node)
+        ->for($mailAccount, 'snapshotable')
+        ->create(['disk_bytes' => 999]);
+
+    $this->actingAs($admin)
+        ->get(route('usage.index', ['account' => $account->uuid]))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('usage/index')
+            ->has('snapshots.data', 1)
+            ->where('snapshots.data.0.disk_bytes', 999)
+            ->where('viewingAccount.uuid', $account->uuid)
+            ->where('viewingAccount.name', $account->name)
+        );
+});
+
+test('a plain member of one account cannot view another account own usage via the account query param', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $otherAccount = Account::factory()->create();
+    $node = Node::factory()->create();
+
+    UsageSnapshot::factory()->for($otherAccount)->for($node)->create();
+
+    $this->actingAs($owner)
+        ->get(route('usage.index', ['account' => $otherAccount->uuid]))
+        ->assertForbidden();
+});
+
+test('the own-account view never sets viewingAccount', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->get(route('usage.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('usage/index')
+            ->where('viewingAccount', null)
+        );
+});

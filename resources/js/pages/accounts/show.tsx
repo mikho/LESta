@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -22,6 +22,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import accounts from '@/routes/accounts';
+import usage from '@/routes/usage';
 import type { Account, AccountPackage } from '@/types';
 
 export default function Show({
@@ -114,7 +115,18 @@ export default function Show({
                 </Form>
 
                 <div className="space-y-4 rounded-lg border p-4">
-                    <Heading variant="small" title="Resources" />
+                    <div className="flex items-center justify-between gap-4">
+                        <Heading variant="small" title="Resources" />
+
+                        <Link
+                            href={usage.index.url({
+                                query: { account: account.uuid },
+                            })}
+                            className="text-sm underline"
+                        >
+                            View usage
+                        </Link>
+                    </div>
 
                     <dl className="grid grid-cols-2 gap-4 text-sm">
                         <div>
