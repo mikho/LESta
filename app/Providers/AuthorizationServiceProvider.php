@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Contracts\ProviderAdminManaged;
+use App\Models\Backup;
 use App\Models\Node;
 use App\Models\Package;
 use App\Models\User;
@@ -28,6 +29,7 @@ class AuthorizationServiceProvider extends ServiceProvider
     private const array PERMISSION_BACKED_MODELS = [
         Package::class,
         Node::class,
+        Backup::class,
     ];
 
     /**
