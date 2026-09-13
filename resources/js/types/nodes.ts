@@ -36,6 +36,7 @@ export type Node = {
     last_seen_at: string | null;
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
+    backups_scheduled?: boolean;
     capabilities_count?: number;
     capabilities?: NodeCapability[];
     recent_operations?: NodeProvisioningOperation[];

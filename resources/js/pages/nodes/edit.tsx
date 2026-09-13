@@ -590,6 +590,41 @@ export default function Edit({ node }: { node: Node }) {
                     </Form>
                 </div>
 
+                <div className="space-y-4 rounded-lg border p-4">
+                    <Heading
+                        variant="small"
+                        title={
+                            node.backups_scheduled
+                                ? 'Scheduled backups: on'
+                                : 'Scheduled backups: off'
+                        }
+                        description="When on, a new backup is dispatched for this node every day. Requires an active backup.encrypted-artifacts.v1 capability."
+                    />
+
+                    <Form
+                        {...(node.backups_scheduled
+                            ? NodeController.disableScheduledBackups.form(node)
+                            : NodeController.enableScheduledBackups.form(node))}
+                        options={{ preserveScroll: true }}
+                    >
+                        {({ processing }) => (
+                            <Button
+                                variant={
+                                    node.backups_scheduled
+                                        ? 'outline'
+                                        : 'default'
+                                }
+                                disabled={processing}
+                                data-test="toggle-scheduled-backups-button"
+                            >
+                                {node.backups_scheduled
+                                    ? 'Turn off'
+                                    : 'Turn on'}
+                            </Button>
+                        )}
+                    </Form>
+                </div>
+
                 <div className="space-y-6">
                     <Heading
                         variant="small"

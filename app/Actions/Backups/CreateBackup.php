@@ -22,39 +22,58 @@ class CreateBackup
     {
         Gate::forUser($actor)->authorize('create', Backup::class);
 
-        return DB::transaction(function () use ($actor, $node, $data): Backup {
-            $capability = app(ResolvesBackupCapableNode::class)->resolveFor($node);
+        return DB::transaction(fn (): Backup => $this->create($node, $data, $actor));
+    }
 
-            $encryptionKey = bin2hex(random_bytes(32));
+    /**
+     * The scheduled-backup counterpart to handle(): CreateScheduledBackups runs on the
+     * schedule, not from a user request, so there is no actor to authorize against or
+     * attribute an AuditEvent to (actor_type/actor_id are nullable for exactly this, mirroring
+     * DeleteBackup::handleSystemInitiated's own identical precedent).
+     *
+     * @param  array<string, mixed>  $data  Expected shape: array{label?: string|null}
+     */
+    public function handleSystemInitiated(Node $node, array $data): Backup
+    {
+        return DB::transaction(fn (): Backup => $this->create($node, $data, null));
+    }
 
-            $backup = Backup::query()->create([
-                'node_id' => $node->id,
-                'label' => $data['label'] ?? null,
-                'encryption_key' => $encryptionKey,
-                'desired_state_version' => 1,
-            ]);
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function create(Node $node, array $data, ?User $actor): Backup
+    {
+        $capability = app(ResolvesBackupCapableNode::class)->resolveFor($node);
 
-            $correlationId = (string) Str::uuid();
+        $encryptionKey = bin2hex(random_bytes(32));
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $backup->getMorphClass(),
-                'auditable_id' => $backup->getKey(),
-                'action' => 'backup.created',
-                'correlation_id' => $correlationId,
-            ]);
+        $backup = Backup::query()->create([
+            'node_id' => $node->id,
+            'label' => $data['label'] ?? null,
+            'encryption_key' => $encryptionKey,
+            'desired_state_version' => 1,
+        ]);
 
-            app(RecordsProvisioningOperation::class)->record(
-                $backup,
-                $capability,
-                ProvisioningVerb::Create,
-                $backup->toProvisioningPayload($encryptionKey),
-                $correlationId,
-                1,
-            );
+        $correlationId = (string) Str::uuid();
 
-            return $backup;
-        });
+        AuditEvent::create([
+            'actor_type' => $actor?->getMorphClass(),
+            'actor_id' => $actor?->getKey(),
+            'auditable_type' => $backup->getMorphClass(),
+            'auditable_id' => $backup->getKey(),
+            'action' => 'backup.created',
+            'correlation_id' => $correlationId,
+        ]);
+
+        app(RecordsProvisioningOperation::class)->record(
+            $backup,
+            $capability,
+            ProvisioningVerb::Create,
+            $backup->toProvisioningPayload($encryptionKey),
+            $correlationId,
+            1,
+        );
+
+        return $backup;
     }
 }
