@@ -883,6 +883,13 @@ mail_fail_health() {
 # discipline (see mail_health_probe's own identical disclosure). Uses nc
 # directly (already relied on elsewhere in this file) rather than a
 # separate clamdscan client package, keeping this self-contained.
+#
+# Only ever called indirectly, by name, via wait_for_health_probe below
+# (wait_for_health_probe clamd_health_probe 30) -- CI's own pinned lint
+# tool version (0.9.0) cannot trace that dynamic dispatch and misreports
+# this whole function (and spamd_health_probe below) as unreachable
+# (SC2317/SC2329); a newer local copy of that same tool resolves it fine.
+# shellcheck disable=SC2317,SC2329
 clamd_health_probe() {
     command -v nc >/dev/null 2>&1 || return 1
     printf 'PING\n' | nc -U -w 5 "${CLAMD_SOCKET}" 2>/dev/null | grep -q 'PONG'
@@ -894,6 +901,11 @@ clamd_health_probe() {
 # answering "PONG") rather than a bare TCP-connect probe, for the identical
 # reason clamd_health_probe speaks ClamAV's real protocol instead of using
 # mail_health_probe's own generic connect-only check.
+#
+# See clamd_health_probe's own identical comment on why this needs an
+# explicit shellcheck disable: only ever called indirectly, by name, via
+# wait_for_health_probe.
+# shellcheck disable=SC2317,SC2329
 spamd_health_probe() {
     command -v nc >/dev/null 2>&1 || return 1
     printf 'PING SPAMC/1.5\r\n\r\n' | nc -w 5 127.0.0.1 "${SPAMD_PORT}" 2>/dev/null | grep -q 'PONG'
