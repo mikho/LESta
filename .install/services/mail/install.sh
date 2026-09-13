@@ -679,7 +679,7 @@ acl_check_data:
           message = "This message contains a virus (\$malware_name) and was rejected"
 
   deny    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
-          spam = Debian-exim:true
+          spam = Debian-exim/defer_ok
           message = "This message was rejected as spam (score: \$spam_score)"
 
   accept
