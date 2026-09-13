@@ -73,6 +73,29 @@ func ParseObservePayload(raw json.RawMessage) (Payload, error) {
 	return decodeWithArtifactPath(raw)
 }
 
+// ParseRestorePayload decodes and validates raw for a restore operation:
+// unlike every other verb here, restore needs BOTH fields at once -- the
+// artifact to read (same as delete/observe) AND the key to decrypt it with
+// (same as create) -- since decryption happens on this node, not in
+// Laravel, the archive itself never having left local disk in the first
+// place (see RestoreBackup.php's own doc comment on why).
+func ParseRestorePayload(raw json.RawMessage) (Payload, error) {
+	p, err := decodeWithArtifactPath(raw)
+	if err != nil {
+		return Payload{}, err
+	}
+
+	if p.EncryptionKey == nil || !encryptionKeyPattern.MatchString(*p.EncryptionKey) {
+		return Payload{}, &ValidationError{
+			Code:    "invalid_encryption_key",
+			Message: "encryption_key must be a 64-character lowercase hex string (a 32-byte AES-256 key)",
+			Field:   "encryption_key",
+		}
+	}
+
+	return p, nil
+}
+
 func decodeWithArtifactPath(raw json.RawMessage) (Payload, error) {
 	p, err := decode(raw)
 	if err != nil {

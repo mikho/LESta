@@ -25,6 +25,7 @@ test('a regular tenant-account user is denied on every backup route', function (
     $this->actingAs($owner)->delete(route('backups.destroy', $backup))->assertForbidden();
     $this->actingAs($owner)->post(route('backups.prepare-download', $backup))->assertForbidden();
     $this->actingAs($owner)->get(route('backups.download', $backup))->assertForbidden();
+    $this->actingAs($owner)->post(route('backups.restore', $backup))->assertForbidden();
 });
 
 test('a provider admin can list backups', function () {
@@ -138,6 +139,52 @@ test('preparing an already-preparing backup for download fails validation', func
 
     $this->actingAs($admin)
         ->post(route('backups.prepare-download', $backup))
+        ->assertSessionHasErrors('backup');
+});
+
+test('a provider admin can restore a completed backup', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    $this->actingAs($admin)
+        ->post(route('backups.restore', $backup))
+        ->assertRedirect();
+
+    expect(ProvisioningOperation::where('provisionable_type', $backup->getMorphClass())
+        ->where('provisionable_id', $backup->id)
+        ->where('operation', 'restore')
+        ->exists())->toBeTrue();
+});
+
+test('restoring a non-completed backup fails validation, not a 500', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $backup = Backup::factory()->for($node)->create();
+
+    $this->actingAs($admin)
+        ->post(route('backups.restore', $backup))
+        ->assertSessionHasErrors('backup');
+});
+
+test('restoring an already-restoring backup fails validation', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    ProvisioningOperation::factory()->create([
+        'provisionable_type' => $backup->getMorphClass(),
+        'provisionable_id' => $backup->id,
+        'resource_id' => $backup->uuid,
+        'capability' => 'backup.encrypted-artifacts.v1',
+        'operation' => 'restore',
+        'status' => 'dispatched',
+    ]);
+
+    $this->actingAs($admin)
+        ->post(route('backups.restore', $backup))
         ->assertSessionHasErrors('backup');
 });
 

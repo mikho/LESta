@@ -145,10 +145,26 @@ class Node extends Model implements ProviderAdminManaged
     }
 
     /**
+     * @return HasMany<MailDomain, $this>
+     */
+    public function mailDomains(): HasMany
+    {
+        return $this->hasMany(MailDomain::class);
+    }
+
+    /**
      * @return HasMany<ProvisioningOperation, $this>
      */
     public function provisioningOperations(): HasMany
     {
         return $this->hasMany(ProvisioningOperation::class);
+    }
+
+    /**
+     * @return HasMany<Backup, $this>
+     */
+    public function backups(): HasMany
+    {
+        return $this->hasMany(Backup::class);
     }
 }

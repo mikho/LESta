@@ -95,11 +95,15 @@ func (c *BackupCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 	ctx, cancel := context.WithDeadline(ctx, op.Deadline)
 	defer cancel()
 
-	// Observe is exempted from the idempotency-receipt cache, mirroring the
-	// mail capability's own identical exemption: it must always re-read the
-	// artifact's current bytes fresh, never serve a stale cached reply from
-	// an earlier download-preparation attempt.
-	if op.Operation != protocol.OperationObserve {
+	// Observe and Restore are both exempted from the idempotency-receipt
+	// cache: Observe must always re-read the artifact's current bytes
+	// fresh, never serve a stale cached reply from an earlier download-
+	// preparation attempt (the mail capability's own identical exemption),
+	// and a cached Restore reply would be actively harmful -- it must
+	// always genuinely re-run the real restore, never silently report
+	// "already applied" for what is a rare, deliberate, one-shot recovery
+	// action.
+	if op.Operation != protocol.OperationObserve && op.Operation != protocol.OperationRestore {
 		if prior, ok := c.receipts.Lookup(op.IdempotencyKey); ok {
 			if prior.Status == protocol.StatusApplied || prior.Status == protocol.StatusAlreadyApplied {
 				prior.Status = protocol.StatusAlreadyApplied
@@ -121,16 +125,18 @@ func (c *BackupCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 		result, err = c.applyDelete(op)
 	case protocol.OperationObserve:
 		result, err = c.applyObserve(op)
+	case protocol.OperationRestore:
+		result, err = c.applyRestore(ctx, op)
 	default:
 		result, err = c.rejected(op, "unsupported_operation",
-			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create, delete, and observe", op.Operation), "")
+			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create, delete, observe, and restore", op.Operation), "")
 	}
 
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if op.Operation != protocol.OperationObserve {
+	if op.Operation != protocol.OperationObserve && op.Operation != protocol.OperationRestore {
 		c.receipts.Record(op.IdempotencyKey, result)
 	}
 

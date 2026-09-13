@@ -513,6 +513,7 @@ func backupProductionConfig() backup.Config {
 			databaseTenantCapability:       "/run/mysqld/mysqld.tenant.sock",
 			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
+		VMailRoot: "/var/lib/lesta/mail/vmail",
 	}
 }
 
