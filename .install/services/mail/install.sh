@@ -373,7 +373,7 @@ mail_would_install_note() {
         printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
             "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note mail "${OFFLINE_BUNDLE}" exim4-daemon-heavy)"
     else
-        printf 'exim4-daemon-heavy, dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam, and spamassassin would be installed'
+        printf 'exim4-daemon-heavy, dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam, and spamassassin/spamd would be installed'
     fi
 }
 
@@ -831,7 +831,7 @@ mail_health_probe() {
 install_mail_offline_bundle() {
     local bundle_dir="$1" out
 
-    log_info "install_mail_offline_bundle: installing exim4-daemon-heavy/dovecot-imapd/dovecot-lmtpd/dovecot-sieve/clamav-daemon/clamav-freshclam/spamassassin from offline bundle ${bundle_dir} (no network access required)"
+    log_info "install_mail_offline_bundle: installing exim4-daemon-heavy/dovecot-imapd/dovecot-lmtpd/dovecot-sieve/clamav-daemon/clamav-freshclam/spamassassin/spamd from offline bundle ${bundle_dir} (no network access required)"
 
     offline_bundle_retain_generation mail "${bundle_dir}" exim4-daemon-heavy
 
@@ -1037,11 +1037,20 @@ install_mail() {
         fi
         add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve succeeded"
 
-        if ! out=$(apt-get install -y clamav-daemon clamav-freshclam spamassassin 2>&1); then
+        # spamd is a real, separate binary package on Ubuntu 24.04, built
+        # from the same spamassassin source but version-locked to it as its
+        # own dependency, not the other way around: it is not pulled in by
+        # installing "spamassassin" alone, Depends or Recommends (confirmed
+        # for real via packages.ubuntu.com and a real CI failure in the
+        # --offline-bundle path, where excluding Recommends during its own
+        # dependency-closure computation -- itself required for an
+        # unrelated, already-fixed real bug -- left spamd out entirely).
+        # Named explicitly here so both install paths always get it.
+        if ! out=$(apt-get install -y clamav-daemon clamav-freshclam spamassassin spamd 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
-        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y clamav-daemon clamav-freshclam spamassassin succeeded"
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y clamav-daemon clamav-freshclam spamassassin spamd succeeded"
     fi
 
     installed_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy 2>/dev/null || true)

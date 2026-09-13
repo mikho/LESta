@@ -2635,7 +2635,7 @@ jobs:
 
       - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
         run: |
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin" --bundle-name mail
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin spamd" --bundle-name mail
           ls -la /tmp/lesta-mail-bundle
           cat /tmp/lesta-mail-bundle/bundle-manifest.json
 
@@ -2652,12 +2652,12 @@ jobs:
       - name: "Scenario 26: prove apt itself cannot fetch anything with every source removed"
         run: |
           set +e
-          sudo apt-get install --reinstall --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin >/tmp/scenario26-apt-check.log 2>&1
+          sudo apt-get install --reinstall --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin spamd >/tmp/scenario26-apt-check.log 2>&1
           apt_status=$?
           set -e
           cat /tmp/scenario26-apt-check.log
           if [ "${apt_status}" -eq 0 ]; then
-            echo "expected 'apt-get install --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            echo "expected 'apt-get install --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin spamd' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
             exit 1
           fi
 
@@ -2720,7 +2720,7 @@ jobs:
       - name: "Scenario 27 setup: build a fresh real offline bundle for mail and corrupt one vendored .deb's actual bytes"
         run: |
           sudo rm -rf /tmp/lesta-mail-bundle-tampered
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle-tampered --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin" --bundle-name mail
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle-tampered --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin spamd" --bundle-name mail
           target_deb=$(ls /tmp/lesta-mail-bundle-tampered/exim4-daemon-heavy_*.deb | head -n1)
           echo "corrupting ${target_deb}"
           sudo truncate -s 128 "${target_deb}"
