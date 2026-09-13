@@ -8,10 +8,10 @@ use Illuminate\Console\Command;
 /**
  * Deletes UsageSnapshot rows past the retention window, per the Statistics design's own bounded-
  * collection decision (90 days of raw snapshots): a real, disclosed bound, not an unbounded
- * table left to grow forever. There is no aggregation/rollup into a coarser-grained history yet
- * (e.g. daily -> monthly summaries) -- a real, deliberate v1 boundary, not an oversight: nothing
- * in this pass reads UsageSnapshot for long-range trend reporting yet, only the raw daily rows a
- * future dashboard would need.
+ * table left to grow forever. Long-range history survives this deletion via
+ * App\Console\Commands\RollupUsageSnapshots, which aggregates each completed month into a
+ * UsageSnapshotRollup row before its raw snapshots ever reach this command (see routes/console.php
+ * for the schedule ordering that guarantees this).
  */
 class PruneUsageSnapshots extends Command
 {

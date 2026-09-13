@@ -6,6 +6,7 @@ use App\Models\MailDomain;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\UsageSnapshot;
+use App\Models\UsageSnapshotRollup;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -99,6 +100,50 @@ test('a plain member of one account cannot view another account own usage via th
     $this->actingAs($owner)
         ->get(route('usage.index', ['account' => $otherAccount->uuid]))
         ->assertForbidden();
+});
+
+test('an account member sees their own monthly usage rollups alongside raw snapshots', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create();
+    $mailAccount = MailAccount::factory()->for($mailDomain)->create(['local_part' => 'sales']);
+
+    UsageSnapshotRollup::factory()
+        ->for($account)
+        ->for($node)
+        ->for($mailAccount, 'snapshotable')
+        ->create(['disk_bytes_last' => 54321]);
+
+    $this->actingAs($owner)
+        ->get(route('usage.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('usage/index')
+            ->has('rollups.data', 1)
+            ->where('rollups.data.0.resource_type', 'mail_account')
+            ->where('rollups.data.0.resource_label', 'sales@'.$mailDomain->domain)
+            ->where('rollups.data.0.disk_bytes_last', 54321)
+        );
+});
+
+test('a user only ever sees their own account own usage rollups, never another account own', function () {
+    $ownAccount = Account::factory()->create();
+    $owner = Membership::factory()->for($ownAccount)->owner()->create()->user;
+    $node = Node::factory()->create();
+
+    $otherAccount = Account::factory()->create();
+
+    UsageSnapshotRollup::factory()->for($ownAccount)->for($node)->create();
+    UsageSnapshotRollup::factory()->for($otherAccount)->for($node)->create();
+
+    $this->actingAs($owner)
+        ->get(route('usage.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('usage/index')
+            ->has('rollups.data', 1)
+        );
 });
 
 test('the own-account view never sets viewingAccount', function () {

@@ -10,3 +10,13 @@ export type UsageSnapshot = {
     bytes_sent: number | null;
     collected_at: string;
 };
+
+export type UsageSnapshotRollup = {
+    uuid: string;
+    resource_type: UsageResourceType;
+    resource_label: string;
+    disk_bytes_last: number | null;
+    request_count_sum: number | null;
+    bytes_sent_sum: number | null;
+    period: string;
+};

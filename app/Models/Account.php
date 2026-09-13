@@ -112,6 +112,14 @@ class Account extends Model
     }
 
     /**
+     * @return HasMany<UsageSnapshotRollup, $this>
+     */
+    public function usageSnapshotRollups(): HasMany
+    {
+        return $this->hasMany(UsageSnapshotRollup::class);
+    }
+
+    /**
      * @return HasMany<MailDomain, $this>
      */
     public function mailDomains(): HasMany
