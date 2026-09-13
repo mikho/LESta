@@ -24,6 +24,7 @@ test('backup authorization: only an admin with the full permission catalog passe
         ->and(Gate::forUser($owner)->allows('viewAny', Backup::class))->toBeFalse()
         ->and(Gate::forUser($owner)->allows('create', Backup::class))->toBeFalse()
         ->and(Gate::forUser($owner)->allows('delete', $backup))->toBeFalse()
+        ->and(Gate::forUser($owner)->allows('restore', $backup))->toBeFalse()
 
         ->and(Gate::forUser($member)->allows('view', $backup))->toBeFalse()
         ->and(Gate::forUser($member)->allows('create', Backup::class))->toBeFalse()
@@ -34,7 +35,8 @@ test('backup authorization: only an admin with the full permission catalog passe
         ->and(Gate::forUser($admin)->allows('view', $backup))->toBeTrue()
         ->and(Gate::forUser($admin)->allows('viewAny', Backup::class))->toBeTrue()
         ->and(Gate::forUser($admin)->allows('create', Backup::class))->toBeTrue()
-        ->and(Gate::forUser($admin)->allows('delete', $backup))->toBeTrue();
+        ->and(Gate::forUser($admin)->allows('delete', $backup))->toBeTrue()
+        ->and(Gate::forUser($admin)->allows('restore', $backup))->toBeTrue();
 });
 
 test('a platform role without backups.* permissions cannot view or create backups, even though it is otherwise a real admin role', function () {
@@ -47,7 +49,8 @@ test('a platform role without backups.* permissions cannot view or create backup
 
     expect(Gate::forUser($limitedAdmin)->allows('view', $backup))->toBeFalse()
         ->and(Gate::forUser($limitedAdmin)->allows('create', Backup::class))->toBeFalse()
-        ->and(Gate::forUser($limitedAdmin)->allows('delete', $backup))->toBeFalse();
+        ->and(Gate::forUser($limitedAdmin)->allows('delete', $backup))->toBeFalse()
+        ->and(Gate::forUser($limitedAdmin)->allows('restore', $backup))->toBeFalse();
 });
 
 test('BackupPolicy exposes no update, suspend, or unsuspend ability: a backup is created or deleted, never mutated in between', function () {

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Backups;
 use App\Actions\Backups\CreateBackup;
 use App\Actions\Backups\DeleteBackup;
 use App\Actions\Backups\PrepareBackupDownload;
+use App\Actions\Backups\RestoreBackup;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
@@ -134,6 +135,27 @@ class BackupController extends Controller
     }
 
     /**
+     * Dispatch a real Restore operation asking the owning node to put its own real mail content
+     * and database dumps back, then (once that completes) resync the rest of the node from
+     * current desired state. Asynchronous, same shape as prepareDownload(): this only starts the
+     * restore, it never blocks for the node's own next heartbeat.
+     */
+    public function restore(Request $request, Backup $backup): RedirectResponse
+    {
+        try {
+            app(RestoreBackup::class)->handle($request->user(), $backup);
+        } catch (NoBackupCapableNodeAvailableException) {
+            throw ValidationException::withMessages([
+                'backup' => __('This backup\'s node no longer has an active backup capability.'),
+            ]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Restore started. Mail content and database tables covered by this backup will revert to their state at backup time; the rest of the node will resync from current settings.')]);
+
+        return back();
+    }
+
+    /**
      * Stream a previously-prepared, decrypted backup archive, then delete it: single-use, matching
      * PreparesBackupDownload's own short-lived download_expires_at window. Refuses (rather than
      * throwing) once expired or if the on-disk file is somehow already gone, since a scheduled
@@ -190,6 +212,9 @@ class BackupController extends Controller
             'download_ready' => $backup->download_path !== null && $backup->download_expires_at?->isFuture() === true,
             'download_preparing' => $latest !== null
                 && $latest->operation === ProvisioningVerb::Observe
+                && in_array($latest->status, [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched], true),
+            'restoring' => $latest !== null
+                && $latest->operation === ProvisioningVerb::Restore
                 && in_array($latest->status, [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched], true),
         ];
     }

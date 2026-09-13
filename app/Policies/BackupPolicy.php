@@ -49,4 +49,17 @@ class BackupPolicy
     {
         return $user->hasPermission('backups.download');
     }
+
+    /**
+     * Gates restoring a completed backup's own real, node-local data (mail's own maildir
+     * content, each database capability's own mysqldump output) back onto its owning node, and
+     * the node-wide resync that cascades from it (see RestoreBackup.php/
+     * CascadesRestoreIntoResync.php). A separate, deliberately narrower permission than delete:
+     * restoring overwrites currently-live tenant data with backup-time content, a real,
+     * disclosed data-loss risk delete does not carry.
+     */
+    public function restore(User $user, Backup $backup): bool
+    {
+        return $user->hasPermission('backups.restore');
+    }
 }

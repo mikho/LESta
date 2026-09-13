@@ -166,9 +166,19 @@ class MailDomain extends Model
      * stored column here -- only App\Console\Commands\RetireOldDkimSelectors ever passes it, for
      * exactly the one apply that actually performs a retirement.
      *
+     * $resyncPasswordsByAccountId is a third, distinct inclusion mode, for App\Actions\Nodes\
+     * ResyncNode alone: unlike $includePasswordForAccountId (exactly one account, a genuinely new
+     * plaintext just generated this same request), this includes EVERY listed account's own
+     * already-current password (an account id => plaintext password map, the caller having just
+     * decrypted each MailAccount::password itself) -- real disaster recovery for a node that lost
+     * its own Dovecot passwd file needs every account's working credentials restored at once, not
+     * one at a time, and reusing the already-known password (rather than generating a new one)
+     * means this never disrupts a mailbox owner who keeps using the password they already have.
+     *
+     * @param  array<int, string>  $resyncPasswordsByAccountId
      * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, suspended: bool}
      */
-    public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null, ?string $retireSelector = null): array
+    public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null, ?string $retireSelector = null, array $resyncPasswordsByAccountId = []): array
     {
         return [
             'domain' => $this->domain,
@@ -179,13 +189,15 @@ class MailDomain extends Model
             'dkim_pending_selector' => $this->dkim_pending_selector,
             'dkim_retire_selector' => $retireSelector,
             'catchall_email' => $this->catchall_email,
-            'accounts' => $this->accounts()->get()->map(function (MailAccount $a) use ($includePasswordForAccountId, $plaintextPassword): array {
+            'accounts' => $this->accounts()->get()->map(function (MailAccount $a) use ($includePasswordForAccountId, $plaintextPassword, $resyncPasswordsByAccountId): array {
                 $account = [
                     'local_part' => $a->local_part,
                 ];
 
                 if ($includePasswordForAccountId === $a->id) {
                     $account['password'] = $plaintextPassword;
+                } elseif (array_key_exists($a->id, $resyncPasswordsByAccountId)) {
+                    $account['password'] = $resyncPasswordsByAccountId[$a->id];
                 }
 
                 $account['quota_mb'] = $a->quota_mb;

@@ -66,6 +66,20 @@ test('toProvisioningPayload includes the pending selector when a rotation is in 
         ->toMatchArray(['dkim_active_selector' => 'lesta2', 'dkim_pending_selector' => 'lesta3', 'dkim_retire_selector' => 'lesta1']);
 });
 
+test('toProvisioningPayload includes every listed account own real password when resyncing, never for one not listed', function () {
+    $node = Node::factory()->create();
+    $mailDomain = MailDomain::factory()->for($node)->create();
+    $withPassword = MailAccount::factory()->for($mailDomain)->create();
+    $withoutPassword = MailAccount::factory()->for($mailDomain)->create();
+
+    $payload = $mailDomain->toProvisioningPayload(resyncPasswordsByAccountId: [$withPassword->id => 'a-real-current-password']);
+
+    $byLocalPart = collect($payload['accounts'])->keyBy('local_part');
+
+    expect($byLocalPart[$withPassword->local_part]['password'])->toBe('a-real-current-password')
+        ->and($byLocalPart[$withoutPassword->local_part])->not->toHaveKey('password');
+});
+
 test('toProvisioningPayload includes a password only for the one account explicitly requested', function () {
     $node = Node::factory()->create();
     $mailDomain = MailDomain::factory()->for($node)->create();

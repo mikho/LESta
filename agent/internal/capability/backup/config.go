@@ -39,4 +39,14 @@ type Config struct {
 	// isn't running on this node, not an error -- mirroring StateRoots'
 	// own "absent = not present here" convention exactly.
 	DatabaseDumpSockets map[string]string
+
+	// VMailRoot is mail.smtp-imap.v1's own real Dovecot virtual-mailbox root
+	// (.install/services/mail/install.sh's own VMAIL_HOME, a subdirectory
+	// of its StateRoot) -- the one thing on a node genuinely irreplaceable
+	// from Laravel's own database (real received email), which restore.go's
+	// own applyRestore puts back. Never used by create/delete/observe: this
+	// capability's own archive step already sweeps it up as part of
+	// mail.smtp-imap.v1's ordinary StateRoots entry, so this field exists
+	// purely so restore knows where to write it back to.
+	VMailRoot string
 }

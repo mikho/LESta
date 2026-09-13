@@ -117,4 +117,21 @@ class Backup extends Model implements ProviderAdminManaged
             'artifact_path' => $this->artifact_path,
         ];
     }
+
+    /**
+     * A restore operation needs both fields at once -- which artifact to read (like delete/
+     * observe) AND the key to decrypt it with (like create) -- since decryption happens entirely
+     * on the owning node, the archive never having left its own local disk in the first place.
+     * Distinct from toProvisioningPayload() rather than a third branch there: create/delete/
+     * observe's own two-shape split stays exactly as simple as it already is.
+     *
+     * @return array{artifact_path: string|null, encryption_key: string}
+     */
+    public function toRestorePayload(): array
+    {
+        return [
+            'artifact_path' => $this->artifact_path,
+            'encryption_key' => $this->encryption_key,
+        ];
+    }
 }

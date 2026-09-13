@@ -8,7 +8,7 @@
   "properties": {
     "protocol_version": { "type": "string", "const": "1" },
     "capability": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.v[0-9]+$" },
-    "operation": { "type": "string", "enum": ["create", "update", "suspend", "unsuspend", "delete", "observe"] },
+    "operation": { "type": "string", "enum": ["create", "update", "suspend", "unsuspend", "delete", "observe", "restore"] },
     "resource_id": { "type": "string", "format": "uuid" },
     "desired_state_version": { "type": "integer", "minimum": 1 },
     "idempotency_key": { "type": "string", "format": "uuid" },

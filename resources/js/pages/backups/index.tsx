@@ -234,6 +234,82 @@ export default function Index({
                                                     </Form>
                                                 ))}
 
+                                            {(backup.status === 'applied' ||
+                                                backup.status ===
+                                                    'already_applied') && (
+                                                <Dialog>
+                                                    <DialogTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            disabled={
+                                                                backup.restoring
+                                                            }
+                                                        >
+                                                            {backup.restoring
+                                                                ? 'Restoring…'
+                                                                : 'Restore'}
+                                                        </Button>
+                                                    </DialogTrigger>
+                                                    <DialogContent>
+                                                        <DialogTitle>
+                                                            Restore this backup?
+                                                        </DialogTitle>
+                                                        <DialogDescription>
+                                                            Mail content and
+                                                            database tables
+                                                            covered by this
+                                                            backup will revert
+                                                            to their state at
+                                                            backup time,
+                                                            overwriting anything
+                                                            changed since.
+                                                            Everything else on
+                                                            the node (web, DNS,
+                                                            cron, mail settings)
+                                                            will then be
+                                                            resynced from
+                                                            current settings.
+                                                        </DialogDescription>
+
+                                                        <Form
+                                                            {...BackupController.restore.form(
+                                                                backup,
+                                                            )}
+                                                            options={{
+                                                                preserveScroll: true,
+                                                            }}
+                                                        >
+                                                            {({
+                                                                processing,
+                                                            }) => (
+                                                                <DialogFooter className="gap-2">
+                                                                    <DialogClose
+                                                                        asChild
+                                                                    >
+                                                                        <Button variant="secondary">
+                                                                            Cancel
+                                                                        </Button>
+                                                                    </DialogClose>
+
+                                                                    <Button
+                                                                        variant="destructive"
+                                                                        disabled={
+                                                                            processing
+                                                                        }
+                                                                        asChild
+                                                                    >
+                                                                        <button type="submit">
+                                                                            Restore
+                                                                        </button>
+                                                                    </Button>
+                                                                </DialogFooter>
+                                                            )}
+                                                        </Form>
+                                                    </DialogContent>
+                                                </Dialog>
+                                            )}
+
                                             <Dialog>
                                                 <DialogTrigger asChild>
                                                     <Button

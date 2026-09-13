@@ -20,6 +20,7 @@ export type Backup = {
     created_at: string | null;
     download_ready: boolean;
     download_preparing: boolean;
+    restoring: boolean;
 };
 
 export type BackupCapableNode = {

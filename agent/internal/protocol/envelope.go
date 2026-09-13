@@ -24,6 +24,13 @@ const (
 	OperationUnsuspend Operation = "unsuspend"
 	OperationDelete    Operation = "delete"
 	OperationObserve   Operation = "observe"
+	// OperationRestore is implemented only by backup.encrypted-artifacts.v1: puts back the
+	// real, node-local data no other capability's own generation history can ever regenerate
+	// (mail's own maildir content, each database capability's own mysqldump output) from an
+	// already-local backup artifact. Every other capability's own config is always fully
+	// re-derivable from Laravel's database via a normal update, so restore is deliberately not
+	// a general-purpose verb every capability needs to implement.
+	OperationRestore Operation = "restore"
 )
 
 // Status is the outcome reported on a ResultEnvelope. Values match
