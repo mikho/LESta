@@ -16,6 +16,7 @@ class CompletesProvisioningOperation
     public function __construct(
         private TriggersAcmeCertificateIssuance $triggersAcmeCertificateIssuance,
         private RecordsBackupArtifact $recordsBackupArtifact,
+        private RecordsUsageSnapshot $recordsUsageSnapshot,
     ) {}
 
     public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
@@ -32,5 +33,6 @@ class CompletesProvisioningOperation
 
         $this->triggersAcmeCertificateIssuance->handle($operation);
         $this->recordsBackupArtifact->handle($operation);
+        $this->recordsUsageSnapshot->handle($operation);
     }
 }
