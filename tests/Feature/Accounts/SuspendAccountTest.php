@@ -4,11 +4,13 @@ use App\Actions\Accounts\SuspendAccount;
 use App\Enums\RoleScope;
 use App\Models\Account;
 use App\Models\AuditEvent;
+use App\Models\CronJob;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 use Illuminate\Auth\Access\AuthorizationException;
 
@@ -54,6 +56,23 @@ test('a provider admin with accounts.suspend can suspend an account directly, ca
         // top-level action, not a second, independent grant.
         ->and($webDomain->refresh()->isSuspended())->toBeTrue()
         ->and(AuditEvent::where('action', 'account.suspended')->where('auditable_id', $account->id)->exists())->toBeTrue();
+});
+
+test('suspending an account also suspends its own tenant databases and cron jobs, not just web/dns/mail resources', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'database.tenant.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'scheduler.account-cron.v1']);
+    $account = Account::factory()->create();
+    $tenantDatabase = TenantDatabase::factory()->for($account)->for($node)->create();
+    $cronJob = CronJob::factory()->for($account)->for($node)->create();
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+
+    app(SuspendAccount::class)->handle($admin, $account);
+
+    // Confirmed as a real, reproducible bug before this fix: neither resource was suspended at
+    // all, meaning a "suspended" account's own database and cron jobs stayed fully usable.
+    expect($tenantDatabase->refresh()->isSuspended())->toBeTrue()
+        ->and($cronJob->refresh()->isSuspended())->toBeTrue();
 });
 
 test('a platform role without accounts.suspend cannot suspend an account', function () {

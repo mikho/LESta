@@ -28,18 +28,26 @@ class TenantDatabasePolicy
         return $user->hasAccountRole($tenantDatabase->account, 'owner');
     }
 
+    /**
+     * Also recognizes accounts.suspend/unsuspend/delete, the exact permission that already
+     * authorized the owning Account-level action (SuspendAccount/UnsuspendAccount/DeleteAccount)
+     * these three abilities exist to be cascaded from -- mirrors WebDomainPolicy's own identical
+     * fix (Phase 28), which this policy never received: an admin permitted to suspend/unsuspend/
+     * delete a whole account would otherwise throw mid-cascade the moment that account had a real
+     * tenant database, confirmed directly rather than assumed.
+     */
     public function suspend(User $user, TenantDatabase $tenantDatabase): bool
     {
-        return $user->hasAccountRole($tenantDatabase->account, 'owner');
+        return $user->hasAccountRole($tenantDatabase->account, 'owner') || $user->hasPermission('accounts.suspend');
     }
 
     public function unsuspend(User $user, TenantDatabase $tenantDatabase): bool
     {
-        return $user->hasAccountRole($tenantDatabase->account, 'owner');
+        return $user->hasAccountRole($tenantDatabase->account, 'owner') || $user->hasPermission('accounts.unsuspend');
     }
 
     public function delete(User $user, TenantDatabase $tenantDatabase): bool
     {
-        return $user->hasAccountRole($tenantDatabase->account, 'owner');
+        return $user->hasAccountRole($tenantDatabase->account, 'owner') || $user->hasPermission('accounts.delete');
     }
 }
