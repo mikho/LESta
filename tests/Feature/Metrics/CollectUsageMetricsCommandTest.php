@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Account;
 use App\Models\MetricsCollection;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -23,7 +24,7 @@ test('metrics:collect dispatches a real collection for every non-suspended metri
 
 test('metrics:prune deletes only snapshots past the 90-day retention window', function () {
     $node = Node::factory()->create();
-    $account = \App\Models\Account::factory()->create();
+    $account = Account::factory()->create();
 
     $old = UsageSnapshot::factory()->for($account)->for($node)->create(['collected_at' => now()->subDays(91)]);
     $recent = UsageSnapshot::factory()->for($account)->for($node)->create(['collected_at' => now()->subDays(10)]);
