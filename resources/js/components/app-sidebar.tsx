@@ -1,5 +1,7 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
+    Archive,
+    BarChart3,
     BookOpen,
     Clock,
     Database,
@@ -23,11 +25,13 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
 import nodes from '@/routes/nodes';
 import tenantDatabases from '@/routes/tenant-databases';
+import usage from '@/routes/usage';
 import type { NavItem } from '@/types';
 
 const mainNavItems: NavItem[] = [
@@ -56,12 +60,23 @@ const mainNavItems: NavItem[] = [
         href: cronJobs.index(),
         icon: Clock,
     },
+    {
+        title: 'Usage',
+        href: usage.index(),
+        icon: BarChart3,
+    },
 ];
 
 const nodesNavItem: NavItem = {
     title: 'Nodes',
     href: nodes.index(),
     icon: Server,
+};
+
+const backupsNavItem: NavItem = {
+    title: 'Backups',
+    href: backups.index(),
+    icon: Archive,
 };
 
 const footerNavItems: NavItem[] = [
@@ -81,7 +96,7 @@ export function AppSidebar() {
     const { auth } = usePage().props;
 
     const items = auth.is_provider_admin
-        ? [...mainNavItems, nodesNavItem]
+        ? [...mainNavItems, nodesNavItem, backupsNavItem]
         : mainNavItems;
 
     return (

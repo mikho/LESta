@@ -92,6 +92,14 @@ class Account extends Model
     }
 
     /**
+     * @return HasMany<UsageSnapshot, $this>
+     */
+    public function usageSnapshots(): HasMany
+    {
+        return $this->hasMany(UsageSnapshot::class);
+    }
+
+    /**
      * @return HasMany<MailDomain, $this>
      */
     public function mailDomains(): HasMany
