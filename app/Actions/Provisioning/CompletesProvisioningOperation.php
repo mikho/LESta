@@ -18,6 +18,7 @@ class CompletesProvisioningOperation
         private RecordsBackupArtifact $recordsBackupArtifact,
         private RecordsUsageSnapshot $recordsUsageSnapshot,
         private PublishesDkimDnsRecord $publishesDkimDnsRecord,
+        private PreparesBackupDownload $preparesBackupDownload,
     ) {}
 
     public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
@@ -36,5 +37,6 @@ class CompletesProvisioningOperation
         $this->recordsBackupArtifact->handle($operation);
         $this->recordsUsageSnapshot->handle($operation);
         $this->publishesDkimDnsRecord->handle($operation);
+        $this->preparesBackupDownload->handle($operation);
     }
 }

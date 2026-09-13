@@ -7,11 +7,17 @@
 // remote storage backend yet, and no per-account/tenant scoping, since a
 // real artifact today commingles every account hosted on the node.
 //
-// Only create and delete do real work, mirroring internal/capability/
-// identity's own "no update/suspend/unsuspend/observe" precedent: a backup
-// is either created outright or removed outright, never mutated in between
-// (Laravel's own BackupPolicy has no update/suspend/unsuspend ability
-// either).
+// Create and delete do the real archive/encrypt/write and removal work,
+// mirroring internal/capability/identity's own "no update/suspend/unsuspend"
+// precedent: a backup is either created outright or removed outright, never
+// mutated in between (Laravel's own BackupPolicy has no update/suspend/
+// unsuspend ability either). Observe is real too, but deliberately not
+// drift-detection the way bind9/mail's own observe implementations use it:
+// it reads an existing artifact's own sealed bytes back and reports them,
+// base64-encoded, on ResultEnvelope.Data, so a provider admin can decrypt
+// and download a backup they already made (see PreparesBackupDownload.php
+// on the Laravel side, which holds the one encryption key needed to make
+// sense of them).
 //
 // Unlike every rendered-config capability (nginx/bind9/apache/mail), this
 // capability never renders a template and never reloads a service: its own
@@ -29,6 +35,7 @@ package backup
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,17 +78,34 @@ type artifactData struct {
 	ArtifactPath         string   `json:"artifact_path"`
 }
 
+// observeData is the shape reported on a successful observe's own
+// ResultEnvelope.Data, matching PreparesBackupDownload.php's own expected
+// key exactly: the artifact's still-sealed (AES-256-GCM encrypted) bytes,
+// base64-encoded to survive JSON. Never the plaintext archive and never the
+// encryption key itself (Laravel already holds that, and decrypts there):
+// this capability only ever reads the same sealed bytes a Delete operation
+// would remove, never Decrypt()s them itself.
+type observeData struct {
+	ArtifactBase64 string `json:"artifact_base64"`
+}
+
 // Apply implements protocol.Capability.
 func (c *BackupCapability) Apply(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	ctx, cancel := context.WithDeadline(ctx, op.Deadline)
 	defer cancel()
 
-	if prior, ok := c.receipts.Lookup(op.IdempotencyKey); ok {
-		if prior.Status == protocol.StatusApplied || prior.Status == protocol.StatusAlreadyApplied {
-			prior.Status = protocol.StatusAlreadyApplied
-		}
+	// Observe is exempted from the idempotency-receipt cache, mirroring the
+	// mail capability's own identical exemption: it must always re-read the
+	// artifact's current bytes fresh, never serve a stale cached reply from
+	// an earlier download-preparation attempt.
+	if op.Operation != protocol.OperationObserve {
+		if prior, ok := c.receipts.Lookup(op.IdempotencyKey); ok {
+			if prior.Status == protocol.StatusApplied || prior.Status == protocol.StatusAlreadyApplied {
+				prior.Status = protocol.StatusAlreadyApplied
+			}
 
-		return prior, nil
+			return prior, nil
+		}
 	}
 
 	var (
@@ -94,16 +118,20 @@ func (c *BackupCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 		result, err = c.applyCreate(ctx, op)
 	case protocol.OperationDelete:
 		result, err = c.applyDelete(op)
+	case protocol.OperationObserve:
+		result, err = c.applyObserve(op)
 	default:
 		result, err = c.rejected(op, "unsupported_operation",
-			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create and delete", op.Operation), "")
+			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create, delete, and observe", op.Operation), "")
 	}
 
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
-	c.receipts.Record(op.IdempotencyKey, result)
+	if op.Operation != protocol.OperationObserve {
+		c.receipts.Record(op.IdempotencyKey, result)
+	}
 
 	return result, nil
 }
@@ -179,6 +207,51 @@ func (c *BackupCapability) applyDelete(op protocol.OperationEnvelope) (protocol.
 	}
 
 	return c.buildResult(op, protocol.StatusApplied, nil), nil
+}
+
+// applyObserve reads the sealed (still AES-256-GCM encrypted) bytes of the
+// artifact at payload.ArtifactPath and reports them, base64-encoded, on a
+// successful result's own Data field. This capability never decrypts them
+// itself: Laravel already holds the plaintext encryption key (see
+// Backup::encryption_key's own "control plane holding it is the correct,
+// safer home" design), so decryption happens there, in
+// PreparesBackupDownload.php, once this result is reported back. Deliberately
+// never dispatched by a real desired-state reconciliation the way bind9/
+// mail's own observe implementations are: this is a one-shot, user-triggered
+// "prepare a download" request, not drift detection, so a StatusDegraded
+// outcome (meaning "live state doesn't match the last known-good
+// generation") has no meaning here -- success is always StatusApplied.
+func (c *BackupCapability) applyObserve(op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+	payload, verr := ParseObservePayload(op.Payload)
+	if verr != nil {
+		return c.rejectedFromValidationError(op, verr)
+	}
+
+	cleaned := filepath.Clean(*payload.ArtifactPath)
+	if !isWithinRoot(cleaned, c.cfg.ArtifactsRoot) {
+		return c.rejected(op, "artifact_path_outside_root",
+			fmt.Sprintf("artifact_path %q is not within the owned artifacts root %q", *payload.ArtifactPath, c.cfg.ArtifactsRoot), "artifact_path")
+	}
+
+	sealed, err := os.ReadFile(cleaned)
+	if errors.Is(err, os.ErrNotExist) {
+		return c.rejected(op, "artifact_not_found", fmt.Sprintf("no artifact exists at %q", *payload.ArtifactPath), "artifact_path")
+	} else if err != nil {
+		return c.failed(op, "artifact_read_failed", err.Error())
+	}
+
+	data, err := json.Marshal(observeData{ArtifactBase64: base64.StdEncoding.EncodeToString(sealed)})
+	if err != nil {
+		// observeData is a fixed, always-marshalable shape; this cannot
+		// realistically fail, but silently dropping the one thing this
+		// operation exists to report would be worse than a loud panic.
+		panic(fmt.Sprintf("marshaling backup observe data: %v", err))
+	}
+
+	result := c.buildResult(op, protocol.StatusApplied, nil)
+	result.Data = data
+
+	return result, nil
 }
 
 func isWithinRoot(path, root string) bool {

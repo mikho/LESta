@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -158,9 +159,120 @@ func TestApplyRejectsAMissingArtifactPathOnDelete(t *testing.T) {
 func TestApplyRejectsAnUnsupportedOperation(t *testing.T) {
 	capability := backup.New(backup.Config{ArtifactsRoot: t.TempDir()})
 
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationSuspend, newTestUUID(), newTestUUID(), map[string]any{}))
+	requireStatus(t, "suspend", result, err, protocol.StatusRejected)
+	requireErrorCode(t, "suspend", result, "unsupported_operation")
+}
+
+func TestApplyRejectsAMissingArtifactPathOnObserve(t *testing.T) {
+	capability := backup.New(backup.Config{ArtifactsRoot: t.TempDir()})
+
 	result, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), newTestUUID(), map[string]any{}))
-	requireStatus(t, "observe", result, err, protocol.StatusRejected)
-	requireErrorCode(t, "observe", result, "unsupported_operation")
+	requireStatus(t, "observe with no artifact_path", result, err, protocol.StatusRejected)
+	requireErrorCode(t, "observe with no artifact_path", result, "invalid_artifact_path")
+}
+
+func TestApplyRejectsAnObserveArtifactPathOutsideTheArtifactsRoot(t *testing.T) {
+	root := t.TempDir()
+	capability := backup.New(backup.Config{ArtifactsRoot: root})
+
+	outside := filepath.Join(t.TempDir(), "not-a-backup.tar.enc")
+	if err := os.WriteFile(outside, []byte("not a real artifact"), 0o600); err != nil {
+		t.Fatalf("writing decoy file: %v", err)
+	}
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), newTestUUID(),
+		map[string]any{"artifact_path": outside}))
+	requireStatus(t, "observe outside artifacts root", result, err, protocol.StatusRejected)
+	requireErrorCode(t, "observe outside artifacts root", result, "artifact_path_outside_root")
+}
+
+func TestApplyRejectsAnObserveOfANonexistentArtifact(t *testing.T) {
+	root := t.TempDir()
+	capability := backup.New(backup.Config{ArtifactsRoot: root})
+
+	missing := filepath.Join(root, "never-existed.tar.enc")
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), newTestUUID(),
+		map[string]any{"artifact_path": missing}))
+	requireStatus(t, "observe of a missing artifact", result, err, protocol.StatusRejected)
+	requireErrorCode(t, "observe of a missing artifact", result, "artifact_not_found")
+}
+
+func TestObserveReportsTheSealedArtifactBytesWhichDecryptBackToTheOriginalArchive(t *testing.T) {
+	artifactsRoot := t.TempDir()
+	stateRoots, _ := buildFakeStateRoots(t)
+	capability := backup.New(backup.Config{ArtifactsRoot: artifactsRoot, StateRoots: stateRoots})
+
+	key := newTestEncryptionKey()
+
+	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(),
+		map[string]any{"encryption_key": key}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	artifactPath := decodeArtifactData(t, created.Data)["artifact_path"].(string)
+
+	observed, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), newTestUUID(),
+		map[string]any{"artifact_path": artifactPath}))
+	requireStatus(t, "observe", observed, err, protocol.StatusApplied)
+
+	var data struct {
+		ArtifactBase64 string `json:"artifact_base64"`
+	}
+	if err := json.Unmarshal(observed.Data, &data); err != nil {
+		t.Fatalf("unmarshaling observe data: %v", err)
+	}
+	if data.ArtifactBase64 == "" {
+		t.Fatal("expected a non-empty artifact_base64")
+	}
+
+	sealed, err := base64.StdEncoding.DecodeString(data.ArtifactBase64)
+	if err != nil {
+		t.Fatalf("decoding artifact_base64: %v", err)
+	}
+
+	onDisk, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("reading the real artifact from disk: %v", err)
+	}
+	if string(sealed) != string(onDisk) {
+		t.Fatal("observe must report exactly the same sealed bytes that are on disk, unmodified")
+	}
+
+	plaintext, err := decryptForTest(key, sealed)
+	if err != nil {
+		t.Fatalf("decrypting the observed bytes: %v", err)
+	}
+
+	entries := readTarGzEntries(t, plaintext)
+	if got := entries["web.nginx.v1/sites/example.com.conf"]; got != "server { listen 80; }" {
+		t.Fatalf("entry web.nginx.v1/sites/example.com.conf: got %q, want %q", got, "server { listen 80; }")
+	}
+}
+
+func TestObserveIsExemptFromTheIdempotencyReceiptCacheAndAlwaysRereadsTheArtifact(t *testing.T) {
+	artifactsRoot := t.TempDir()
+	stateRoots, _ := buildFakeStateRoots(t)
+	capability := backup.New(backup.Config{ArtifactsRoot: artifactsRoot, StateRoots: stateRoots})
+
+	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(),
+		map[string]any{"encryption_key": newTestEncryptionKey()}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	artifactPath := decodeArtifactData(t, created.Data)["artifact_path"].(string)
+	idempotencyKey := newTestUUID()
+
+	first, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), idempotencyKey,
+		map[string]any{"artifact_path": artifactPath}))
+	requireStatus(t, "first observe", first, err, protocol.StatusApplied)
+
+	// A second observe reusing the exact same idempotency key must still
+	// re-read the artifact fresh, not replay a cached receipt from the
+	// first call -- if it were cached, this would return StatusAlreadyApplied
+	// the way Create's own idempotency replay does.
+	second, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, newTestUUID(), idempotencyKey,
+		map[string]any{"artifact_path": artifactPath}))
+	requireStatus(t, "second observe, same idempotency key", second, err, protocol.StatusApplied)
 }
 
 func TestApplyRejectsADeleteArtifactPathOutsideTheArtifactsRoot(t *testing.T) {

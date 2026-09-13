@@ -186,59 +186,109 @@ export default function Index({
                                             : '—'}
                                     </td>
                                     <td className="px-4 py-2">
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button
-                                                    variant="destructive"
-                                                    size="sm"
-                                                >
-                                                    Delete
-                                                </Button>
-                                            </DialogTrigger>
-                                            <DialogContent>
-                                                <DialogTitle>
-                                                    Delete this backup?
-                                                </DialogTitle>
-                                                <DialogDescription>
-                                                    This cannot be undone. The
-                                                    encrypted artifact on disk
-                                                    will be permanently removed.
-                                                </DialogDescription>
-
-                                                <Form
-                                                    {...BackupController.destroy.form(
-                                                        backup,
-                                                    )}
-                                                    options={{
-                                                        preserveScroll: true,
-                                                    }}
-                                                >
-                                                    {({ processing }) => (
-                                                        <DialogFooter className="gap-2">
-                                                            <DialogClose
-                                                                asChild
-                                                            >
-                                                                <Button variant="secondary">
-                                                                    Cancel
-                                                                </Button>
-                                                            </DialogClose>
-
+                                        <div className="flex items-center gap-2">
+                                            {(backup.status === 'applied' ||
+                                                backup.status ===
+                                                    'already_applied') &&
+                                                (backup.download_ready ? (
+                                                    <Button
+                                                        asChild
+                                                        variant="outline"
+                                                        size="sm"
+                                                    >
+                                                        <a
+                                                            href={
+                                                                BackupController.download(
+                                                                    backup,
+                                                                ).url
+                                                            }
+                                                            title="One-time download; expires a short while after preparing"
+                                                        >
+                                                            Download
+                                                        </a>
+                                                    </Button>
+                                                ) : (
+                                                    <Form
+                                                        {...BackupController.prepareDownload.form(
+                                                            backup,
+                                                        )}
+                                                        options={{
+                                                            preserveScroll: true,
+                                                        }}
+                                                    >
+                                                        {({ processing }) => (
                                                             <Button
-                                                                variant="destructive"
+                                                                type="submit"
+                                                                variant="outline"
+                                                                size="sm"
                                                                 disabled={
-                                                                    processing
+                                                                    processing ||
+                                                                    backup.download_preparing
                                                                 }
-                                                                asChild
                                                             >
-                                                                <button type="submit">
-                                                                    Delete
-                                                                </button>
+                                                                {backup.download_preparing
+                                                                    ? 'Preparing…'
+                                                                    : 'Prepare download'}
                                                             </Button>
-                                                        </DialogFooter>
-                                                    )}
-                                                </Form>
-                                            </DialogContent>
-                                        </Dialog>
+                                                        )}
+                                                    </Form>
+                                                ))}
+
+                                            <Dialog>
+                                                <DialogTrigger asChild>
+                                                    <Button
+                                                        variant="destructive"
+                                                        size="sm"
+                                                    >
+                                                        Delete
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                    <DialogTitle>
+                                                        Delete this backup?
+                                                    </DialogTitle>
+                                                    <DialogDescription>
+                                                        This cannot be undone.
+                                                        The encrypted artifact
+                                                        on disk will be
+                                                        permanently removed.
+                                                    </DialogDescription>
+
+                                                    <Form
+                                                        {...BackupController.destroy.form(
+                                                            backup,
+                                                        )}
+                                                        options={{
+                                                            preserveScroll: true,
+                                                        }}
+                                                    >
+                                                        {({ processing }) => (
+                                                            <DialogFooter className="gap-2">
+                                                                <DialogClose
+                                                                    asChild
+                                                                >
+                                                                    <Button variant="secondary">
+                                                                        Cancel
+                                                                    </Button>
+                                                                </DialogClose>
+
+                                                                <Button
+                                                                    variant="destructive"
+                                                                    disabled={
+                                                                        processing
+                                                                    }
+                                                                    asChild
+                                                                >
+                                                                    <button type="submit">
+                                                                        Delete
+                                                                    </button>
+                                                                </Button>
+                                                            </DialogFooter>
+                                                        )}
+                                                    </Form>
+                                                </DialogContent>
+                                            </Dialog>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
