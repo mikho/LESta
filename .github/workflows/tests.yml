@@ -687,6 +687,26 @@ jobs:
           sudo python3 /tmp/av-spam-proof.py
           sudo rm -f /tmp/av-spam-proof.py
 
+      - name: Diagnose EICAR/GTUBE proof failure (only runs if it failed)
+        if: failure()
+        run: |
+          echo "--- exim4 mainlog (tail) ---"
+          sudo tail -200 /var/log/exim4/mainlog || true
+          echo "--- exim4 rejectlog (tail) ---"
+          sudo tail -200 /var/log/exim4/rejectlog || true
+          echo "--- exim4 paniclog (tail) ---"
+          sudo tail -200 /var/log/exim4/paniclog || true
+          echo "--- groups clamav ---"
+          groups clamav || true
+          echo "--- groups Debian-exim ---"
+          groups Debian-exim || true
+          echo "--- /etc/clamav/clamd.conf, AllowSupplementaryGroups ---"
+          grep -i AllowSupplementaryGroups /etc/clamav/clamd.conf || true
+          echo "--- ls -la /var/spool/exim4 ---"
+          sudo ls -la /var/spool/exim4 || true
+          echo "--- journalctl for clamav-daemon (tail) ---"
+          sudo journalctl -u clamav-daemon --no-pager | tail -100 || true
+
       - name: Verify nginx, bind9, mariadb, and cron are all still up after mail's apply
         run: |
           sudo nft list table inet lesta | tee /tmp/lesta-nft-6.txt

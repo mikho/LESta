@@ -982,7 +982,7 @@ wait_for_health_probe() {
 install_mail() {
     log_info "install_mail: installing exim4/dovecot and activating ${MAIL_SMTP_IMAP_CAPABILITY}"
 
-    local out installed_version spamd_unit_name
+    local out installed_version spamd_unit_name clamd_conf
 
     # --- vmail: the fixed, shared virtual-mailbox identity every hosted
     # account's own maildir is delivered under (see render_dovecot_conf's
@@ -1098,6 +1098,17 @@ install_mail() {
     usermod -aG clamav Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG clamav Debian-exim failed"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the clamav group, so Exim can connect to clamd's own Unix socket"
 
+    # The reverse direction matters just as much: over a Unix socket, clamd
+    # is passed a spool file PATH to scan, not the message content itself
+    # (confirmed for real via CI: without this, clamd hits a permission
+    # error opening Exim's own spool file, and because the malware ACL
+    # condition below uses /defer_ok, that scan error was silently treated
+    # as "no virus found" rather than surfacing as a failure at all -- a
+    # well-documented real Exim/ClamAV integration gap, not something
+    # specific to this installer).
+    usermod -aG Debian-exim clamav || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG Debian-exim clamav failed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "clamav added to the Debian-exim group, so clamd can read the spool files Exim passes it by path for scanning"
+
     # StateRoot itself, explicitly, before any of its children: `install -d`
     # creates missing parents too, but only the leaf directory named on the
     # command line gets the requested mode/ownership -- an implicitly
@@ -1157,6 +1168,20 @@ install_mail() {
     # CDN will fail here loudly, not with a confusing later clamd crash.
     wait_for_clamav_database || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_database_missing "/var/lib/clamav" "no real ClamAV virus database (main.cvd/main.cld) appeared after waiting for clamav-freshclam's own first signature fetch"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "/var/lib/clamav" "a real ClamAV virus database is present"
+
+    # clamd drops every one of its own supplementary group memberships at
+    # startup by default, a real ClamAV hardening feature -- so the
+    # usermod -aG Debian-exim clamav grant above would otherwise never
+    # actually take effect inside the running clamd process itself.
+    clamd_conf=/etc/clamav/clamd.conf
+    if grep -qE '^#?AllowSupplementaryGroups' "${clamd_conf}" 2>/dev/null; then
+        sed -i 's/^#\?AllowSupplementaryGroups.*/AllowSupplementaryGroups true/' "${clamd_conf}" \
+            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${clamd_conf}" "failed to set AllowSupplementaryGroups true in ${clamd_conf}"
+    else
+        printf '\nAllowSupplementaryGroups true\n' >> "${clamd_conf}" \
+            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${clamd_conf}" "failed to append AllowSupplementaryGroups true to ${clamd_conf}"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" configured "${clamd_conf}" "AllowSupplementaryGroups true set: clamd would otherwise drop its own Debian-exim group membership at startup and be unable to read Exim's spool files it is asked to scan"
 
     systemctl enable clamav-daemon || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable clamav-daemon failed"
 
