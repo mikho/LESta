@@ -2,14 +2,18 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\CronJobs\UnsuspendCronJob;
 use App\Actions\Dns\UnsuspendDnsZone;
 use App\Actions\Domains\UnsuspendWebDomain;
 use App\Actions\Mail\UnsuspendMailDomain;
+use App\Actions\TenantDatabases\UnsuspendTenantDatabase;
 use App\Enums\SuspensionSource;
 use App\Models\Account;
 use App\Models\AuditEvent;
+use App\Models\CronJob;
 use App\Models\DnsZone;
 use App\Models\MailDomain;
+use App\Models\TenantDatabase;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +41,12 @@ class UnsuspendAccount
 
             $account->mailDomains()->where('suspension_source', SuspensionSource::Cascade)->get()
                 ->each(fn (MailDomain $d) => app(UnsuspendMailDomain::class)->handle($actor, $d));
+
+            $account->tenantDatabases()->where('suspension_source', SuspensionSource::Cascade)->get()
+                ->each(fn (TenantDatabase $d) => app(UnsuspendTenantDatabase::class)->handle($actor, $d));
+
+            $account->cronJobs()->where('suspension_source', SuspensionSource::Cascade)->get()
+                ->each(fn (CronJob $j) => app(UnsuspendCronJob::class)->handle($actor, $j));
 
             AuditEvent::create([
                 'actor_type' => $actor->getMorphClass(),
