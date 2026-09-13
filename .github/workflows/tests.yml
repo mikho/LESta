@@ -2442,6 +2442,30 @@ jobs:
             -keyout /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/privkey.pem \
             -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
 
+      # This GitHub-hosted runner image ships a pre-registered PostgreSQL
+      # (PGDG, apt.postgresql.org) apt source as one of its own many
+      # pre-installed developer tools -- never present on a genuinely bare
+      # production node. Ubuntu's real dovecot-core package links against
+      # libpq5 (a real, correct dependency: its own dict/SQL-driver support
+      # is compiled directly into the core binary, not split into a separate
+      # opt-in package the way dovecot-pgsql historically was), and apt's
+      # real solver (build-release.sh's own apt-get install --simulate) picks
+      # the PGDG source's own newer candidate version over Ubuntu archive's
+      # stock one -- which then fails 'apt-get download' outright, confirmed
+      # via a real CI failure ("Can't find a source to download version
+      # ...pgdg24.04..."). No other service's own dependency closure has ever
+      # touched libpq5 before mail's, so this is the first scenario to hit
+      # it. Purging the PGDG source (never touched by a bare production
+      # node's own install.sh in the first place) forces resolution back to
+      # what a real target node would actually see, mirroring the same
+      # "route around a runner-only apt artifact" precedent already
+      # established for libtinfo6 above.
+      - name: "Scenario 26 setup: purge this runner's own pre-registered PostgreSQL (PGDG) apt source, which resolves a libpq5 candidate 'apt-get download' cannot actually fetch"
+        run: |
+          grep -rl 'apt.postgresql.org' /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
+          sudo rm -f /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg /etc/apt/keyrings/postgresql.gpg 2>/dev/null || true
+          sudo apt-get update
+
       - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
         run: |
           sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve" --bundle-name mail
