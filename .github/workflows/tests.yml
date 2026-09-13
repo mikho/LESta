@@ -2442,33 +2442,34 @@ jobs:
             -keyout /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/privkey.pem \
             -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
 
-      # apt's real solver (build-release.sh's own apt-get install --simulate)
-      # resolves libpq5 to a PGDG-versioned candidate
-      # ("...+pgdg24.04...", a version-string suffix exclusive to the
-      # official apt.postgresql.org builds, never Ubuntu's own archive),
-      # which then fails apt-get download outright. Two targeted fixes have
-      # already been tried and confirmed NOT to be the cause (removing any
-      # pgdg entry from /etc/apt/sources.list.d/; a full apt list-cache
-      # rebuild via rm -rf /var/lib/apt/lists/* + apt-get update) -- the
-      # exact same failure recurred byte-for-byte both times, meaning the
-      # candidate survives even a from-scratch refetch of every currently-
-      # configured source's own real index. This step is a genuine
-      # diagnostic, not another guess: it prints exactly which configured
-      # source(s) offer this candidate and what requires it, so the next
-      # real fix targets the actual cause instead of a third blind guess.
-      - name: "Scenario 26 diagnostic: identify what actually offers/requires the unfetchable libpq5 pgdg candidate"
+      # A real diagnostic (apt-cache policy libpq5) found the actual cause:
+      # this runner image ships libpq5 already INSTALLED at a real
+      # PGDG-built version (18.6-1.pgdg24.04+2, a version-string suffix
+      # exclusive to the official apt.postgresql.org builds -- Ubuntu's own
+      # archive here only offers 16.15/16.2), pulled in transitively by
+      # pre-installed developer tooling unrelated to this project at all
+      # (apt-cache rdepends --installed libpq5 named postgresql-16,
+      # postgresql-client-16, php8.3-pgsql, libpq-dev, sphinxsearch --
+      # confirmed real, not exim4/dovecot's own doing: apt-cache depends
+      # dovecot-core has zero libpq mention). build-release.sh's own
+      # Dir::State::status override (simulating a fresh install with
+      # nothing installed) does not fully suppress this already-installed
+      # version's own real dpkg-status entry from apt's candidate table,
+      # so it still wins over the real, fetchable Ubuntu archive candidate.
+      # This is the exact same class of issue already hit and fixed twice
+      # in this same job for libtinfo6: a genuinely bare production node
+      # has none of this runner's own pre-installed dev tooling to begin
+      # with, so purging it here (never touched by mail/install.sh itself)
+      # is the correct fix, not a workaround for a real product bug.
+      - name: "Scenario 26 setup: purge this runner's own pre-installed PostgreSQL dev tooling, whose real dpkg-status libpq5 entry (a PGDG build Ubuntu's own archive can't provide) apt's solver otherwise prefers over the real, fetchable Ubuntu archive candidate"
         run: |
-          echo "--- apt-cache policy libpq5 ---"
-          apt-cache policy libpq5
-          echo "--- apt-cache madison libpq5 ---"
-          apt-cache madison libpq5
-          echo "--- configured sources ---"
-          grep -rH '' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
-          echo "--- reverse-depends pulling libpq5 into dovecot/exim4's own closure ---"
-          apt-get install --simulate -y --no-install-recommends -o Dir::State::status=/dev/null exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1 | grep -B5 -i 'pgdg\|libpq5' || true
-          echo "--- rdepends ---"
-          apt-cache rdepends --installed libpq5 || true
-          apt-cache depends dovecot-core | grep -i libpq || true
+          installed_pg_pkgs=$(dpkg -l | awk '/^ii/{print $2}' | grep -E '^(postgresql|libpq|php8\.3-pgsql|sphinxsearch)' || true)
+          echo "installed postgres-related packages: ${installed_pg_pkgs}"
+          if [ -n "${installed_pg_pkgs}" ]; then
+            # shellcheck disable=SC2086
+            sudo apt-get purge -y ${installed_pg_pkgs}
+          fi
+          ! dpkg -l libpq5 2>/dev/null | grep -q '^ii'
 
       - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
         run: |
