@@ -223,7 +223,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -488,6 +488,76 @@ jobs:
 
       - name: Re-apply backups (idempotent rerun must still succeed)
         run: sudo sh .install/services/backups/install.sh --apply --yes
+
+      - name: Prepare the runner for mail (bare dovecot.conf + the include line, a real self-signed cert standing in for a real ACME-issued one)
+        run: |
+          # Mirrors nginx/bind9's own "manual prerequisite" pattern for
+          # Dovecot's own real distro config (dovecot-core creates
+          # dovecot.conf; --prepare-config adds the one !include line this
+          # installer needs -- see mail/install.sh's own top comment for why
+          # there is no equivalent step for Exim, which this installer owns
+          # outright).
+          sudo apt-get purge -y postfix sendmail sendmail-bin opensmtpd exim4 exim4-daemon-light exim4-daemon-heavy exim4-base exim4-config 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get update
+          sudo apt-get install -y dovecot-core
+          sudo sh .install/services/mail/install.sh --prepare-config --yes
+          cat /etc/dovecot/dovecot.conf
+
+          # A real, throwaway self-signed certificate at tls.acme.v1's own
+          # real path convention: this installer's own preflight only ever
+          # checks that a certificate already exists there (see this file's
+          # own top comment on reusing the existing WebDomain+ACME flow);
+          # proving that a REAL ACME-issued certificate lands there for a
+          # mail hostname specifically is Phase 26's own Pebble-backed `ci`
+          # job's proof to extend, not this OS-level installer smoke test's.
+          sudo mkdir -p /var/lib/lesta/acme/certs/mail.lesta-ci.invalid
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=mail.lesta-ci.invalid" \
+            -keyout /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/privkey.pem \
+            -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
+
+      - name: Dry-run mail against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/mail/install.sh --dry-run --mail-hostname mail.lesta-ci.invalid
+
+      - name: Apply mail (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid
+
+      - name: Diagnose mail apply failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          echo "--- systemctl status exim4 ---"
+          sudo systemctl status exim4 --no-pager || true
+          echo "--- journalctl for exim4 ---"
+          sudo journalctl -u exim4 --no-pager | tail -100 || true
+          echo "--- exim4 -bV (real, live-resolved config) ---"
+          sudo exim4 -bV || true
+          echo "--- systemctl status dovecot ---"
+          sudo systemctl status dovecot --no-pager || true
+          echo "--- journalctl for dovecot ---"
+          sudo journalctl -u dovecot --no-pager | tail -100 || true
+          echo "--- doveconf -n ---"
+          sudo doveconf -n || true
+          echo "--- /etc/exim4/exim4.conf ---"
+          sudo cat /etc/exim4/exim4.conf || true
+          echo "--- /etc/dovecot/lesta.conf ---"
+          sudo cat /etc/dovecot/lesta.conf || true
+          echo "--- kernel log, grepped for any apparmor denial against exim/dovecot ---"
+          sudo journalctl -k --no-pager | grep -iE 'apparmor.*(exim|dovecot)' | tail -40 || true
+
+      - name: Verify nginx, bind9, mariadb, and cron are all still up after mail's apply
+        run: |
+          sudo nft list table inet lesta | tee /tmp/lesta-nft-6.txt
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          grep -q '443' /tmp/lesta-nft-6.txt && echo "443/tcp still allowed in the firewall table"
+          grep -q '53' /tmp/lesta-nft-6.txt && echo "53 still allowed in the firewall table"
+          grep -q '25' /tmp/lesta-nft-6.txt && echo "25/tcp now allowed in the firewall table"
+          sudo systemctl is-active named
+          sudo systemctl is-active mariadb@tenant.service
+          sudo systemctl is-active cron
+
+      - name: Re-apply mail (idempotent rerun must still succeed)
+        run: sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid
 
       - name: Relax AppArmor for named before running the disposable-harness tests
         run: |
