@@ -28,6 +28,10 @@
         }
       }
     },
-    "completed_at": { "type": "string", "format": "date-time" }
+    "completed_at": { "type": "string", "format": "date-time" },
+    "data": {
+      "type": "object",
+      "description": "Optional, capability-specific derived non-secret data reported back to the control plane (e.g. backup.encrypted-artifacts.v1's own artifact path/size/checksum/included-capabilities). Omitted entirely, never null, when a capability has nothing to report. Never a channel for a secret; the same no-secrets-in-payloads prohibition applies here."
+    }
   }
 }

@@ -68,16 +68,31 @@ type ResultError struct {
 // ResultEnvelope is the response a Capability returns for an OperationEnvelope.
 // Errors must always be initialized to []ResultError{}, never left nil: Go encodes
 // a nil slice as JSON null, which the schema's required array field rejects.
+//
+// Data is optional and capability-specific (omitted entirely, not merely null,
+// when a capability has nothing to report): the one, deliberate escape hatch for
+// a capability to report derived, non-secret data back to the control plane that
+// isn't a resource_id/status/digest/generation_id, e.g. backup.encrypted-
+// artifacts.v1's own artifact path/size/checksum/included-capabilities. Never a
+// place for a secret: the same "no secrets in payloads, logs, or job payloads"
+// prohibition the general threat model already states for every other part of
+// this protocol applies here without exception. Added specifically because no
+// such field existed at all before (confirmed directly against this file's own
+// prior shape): a capability with real derived output to report (DKIM's own
+// public key/selector, disclosedly deferred rather than forced through this
+// field without a real consumer yet; backups, which cannot function without it)
+// had no way to surface it.
 type ResultEnvelope struct {
-	ProtocolVersion      string        `json:"protocol_version"`
-	Capability           string        `json:"capability"`
-	ResourceID           string        `json:"resource_id"`
-	IdempotencyKey       string        `json:"idempotency_key"`
-	CorrelationID        string        `json:"correlation_id"`
-	Status               Status        `json:"status"`
-	ObservedStateVersion int           `json:"observed_state_version"`
-	ObservedStateDigest  string        `json:"observed_state_digest"`
-	GenerationID         string        `json:"generation_id"`
-	Errors               []ResultError `json:"errors"`
-	CompletedAt          time.Time     `json:"completed_at"`
+	ProtocolVersion      string          `json:"protocol_version"`
+	Capability           string          `json:"capability"`
+	ResourceID           string          `json:"resource_id"`
+	IdempotencyKey       string          `json:"idempotency_key"`
+	CorrelationID        string          `json:"correlation_id"`
+	Status               Status          `json:"status"`
+	ObservedStateVersion int             `json:"observed_state_version"`
+	ObservedStateDigest  string          `json:"observed_state_digest"`
+	GenerationID         string          `json:"generation_id"`
+	Errors               []ResultError   `json:"errors"`
+	CompletedAt          time.Time       `json:"completed_at"`
+	Data                 json.RawMessage `json:"data,omitempty"`
 }
