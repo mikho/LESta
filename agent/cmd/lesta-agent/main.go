@@ -41,11 +41,18 @@ import (
 )
 
 const (
-	webNginxCapability                 = "web.nginx.v1"
-	dnsBind9Capability                 = "dns.bind9.v1"
-	webApacheCapability                = "web.apache.v1"
-	tlsAcmeCapability                  = "tls.acme.v1"
-	databaseTenantCapability           = "database.tenant.v1"
+	webNginxCapability       = "web.nginx.v1"
+	dnsBind9Capability       = "dns.bind9.v1"
+	webApacheCapability      = "web.apache.v1"
+	tlsAcmeCapability        = "tls.acme.v1"
+	databaseTenantCapability = "database.tenant.v1"
+	// databaseControlPlaneCapability has no Go capability dispatch case at
+	// all (it is this application's own database, not a capability the
+	// agent manages on a tenant's behalf, per mariadb/install.sh's own doc
+	// comment) -- named here only so backupProductionConfig's own
+	// DatabaseDumpSockets map never inlines a bare string literal, matching
+	// every other capability name in this block.
+	databaseControlPlaneCapability     = "database.control-plane.v1"
 	schedulerCronCapability            = "scheduler.account-cron.v1"
 	systemAccountIdentityCapability    = "system.account-identity.v1"
 	mailSmtpImapCapability             = "mail.smtp-imap.v1"
@@ -477,27 +484,34 @@ func mailProductionConfig() mail.Config {
 // backupProductionConfig points at the real, fixed host paths this phase's
 // own Backups design decision settled on for backup.encrypted-artifacts.v1.
 // ArtifactsRoot is .install/services/backups/manifest.json's own owned
-// root. StateRoots deliberately covers only rendered config-plane state
-// (nginx/apache/bind9/mail/cron), each mirroring that capability's own
-// *ProductionConfig StateRoot literal exactly, and deliberately excludes
-// database.control-plane.v1/database.tenant.v1's own live MariaDB data
-// directories: a raw filesystem copy of a running InnoDB data directory,
-// taken with no FLUSH TABLES WITH READ LOCK / consistent snapshot / mysqldump
-// step around it, is not a safe backup (ongoing writes can leave it
-// internally inconsistent on restore) -- a real, disclosed v1 boundary, not
-// an oversight. A future pass can add a real mysqldump-based (or
-// mariadb-backup-based) capture for those two capabilities specifically;
-// until then, .install/services/backups/manifest.json's own backs_up list
-// names only the capabilities this function can genuinely, safely include.
+// root. StateRoots covers rendered config-plane state (nginx/apache/bind9/
+// mail/cron) plus database.tenant.v1's own small, redacted generation-
+// history bookkeeping directory, each mirroring that capability's own
+// *ProductionConfig StateRoot literal exactly -- deliberately never either
+// database capability's own live MariaDB data directory, since a raw
+// filesystem copy of a running InnoDB data directory, taken with no FLUSH
+// TABLES WITH READ LOCK / consistent snapshot / mysqldump step around it, is
+// not a safe backup (ongoing writes can leave it internally inconsistent on
+// restore). DatabaseDumpSockets is the real, safe mechanism for those two
+// instead: a real mysqldump/mariadb-dump against each instance's own real
+// unix socket (root-authenticated via unix_socket auth, the same mechanism
+// this project's own installer health checks already use), matching the
+// exact real socket paths mariadb/install.sh's own TENANT_SOCKET/
+// CONTROL_PLANE_SOCKET constants define.
 func backupProductionConfig() backup.Config {
 	return backup.Config{
 		ArtifactsRoot: "/var/lib/lesta/backups",
 		StateRoots: map[string]string{
-			webNginxCapability:      "/var/lib/lesta/nginx",
-			webApacheCapability:     "/var/lib/lesta/apache",
-			dnsBind9Capability:      "/var/lib/lesta/bind",
-			mailSmtpImapCapability:  "/var/lib/lesta/mail",
-			schedulerCronCapability: "/var/lib/lesta/cron",
+			webNginxCapability:       "/var/lib/lesta/nginx",
+			webApacheCapability:      "/var/lib/lesta/apache",
+			dnsBind9Capability:       "/var/lib/lesta/bind",
+			mailSmtpImapCapability:   "/var/lib/lesta/mail",
+			schedulerCronCapability:  "/var/lib/lesta/cron",
+			databaseTenantCapability: "/var/lib/lesta/mariadb/tenant-agent-state",
+		},
+		DatabaseDumpSockets: map[string]string{
+			databaseTenantCapability:       "/run/mysqld/mysqld.tenant.sock",
+			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
 	}
 }

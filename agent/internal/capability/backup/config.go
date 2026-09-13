@@ -21,5 +21,22 @@ type Config struct {
 	// capabilities" a given artifact actually captures. There is no
 	// hardcoded expectation that every entry is present on every node: a
 	// node running only dns.bind9.v1 backs up only its own bind state.
+	//
+	// Deliberately never database.control-plane.v1/database.tenant.v1's own
+	// real datadir: those two are captured via DatabaseDumpSockets instead
+	// (a real mysqldump/mariadb-dump, not a raw filesystem copy of a live
+	// InnoDB directory). database.tenant.v1's own small, redacted
+	// generation-history bookkeeping directory (never the datadir itself)
+	// is safe to include here like any other capability's StateRoot.
 	StateRoots map[string]string
+
+	// DatabaseDumpSockets maps database.control-plane.v1/database.tenant.v1
+	// to the real local unix socket path a real, live MariaDB instance is
+	// listening on (e.g. /run/mysqld/mysqld.tenant.sock), the same sockets
+	// this project's own installer health checks already authenticate
+	// against as root via unix_socket auth. A missing entry, or an entry
+	// whose socket file doesn't exist on disk, means that instance simply
+	// isn't running on this node, not an error -- mirroring StateRoots'
+	// own "absent = not present here" convention exactly.
+	DatabaseDumpSockets map[string]string
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 // discoverIncludedCapabilities returns the sorted list of capability names
@@ -38,20 +39,21 @@ func dirHasContent(root string) bool {
 	return len(entries) > 0
 }
 
-// archiveStateRoots walks every included capability's own state root and
-// returns one combined gzip-compressed tar stream in memory. Each entry's
-// name is prefixed by its capability string (e.g.
-// "web.nginx.v1/sites/example.com.conf") so a future restore can tell which
+// archiveStateRoots walks every included capability's own state root, plus
+// every dumped database capability's own real SQL dump, and returns one
+// combined gzip-compressed tar stream in memory. Each entry's name is
+// prefixed by its capability string (e.g. "web.nginx.v1/sites/example.com.conf",
+// "database.tenant.v1/dump.sql") so a future restore can tell which
 // capability a given path belongs to.
 //
 // Buffering the whole archive in memory (rather than streaming straight to
 // the encryption step) is a deliberate v1 bound: this capability backs up a
 // single hosting node's own rendered config-plane state (nginx/bind9/mail/
-// cron/mariadb-tenant-agent-state directories), not database dumps or media,
-// so the real-world size here stays small. A future pass can revisit this if
-// a real deployment's own state roots ever grow large enough for it to
-// matter.
-func archiveStateRoots(stateRoots map[string]string, included []string) ([]byte, error) {
+// cron directories) plus now-real mysqldump/mariadb-dump output for its
+// database capabilities, not arbitrary media, so the real-world size here
+// stays bounded. A future pass can revisit this if a real deployment's own
+// state roots or database dumps ever grow large enough for it to matter.
+func archiveStateRoots(stateRoots map[string]string, included []string, dumps map[string][]byte, dumpedCapabilities []string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	gz := gzip.NewWriter(&buf)
@@ -60,6 +62,12 @@ func archiveStateRoots(stateRoots map[string]string, included []string) ([]byte,
 	for _, capability := range included {
 		if err := addDirToTar(tw, stateRoots[capability], capability); err != nil {
 			return nil, fmt.Errorf("archiving %s: %w", capability, err)
+		}
+	}
+
+	for _, capability := range dumpedCapabilities {
+		if err := addBytesToTar(tw, dumps[capability], capability+"/dump.sql"); err != nil {
+			return nil, fmt.Errorf("archiving %s's own dump: %w", capability, err)
 		}
 	}
 
@@ -72,6 +80,27 @@ func archiveStateRoots(stateRoots map[string]string, included []string) ([]byte,
 	}
 
 	return buf.Bytes(), nil
+}
+
+// addBytesToTar writes content as a single regular-file tar entry named
+// name, for data that was never a real file on disk (a mysqldump/
+// mariadb-dump's own stdout), mirroring addDirToTar's own header
+// construction for a real file.
+func addBytesToTar(tw *tar.Writer, content []byte, name string) error {
+	hdr := &tar.Header{
+		Name:    name,
+		Mode:    0o640,
+		Size:    int64(len(content)),
+		ModTime: time.Now(),
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+
+	_, err := tw.Write(content)
+
+	return err
 }
 
 func addDirToTar(tw *tar.Writer, root, prefix string) error {
