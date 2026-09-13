@@ -19,12 +19,25 @@
 # installer in this family needs via lib/result.sh, lib/agent.sh, and
 # lib/selftest.sh. Even thinner than cron's own installer: this service's own
 # manifest.json declares packages: [] AND ports: [] -- there is no external
-# binary to apt-get install at all (the capability is pure Go: real
-# archive/tar, compress/gzip, and crypto/aes+cipher.NewGCM, see
-# agent/internal/capability/backup's own package doc comment), no daemon to
-# enable/restart, and no AppArmor profile to extend. install_backups below
-# shrinks to exactly one thing: ensuring the owned artifacts directory exists
-# with the right ownership. lib/firewall.sh is never even sourced, exactly
+# binary THIS INSTALLER apt-get installs itself, no daemon to enable/
+# restart, and no AppArmor profile to extend. install_backups below shrinks
+# to exactly one thing: ensuring the owned artifacts directory exists with
+# the right ownership.
+#
+# The capability itself is pure Go (real archive/tar, compress/gzip, and
+# crypto/aes+cipher.NewGCM) EXCEPT for database.control-plane.v1/
+# database.tenant.v1, which it captures via a real mysqldump/mariadb-dump
+# exec against each instance's own live unix socket (never a raw filesystem
+# copy of a running InnoDB directory -- see agent/internal/capability/backup's
+# own package doc comment). That binary is never installed here: it comes
+# from mariadb/install.sh's own single `apt-get install mariadb-server
+# mariadb-client` call, which always installs both packages together --
+# there is no real deployment path where either database socket exists
+# without mariadb-client (and its dump binary) already present alongside it,
+# so this installer adds no explicit dependency on mariadb/install.sh at all.
+# A node with neither database capability installed simply has no socket for
+# the backup capability to find, exactly like any other absent StateRoots
+# entry. lib/firewall.sh is never even sourced, exactly
 # like cron/install.sh's own reasoning.
 #
 # There is no include-line prerequisite either (unlike nginx/bind9/apache):

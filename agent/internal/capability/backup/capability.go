@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -150,14 +151,21 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 	artifactPath := filepath.Join(c.cfg.ArtifactsRoot, op.ResourceID+".tar.enc")
 
 	if sealed, err := os.ReadFile(artifactPath); err == nil {
-		return c.applied(op, protocol.StatusAlreadyApplied, artifactPath, sealed, included), nil
+		replayIncluded := mergeIncludedCapabilities(included, discoverPresentDumpSockets(c.cfg.DatabaseDumpSockets))
+
+		return c.applied(op, protocol.StatusAlreadyApplied, artifactPath, sealed, replayIncluded), nil
 	}
 
 	if ctx.Err() != nil {
 		return protocol.ResultEnvelope{}, ctx.Err()
 	}
 
-	plaintext, err := archiveStateRoots(c.cfg.StateRoots, included)
+	dumps, dumpedCapabilities, err := dumpDatabases(ctx, c.cfg.DatabaseDumpSockets)
+	if err != nil {
+		return c.failed(op, "database_dump_failed", err.Error())
+	}
+
+	plaintext, err := archiveStateRoots(c.cfg.StateRoots, included, dumps, dumpedCapabilities)
 	if err != nil {
 		return c.failed(op, "archive_failed", err.Error())
 	}
@@ -175,7 +183,21 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 		return c.failed(op, "artifact_write_failed", err.Error())
 	}
 
-	return c.applied(op, protocol.StatusApplied, artifactPath, sealed, included), nil
+	return c.applied(op, protocol.StatusApplied, artifactPath, sealed, mergeIncludedCapabilities(included, dumpedCapabilities)), nil
+}
+
+// mergeIncludedCapabilities combines StateRoots-derived and dump-derived
+// capability names into one sorted list for artifactData.IncludedCapabilities.
+// The two sources are always disjoint by construction (database.control-plane.v1/
+// database.tenant.v1 are never StateRoots entries), so this is a plain
+// concatenation, not a set union.
+func mergeIncludedCapabilities(stateRootCapabilities, dumpCapabilities []string) []string {
+	merged := make([]string, 0, len(stateRootCapabilities)+len(dumpCapabilities))
+	merged = append(merged, stateRootCapabilities...)
+	merged = append(merged, dumpCapabilities...)
+	sort.Strings(merged)
+
+	return merged
 }
 
 // applyDelete removes the artifact at payload.ArtifactPath, which must
