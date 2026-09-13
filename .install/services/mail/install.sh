@@ -854,20 +854,41 @@ install_mail_offline_bundle() {
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" generation_retained "/var/lib/lesta/mail/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if exim4-daemon-heavy's own version actually changed. Every vendored package is retained and rolled back together as one unit."
 }
 
+# discover_spamd_unit_name -> the real systemd unit name this node's own
+# installed spamassassin package ships, since it varies by Ubuntu release
+# (confirmed for real via CI: "spamassassin.service" does not exist on
+# 24.04, unlike every other real daemon this installer manages by a fixed,
+# known unit name). Empty output (never a hard failure here) means neither
+# candidate exists yet -- callers decide what that means for them.
+discover_spamd_unit_name() {
+    systemctl list-unit-files --no-legend --full 'spamd.service' 'spamassassin.service' 2>/dev/null | awk '{print $1}' | head -n1
+}
+
 # mail_fail_health <exit_code> <error_code> <path> <message>
 # Wraps every package-version-dependent failure site in install_mail below
 # (systemctl enable/restart and health-probe failures for exim4, dovecot,
-# clamav-daemon, and spamassassin): on the live path (OFFLINE_BUNDLE empty)
-# this is byte-for-byte the same plain fail_step call these sites always
-# made; only the --offline-bundle path additionally attempts an automatic
+# clamav-daemon, and spamd): on the live path (OFFLINE_BUNDLE empty) this
+# is byte-for-byte the same plain fail_step call these sites always made;
+# only the --offline-bundle path additionally attempts an automatic
 # rollback to the previous retained generation first. One shared bundle/
 # generation underlies all four services here, so a rollback triggered by
 # any one service's own health failure restarts every one of them, never
 # just the one whose check failed -- mirroring mariadb_fail_health's own
-# identical reasoning for its two systemd instances.
+# identical reasoning for its two systemd instances. spamd's own real unit
+# name is discovered fresh here (never assumed): if package install itself
+# is what failed and no such unit exists yet at all, it is simply left out
+# of the restart list rather than aborting the whole rollback over an
+# optional, not-yet-relevant unit.
 mail_fail_health() {
+    local units="exim4 dovecot clamav-daemon" spamd_unit
+
+    spamd_unit=$(discover_spamd_unit_name)
+    if [ -n "${spamd_unit}" ]; then
+        units="${units} ${spamd_unit}"
+    fi
+
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mail "exim4 dovecot clamav-daemon spamassassin"
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mail "${units}"
     else
         fail_step "$1" "$2" "$3" "$4"
     fi
@@ -961,7 +982,7 @@ wait_for_health_probe() {
 install_mail() {
     log_info "install_mail: installing exim4/dovecot and activating ${MAIL_SMTP_IMAP_CAPABILITY}"
 
-    local out installed_version
+    local out installed_version spamd_unit_name
 
     # --- vmail: the fixed, shared virtual-mailbox identity every hosted
     # account's own maildir is delivered under (see render_dovecot_conf's
@@ -1160,12 +1181,24 @@ install_mail() {
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" configured /etc/default/spamassassin "ENABLED=1 set: spamd would otherwise stay disabled per Debian's own packaging default"
 
-    systemctl enable spamassassin || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable spamassassin failed"
+    # The real systemd unit name this package ships varies by Ubuntu release
+    # (confirmed for real via CI: "spamassassin.service" does not exist on
+    # 24.04, unlike every other real daemon this installer manages by a
+    # fixed, known unit name) -- discovered at runtime from the real
+    # installed unit list rather than hardcoding a single guessed name a
+    # second time.
+    spamd_unit_name=$(discover_spamd_unit_name)
+    if [ -z "${spamd_unit_name}" ]; then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_unit_not_found "" "neither spamd.service nor spamassassin.service exists after installing the spamassassin package"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "" "real systemd unit for spamd is ${spamd_unit_name}"
 
-    if ! out=$(systemctl restart spamassassin 2>&1); then
+    systemctl enable "${spamd_unit_name}" || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable ${spamd_unit_name} failed"
+
+    if ! out=$(systemctl restart "${spamd_unit_name}" 2>&1); then
         mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable spamassassin + systemctl restart spamassassin succeeded"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable ${spamd_unit_name} + systemctl restart ${spamd_unit_name} succeeded"
 
     wait_for_health_probe spamd_health_probe 30 \
         || mail_fail_health "${EXIT_HEALTH_FAILURE}" spamd_health_check_failed "" "spamd did not answer a real PING/PONG protocol probe on 127.0.0.1:${SPAMD_PORT} after restart"
