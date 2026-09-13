@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -115,6 +116,7 @@ func (c *ApacheCapability) vhostDataFor(resourceID string, payload Payload, n in
 		CertificatePath:  payload.SSL.CertificatePath,
 		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
 		SSLPort:          c.cfg.SSLPort,
+		AccessLogPath:    filepath.Join(c.cfg.LogDir, resourceID+".access.log"),
 	}
 }
 

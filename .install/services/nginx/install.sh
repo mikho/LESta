@@ -92,6 +92,10 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 NGINX_CONF_PATH="/etc/nginx/nginx.conf"
 NGINX_LIVE_DIR="/etc/nginx/lesta.d"
 
+# NGINX_LOG_DIR: must stay in lockstep with
+# agent/cmd/lesta-agent/main.go's own nginxProductionConfig() LogDir literal.
+NGINX_LOG_DIR="/var/log/lesta/nginx"
+
 # BUNDLE_MANIFEST_FILENAME is declared in lib/offline-bundle.sh (shared by
 # every leaf-service installer's own --offline-bundle wiring).
 
@@ -728,6 +732,27 @@ install_nginx() {
     install -d -m 0750 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
     add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0755"
     add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0750 root:lesta"
+
+    # NGINX_LOG_DIR must exist before nginx -t below: every rendered vhost's
+    # own access_log directive names a path under it, and nginx -t opens
+    # every configured log file as part of validating the config, exactly
+    # the same "must exist before the thing that validates against it runs"
+    # ordering mail/install.sh's own lesta.conf-before-package-install fix
+    # already had to learn the hard way.
+    install -d -m 0750 -o root -g lesta "${NGINX_LOG_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LOG_DIR}" "failed to create ${NGINX_LOG_DIR}"
+    add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "per-vhost access-log directory present, mode 0750 root:lesta"
+
+    cat > /etc/logrotate.d/lesta-nginx <<LOGROTATE
+${NGINX_LOG_DIR}/*.access.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+    add_change web.nginx.v1 written /etc/logrotate.d/lesta-nginx "logrotate policy installed: daily, 14 rotations, copytruncate (never signals nginx -- metrics.usage.v1's own offset-tracked reader treats a shorter file as freshly rotated)"
 
     check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then

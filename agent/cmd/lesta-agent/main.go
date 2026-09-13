@@ -196,6 +196,13 @@ func nginxProductionConfig() nginx.Config {
 		// rendered vhost once WebDomain has a real issued certificate (see
 		// payload.go's own SSL.CertificatePath doc comment).
 		SSLPort: 443,
+		// LogDir: a dedicated LESta-owned directory, never the stock
+		// /var/log/nginx (which combines every vhost's own traffic into one
+		// file with no per-domain attribution). metrics.usage.v1 reads these
+		// read-only (offset-tracked, never truncated by the agent itself;
+		// logrotate's own copytruncate handles unbounded growth, see
+		// nginx/install.sh's own logrotate.d fragment).
+		LogDir: "/var/log/lesta/nginx",
 	}
 }
 
@@ -323,6 +330,10 @@ func apacheProductionConfig() apache.Config {
 		Port:             apachePortForProfile(readWebProfile(webProfilePath)),
 		SSLPort:          apacheSSLPortForProfile(readWebProfile(webProfilePath)),
 		AcmeChallengeDir: "/var/lib/lesta/acme/http-01",
+		// LogDir: mirrors nginxProductionConfig's own LogDir exactly (see
+		// that field's doc comment): a dedicated LESta-owned directory,
+		// never Apache's own combined access.log.
+		LogDir: "/var/log/lesta/apache",
 		Env: []string{
 			"APACHE_RUN_USER=www-data",
 			"APACHE_RUN_GROUP=www-data",

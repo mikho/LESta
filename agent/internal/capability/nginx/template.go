@@ -53,6 +53,10 @@ type vhostData struct {
 	// directive (see Config's own field of the same name). Unused by every
 	// other template.
 	SSLPort int
+	// AccessLogPath backs every template's own access_log directive (see
+	// Config.LogDir's own doc comment for why this is per-resource, never a
+	// single combined log).
+	AccessLogPath string
 	// Marker is a known string embedded in the rendered default vhost's body,
 	// so a health check can assert that *this* resource answered, not just
 	// that some nginx vhost is alive. It is deliberately a function of

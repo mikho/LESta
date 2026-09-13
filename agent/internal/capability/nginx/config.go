@@ -12,6 +12,15 @@ type Config struct {
 	// /var/lib/lesta/nginx). Generations live at
 	// StateRoot/domains/<resource_id>/generations/<n>/.
 	StateRoot string
+	// LogDir is the directory every rendered vhost's own access_log
+	// directive points into: one <resource_id>.access.log per resource
+	// (e.g. /var/log/lesta/nginx), never a single combined log. Per-vhost
+	// files, keyed by resource_id rather than the tenant-controlled domain
+	// string (matching LiveDir's own <resource_id>.conf convention exactly),
+	// are what metrics.usage.v1 later reads and truncates to collect real
+	// bandwidth/request-count usage per domain, with no per-line Host-header
+	// attribution needed.
+	LogDir string
 	// NginxConfPath is the real, read-only main nginx.conf. It must already
 	// contain an `include <LiveDir>/*.conf;` line; this phase's code requires
 	// that precondition, it does not create it.
