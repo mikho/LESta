@@ -10,6 +10,7 @@ package bind9
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,36 @@ func TestRenderRecordLine_TXTEscapesEmbeddedQuoteAndBackslash(t *testing.T) {
 	}
 
 	want := `@ IN TXT "v=spf1 include:\"weird\\path\" ~all"`
+	if line != want {
+		t.Fatalf("TXT line: got %q, want %q", line, want)
+	}
+}
+
+func TestRenderRecordLine_TXTSplitsValuesOver255BytesIntoMultipleCharacterStrings(t *testing.T) {
+	// A DKIM public key TXT value is the real case this exists for: base64
+	// well past RFC 1035's 255-byte <character-string> limit.
+	value := strings.Repeat("a", 300)
+
+	line, err := renderRecordLine(Record{Name: "lesta1._domainkey", Type: "TXT", Value: value})
+	if err != nil {
+		t.Fatalf("renderRecordLine: %v", err)
+	}
+
+	want := `lesta1._domainkey IN TXT "` + strings.Repeat("a", 255) + `" "` + strings.Repeat("a", 45) + `"`
+	if line != want {
+		t.Fatalf("TXT line: got %q, want %q", line, want)
+	}
+}
+
+func TestRenderRecordLine_TXTExactly255BytesStaysOneCharacterString(t *testing.T) {
+	value := strings.Repeat("b", 255)
+
+	line, err := renderRecordLine(Record{Name: "@", Type: "TXT", Value: value})
+	if err != nil {
+		t.Fatalf("renderRecordLine: %v", err)
+	}
+
+	want := `@ IN TXT "` + value + `"`
 	if line != want {
 		t.Fatalf("TXT line: got %q, want %q", line, want)
 	}

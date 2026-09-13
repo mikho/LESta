@@ -17,6 +17,7 @@ class CompletesProvisioningOperation
         private TriggersAcmeCertificateIssuance $triggersAcmeCertificateIssuance,
         private RecordsBackupArtifact $recordsBackupArtifact,
         private RecordsUsageSnapshot $recordsUsageSnapshot,
+        private PublishesDkimDnsRecord $publishesDkimDnsRecord,
     ) {}
 
     public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
@@ -34,5 +35,6 @@ class CompletesProvisioningOperation
         $this->triggersAcmeCertificateIssuance->handle($operation);
         $this->recordsBackupArtifact->handle($operation);
         $this->recordsUsageSnapshot->handle($operation);
+        $this->publishesDkimDnsRecord->handle($operation);
     }
 }

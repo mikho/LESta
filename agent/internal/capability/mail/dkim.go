@@ -1,10 +1,12 @@
 package mail
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // dkimSelector is fixed, never tenant input: this pass supports one active
@@ -41,16 +43,11 @@ func (c *MailCapability) dkimPublicKeyPath(domain string) string {
 // permission error, discovered while building that installer.
 //
 // The derived PUBLIC key is written alongside it (mode 0644: it is not a
-// secret) so an operator or a future control-plane mechanism can read it to
-// publish the corresponding DNS TXT record, but this capability has no
-// channel of its own to report it back through today: protocol.ResultEnvelope
-// carries no generic "derived output" field (confirmed directly against
-// agent/internal/protocol/envelope.go), unlike, say, an issued ACME
-// certificate's expiry, which Laravel already knows first-hand because it
-// issued the certificate itself rather than asking the agent to report it
-// back. Wiring an automatic DNS TXT publication is real future work needing
-// its own protocol extension, disclosed here rather than silently
-// half-implemented.
+// secret) and, unlike the private key, IS read back out by
+// dkimResultData/dkimPublicKeyBase64 below and reported on a successful
+// apply's own ResultEnvelope.Data, letting Laravel publish the matching DNS
+// TXT record without this capability needing any DNS-specific knowledge of
+// its own (see PublishesDkimDnsRecord.php on the Laravel side).
 //
 // Disabling dkim_enabled later does not delete existing key material: it is
 // simply omitted from the active signing lookup (see render.go), the same
@@ -101,4 +98,62 @@ func (c *MailCapability) dkimKeyExists(domain string) bool {
 	_, err := os.Stat(c.dkimPrivateKeyPath(domain))
 
 	return err == nil
+}
+
+// dkimResultPayload is the shape reported on a successful apply's own
+// ResultEnvelope.Data whenever DKIM is actively enabled, matching
+// PublishesDkimDnsRecord.php's own expected keys exactly (mirroring
+// backup.artifactData's own "Go struct documents the Laravel-side
+// consumer" precedent).
+type dkimResultPayload struct {
+	Selector  string `json:"selector"`
+	PublicKey string `json:"public_key"`
+}
+
+// dkimResultData returns the marshaled {selector, public_key} to attach to
+// ResultEnvelope.Data for domain, or nil (never an error) when DKIM isn't
+// actively enabled or its key hasn't actually been generated yet: a
+// disabled or not-yet-real key means nothing to report, not a zero-value
+// placeholder.
+func (c *MailCapability) dkimResultData(domain string, active bool) (json.RawMessage, error) {
+	if !active || !c.dkimKeyExists(domain) {
+		return nil, nil
+	}
+
+	publicKey, err := c.dkimPublicKeyBase64(domain)
+	if err != nil {
+		return nil, fmt.Errorf("reading DKIM public key for %s: %w", domain, err)
+	}
+
+	data, err := json.Marshal(dkimResultPayload{Selector: dkimSelector, PublicKey: publicKey})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling DKIM result data for %s: %w", domain, err)
+	}
+
+	return data, nil
+}
+
+// dkimPublicKeyBase64 reads domain's own generated PEM public key file and
+// returns just its base64 body, with the PEM header/footer lines and every
+// embedded newline stripped: the exact single-line form a DKIM TXT record's
+// own "p=" field requires (RFC 6376 section 3.6.1), which openssl's own PEM
+// output never produces directly.
+func (c *MailCapability) dkimPublicKeyBase64(domain string) (string, error) {
+	pemBytes, err := os.ReadFile(c.dkimPublicKeyPath(domain))
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+
+	for _, line := range strings.Split(string(pemBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-----") {
+			continue
+		}
+
+		b.WriteString(line)
+	}
+
+	return b.String(), nil
 }

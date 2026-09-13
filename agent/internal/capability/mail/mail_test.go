@@ -327,6 +327,38 @@ func TestMailCapability_DKIM(t *testing.T) {
 
 	assertListContains(t, filepath.Join(d.Config.EximDataDir, "dkim_keys.list"), domain+": "+keyPath)
 
+	t.Run("a successful apply reports the DKIM selector and public key on ResultEnvelope.Data, never the private key", func(t *testing.T) {
+		if len(result.Data) == 0 {
+			t.Fatal("expected ResultEnvelope.Data to be populated when dkim_enabled is true, got none")
+		}
+
+		var data struct {
+			Selector  string `json:"selector"`
+			PublicKey string `json:"public_key"`
+		}
+		if err := json.Unmarshal(result.Data, &data); err != nil {
+			t.Fatalf("unmarshaling ResultEnvelope.Data: %v", err)
+		}
+
+		if data.Selector != "lesta1" {
+			t.Fatalf("expected selector %q, got %q", "lesta1", data.Selector)
+		}
+		if data.PublicKey == "" {
+			t.Fatal("expected a non-empty public key")
+		}
+		if strings.Contains(data.PublicKey, "BEGIN") || strings.Contains(data.PublicKey, "\n") {
+			t.Fatalf("expected a bare base64 public key with no PEM header or newlines, got %q", data.PublicKey)
+		}
+
+		privateKeyBytes, err := os.ReadFile(keyPath)
+		if err != nil {
+			t.Fatalf("reading private key: %v", err)
+		}
+		if strings.Contains(string(result.Data), string(privateKeyBytes)) {
+			t.Fatal("the private key must never appear in ResultEnvelope.Data")
+		}
+	})
+
 	t.Run("re-applying with dkim already enabled does not regenerate the key", func(t *testing.T) {
 		before, err := os.ReadFile(keyPath)
 		if err != nil {
@@ -347,6 +379,27 @@ func TestMailCapability_DKIM(t *testing.T) {
 			t.Fatal("expected the same DKIM key to survive an update that keeps dkim_enabled true, but it changed")
 		}
 	})
+}
+
+func TestMailCapability_NoResultDataWhenDKIMDisabled(t *testing.T) {
+	requireRealExim(t)
+
+	d := newDisposableExim(t)
+	capability := mail.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	password := randomPassword(t)
+
+	op := newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1,
+		domainPayload("no-dkim.example.com", false, false, false, []map[string]any{account("sales", &password)}, false))
+
+	result, err := capability.Apply(ctx, op)
+	requireApplied(t, "create with dkim disabled", result, err)
+
+	if len(result.Data) != 0 {
+		t.Fatalf("expected no ResultEnvelope.Data when dkim_enabled is false, got %s", result.Data)
+	}
 }
 
 func TestMailCapability_PayloadValidationRejections(t *testing.T) {
