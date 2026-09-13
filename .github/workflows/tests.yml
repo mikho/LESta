@@ -2682,6 +2682,23 @@ jobs:
           sudo ss -H -tlnp | grep ':25 ' | grep -q exim4
           sudo ss -H -tlnp | grep ':993 ' | grep -q dovecot
 
+      - name: "Diagnose Scenario 26 spamd unit failure (only runs if it failed)"
+        if: failure()
+        run: |
+          echo "--- dpkg -l spamassassin ---"
+          dpkg -l spamassassin || true
+          echo "--- dpkg -L spamassassin (files this package owns) ---"
+          dpkg -L spamassassin || true
+          echo "--- find / for anything spamd/spamassassin-related under a systemd unit dir ---"
+          sudo find /lib/systemd /usr/lib/systemd /etc/systemd /run/systemd -iname '*spamd*' -o -iname '*spamassassin*' 2>/dev/null || true
+          echo "--- systemctl list-unit-files, grepped for spam ---"
+          systemctl list-unit-files --no-legend --full 2>/dev/null | grep -i spam || echo "(no match)"
+          echo "--- systemctl daemon-reload, then re-check ---"
+          sudo systemctl daemon-reload
+          systemctl list-unit-files --no-legend --full 2>/dev/null | grep -i spam || echo "(still no match after daemon-reload)"
+          echo "--- /var/log/dpkg.log, grepped for spamassassin ---"
+          grep -i spamassassin /var/log/dpkg.log || true
+
       - name: "Scenario 26 cleanup: restore this runner's real apt sources"
         run: |
           sudo mv /tmp/lesta-apt-sources-backup-mail/sources.list /etc/apt/sources.list 2>/dev/null || true
