@@ -271,8 +271,9 @@ func newDisposableNginx(t *testing.T) *disposableNginx {
 	liveDir := filepath.Join(prefix, "lesta.d")
 	stateRoot := filepath.Join(prefix, "state")
 	logsDir := filepath.Join(prefix, "logs")
+	vhostLogDir := filepath.Join(prefix, "vhost-logs")
 
-	for _, dir := range []string{liveDir, stateRoot, logsDir} {
+	for _, dir := range []string{liveDir, stateRoot, logsDir, vhostLogDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
@@ -306,6 +307,7 @@ http {
 		Config: nginx.Config{
 			LiveDir:       liveDir,
 			StateRoot:     stateRoot,
+			LogDir:        vhostLogDir,
 			NginxConfPath: confPath,
 			NginxBinary:   "nginx",
 			Prefix:        prefix,
@@ -437,10 +439,11 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 	liveDir := filepath.Join(prefix, "lesta.d")
 	stateRoot := filepath.Join(prefix, "state")
 	logsDir := filepath.Join(prefix, "logs")
+	vhostLogDir := filepath.Join(prefix, "vhost-logs")
 	htdocsDir := filepath.Join(prefix, "htdocs")
 	acmeChallengeDir := filepath.Join(prefix, "acme-http-01")
 
-	for _, dir := range []string{liveDir, stateRoot, logsDir, htdocsDir, acmeChallengeDir} {
+	for _, dir := range []string{liveDir, stateRoot, logsDir, vhostLogDir, htdocsDir, acmeChallengeDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("creating %s: %v", dir, err)
 		}
@@ -497,6 +500,7 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 		Config: apache.Config{
 			LiveDir:          liveDir,
 			StateRoot:        stateRoot,
+			LogDir:           vhostLogDir,
 			ApacheConfPath:   confPath,
 			ApacheBinary:     binary,
 			Prefix:           prefix,
