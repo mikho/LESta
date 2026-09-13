@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import Heading from '@/components/heading';
+import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
 import type { UsageResourceType, UsageSnapshot } from '@/types';
 
@@ -36,20 +37,47 @@ function formatBytes(bytes: number | null): string {
     return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+type ViewingAccount = {
+    uuid: string;
+    name: string;
+};
+
 export default function Index({
     snapshots: paginatedSnapshots,
+    viewingAccount,
 }: {
     snapshots: PaginatedUsageSnapshots;
+    viewingAccount: ViewingAccount | null;
 }) {
     return (
         <>
-            <Head title="Usage" />
+            <Head
+                title={
+                    viewingAccount ? `Usage — ${viewingAccount.name}` : 'Usage'
+                }
+            />
 
             <div className="space-y-6 p-4">
-                <Heading
-                    title="Usage"
-                    description="Real, incremental usage snapshots for your account, collected daily. No long-range history yet — the last 90 days of raw snapshots."
-                />
+                {viewingAccount ? (
+                    <Heading
+                        title={`Usage for ${viewingAccount.name}`}
+                        description="Real, incremental usage snapshots for this account, collected daily. No long-range history yet — the last 90 days of raw snapshots."
+                    />
+                ) : (
+                    <Heading
+                        title="Usage"
+                        description="Real, incremental usage snapshots for your account, collected daily. No long-range history yet — the last 90 days of raw snapshots."
+                    />
+                )}
+
+                {viewingAccount && (
+                    <Link
+                        href={accounts.show(viewingAccount)}
+                        className="text-sm underline"
+                    >
+                        Back to account
+                    </Link>
+                )}
 
                 <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
                     <table className="w-full text-left text-sm">

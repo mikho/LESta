@@ -17,14 +17,26 @@ use Inertia\Response;
 class UsageSnapshotController extends Controller
 {
     /**
-     * Show the current user's own account's usage history: real, raw, per-collection-cycle
-     * snapshots (see App\Console\Commands\CollectUsageMetrics), newest first. There is no
-     * aggregation into per-resource "latest only" or coarser-grained rollups yet -- a real,
-     * disclosed v1 boundary (see UsageSnapshot's own doc comment), not an oversight.
+     * Show an account's own usage history: real, raw, per-collection-cycle snapshots (see
+     * App\Console\Commands\CollectUsageMetrics), newest first. There is no aggregation into
+     * per-resource "latest only" or coarser-grained rollups yet -- a real, disclosed v1 boundary
+     * (see UsageSnapshot's own doc comment), not an oversight.
+     *
+     * With no ?account= query param, shows the current user's own account (the tenant-facing
+     * path, unchanged since this controller's own first version). With one, shows THAT account's
+     * usage instead -- the admin cross-account path, reached from the account admin page
+     * (accounts/show.tsx), gated by the exact same UsageSnapshotPolicy::viewAny the tenant path
+     * already uses: a plain member of some other account can never pass usage.view_any, so
+     * passing an arbitrary account's uuid here grants nothing a member of that OTHER account
+     * couldn't already see through their own membership.
      */
     public function index(Request $request): Response
     {
-        $account = $this->resolveAccount($request->user());
+        $accountUuid = $request->string('account')->toString();
+
+        $account = $accountUuid !== ''
+            ? Account::where('uuid', $accountUuid)->firstOrFail()
+            : $this->resolveAccount($request->user());
 
         Gate::authorize('viewAny', [UsageSnapshot::class, $account]);
 
@@ -38,6 +50,10 @@ class UsageSnapshotController extends Controller
 
         return Inertia::render('usage/index', [
             'snapshots' => $snapshots,
+            'viewingAccount' => $accountUuid !== '' ? [
+                'uuid' => $account->uuid,
+                'name' => $account->name,
+            ] : null,
         ]);
     }
 
