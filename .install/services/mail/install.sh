@@ -46,19 +46,44 @@
 # yet -- this installer never issues one itself.
 #
 # --offline-bundle support mirrors mariadb/install.sh's own precedent
-# exactly (the closest existing multi-package bundle): exim4-daemon-heavy
-# and dovecot-imapd/dovecot-lmtpd/dovecot-sieve are vendored and retained
-# together as one bundle/one generation, since they are installed and rolled
-# back as a unit here, the same "one shared package underlies both" framing
-# mariadb/install.sh's own comment uses for its two systemd instances.
+# exactly (the closest existing multi-package bundle): exim4-daemon-heavy,
+# dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam,
+# and spamassassin are all vendored and retained together as one bundle/one
+# generation, since they are installed and rolled back as a unit here, the
+# same "one shared package underlies both" framing mariadb/install.sh's own
+# comment uses for its two systemd instances.
 #
-# Deliberately out of scope for this pass, disclosed rather than silently
-# absent: real antivirus/antispam daemon installation (clamd/spamd --
-# domains.list's own sibling antivirus.list/antispam.list flag files are
-# rendered by the Go agent unconditionally already, but this installer never
-# wires an acl_smtp_data malware/spam ACL condition to them, since
-# referencing those conditions with no scanner daemon actually running would
-# make Exim fail outright rather than degrade).
+# Real antivirus/antispam scanning: clamav-daemon (clamd, a real virus
+# scanner) and spamassassin (spamd, a real spam scorer) are installed and
+# health-probed like every other real daemon this installer manages.
+# domains.list's own sibling antivirus.list/antispam.list flag files (the Go
+# agent has rendered these unconditionally since Phase 30, previously never
+# read by anything) now gate a new acl_check_data: stanza via ACL variables
+# ($acl_m_av/$acl_m_spam) accumulated once per accepted recipient in
+# acl_check_rcpt, since a single message's DATA phase has no single
+# unambiguous "$domain" when multiple hosted-domain recipients are in the
+# same transaction -- the RCPT-time accumulation is message-scoped and
+# survives to DATA time, exactly the mechanism Exim's own ACL variable
+# design exists for. Both `malware`/`spam` ACL conditions use /defer_ok: a
+# scanner daemon that is briefly unreachable defers the message (a real,
+# retried 4xx) rather than either hard-rejecting legitimate mail or silently
+# accepting everything unscanned -- the safer of Exim's own two documented
+# failure modes for content scanning.
+#
+# Real CI is this scanning path's own proof, not a local dry run: real
+# ClamAV virus detection is proven with an EICAR test string (the standard,
+# harmless, industry-wide test signature every AV engine recognizes without
+# needing a real virus sample), and real SpamAssassin detection with
+# GTUBE (its own equivalent standard test string). Exim itself never
+# eagerly connects to av_scanner/spamd_address at config-load or restart
+# time (confirmed: these are plain option strings, connected to lazily only
+# when a real message actually reaches the DATA ACL) -- unlike Dovecot's own
+# postinst-restart-ordering hazard elsewhere in this file, a broken or
+# not-yet-started clamd/spamd would NOT fail exim4 -bV or systemctl restart
+# exim4 outright, so this installer adds its own explicit, hard-failing
+# health probe for both daemons instead (mirroring mail_health_probe's own
+# real TCP-probe convention), rather than trusting Exim's own lenient
+# config-load behavior to ever catch a daemon that never actually started.
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -124,6 +149,13 @@ DKIM_KEY_ROOT="/var/lib/lesta/mail/dkim"
 VMAIL_HOME="/var/lib/lesta/mail/vmail"
 
 ACME_CERTS_ROOT="/var/lib/lesta/acme/certs"
+
+# Real, fixed paths ClamAV's/SpamAssassin's own Debian packaging default to
+# (clamav-daemon's own /etc/clamav/clamd.conf LocalSocket; spamd's own
+# always-loopback-only listener) -- never operator-configurable, matching
+# every other daemon endpoint literal in this file.
+CLAMD_SOCKET="/run/clamav/clamd.ctl"
+SPAMD_PORT=783
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
@@ -341,7 +373,7 @@ mail_would_install_note() {
         printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
             "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note mail "${OFFLINE_BUNDLE}" exim4-daemon-heavy)"
     else
-        printf 'exim4-daemon-heavy and dovecot-imapd/dovecot-lmtpd/dovecot-sieve would be installed'
+        printf 'exim4-daemon-heavy, dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam, and spamassassin would be installed'
     fi
 }
 
@@ -352,7 +384,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway mail domain against the real, just-installed exim/dovecot"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "$(mail_would_install_note); ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; both services would be enabled, restarted, and health-probed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "$(mail_would_install_note); ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config (including a real acl_check_data malware/spam gate) for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; all four services (exim4, dovecot, clamav-daemon, spamassassin) would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -596,6 +628,10 @@ domainlist local_domains = lsearch;${EXIM_DATA_DIR}/domains.list
 
 acl_smtp_mail = acl_check_mail
 acl_smtp_rcpt = acl_check_rcpt
+acl_smtp_data = acl_check_data
+
+av_scanner = clamd:${CLAMD_SOCKET}
+spamd_address = 127.0.0.1 ${SPAMD_PORT}
 
 begin acl
 
@@ -611,6 +647,11 @@ acl_check_rcpt:
 
   accept  authenticated = *
 
+  warn    domains = +local_domains
+          condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
+          set acl_m_av = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antivirus.list}{1}{0}}}{1}{1}{\$acl_m_av}}
+          set acl_m_spam = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antispam.list}{1}{0}}}{1}{1}{\$acl_m_spam}}
+
   accept  domains = +local_domains
           condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
 
@@ -618,6 +659,30 @@ acl_check_rcpt:
           message = "no such mailbox"
 
   deny    message = "relay not permitted"
+
+# acl_m_av/acl_m_spam are message-scoped ACL variables accumulated once per
+# accepted local recipient above (the "warn" immediately before each real
+# accept), never reset between recipients: a single DATA transaction can
+# carry recipients across multiple hosted domains with different
+# antivirus_enabled/antispam_enabled settings, and there is no single
+# unambiguous domain at DATA time the way there is per-recipient in
+# acl_check_rcpt. Scanning applies if ANY accepted recipient's own domain
+# opted in, matching what an admin who enabled it for their domain expects:
+# every message actually delivered there gets scanned, not just messages
+# where it happens to be the sole recipient. Both conditions use /defer_ok:
+# a clamd/spamd that is briefly unreachable defers the message (a real,
+# retried 4xx) rather than either hard-rejecting legitimate mail or
+# silently accepting it unscanned.
+acl_check_data:
+  deny    condition = \${if eq{\$acl_m_av}{1}{1}{0}}
+          malware = */defer_ok
+          message = "This message contains a virus (\$malware_name) and was rejected"
+
+  deny    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
+          spam = Debian-exim:true
+          message = "This message was rejected as spam (score: \$spam_score)"
+
+  accept
 
 begin routers
 
@@ -755,18 +820,18 @@ mail_health_probe() {
 }
 
 # install_mail_offline_bundle <bundle_dir>
-# The --offline-bundle counterpart to the live 'apt-get install -y
-# exim4-daemon-heavy' + 'apt-get install -y dovecot-imapd dovecot-lmtpd
-# dovecot-sieve' path below: verifies every vendored .deb first (fail
-# closed, no mutation before this returns), then installs all four packages
-# in one dpkg -i, requiring no network access at all. Mirrors
+# The --offline-bundle counterpart to the live 'apt-get install -y' calls
+# below: verifies every vendored .deb first (fail closed, no mutation
+# before this returns), then installs all six packages (exim4-daemon-heavy,
+# dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam,
+# spamassassin) in one dpkg -i, requiring no network access at all. Mirrors
 # mariadb/install.sh's own install_mariadb_offline_bundle exactly, generation-
 # retained under exim4-daemon-heavy's own version (the seed artifact), since
-# all four packages are installed and rolled back together as one unit.
+# every vendored package is installed and rolled back together as one unit.
 install_mail_offline_bundle() {
     local bundle_dir="$1" out
 
-    log_info "install_mail_offline_bundle: installing exim4-daemon-heavy/dovecot-imapd/dovecot-lmtpd/dovecot-sieve from offline bundle ${bundle_dir} (no network access required)"
+    log_info "install_mail_offline_bundle: installing exim4-daemon-heavy/dovecot-imapd/dovecot-lmtpd/dovecot-sieve/clamav-daemon/clamav-freshclam/spamassassin from offline bundle ${bundle_dir} (no network access required)"
 
     offline_bundle_retain_generation mail "${bundle_dir}" exim4-daemon-heavy
 
@@ -786,26 +851,99 @@ install_mail_offline_bundle() {
     fi
 
     offline_bundle_snapshot_current mail "${bundle_dir}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" generation_retained "/var/lib/lesta/mail/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if exim4-daemon-heavy's own version actually changed. All four vendored packages are retained and rolled back together as one unit."
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" generation_retained "/var/lib/lesta/mail/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if exim4-daemon-heavy's own version actually changed. Every vendored package is retained and rolled back together as one unit."
 }
 
 # mail_fail_health <exit_code> <error_code> <path> <message>
 # Wraps every package-version-dependent failure site in install_mail below
-# (systemctl enable/restart and TCP health-probe failures for both exim4
-# and dovecot): on the live path (OFFLINE_BUNDLE empty) this is byte-for-byte
-# the same plain fail_step call these sites always made; only the
-# --offline-bundle path additionally attempts an automatic rollback to the
-# previous retained generation first. One shared bundle/generation underlies
-# both exim4 and dovecot here, so a rollback triggered by either service's
-# own health failure restarts BOTH exim4 and dovecot, never just the one
-# whose check failed -- mirroring mariadb_fail_health's own identical
-# reasoning for its two systemd instances.
+# (systemctl enable/restart and health-probe failures for exim4, dovecot,
+# clamav-daemon, and spamassassin): on the live path (OFFLINE_BUNDLE empty)
+# this is byte-for-byte the same plain fail_step call these sites always
+# made; only the --offline-bundle path additionally attempts an automatic
+# rollback to the previous retained generation first. One shared bundle/
+# generation underlies all four services here, so a rollback triggered by
+# any one service's own health failure restarts every one of them, never
+# just the one whose check failed -- mirroring mariadb_fail_health's own
+# identical reasoning for its two systemd instances.
 mail_fail_health() {
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mail "exim4 dovecot"
+        offline_bundle_fail_health_with_rollback "$1" "$2" "$3" "$4" mail "exim4 dovecot clamav-daemon spamassassin"
     else
         fail_step "$1" "$2" "$3" "$4"
     fi
+}
+
+# clamd_health_probe -> a real ping over clamd's own local Unix socket
+# (/run/clamav/clamd.ctl, Debian packaging's own default LocalSocket),
+# speaking ClamAV's own real wire protocol (a raw "PING\n" command, real
+# clamd answering "PONG\n") rather than a bare TCP-connect probe: the
+# socket merely accepting a connection proves far less than clamd itself
+# answering a real protocol round trip -- mirroring this file's own "the
+# deep proof is a real round trip, the connect probe is only shallow"
+# discipline (see mail_health_probe's own identical disclosure). Uses nc
+# directly (already relied on elsewhere in this file) rather than a
+# separate clamdscan client package, keeping this self-contained.
+clamd_health_probe() {
+    command -v nc >/dev/null 2>&1 || return 1
+    printf 'PING\n' | nc -U -w 5 "${CLAMD_SOCKET}" 2>/dev/null | grep -q 'PONG'
+}
+
+# spamd_health_probe -> a real ping to spamd over its own real TCP wire
+# protocol (127.0.0.1:783, Debian packaging's own default), speaking
+# SpamAssassin's own documented "PING" spamd-protocol command (real spamd
+# answering "PONG") rather than a bare TCP-connect probe, for the identical
+# reason clamd_health_probe speaks ClamAV's real protocol instead of using
+# mail_health_probe's own generic connect-only check.
+spamd_health_probe() {
+    command -v nc >/dev/null 2>&1 || return 1
+    printf 'PING SPAMC/1.5\r\n\r\n' | nc -w 5 127.0.0.1 "${SPAMD_PORT}" 2>/dev/null | grep -q 'PONG'
+}
+
+# wait_for_clamav_database -> polls up to 5 minutes for a real ClamAV virus
+# database (main.cvd/main.cld, the file clamd itself hard-requires to start
+# at all) to appear under /var/lib/clamav, the exact directory clamav-
+# freshclam's own postinst downloads its first real signature set into. A
+# genuinely fresh first-time download (main.cvd alone is well over 100MB)
+# can take real, meaningful time even on a healthy connection, hence the
+# generous bound; a disposable node with no real path to ClamAV's own CDN
+# still times out here with a clear, attributable error rather than a
+# confusing later clamd startup crash.
+wait_for_clamav_database() {
+    local waited=0
+
+    while [ "${waited}" -lt 300 ]; do
+        if [ -f /var/lib/clamav/main.cvd ] || [ -f /var/lib/clamav/main.cld ]; then
+            return 0
+        fi
+
+        sleep 5
+        waited=$((waited + 5))
+    done
+
+    return 1
+}
+
+# wait_for_health_probe <probe_function> <timeout_seconds> -> retries
+# probe_function every 2 seconds until it succeeds or timeout_seconds
+# elapses. clamd in particular can take real, meaningful time to load its
+# own virus database into memory after systemctl restart returns, unlike
+# exim4/dovecot (mail_health_probe's own single-shot 5-second connect
+# timeout has always been sufficient for those two); a single immediate
+# probe here would be a false negative on a genuinely healthy install, not
+# a real failure.
+wait_for_health_probe() {
+    local probe_function="$1" timeout_seconds="$2" waited=0
+
+    while [ "${waited}" -lt "${timeout_seconds}" ]; do
+        if "${probe_function}"; then
+            return 0
+        fi
+
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    return 1
 }
 
 install_mail() {
@@ -847,8 +985,10 @@ install_mail() {
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
 
     # --- exim4-daemon-heavy (the "heavy" variant is required for DKIM
-    # support; exim4-daemon-light is compiled without it) and
-    # dovecot-imapd/dovecot-lmtpd/dovecot-sieve ------------------------------
+    # support; exim4-daemon-light is compiled without it),
+    # dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/
+    # clamav-freshclam (real virus scanning), and spamassassin (real spam
+    # scoring) ------------------------------------------------------------
     if [ -n "${OFFLINE_BUNDLE}" ]; then
         install_mail_offline_bundle "${OFFLINE_BUNDLE}"
     else
@@ -863,6 +1003,12 @@ install_mail() {
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
         add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve succeeded"
+
+        if ! out=$(apt-get install -y clamav-daemon clamav-freshclam spamassassin 2>&1); then
+            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y clamav-daemon clamav-freshclam spamassassin succeeded"
     fi
 
     installed_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy 2>/dev/null || true)
@@ -908,6 +1054,16 @@ install_mail() {
     # dkim.go's own doc comment) to actually sign outgoing mail.
     usermod -aG lesta Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta Debian-exim failed"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the lesta group, so Exim can read its own lookup data and DKIM private keys"
+
+    # Debian-exim also needs real access to clamd's own Unix socket
+    # (CLAMD_SOCKET) to actually connect for av_scanner scanning: ClamAV's
+    # own Debian packaging creates that socket group-owned by clamav, not
+    # world-writable, the exact same "a non-owning system identity needs an
+    # explicit group grant to use a real local socket" lesson already
+    # learned for DKIM keys just above, applied proactively here rather
+    # than waiting to rediscover it via a real connection-refused failure.
+    usermod -aG clamav Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG clamav Debian-exim failed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the clamav group, so Exim can connect to clamd's own Unix socket"
 
     # StateRoot itself, explicitly, before any of its children: `install -d`
     # creates missing parents too, but only the leaf directory named on the
@@ -955,6 +1111,53 @@ install_mail() {
 
     mail_health_probe 993 || mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_health_check_failed "" "dovecot did not answer a TCP health probe on 127.0.0.1:993 after restart"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:993 succeeded"
+
+    # --- clamav-daemon: clamd will not start at all without a real virus
+    # database already present under /var/lib/clamav (main.cvd/main.cld,
+    # daily.cvd/daily.cld) -- clamav-freshclam's own postinst already
+    # attempts a first real signature fetch synchronously, but this waits
+    # and retries explicitly rather than trusting that timing blindly,
+    # mirroring this file's own repeated "verify the real dependency is
+    # ready before starting what depends on it" discipline (the same
+    # discipline behind lesta.conf's own before-package-install ordering
+    # above). A disposable node with no real network path to ClamAV's own
+    # CDN will fail here loudly, not with a confusing later clamd crash.
+    wait_for_clamav_database || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_database_missing "/var/lib/clamav" "no real ClamAV virus database (main.cvd/main.cld) appeared after waiting for clamav-freshclam's own first signature fetch"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "/var/lib/clamav" "a real ClamAV virus database is present"
+
+    systemctl enable clamav-daemon || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable clamav-daemon failed"
+
+    if ! out=$(systemctl restart clamav-daemon 2>&1); then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable clamav-daemon + systemctl restart clamav-daemon succeeded"
+
+    wait_for_health_probe clamd_health_probe 30 \
+        || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_health_check_failed "${CLAMD_SOCKET}" "clamd did not answer a real PING/PONG protocol probe over ${CLAMD_SOCKET} after restart"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "real PING/PONG protocol probe against clamd's own socket succeeded"
+
+    # --- spamassassin: the spamd service Debian's own packaging ships is
+    # disabled by default (ENABLED=0 in /etc/default/spamassassin) until an
+    # operator explicitly opts in -- flip it here, the same "package
+    # installs, service starts disabled until explicitly enabled" pattern
+    # already confirmed real for Dovecot's own postinst behavior elsewhere
+    # in this file, just gated by a config flag instead of an include line.
+    if [ -f /etc/default/spamassassin ]; then
+        sed -i 's/^ENABLED=.*/ENABLED=1/' /etc/default/spamassassin \
+            || fail_step "${EXIT_MUTATION_FAILURE}" spamassassin_enable_flag_failed /etc/default/spamassassin "failed to set ENABLED=1 in /etc/default/spamassassin"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" configured /etc/default/spamassassin "ENABLED=1 set: spamd would otherwise stay disabled per Debian's own packaging default"
+
+    systemctl enable spamassassin || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable spamassassin failed"
+
+    if ! out=$(systemctl restart spamassassin 2>&1); then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable spamassassin + systemctl restart spamassassin succeeded"
+
+    wait_for_health_probe spamd_health_probe 30 \
+        || mail_fail_health "${EXIT_HEALTH_FAILURE}" spamd_health_check_failed "" "spamd did not answer a real PING/PONG protocol probe on 127.0.0.1:${SPAMD_PORT} after restart"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "real PING/PONG protocol probe against spamd succeeded"
 
     checkpoint_write install_mail "${MANIFEST_DIGEST}"
     log_info "install_mail complete"

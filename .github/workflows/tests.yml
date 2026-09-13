@@ -538,12 +538,152 @@ jobs:
           sudo journalctl -u dovecot --no-pager | tail -100 || true
           echo "--- doveconf -n ---"
           sudo doveconf -n || true
+          echo "--- systemctl status clamav-daemon ---"
+          sudo systemctl status clamav-daemon --no-pager || true
+          echo "--- journalctl for clamav-daemon ---"
+          sudo journalctl -u clamav-daemon --no-pager | tail -100 || true
+          echo "--- systemctl status clamav-freshclam ---"
+          sudo systemctl status clamav-freshclam --no-pager || true
+          echo "--- /var/lib/clamav ---"
+          sudo ls -la /var/lib/clamav || true
+          echo "--- systemctl status spamassassin ---"
+          sudo systemctl status spamassassin --no-pager || true
+          echo "--- journalctl for spamassassin ---"
+          sudo journalctl -u spamassassin --no-pager | tail -100 || true
+          echo "--- /etc/default/spamassassin ---"
+          sudo cat /etc/default/spamassassin || true
           echo "--- /etc/exim4/exim4.conf ---"
           sudo cat /etc/exim4/exim4.conf || true
           echo "--- /etc/dovecot/lesta.conf ---"
           sudo cat /etc/dovecot/lesta.conf || true
-          echo "--- kernel log, grepped for any apparmor denial against exim/dovecot ---"
-          sudo journalctl -k --no-pager | grep -iE 'apparmor.*(exim|dovecot)' | tail -40 || true
+          echo "--- kernel log, grepped for any apparmor denial against exim/dovecot/clamav/spamassassin ---"
+          sudo journalctl -k --no-pager | grep -iE 'apparmor.*(exim|dovecot|clamd|clamav|spamd|spamassassin)' | tail -40 || true
+
+      - name: "Real proof: a message containing the EICAR test string is rejected by clamd, GTUBE by spamd, and a clean message still gets through"
+        run: |
+          sudo tee /tmp/av-spam-proof.py > /dev/null <<'PYEOF'
+          import hashlib
+          import json
+          import secrets
+          import socket
+          import subprocess
+          import sys
+          import time
+
+          AGENT_BINARY = "/var/lib/lesta/agent/bin/lesta-agent"
+          DOMAIN = "avtest.lesta-ci.invalid"
+          LOCAL_PART = "avtest"
+
+          EICAR = r'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+          GTUBE = "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X"
+
+
+          def envelope(operation, resource_id, dsv, payload):
+              payload_json = json.dumps(payload, separators=(",", ":"))
+              digest = hashlib.sha256(payload_json.encode()).hexdigest()
+              now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+              deadline = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 30))
+              return {
+                  "protocol_version": "1",
+                  "capability": "mail.smtp-imap.v1",
+                  "operation": operation,
+                  "resource_id": resource_id,
+                  "desired_state_version": dsv,
+                  "idempotency_key": secrets.token_hex(16),
+                  "correlation_id": secrets.token_hex(16),
+                  "deadline": deadline,
+                  "issued_at": now,
+                  "request_digest": f"sha256:{digest}",
+                  "payload": payload,
+              }
+
+
+          def invoke_agent(env):
+              out = subprocess.run(
+                  [AGENT_BINARY], input=json.dumps(env), capture_output=True, text=True, timeout=30
+              )
+              if out.returncode != 0:
+                  sys.exit(f"agent exited {out.returncode}: {out.stdout} {out.stderr}")
+              return json.loads(out.stdout)
+
+
+          def smtp_transaction(rcpt_local_part, rcpt_domain, body):
+              with socket.create_connection(("127.0.0.1", 25), timeout=10) as s:
+                  def send(line):
+                      s.sendall((line + "\r\n").encode())
+
+                  def read():
+                      return s.recv(65536).decode(errors="replace")
+
+                  read()  # banner
+                  send("EHLO ci-av-spam-proof.invalid")
+                  read()
+                  send("MAIL FROM:<sender@ci-av-spam-proof.invalid>")
+                  read()
+                  send(f"RCPT TO:<{rcpt_local_part}@{rcpt_domain}>")
+                  rcpt_reply = read()
+                  if not rcpt_reply.startswith("250"):
+                      sys.exit(f"RCPT TO was not accepted: {rcpt_reply}")
+                  send("DATA")
+                  read()
+                  s.sendall((body + "\r\n.\r\n").encode())
+                  data_reply = read()
+                  send("QUIT")
+                  return data_reply
+
+
+          resource_id = secrets.token_hex(16)
+          create_payload = {
+              "domain": DOMAIN,
+              "antivirus_enabled": True,
+              "antispam_enabled": True,
+              "dkim_enabled": False,
+              "accounts": [
+                  {
+                      "local_part": LOCAL_PART,
+                      "password": secrets.token_hex(24),
+                      "forward_only": False,
+                      "autoreply_enabled": False,
+                      "suspended": False,
+                  }
+              ],
+              "suspended": False,
+          }
+
+          created = invoke_agent(envelope("create", resource_id, 1, create_payload))
+          if created.get("status") != "applied":
+              sys.exit(f"expected create status=applied, got: {created}")
+          print("real avtest.lesta-ci.invalid domain created with antivirus_enabled/antispam_enabled=true")
+
+          try:
+              eicar_reply = smtp_transaction(
+                  LOCAL_PART, DOMAIN, f"Subject: eicar test\r\n\r\n{EICAR}"
+              )
+              if not eicar_reply.startswith(("5", "4")):
+                  sys.exit(f"expected the EICAR test message to be rejected/deferred by clamd, got: {eicar_reply}")
+              print(f"EICAR test message correctly rejected/deferred by clamd: {eicar_reply.strip()}")
+
+              gtube_reply = smtp_transaction(
+                  LOCAL_PART, DOMAIN, f"Subject: gtube test\r\n\r\n{GTUBE}"
+              )
+              if not gtube_reply.startswith(("5", "4")):
+                  sys.exit(f"expected the GTUBE test message to be rejected/deferred by spamd, got: {gtube_reply}")
+              print(f"GTUBE test message correctly rejected/deferred by spamd: {gtube_reply.strip()}")
+
+              clean_reply = smtp_transaction(
+                  LOCAL_PART, DOMAIN, "Subject: a genuinely clean test message\r\n\r\nHello, this is a real, harmless message."
+              )
+              if not clean_reply.startswith("250"):
+                  sys.exit(f"expected a genuinely clean message to still be accepted, got: {clean_reply}")
+              print(f"a genuinely clean message was still accepted, proving the ACL doesn't just reject everything: {clean_reply.strip()}")
+          finally:
+              deleted = invoke_agent(envelope("delete", resource_id, 2, create_payload))
+              if deleted.get("status") != "applied":
+                  sys.exit(f"expected delete status=applied, got: {deleted}")
+              print("real avtest.lesta-ci.invalid domain deleted")
+          PYEOF
+          sudo python3 /tmp/av-spam-proof.py
+          sudo rm -f /tmp/av-spam-proof.py
 
       - name: Verify nginx, bind9, mariadb, and cron are all still up after mail's apply
         run: |
@@ -2473,7 +2613,7 @@ jobs:
 
       - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
         run: |
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve" --bundle-name mail
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin" --bundle-name mail
           ls -la /tmp/lesta-mail-bundle
           cat /tmp/lesta-mail-bundle/bundle-manifest.json
 
@@ -2490,12 +2630,12 @@ jobs:
       - name: "Scenario 26: prove apt itself cannot fetch anything with every source removed"
         run: |
           set +e
-          sudo apt-get install --reinstall --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve >/tmp/scenario26-apt-check.log 2>&1
+          sudo apt-get install --reinstall --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin >/tmp/scenario26-apt-check.log 2>&1
           apt_status=$?
           set -e
           cat /tmp/scenario26-apt-check.log
           if [ "${apt_status}" -eq 0 ]; then
-            echo "expected 'apt-get install --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
+            echo "expected 'apt-get install --download-only -y exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin' to fail with zero apt sources configured, but it exited 0 -- network isolation is not real" >&2
             exit 1
           fi
 
@@ -2541,7 +2681,7 @@ jobs:
       - name: "Scenario 27 setup: build a fresh real offline bundle for mail and corrupt one vendored .deb's actual bytes"
         run: |
           sudo rm -rf /tmp/lesta-mail-bundle-tampered
-          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle-tampered --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve" --bundle-name mail
+          sudo sh .install/scripts/build-release.sh --ubuntu-release "${ubuntu_release}" --output-dir /tmp/lesta-mail-bundle-tampered --manifest .install/services/mail/manifest.json --package "exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve clamav-daemon clamav-freshclam spamassassin" --bundle-name mail
           target_deb=$(ls /tmp/lesta-mail-bundle-tampered/exim4-daemon-heavy_*.deb | head -n1)
           echo "corrupting ${target_deb}"
           sudo truncate -s 128 "${target_deb}"
