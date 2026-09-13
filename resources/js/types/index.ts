@@ -1,3 +1,4 @@
+export type * from './accounts';
 export type * from './auth';
 export type * from './backups';
 export type * from './cron-jobs';

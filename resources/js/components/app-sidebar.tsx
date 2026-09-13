@@ -3,6 +3,7 @@ import {
     Archive,
     BarChart3,
     BookOpen,
+    Building2,
     Clock,
     Database,
     FolderGit2,
@@ -25,6 +26,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import accounts from '@/routes/accounts';
 import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
@@ -67,6 +69,12 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+const accountsNavItem: NavItem = {
+    title: 'Accounts',
+    href: accounts.index(),
+    icon: Building2,
+};
+
 const nodesNavItem: NavItem = {
     title: 'Nodes',
     href: nodes.index(),
@@ -96,7 +104,7 @@ export function AppSidebar() {
     const { auth } = usePage().props;
 
     const items = auth.is_provider_admin
-        ? [...mainNavItems, nodesNavItem, backupsNavItem]
+        ? [...mainNavItems, accountsNavItem, nodesNavItem, backupsNavItem]
         : mainNavItems;
 
     return (

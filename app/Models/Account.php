@@ -31,6 +31,18 @@ class Account extends Model
     use HasFactory, HasUuid, Suspendable;
 
     /**
+     * Route model binding resolves by uuid, not the internal auto-increment id, matching every
+     * other admin-managed resource's own route key convention (Node, Backup, WebDomain,
+     * TenantDatabase, ...). Account already had a real uuid column but had never actually been
+     * wired as the route key until the admin account page needed one -- no route bound {account}
+     * at all before this.
+     */
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

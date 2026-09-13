@@ -7,6 +7,17 @@ use App\Models\User;
 
 class AccountPolicy
 {
+    /**
+     * Gates the platform-wide account list. Deliberately backed by accounts.view_as_support, the
+     * same permission viewAsSupport below requires: browsing the list and opening one account
+     * are the same "support visibility" concept, and no separate accounts.view_any permission
+     * exists in Permission::CATALOG.
+     */
+    public function viewAny(User $user): bool
+    {
+        return $user->hasPermission('accounts.view_as_support');
+    }
+
     public function view(User $user, Account $account): bool
     {
         return $user->memberships()->where('account_id', $account->id)->exists();
