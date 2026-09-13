@@ -130,18 +130,26 @@ NAMES
 # configured by the first pass, which is the standard, purely-offline
 # technique for this -- apt's own solver never hits this on the live path,
 # since it always computes a Pre-Depends-respecting install order itself.
-# On stdout: the failed pass's own captured output, if both passes failed
-# (empty on success). Returns 0 on success (from either pass), 1 if both
-# failed.
+# A successful dpkg -i is followed by a real systemctl daemon-reload: dpkg
+# -i alone does not reliably make a brand-new unit file a freshly-installed
+# package ships (e.g. spamassassin's own spamd.service on Ubuntu 24.04)
+# visible to `systemctl list-unit-files`/enable/restart the way a live
+# `apt-get install` does via its own trigger processing -- confirmed for
+# real via a CI failure where the very next `systemctl enable spamd.service`
+# call reported no such unit, immediately after this same dpkg -i had just
+# installed it.
+# On stdout: the failed pass's own captured output, if both dpkg passes
+# failed, or the daemon-reload's own output if dpkg succeeded but that
+# failed (empty on overall success). Returns 0 on success, 1 otherwise.
 install_offline_bundle_debs() {
     local bundle_dir="$1" out
 
-    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
-        return 0
-    fi
-
-    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
-        return 0
+    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1) || out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+        if out=$(systemctl daemon-reload 2>&1); then
+            return 0
+        fi
+        printf '%s' "${out}"
+        return 1
     fi
 
     printf '%s' "${out}"
