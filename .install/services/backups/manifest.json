@@ -9,5 +9,5 @@
   "packages": [],
   "ports": [],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/var/lib/lesta/backups", "/var/cache/lesta/backups"], "read_only_roots": [], "refused_roots": ["/home"]}
+  "ownership": {"owned_roots": ["/var/lib/lesta/backups"], "read_only_roots": [], "refused_roots": ["/home"]}
 }

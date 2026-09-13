@@ -223,7 +223,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -463,6 +463,31 @@ jobs:
 
       - name: Re-apply cron (idempotent rerun must still succeed)
         run: sudo sh .install/services/cron/install.sh --apply --yes
+
+      - name: Dry-run backups against a real Ubuntu host (must mutate nothing)
+        run: sudo sh .install/services/backups/install.sh --dry-run
+
+      - name: Apply backups (real mutation on this disposable CI runner)
+        run: sudo sh .install/services/backups/install.sh --apply --yes
+
+      - name: Diagnose backups apply failure (only runs if the step above failed)
+        if: failure()
+        run: |
+          echo "--- /var/lib/lesta/backups ---"
+          sudo ls -la /var/lib/lesta/backups || true
+
+      - name: Verify nginx, bind9, mariadb, and cron are all still up after backups' apply
+        run: |
+          sudo nft list table inet lesta | tee /tmp/lesta-nft-5.txt
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          grep -q '443' /tmp/lesta-nft-5.txt && echo "443/tcp still allowed in the firewall table"
+          grep -q '53' /tmp/lesta-nft-5.txt && echo "53 still allowed in the firewall table"
+          sudo systemctl is-active named
+          sudo systemctl is-active mariadb@tenant.service
+          sudo systemctl is-active cron
+
+      - name: Re-apply backups (idempotent rerun must still succeed)
+        run: sudo sh .install/services/backups/install.sh --apply --yes
 
       - name: Relax AppArmor for named before running the disposable-harness tests
         run: |
