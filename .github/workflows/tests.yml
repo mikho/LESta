@@ -2443,27 +2443,32 @@ jobs:
             -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
 
       # apt's real solver (build-release.sh's own apt-get install --simulate)
-      # resolves libpq5 (a real, correct dependency of Ubuntu's own
-      # dovecot-core: its dict/SQL-driver support is compiled directly into
-      # the core binary) to a PGDG-versioned candidate ("...+pgdg24.04...",
-      # a version-string suffix exclusive to the official
-      # apt.postgresql.org builds, never Ubuntu's own archive), even though
-      # no pgdg source is currently registered in /etc/apt/sources.list.d/
-      # at all -- confirmed directly: a first attempt at this fix that only
-      # removed sources.list.d entries found and changed nothing, the exact
-      # same failure recurring byte-for-byte. This means the candidate is
-      # coming from a STALE, orphaned index file under /var/lib/apt/lists/
-      # itself, left behind from whenever a pgdg source was last configured
-      # on this runner image (its own index file is never proactively
-      # pruned by a later apt-get update just because the source that
-      # produced it was removed) -- a genuinely bare production node running
-      # install.sh for the first time has no such leftover cache to inherit.
-      # A full apt list-cache rebuild (not merely re-fetching currently-
-      # configured sources) is required to actually discard it.
-      - name: "Scenario 26 setup: rebuild this runner's own apt package cache from scratch, discarding a stale orphaned index entry that resolves a libpq5 candidate 'apt-get download' cannot actually fetch"
+      # resolves libpq5 to a PGDG-versioned candidate
+      # ("...+pgdg24.04...", a version-string suffix exclusive to the
+      # official apt.postgresql.org builds, never Ubuntu's own archive),
+      # which then fails apt-get download outright. Two targeted fixes have
+      # already been tried and confirmed NOT to be the cause (removing any
+      # pgdg entry from /etc/apt/sources.list.d/; a full apt list-cache
+      # rebuild via rm -rf /var/lib/apt/lists/* + apt-get update) -- the
+      # exact same failure recurred byte-for-byte both times, meaning the
+      # candidate survives even a from-scratch refetch of every currently-
+      # configured source's own real index. This step is a genuine
+      # diagnostic, not another guess: it prints exactly which configured
+      # source(s) offer this candidate and what requires it, so the next
+      # real fix targets the actual cause instead of a third blind guess.
+      - name: "Scenario 26 diagnostic: identify what actually offers/requires the unfetchable libpq5 pgdg candidate"
         run: |
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo apt-get update
+          echo "--- apt-cache policy libpq5 ---"
+          apt-cache policy libpq5
+          echo "--- apt-cache madison libpq5 ---"
+          apt-cache madison libpq5
+          echo "--- configured sources ---"
+          grep -rH '' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null
+          echo "--- reverse-depends pulling libpq5 into dovecot/exim4's own closure ---"
+          apt-get install --simulate -y --no-install-recommends -o Dir::State::status=/dev/null exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1 | grep -B5 -i 'pgdg\|libpq5' || true
+          echo "--- rdepends ---"
+          apt-cache rdepends --installed libpq5 || true
+          apt-cache depends dovecot-core | grep -i libpq || true
 
       - name: "Scenario 26 setup: build a real offline bundle for mail (exim4-daemon-heavy + dovecot-imapd/dovecot-lmtpd/dovecot-sieve) for this runner's own Ubuntu release"
         run: |
