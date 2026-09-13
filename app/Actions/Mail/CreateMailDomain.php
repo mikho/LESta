@@ -40,13 +40,17 @@ class CreateMailDomain
 
             [$node, $capability] = app(ResolvesMailCapableNode::class)->resolve();
 
+            $dkimEnabled = $data['dkim_enabled'] ?? false;
+
             $mailDomain = MailDomain::query()->create([
                 'account_id' => $account->id,
                 'node_id' => $node->id,
                 'domain' => MailDomain::normalizeDomain($data['domain']),
                 'antivirus_enabled' => $data['antivirus_enabled'] ?? true,
                 'antispam_enabled' => $data['antispam_enabled'] ?? true,
-                'dkim_enabled' => $data['dkim_enabled'] ?? false,
+                'dkim_enabled' => $dkimEnabled,
+                'dkim_selector' => 'lesta1',
+                'dkim_selector_activated_at' => $dkimEnabled ? now() : null,
                 'catchall_email' => $data['catchall_email'] ?? null,
                 'desired_state_version' => 1,
             ]);

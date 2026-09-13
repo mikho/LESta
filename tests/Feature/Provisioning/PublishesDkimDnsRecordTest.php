@@ -23,8 +23,10 @@ function dkimCompletionOperation(MailDomain $mailDomain, array $overrides = []):
         'status' => ProvisioningStatus::Applied,
         'completed_at' => now(),
         'data' => [
-            'selector' => 'lesta1',
-            'public_key' => 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'.'test-public-key-bytes',
+            'active' => [
+                'selector' => 'lesta1',
+                'public_key' => 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'.'test-public-key-bytes',
+            ],
         ],
     ], $overrides));
 }
@@ -42,7 +44,7 @@ test('a successful mail domain apply publishes a real DKIM TXT record on the mat
     $record = $dnsZone->records()->where('name', 'lesta1._domainkey')->where('type', DnsRecordType::TXT)->first();
 
     expect($record)->not->toBeNull()
-        ->and($record->value)->toBe('v=DKIM1; k=rsa; p='.$operation->data['public_key']);
+        ->and($record->value)->toBe('v=DKIM1; k=rsa; p='.$operation->data['active']['public_key']);
 
     expect(AuditEvent::where('action', 'dns_record.dkim_published')
         ->where('auditable_id', $record->id)
@@ -76,7 +78,7 @@ test('a changed public key updates the existing record in place rather than crea
 
     app(PublishesDkimDnsRecord::class)->handle(dkimCompletionOperation($mailDomain));
 
-    $rotated = dkimCompletionOperation($mailDomain, ['data' => ['selector' => 'lesta1', 'public_key' => 'a-different-rotated-key']]);
+    $rotated = dkimCompletionOperation($mailDomain, ['data' => ['active' => ['selector' => 'lesta1', 'public_key' => 'a-different-rotated-key']]]);
     app(PublishesDkimDnsRecord::class)->handle($rotated);
 
     expect($dnsZone->records()->where('name', 'lesta1._domainkey')->count())->toBe(1);
@@ -85,6 +87,30 @@ test('a changed public key updates the existing record in place rather than crea
     expect($record->value)->toBe('v=DKIM1; k=rsa; p=a-different-rotated-key');
 
     expect(AuditEvent::where('action', 'dns_record.dkim_updated')->where('auditable_id', $record->id)->exists())->toBeTrue();
+});
+
+test('a pending selector mid-rotation gets its own real DNS record published alongside the active one', function () {
+    $account = Account::factory()->create();
+    $mailDomain = MailDomain::factory()->for($account)->create(['domain' => 'example.test', 'dkim_enabled' => true]);
+    $dnsZone = DnsZone::factory()->for($account)->create(['domain' => 'example.test']);
+    NodeCapability::factory()->for($dnsZone->node)->create(['capability' => 'dns.bind9.v1']);
+
+    $operation = dkimCompletionOperation($mailDomain, [
+        'data' => [
+            'active' => ['selector' => 'lesta1', 'public_key' => 'active-key-bytes'],
+            'pending' => ['selector' => 'lesta2', 'public_key' => 'pending-key-bytes'],
+        ],
+    ]);
+
+    app(PublishesDkimDnsRecord::class)->handle($operation);
+
+    $activeRecord = $dnsZone->records()->where('name', 'lesta1._domainkey')->first();
+    $pendingRecord = $dnsZone->records()->where('name', 'lesta2._domainkey')->first();
+
+    expect($activeRecord)->not->toBeNull()
+        ->and($activeRecord->value)->toBe('v=DKIM1; k=rsa; p=active-key-bytes')
+        ->and($pendingRecord)->not->toBeNull()
+        ->and($pendingRecord->value)->toBe('v=DKIM1; k=rsa; p=pending-key-bytes');
 });
 
 test('no matching dns zone for the account is a logged no-op, not an exception', function () {

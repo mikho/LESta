@@ -595,9 +595,11 @@ mail_write_file() {
 # actually-existing mailbox may receive anonymous mail; anything else is
 # refused), real SMTP AUTH on the submission ports (587/465) via Dovecot's
 # own SASL backend, real DKIM signing on outbound mail for any domain with
-# a real generated key (dkim_keys.list, rendered by the Go agent), and a
-# real dnslookup router so authenticated users' own outbound mail actually
-# reaches the internet -- not just the local relay-safety ACL. AUTH is only
+# a real generated key (dkim_keys.list/dkim_selector.list, both rendered by
+# the Go agent and kept in sync with each other since the active selector
+# can change mid-rotation), and a real dnslookup router so authenticated
+# users' own outbound mail actually reaches the internet -- not just the
+# local relay-safety ACL. AUTH is only
 # ever advertised once TLS is active (auth_advertise_hosts), so a
 # credential is never sent in the clear.
 render_exim_conf() {
@@ -704,7 +706,7 @@ begin transports
 remote_smtp:
   driver = smtp
   dkim_domain = \$sender_address_domain
-  dkim_selector = lesta1
+  dkim_selector = \${lookup{\$sender_address_domain}lsearch{${EXIM_DATA_DIR}/dkim_selector.list}}
   dkim_private_key = \${lookup{\$sender_address_domain}lsearch{${EXIM_DATA_DIR}/dkim_keys.list}}
 
 lesta_lmtp_delivery:

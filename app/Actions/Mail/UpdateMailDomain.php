@@ -30,10 +30,19 @@ class UpdateMailDomain
         Gate::forUser($actor)->authorize('update', $mailDomain);
 
         return DB::transaction(function () use ($actor, $mailDomain, $data): MailDomain {
+            $dkimEnabled = $data['dkim_enabled'] ?? $mailDomain->dkim_enabled;
+            $dkimJustEnabled = $dkimEnabled && ! $mailDomain->dkim_enabled;
+
             $mailDomain->forceFill([
                 'antivirus_enabled' => $data['antivirus_enabled'] ?? $mailDomain->antivirus_enabled,
                 'antispam_enabled' => $data['antispam_enabled'] ?? $mailDomain->antispam_enabled,
-                'dkim_enabled' => $data['dkim_enabled'] ?? $mailDomain->dkim_enabled,
+                'dkim_enabled' => $dkimEnabled,
+                // A domain re-enabling DKIM after having it off starts its own rotation clock
+                // fresh (see App\Console\Commands\RotateDkimSelectors), the same as a brand new
+                // domain: there is no meaningful "resume the old schedule" here since the key
+                // itself, if it still exists on the node, has been sitting unused the whole time
+                // it was disabled.
+                'dkim_selector_activated_at' => $dkimJustEnabled ? now() : $mailDomain->dkim_selector_activated_at,
                 'catchall_email' => array_key_exists('catchall_email', $data) ? $data['catchall_email'] : $mailDomain->catchall_email,
                 'desired_state_version' => $mailDomain->desired_state_version + 1,
             ])->save();

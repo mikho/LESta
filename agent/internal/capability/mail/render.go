@@ -55,6 +55,7 @@ type renderedData struct {
 	antivirus     string
 	antispam      string
 	dkimKeys      string
+	dkimSelectors string
 	catchall      string
 	dovecotPasswd string
 }
@@ -119,7 +120,7 @@ func passwdFileLine(address, hash string, quotaMB *int) string {
 // this function does not assume that), so a later unsuspend still has
 // something real to restore.
 func (c *MailCapability) render(ctx context.Context, domains []Payload, credentials map[string]string) (renderedData, error) {
-	var domainsList, accountsList, antivirusList, antispamList, dkimKeysList, catchallList, passwdFile strings.Builder
+	var domainsList, accountsList, antivirusList, antispamList, dkimKeysList, dkimSelectorsList, catchallList, passwdFile strings.Builder
 
 	for _, d := range domains {
 		if d.Suspended {
@@ -136,8 +137,9 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 			antispamList.WriteString(lsearchLine(d.Domain, "1"))
 		}
 
-		if d.DkimEnabled && c.dkimKeyExists(d.Domain) {
-			dkimKeysList.WriteString(lsearchLine(d.Domain, c.dkimPrivateKeyPath(d.Domain)))
+		if d.DkimEnabled && c.dkimKeyExists(d.Domain, d.DkimActiveSelector) {
+			dkimKeysList.WriteString(lsearchLine(d.Domain, c.dkimPrivateKeyPath(d.Domain, d.DkimActiveSelector)))
+			dkimSelectorsList.WriteString(lsearchLine(d.Domain, d.DkimActiveSelector))
 		}
 
 		if d.CatchallEmail != nil {
@@ -177,6 +179,7 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 		antivirus:     antivirusList.String(),
 		antispam:      antispamList.String(),
 		dkimKeys:      dkimKeysList.String(),
+		dkimSelectors: dkimSelectorsList.String(),
 		catchall:      catchallList.String(),
 		dovecotPasswd: passwdFile.String(),
 	}, nil

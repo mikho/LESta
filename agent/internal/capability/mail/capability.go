@@ -130,8 +130,22 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		return c.rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
-	if err := c.ensureDKIMKey(payload.Domain, payload.DkimEnabled && !payload.Suspended); err != nil {
-		return protocol.ResultEnvelope{}, fmt.Errorf("ensuring DKIM key for %s: %w", payload.Domain, err)
+	dkimActive := payload.DkimEnabled && !payload.Suspended
+
+	if err := c.ensureDKIMKey(payload.Domain, payload.DkimActiveSelector, dkimActive); err != nil {
+		return protocol.ResultEnvelope{}, fmt.Errorf("ensuring active DKIM key for %s: %w", payload.Domain, err)
+	}
+
+	if payload.DkimPendingSelector != nil {
+		if err := c.ensureDKIMKey(payload.Domain, *payload.DkimPendingSelector, dkimActive); err != nil {
+			return protocol.ResultEnvelope{}, fmt.Errorf("ensuring pending DKIM key for %s: %w", payload.Domain, err)
+		}
+	}
+
+	if payload.DkimRetireSelector != nil {
+		if err := c.retireDKIMKey(payload.Domain, *payload.DkimRetireSelector); err != nil {
+			return protocol.ResultEnvelope{}, fmt.Errorf("retiring DKIM key for %s: %w", payload.Domain, err)
+		}
 	}
 
 	n, err := c.store.NextGeneration(op.ResourceID)
@@ -166,7 +180,7 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	dkimData, err := c.dkimResultData(payload.Domain, payload.DkimEnabled && !payload.Suspended)
+	dkimData, err := c.dkimResultData(payload.Domain, payload.DkimActiveSelector, payload.DkimPendingSelector, dkimActive)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
