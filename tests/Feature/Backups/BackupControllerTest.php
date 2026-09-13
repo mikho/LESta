@@ -5,6 +5,8 @@ use App\Models\Backup;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\ProvisioningOperation;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('a guest is redirected to login', function () {
@@ -15,12 +17,14 @@ test('a regular tenant-account user is denied on every backup route', function (
     $account = Account::factory()->create();
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $node = Node::factory()->create();
-    $backup = Backup::factory()->for($node)->create();
+    $backup = Backup::factory()->completed()->for($node)->create();
 
     $this->actingAs($owner)->get(route('backups.index'))->assertForbidden();
     $this->actingAs($owner)->get(route('backups.create'))->assertForbidden();
     $this->actingAs($owner)->post(route('backups.store'), ['node' => $node->uuid])->assertForbidden();
     $this->actingAs($owner)->delete(route('backups.destroy', $backup))->assertForbidden();
+    $this->actingAs($owner)->post(route('backups.prepare-download', $backup))->assertForbidden();
+    $this->actingAs($owner)->get(route('backups.download', $backup))->assertForbidden();
 });
 
 test('a provider admin can list backups', function () {
@@ -89,4 +93,104 @@ test('a provider admin can delete a backup', function () {
         ->assertRedirect(route('backups.index'));
 
     expect(Backup::find($id))->toBeNull();
+});
+
+test('a provider admin can prepare a completed backup for download', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    $this->actingAs($admin)
+        ->post(route('backups.prepare-download', $backup))
+        ->assertRedirect();
+
+    expect(ProvisioningOperation::where('provisionable_type', $backup->getMorphClass())
+        ->where('provisionable_id', $backup->id)
+        ->where('operation', 'observe')
+        ->exists())->toBeTrue();
+});
+
+test('preparing a non-completed backup for download fails validation, not a 500', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $backup = Backup::factory()->for($node)->create();
+
+    $this->actingAs($admin)
+        ->post(route('backups.prepare-download', $backup))
+        ->assertSessionHasErrors('backup');
+});
+
+test('preparing an already-preparing backup for download fails validation', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    ProvisioningOperation::factory()->create([
+        'provisionable_type' => $backup->getMorphClass(),
+        'provisionable_id' => $backup->id,
+        'resource_id' => $backup->uuid,
+        'capability' => 'backup.encrypted-artifacts.v1',
+        'operation' => 'observe',
+        'status' => 'dispatched',
+    ]);
+
+    $this->actingAs($admin)
+        ->post(route('backups.prepare-download', $backup))
+        ->assertSessionHasErrors('backup');
+});
+
+test('a provider admin can download a prepared backup, and it is single-use', function () {
+    Storage::fake('local');
+
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    Storage::disk('local')->put('backup-downloads/'.$backup->uuid.'.tar.gz', 'a real decrypted archive');
+    $backup->forceFill([
+        'download_path' => 'backup-downloads/'.$backup->uuid.'.tar.gz',
+        'download_ready_at' => now(),
+        'download_expires_at' => now()->addMinutes(30),
+    ])->save();
+
+    $this->actingAs($admin)
+        ->get(route('backups.download', $backup))
+        ->assertOk();
+
+    expect($backup->refresh()->download_path)->toBeNull()
+        ->and($backup->download_ready_at)->toBeNull()
+        ->and($backup->download_expires_at)->toBeNull();
+});
+
+test('downloading a backup with no prepared copy redirects back instead of erroring', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    $this->actingAs($admin)
+        ->get(route('backups.download', $backup))
+        ->assertRedirect();
+});
+
+test('downloading an expired prepared backup redirects back instead of serving stale content', function () {
+    Storage::fake('local');
+
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $backup = Backup::factory()->completed()->for($node)->create();
+
+    Storage::disk('local')->put('backup-downloads/'.$backup->uuid.'.tar.gz', 'stale content');
+    $backup->forceFill([
+        'download_path' => 'backup-downloads/'.$backup->uuid.'.tar.gz',
+        'download_ready_at' => now()->subMinutes(45),
+        'download_expires_at' => now()->subMinutes(15),
+    ])->save();
+
+    $this->actingAs($admin)
+        ->get(route('backups.download', $backup))
+        ->assertRedirect();
+
+    expect(Storage::disk('local')->exists($backup->download_path))->toBeTrue();
 });

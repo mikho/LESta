@@ -38,4 +38,15 @@ class BackupPolicy
     {
         return $user->hasPermission('backups.delete');
     }
+
+    /**
+     * Gates preparing a decrypted, downloadable copy of a completed backup's own artifact (see
+     * PrepareBackupDownload/PreparesBackupDownload) and streaming it once ready. A separate
+     * permission from view: viewing a backup's own metadata (size, checksum, status) is a much
+     * lower-stakes ability than actually recovering its real decrypted config-plane contents.
+     */
+    public function download(User $user, Backup $backup): bool
+    {
+        return $user->hasPermission('backups.download');
+    }
 }

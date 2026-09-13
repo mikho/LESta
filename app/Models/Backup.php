@@ -32,6 +32,9 @@ use Illuminate\Support\Carbon;
  * @property int|null $size_bytes
  * @property string|null $checksum
  * @property string|null $artifact_path
+ * @property string|null $download_path
+ * @property Carbon|null $download_ready_at
+ * @property Carbon|null $download_expires_at
  * @property string|null $error_message
  * @property int $desired_state_version
  * @property Carbon|null $completed_at
@@ -56,6 +59,8 @@ class Backup extends Model implements ProviderAdminManaged
             'status' => ProvisioningStatus::class,
             'included_capabilities' => 'array',
             'completed_at' => 'datetime',
+            'download_ready_at' => 'datetime',
+            'download_expires_at' => 'datetime',
         ];
     }
 
@@ -93,7 +98,9 @@ class Backup extends Model implements ProviderAdminManaged
      * method never decrypts $this->encryption_key itself, so a call site can only ever include
      * the key by deliberately passing the plaintext it just generated in the very same request.
      * CreateBackup always passes it (a fresh key just generated for the new row); DeleteBackup
-     * never does, since removing an artifact needs only its path, not the key that encrypted it.
+     * and PrepareBackupDownload never do, since removing an artifact or reading its sealed bytes
+     * back both need only its path, not the key that encrypted it -- PrepareBackupDownload's own
+     * Observe dispatch reuses this exact same no-key branch as Delete.
      *
      * @return array{label: string|null, encryption_key: string}|array{artifact_path: string|null}
      */

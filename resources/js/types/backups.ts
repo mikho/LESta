@@ -18,6 +18,8 @@ export type Backup = {
     error_message: string | null;
     completed_at: string | null;
     created_at: string | null;
+    download_ready: boolean;
+    download_preparing: boolean;
 };
 
 export type BackupCapableNode = {

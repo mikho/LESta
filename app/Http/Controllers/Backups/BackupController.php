@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Backups;
 
 use App\Actions\Backups\CreateBackup;
 use App\Actions\Backups\DeleteBackup;
+use App\Actions\Backups\PrepareBackupDownload;
+use App\Enums\ProvisioningStatus;
+use App\Enums\ProvisioningVerb;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Backups\StoreBackupRequest;
@@ -12,9 +15,11 @@ use App\Models\Node;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BackupController extends Controller
 {
@@ -30,7 +35,7 @@ class BackupController extends Controller
         $search = trim((string) $request->string('search'));
 
         $backups = Backup::query()
-            ->with('node')
+            ->with(['node', 'latestProvisioningOperation'])
             ->when(
                 $search !== '',
                 fn ($query) => $query->where('label', 'like', '%'.$search.'%')
@@ -108,6 +113,60 @@ class BackupController extends Controller
     }
 
     /**
+     * Dispatch a real Observe operation asking the owning node to read its own sealed artifact
+     * bytes back. Asynchronous: this only starts preparation, it never blocks for the node's own
+     * next heartbeat, so the download itself only becomes available once
+     * PreparesBackupDownload's own hook has processed the result.
+     */
+    public function prepareDownload(Request $request, Backup $backup): RedirectResponse
+    {
+        try {
+            app(PrepareBackupDownload::class)->handle($request->user(), $backup);
+        } catch (NoBackupCapableNodeAvailableException) {
+            throw ValidationException::withMessages([
+                'backup' => __('This backup\'s node no longer has an active backup capability.'),
+            ]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Preparing backup for download. Refresh in a few seconds to check.')]);
+
+        return back();
+    }
+
+    /**
+     * Stream a previously-prepared, decrypted backup archive, then delete it: single-use, matching
+     * PreparesBackupDownload's own short-lived download_expires_at window. Refuses (rather than
+     * throwing) once expired or if the on-disk file is somehow already gone, since a scheduled
+     * prune command races this same file independently.
+     */
+    public function download(Request $request, Backup $backup): BinaryFileResponse|RedirectResponse
+    {
+        Gate::authorize('download', $backup);
+
+        $notReady = $backup->download_path === null
+            || $backup->download_expires_at === null
+            || $backup->download_expires_at->isPast()
+            || ! Storage::disk('local')->exists($backup->download_path);
+
+        if ($notReady) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This download is not ready yet or has expired. Prepare it again.')]);
+
+            return back();
+        }
+
+        $path = Storage::disk('local')->path($backup->download_path);
+        $downloadName = ($backup->label ?? $backup->uuid).'.tar.gz';
+
+        $backup->forceFill([
+            'download_path' => null,
+            'download_ready_at' => null,
+            'download_expires_at' => null,
+        ])->save();
+
+        return response()->download($path, $downloadName)->deleteFileAfterSend(true);
+    }
+
+    /**
      * Shape a backup for the index listing. No App\Http\Resources in this app; inline shaping
      * matches the existing precedent (NodeController).
      *
@@ -115,6 +174,8 @@ class BackupController extends Controller
      */
     private function presentForIndex(Backup $backup): array
     {
+        $latest = $backup->latestProvisioningOperation;
+
         return [
             'uuid' => $backup->uuid,
             'label' => $backup->label,
@@ -126,6 +187,10 @@ class BackupController extends Controller
             'error_message' => $backup->error_message,
             'completed_at' => $backup->completed_at?->toIso8601String(),
             'created_at' => $backup->created_at?->toIso8601String(),
+            'download_ready' => $backup->download_path !== null && $backup->download_expires_at?->isFuture() === true,
+            'download_preparing' => $latest !== null
+                && $latest->operation === ProvisioningVerb::Observe
+                && in_array($latest->status, [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched], true),
         ];
     }
 }

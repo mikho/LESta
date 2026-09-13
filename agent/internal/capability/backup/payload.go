@@ -61,6 +61,19 @@ func ParseCreatePayload(raw json.RawMessage) (Payload, error) {
 // ParseDeletePayload decodes and validates raw for a delete operation:
 // ArtifactPath must be present and non-empty.
 func ParseDeletePayload(raw json.RawMessage) (Payload, error) {
+	return decodeWithArtifactPath(raw)
+}
+
+// ParseObservePayload decodes and validates raw for an observe operation:
+// the same {artifact_path} shape as delete (see Backup::toProvisioningPayload()'s
+// own no-key return branch, which both verbs dispatch with unchanged), since
+// observe here means "read this artifact's own sealed bytes back," not
+// drift detection the way bind9/mail's own observe implementations use it.
+func ParseObservePayload(raw json.RawMessage) (Payload, error) {
+	return decodeWithArtifactPath(raw)
+}
+
+func decodeWithArtifactPath(raw json.RawMessage) (Payload, error) {
 	p, err := decode(raw)
 	if err != nil {
 		return Payload{}, err
