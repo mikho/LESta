@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\MailAccount;
 use App\Models\TenantDatabase;
 use App\Models\UsageSnapshot;
+use App\Models\UsageSnapshotRollup;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Http\Request;
@@ -18,9 +19,9 @@ class UsageSnapshotController extends Controller
 {
     /**
      * Show an account's own usage history: real, raw, per-collection-cycle snapshots (see
-     * App\Console\Commands\CollectUsageMetrics), newest first. There is no aggregation into
-     * per-resource "latest only" or coarser-grained rollups yet -- a real, disclosed v1 boundary
-     * (see UsageSnapshot's own doc comment), not an oversight.
+     * App\Console\Commands\CollectUsageMetrics) for the last 90 days, newest first, plus the
+     * long-range monthly rollups App\Console\Commands\RollupUsageSnapshots computes from raw
+     * snapshots before they age out of that window.
      *
      * With no ?account= query param, shows the current user's own account (the tenant-facing
      * path, unchanged since this controller's own first version). With one, shows THAT account's
@@ -28,7 +29,9 @@ class UsageSnapshotController extends Controller
      * (accounts/show.tsx), gated by the exact same UsageSnapshotPolicy::viewAny the tenant path
      * already uses: a plain member of some other account can never pass usage.view_any, so
      * passing an arbitrary account's uuid here grants nothing a member of that OTHER account
-     * couldn't already see through their own membership.
+     * couldn't already see through their own membership. Rollups are gated by the same check
+     * (they are just a coarser view of the same account's own usage data, not a distinct
+     * resource), so there is no separate UsageSnapshotRollupPolicy.
      */
     public function index(Request $request): Response
     {
@@ -48,8 +51,17 @@ class UsageSnapshotController extends Controller
 
         $snapshots->through(fn (UsageSnapshot $snapshot): array => $this->presentForIndex($snapshot));
 
+        $rollups = $account->usageSnapshotRollups()
+            ->with('snapshotable')
+            ->orderByDesc('period')
+            ->paginate(20, ['*'], 'rollups_page')
+            ->withQueryString();
+
+        $rollups->through(fn (UsageSnapshotRollup $rollup): array => $this->presentRollupForIndex($rollup));
+
         return Inertia::render('usage/index', [
             'snapshots' => $snapshots,
+            'rollups' => $rollups,
             'viewingAccount' => $accountUuid !== '' ? [
                 'uuid' => $account->uuid,
                 'name' => $account->name,
@@ -83,9 +95,30 @@ class UsageSnapshotController extends Controller
         ];
     }
 
-    private function resourceType(UsageSnapshot $snapshot): string
+    /**
+     * Shape a usage rollup for the index listing, mirroring presentForIndex exactly (same
+     * resource_type/resource_label shaping, since both share the same polymorphic snapshotable),
+     * with a period instead of a collected_at instant and *_sum/*_last field names instead of the
+     * raw instantaneous ones.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentRollupForIndex(UsageSnapshotRollup $rollup): array
     {
-        return match ($snapshot->snapshotable_type) {
+        return [
+            'uuid' => $rollup->uuid,
+            'resource_type' => $this->resourceType($rollup),
+            'resource_label' => $this->resourceLabel($rollup),
+            'disk_bytes_last' => $rollup->disk_bytes_last,
+            'request_count_sum' => $rollup->request_count_sum,
+            'bytes_sent_sum' => $rollup->bytes_sent_sum,
+            'period' => $rollup->period->toDateString(),
+        ];
+    }
+
+    private function resourceType(UsageSnapshot|UsageSnapshotRollup $model): string
+    {
+        return match ($model->snapshotable_type) {
             (new MailAccount)->getMorphClass() => 'mail_account',
             (new TenantDatabase)->getMorphClass() => 'tenant_database',
             (new WebDomain)->getMorphClass() => 'web_domain',
@@ -93,9 +126,9 @@ class UsageSnapshotController extends Controller
         };
     }
 
-    private function resourceLabel(UsageSnapshot $snapshot): string
+    private function resourceLabel(UsageSnapshot|UsageSnapshotRollup $model): string
     {
-        $resource = $snapshot->snapshotable;
+        $resource = $model->snapshotable;
 
         if ($resource === null) {
             return '(deleted resource)';
