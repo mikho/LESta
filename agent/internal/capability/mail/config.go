@@ -16,14 +16,26 @@ package mail
 // mirroring the same stage-validate-activate-reload-healthcheck discipline
 // every other capability uses, just applied to lookup DATA rather than to
 // config STRUCTURE. The generic Exim router/transport/ACL/authenticator
-// STRUCTURE (which never changes per-domain) is a fixed, pre-existing,
-// operator/installer-provided prerequisite, exactly like nginx.conf's own
-// required include line.
+// STRUCTURE (which never changes per-domain) is a fixed, pre-existing
+// installer-provided prerequisite (see EximStaticConfPath's own doc comment
+// for why this is a full-file prerequisite, not an include-line one like
+// nginx.conf's).
 type Config struct {
-	// EximStaticConfPath is the real, read-only Exim main config file. It
-	// must already contain the generic LESta virtual-mail router/transport/
-	// ACL/authenticator block (see docs/mail-static-config.md, written once
-	// by an operator or a future installer phase, never by this capability).
+	// EximStaticConfPath is the real Exim main config file
+	// (/etc/exim4/exim4.conf in production): a fixed, pre-existing
+	// prerequisite this capability only ever reads, never writes. It must
+	// already contain the generic LESta virtual-mail router/transport/ACL/
+	// authenticator block. Unlike DovecotConfPath below, this is NOT a
+	// separate LESta-owned file `.include`d from the distro's own default
+	// config: Exim's config format has exactly one `begin acl`/`begin
+	// routers`/`begin transports`/`begin authenticators` section each, and
+	// Debian's default split-config assembly already defines all four, so a
+	// second, separate file can't be `.include`d without a duplicate-section
+	// error. The mail installer (.install/services/mail/install.sh) resolves
+	// this by taking full ownership of exim4.conf itself (non-split mode),
+	// writing one complete, self-contained config -- see
+	// cmd/lesta-agent/main.go's own mailProductionConfig() doc comment for
+	// the full rationale.
 	EximStaticConfPath string
 	// EximDataDir is the directory the static config's own lookups point
 	// into (e.g. /etc/exim4/lesta.d/data): domains.list, accounts.list,
@@ -76,14 +88,17 @@ type Config struct {
 	SievecBinary string
 
 	// DKIMKeyRoot is the root DKIM private keys are generated under
-	// (DKIMKeyRoot/<domain>/<selector>.private), owned exclusively by the
-	// mail service's own OS identity, mode 0600. Per the Mail Threat
-	// Model's own non-negotiable prohibition, the private key is generated
-	// here and NEVER leaves this node: it is not recorded in any
-	// ResultEnvelope, generation meta returned to the control plane, or
-	// payload of any kind. Only the derived public key/selector are ever
-	// disclosed (see dkim.go's own doc comment for the still-open question
-	// of how that reaches DNS).
+	// (DKIMKeyRoot/<domain>/<selector>.private), owned by the daemon's own
+	// lesta-agent:lesta identity, mode 0640 (group-lesta readable: the mail
+	// installer adds Exim's own real system identity, Debian-exim, to the
+	// lesta group specifically so it can read this file to sign outgoing
+	// mail -- 0600 would make every real signing attempt fail outright).
+	// Per the Mail Threat Model's own non-negotiable prohibition, the
+	// private key is generated here and NEVER leaves this node: it is not
+	// recorded in any ResultEnvelope, generation meta returned to the
+	// control plane, or payload of any kind. Only the derived public key/
+	// selector are ever disclosed (see dkim.go's own doc comment for the
+	// still-open question of how that reaches DNS).
 	DKIMKeyRoot string
 	// OpensslBinary is the openssl executable used for real DKIM keypair
 	// generation. Empty means "openssl" resolved via PATH.

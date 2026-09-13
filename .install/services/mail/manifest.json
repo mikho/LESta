@@ -8,5 +8,5 @@
   "packages": [],
   "ports": [{"protocol": "tcp", "port": 25, "direction": "inbound"}, {"protocol": "tcp", "port": 465, "direction": "inbound"}, {"protocol": "tcp", "port": 587, "direction": "inbound"}, {"protocol": "tcp", "port": 993, "direction": "inbound"}],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/etc/exim4/lesta.d", "/etc/dovecot/lesta.d", "/var/lib/lesta/mail"], "read_only_roots": ["/etc/exim4/lesta.conf", "/etc/dovecot/lesta.conf", "/etc/exim4/exim4.conf", "/etc/dovecot/dovecot.conf"], "refused_roots": ["/var/spool/postfix"]}
+  "ownership": {"owned_roots": ["/etc/exim4/lesta.d", "/etc/dovecot/lesta.d", "/var/lib/lesta/mail", "/etc/exim4/exim4.conf", "/etc/dovecot/lesta.conf"], "read_only_roots": ["/etc/dovecot/dovecot.conf"], "refused_roots": ["/var/spool/postfix"]}
 }
