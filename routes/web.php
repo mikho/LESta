@@ -14,3 +14,5 @@ require __DIR__.'/dns.php';
 require __DIR__.'/tenant-databases.php';
 require __DIR__.'/cron-jobs.php';
 require __DIR__.'/nodes.php';
+require __DIR__.'/backups.php';
+require __DIR__.'/usage.php';
