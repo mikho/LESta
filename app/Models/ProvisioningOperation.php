@@ -32,6 +32,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $observed_state_digest
  * @property string|null $generation_id
  * @property array<int, array{code: string, message: string, field?: string|null}>|null $errors
+ * @property array<string, mixed>|null $data
  * @property int $attempts
  * @property Carbon|null $dispatched_at
  * @property Carbon|null $completed_at
@@ -56,6 +57,7 @@ class ProvisioningOperation extends Model
             'status' => ProvisioningStatus::class,
             'payload' => 'array',
             'errors' => 'array',
+            'data' => 'array',
             'issued_at' => 'datetime',
             'deadline' => 'datetime',
             'dispatched_at' => 'datetime',

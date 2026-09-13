@@ -23,6 +23,7 @@ class StoreOperationResultsRequest extends FormRequest
             'results.*.generation_id' => ['required', 'string'],
             'results.*.errors' => ['present', 'array'],
             'results.*.completed_at' => ['required', 'date'],
+            'results.*.data' => ['sometimes', 'array'],
         ];
     }
 }

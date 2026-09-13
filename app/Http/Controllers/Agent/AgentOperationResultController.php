@@ -54,6 +54,7 @@ class AgentOperationResultController extends Controller
                 generationId: $entry['generation_id'],
                 errors: $entry['errors'],
                 completedAt: Carbon::parse($entry['completed_at']),
+                data: $entry['data'] ?? null,
             );
 
             app(CompletesProvisioningOperation::class)->handle($operation, $result);
