@@ -23,16 +23,16 @@
 // relay for a non-hosted domain, no delivery to an unknown local part), real
 // SMTP AUTH via Dovecot-hashed credentials, real DKIM signing with a
 // node-generated, node-only private key, real per-account Sieve
-// (autoreply/forwarding), and real antivirus/antispam ACL gating. NOT in
-// this pass: automatic publication of a domain's DKIM public key as a DNS
-// TXT record (see dkim.go's own doc comment: protocol.ResultEnvelope has no
-// channel for a capability to report derived non-secret data back to the
-// control plane today, a real, disclosed protocol gap, not a
-// implementation oversight), and real spamd/clamd daemon installation
-// (the ACLs this pass renders reference their fixed, well-known local
-// sockets structurally; provisioning the daemons themselves is installer
-// work, out of scope for a Go-capability-only phase, mirroring every other
-// capability's own installer-comes-later precedent).
+// (autoreply/forwarding), and real antivirus/antispam ACL gating. A
+// successful create/update/suspend/unsuspend apply also reports the active
+// DKIM public key (never the private key) on ResultEnvelope.Data, for
+// Laravel to publish as a DNS TXT record via the dns.bind9.v1 capability
+// (see dkim.go's own doc comment and PublishesDkimDnsRecord.php). NOT in
+// this pass: real spamd/clamd daemon installation (the ACLs this pass
+// renders reference their fixed, well-known local sockets structurally;
+// provisioning the daemons themselves is installer work, out of scope for a
+// Go-capability-only phase, mirroring every other capability's own
+// installer-comes-later precedent).
 package mail
 
 import (
@@ -161,7 +161,18 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	result, err := c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	if err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
+	dkimData, err := c.dkimResultData(payload.Domain, payload.DkimEnabled && !payload.Suspended)
+	if err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+	result.Data = dkimData
+
+	return result, nil
 }
 
 // applyAndActivate renders, validates, and activates domains' full aggregate

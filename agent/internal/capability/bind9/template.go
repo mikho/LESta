@@ -72,6 +72,41 @@ func escapeZoneString(s string) string {
 	return s
 }
 
+// txtCharacterStringMax is RFC 1035 section 3.3's own hard limit on a single
+// <character-string>: one length-prefix byte followed by up to 255 bytes of
+// content. A DKIM TXT value (a base64-encoded RSA public key wrapped in
+// "v=DKIM1; k=rsa; p=...", well past 255 bytes) is the concrete real-world
+// case this exists for, but it applies to any TXT record, tenant-supplied or
+// not.
+const txtCharacterStringMax = 255
+
+// renderTXTValue splits value into as many quoted <character-string>s as
+// needed to stay under txtCharacterStringMax each, BIND's own supported
+// syntax for a single TXT RR carrying more than 255 bytes (adjacent quoted
+// strings on one RR are concatenated back into one value by every resolver,
+// confirmed directly against Go's own net.Resolver.LookupTXT). Splitting
+// happens on the raw, unescaped bytes so each chunk's length is measured
+// against the real wire limit, not the textual zone-file representation;
+// escaping is applied afterward, per chunk. An empty value still renders one
+// empty quoted string, matching a zone file's own required "each TXT RR has
+// at least one character-string" shape.
+func renderTXTValue(value string) string {
+	raw := []byte(value)
+	if len(raw) == 0 {
+		return `""`
+	}
+
+	chunks := make([]string, 0, (len(raw)/txtCharacterStringMax)+1)
+
+	for len(raw) > 0 {
+		n := min(len(raw), txtCharacterStringMax)
+		chunks = append(chunks, fmt.Sprintf("\"%s\"", escapeZoneString(string(raw[:n]))))
+		raw = raw[n:]
+	}
+
+	return strings.Join(chunks, " ")
+}
+
 // renderRecordLine renders one already-validated Record into its zone-file
 // presentation-format line. r.Type is guaranteed (by ParsePayload, called
 // before this is ever reached) to be one of the 9 supported types, and
@@ -120,7 +155,7 @@ func renderRecordLine(r Record) (string, error) {
 		// field.
 		return fmt.Sprintf("%s IN CAA %s", r.Name, r.Value), nil
 	case "TXT":
-		return fmt.Sprintf("%s IN TXT \"%s\"", r.Name, escapeZoneString(r.Value)), nil
+		return fmt.Sprintf("%s IN TXT %s", r.Name, renderTXTValue(r.Value)), nil
 	default:
 		return "", fmt.Errorf("unsupported record type %q", r.Type)
 	}

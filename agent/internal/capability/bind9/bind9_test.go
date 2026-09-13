@@ -296,6 +296,45 @@ func TestCreateMultiRecordServesRealContent(t *testing.T) {
 	}
 }
 
+// TestCreateTXTRecordOver255BytesResolvesConcatenatedViaRealDNS proves the
+// character-string-splitting fix in template.go against a real named
+// process, not just the pure-function render test: a value this long (the
+// real shape of a DKIM public key TXT record) must both pass
+// named-checkconf -z (create would be rejected otherwise) and resolve back
+// out, via a real DNS query, to the exact original value, confirming
+// net.Resolver's own documented "multiple strings in one TXT record are
+// concatenated" behavior actually round-trips against this package's
+// rendering.
+func TestCreateTXTRecordOver255BytesResolvesConcatenatedViaRealDNS(t *testing.T) {
+	requireRealBind9(t)
+
+	d := newDisposableBind9(t)
+	capability := bind9.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "dkim.test"
+	value := "v=DKIM1; k=rsa; p=" + strings.Repeat("A", 380)
+
+	records := []bind9.Record{
+		{Name: "lesta1._domainkey", Type: "TXT", Value: value},
+	}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, simplePayload(domain, records, false)))
+	requireApplied(t, "create", created, err)
+
+	ctxQ, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	txt, err := resolverAt(d.Port).LookupTXT(ctxQ, "lesta1._domainkey."+domain+".")
+	if err != nil {
+		t.Fatalf("looking up lesta1._domainkey.%s: %v", domain, err)
+	}
+	if len(txt) != 1 || txt[0] != value {
+		t.Fatalf("expected lesta1._domainkey.%s to resolve to %q, got %v", domain, value, txt)
+	}
+}
+
 // TestCreateZeroRecordsZone confirms the finding this phase's plan verified
 // directly against the local BIND9 install: an out-of-bailiwick NS set needs
 // no glue, so a zone with zero DnsRecord rows still validates (implicitly,
