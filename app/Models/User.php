@@ -71,10 +71,46 @@ class User extends Authenticatable implements PasskeyUser
             ->whereHas('role', fn ($query) => $query->where('name', 'provider_admin'))->exists();
     }
 
+    /**
+     * True for a direct membership on $account with role $roleName, or (see Account::
+     * resellerAccount's own doc comment) the exact same role on the reseller account that
+     * manages $account, if any -- a reseller-account owner is indistinguishable from a direct
+     * owner everywhere this method is already the authorization boundary, with zero changes
+     * needed to any individual resource policy. Bounded to one real hop: AssignAccountToReseller
+     * refuses to make a reseller account itself reseller-managed, so this can never loop.
+     */
     public function hasAccountRole(Account $account, string $roleName): bool
     {
-        return $this->memberships()->where('account_id', $account->id)
-            ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists();
+        if ($this->memberships()->where('account_id', $account->id)
+            ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists()) {
+            return true;
+        }
+
+        if ($account->reseller_account_id === null) {
+            return false;
+        }
+
+        return $this->hasAccountRole($account->resellerAccount, $roleName);
+    }
+
+    /**
+     * True for any direct membership on $account (any role), or the same reseller-account
+     * fallback as hasAccountRole() above. This exists because view/viewAny abilities across this
+     * app's own resource policies check membership existence directly rather than going through
+     * hasAccountRole() (there is no single "any role" role name to check) -- see e.g.
+     * WebDomainPolicy::viewAny.
+     */
+    public function hasAnyAccountMembership(Account $account): bool
+    {
+        if ($this->memberships()->where('account_id', $account->id)->exists()) {
+            return true;
+        }
+
+        if ($account->reseller_account_id === null) {
+            return false;
+        }
+
+        return $this->hasAnyAccountMembership($account->resellerAccount);
     }
 
     /**

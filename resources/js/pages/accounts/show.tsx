@@ -28,9 +28,11 @@ import type { Account, AccountPackage } from '@/types';
 export default function Show({
     account,
     packages,
+    canManageReseller,
 }: {
     account: Account;
     packages: AccountPackage[];
+    canManageReseller: boolean;
 }) {
     return (
         <>
@@ -219,6 +221,132 @@ export default function Show({
                         </table>
                     </div>
                 </div>
+
+                {account.managed_accounts &&
+                    account.managed_accounts.length > 0 && (
+                        <div className="space-y-4 rounded-lg border p-4">
+                            <Heading
+                                variant="small"
+                                title="Managed accounts"
+                                description="Accounts this account resells and manages"
+                            />
+
+                            <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
+                                        <tr>
+                                            <th className="px-4 py-2 font-medium">
+                                                Name
+                                            </th>
+                                            <th className="px-4 py-2 font-medium">
+                                                Contact email
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {account.managed_accounts.map(
+                                            (managed) => (
+                                                <tr
+                                                    key={managed.uuid}
+                                                    className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
+                                                >
+                                                    <td className="px-4 py-2 font-medium">
+                                                        <Link
+                                                            href={accounts.show(
+                                                                managed,
+                                                            )}
+                                                            className="underline"
+                                                        >
+                                                            {managed.name}
+                                                        </Link>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-muted-foreground">
+                                                        {managed.contact_email ??
+                                                            '—'}
+                                                    </td>
+                                                </tr>
+                                            ),
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                {canManageReseller && (
+                    <div className="space-y-4 rounded-lg border p-4">
+                        <Heading
+                            variant="small"
+                            title="Reseller"
+                            description="The reseller account, if any, that manages this account"
+                        />
+
+                        {account.reseller_account_uuid ? (
+                            <div className="flex items-center justify-between gap-4">
+                                <p className="text-sm">
+                                    Managed by{' '}
+                                    <span className="font-medium">
+                                        {account.reseller_account_name}
+                                    </span>
+                                </p>
+
+                                <Form
+                                    {...AccountController.unassignReseller.form(
+                                        account,
+                                    )}
+                                    options={{ preserveScroll: true }}
+                                >
+                                    {({ processing }) => (
+                                        <Button
+                                            type="submit"
+                                            variant="outline"
+                                            disabled={processing}
+                                        >
+                                            Unassign
+                                        </Button>
+                                    )}
+                                </Form>
+                            </div>
+                        ) : (
+                            <Form
+                                {...AccountController.assignReseller.form(
+                                    account,
+                                )}
+                                options={{ preserveScroll: true }}
+                                className="flex items-end gap-4"
+                            >
+                                {({ processing, errors }) => (
+                                    <>
+                                        <div className="grid flex-1 gap-2">
+                                            <Label htmlFor="reseller_account_uuid">
+                                                Reseller account UUID
+                                            </Label>
+
+                                            <Input
+                                                id="reseller_account_uuid"
+                                                name="reseller_account_uuid"
+                                                required
+                                            />
+
+                                            <InputError
+                                                message={
+                                                    errors.reseller_account_uuid
+                                                }
+                                            />
+                                        </div>
+
+                                        <Button
+                                            type="submit"
+                                            disabled={processing}
+                                        >
+                                            Assign
+                                        </Button>
+                                    </>
+                                )}
+                            </Form>
+                        )}
+                    </div>
+                )}
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

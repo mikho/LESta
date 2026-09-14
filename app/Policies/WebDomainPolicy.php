@@ -10,12 +10,12 @@ class WebDomainPolicy
 {
     public function viewAny(User $user, Account $account): bool
     {
-        return $user->memberships()->where('account_id', $account->id)->exists();
+        return $user->hasAnyAccountMembership($account);
     }
 
     public function view(User $user, WebDomain $webDomain): bool
     {
-        return $user->memberships()->where('account_id', $webDomain->account_id)->exists();
+        return $user->hasAnyAccountMembership($webDomain->account);
     }
 
     public function create(User $user, Account $account): bool

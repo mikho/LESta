@@ -10,12 +10,12 @@ class DnsRecordPolicy
 {
     public function viewAny(User $user, DnsZone $dnsZone): bool
     {
-        return $user->memberships()->where('account_id', $dnsZone->account_id)->exists();
+        return $user->hasAnyAccountMembership($dnsZone->account);
     }
 
     public function view(User $user, DnsRecord $dnsRecord): bool
     {
-        return $user->memberships()->where('account_id', $dnsRecord->dnsZone->account_id)->exists();
+        return $user->hasAnyAccountMembership($dnsRecord->dnsZone->account);
     }
 
     public function create(User $user, DnsZone $dnsZone): bool

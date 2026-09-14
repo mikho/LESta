@@ -20,7 +20,7 @@ class AccountPolicy
 
     public function view(User $user, Account $account): bool
     {
-        return $user->memberships()->where('account_id', $account->id)->exists();
+        return $user->hasAnyAccountMembership($account);
     }
 
     public function create(User $user, Account $account): bool

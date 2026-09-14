@@ -10,12 +10,12 @@ class CronJobPolicy
 {
     public function viewAny(User $user, Account $account): bool
     {
-        return $user->memberships()->where('account_id', $account->id)->exists();
+        return $user->hasAnyAccountMembership($account);
     }
 
     public function view(User $user, CronJob $cronJob): bool
     {
-        return $user->memberships()->where('account_id', $cronJob->account_id)->exists();
+        return $user->hasAnyAccountMembership($cronJob->account);
     }
 
     public function create(User $user, Account $account): bool

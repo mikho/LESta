@@ -7,6 +7,12 @@ export type AccountMembership = {
     user_email: string | null;
 };
 
+export type ManagedAccount = {
+    uuid: string;
+    name: string;
+    contact_email: string | null;
+};
+
 export type Account = {
     uuid: string;
     name: string;
@@ -22,6 +28,9 @@ export type Account = {
     tenant_databases_count?: number;
     cron_jobs_count?: number;
     memberships?: AccountMembership[];
+    reseller_account_uuid?: string | null;
+    reseller_account_name?: string | null;
+    managed_accounts?: ManagedAccount[];
 };
 
 export type AccountPackage = {

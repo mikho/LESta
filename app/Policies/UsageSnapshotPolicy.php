@@ -20,11 +20,11 @@ class UsageSnapshotPolicy
 {
     public function viewAny(User $user, Account $account): bool
     {
-        return $user->memberships()->where('account_id', $account->id)->exists() || $user->hasPermission('usage.view_any');
+        return $user->hasAnyAccountMembership($account) || $user->hasPermission('usage.view_any');
     }
 
     public function view(User $user, UsageSnapshot $usageSnapshot): bool
     {
-        return $user->memberships()->where('account_id', $usageSnapshot->account_id)->exists() || $user->hasPermission('usage.view_any');
+        return $user->hasAnyAccountMembership($usageSnapshot->account) || $user->hasPermission('usage.view_any');
     }
 }

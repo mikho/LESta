@@ -19,12 +19,13 @@ use Illuminate\Support\Carbon;
  * @property string $name
  * @property string|null $contact_email
  * @property int $package_id
+ * @property int|null $reseller_account_id
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'contact_email', 'package_id'])]
+#[Fillable(['name', 'contact_email', 'package_id', 'reseller_account_id'])]
 class Account extends Model
 {
     /** @use HasFactory<AccountFactory> */
@@ -125,5 +126,28 @@ class Account extends Model
     public function mailDomains(): HasMany
     {
         return $this->hasMany(MailDomain::class);
+    }
+
+    /**
+     * The reseller account that manages this account, if any (see reseller_account_id's own
+     * migration doc comment: one level only, a reseller is just an ordinary Account, no new
+     * top-level model).
+     *
+     * @return BelongsTo<Account, $this>
+     */
+    public function resellerAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'reseller_account_id');
+    }
+
+    /**
+     * Every account this one manages as a reseller. Only ever populated on an account that is
+     * itself acting as a reseller; an ordinary account's own managedAccounts is always empty.
+     *
+     * @return HasMany<Account, $this>
+     */
+    public function managedAccounts(): HasMany
+    {
+        return $this->hasMany(Account::class, 'reseller_account_id');
     }
 }
