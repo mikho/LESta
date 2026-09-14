@@ -17,7 +17,7 @@ class AddNodeCapability
 {
     public function handle(User $actor, Node $node, string $capability): NodeCapability
     {
-        Gate::forUser($actor)->authorize('create', NodeCapability::class);
+        Gate::forUser($actor)->authorize('create', [NodeCapability::class, $node]);
 
         if (NodeCapabilityType::tryFrom($capability) === null) {
             throw ValidationException::withMessages([

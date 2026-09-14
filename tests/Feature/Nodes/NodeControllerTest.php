@@ -4,6 +4,7 @@ use App\Enums\NodeEnrollmentStatus;
 use App\Models\Account;
 use App\Models\Membership;
 use App\Models\Node;
+use App\Models\NodeAdminGrant;
 use App\Models\NodeCapability;
 use App\Models\User;
 use App\Models\WebDomain;
@@ -69,6 +70,65 @@ test('a provider admin can edit a node', function () {
         ->assertRedirect(route('nodes.edit', $node->fresh()));
 
     expect($node->refresh()->name)->toBe('renamed');
+});
+
+test('a provider admin can grant and revoke node admin access from the edit page', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create();
+    $grantee = User::factory()->create();
+
+    $this->actingAs($admin)
+        ->from(route('nodes.edit', $node))
+        ->post(route('nodes.admin-grants.store', $node), ['email' => $grantee->email])
+        ->assertRedirect(route('nodes.edit', $node));
+
+    $grant = NodeAdminGrant::where('user_id', $grantee->id)->where('node_id', $node->id)->firstOrFail();
+
+    $this->actingAs($admin)
+        ->get(route('nodes.edit', $node))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('nodes/edit')
+            ->where('canManageAdminGrants', true)
+            ->has('node.admin_grants', 1)
+            ->where('node.admin_grants.0.user_email', $grantee->email)
+        );
+
+    $this->actingAs($admin)
+        ->from(route('nodes.edit', $node))
+        ->delete(route('nodes.admin-grants.destroy', [$node, $grant]))
+        ->assertRedirect(route('nodes.edit', $node));
+
+    expect(NodeAdminGrant::find($grant->id))->toBeNull();
+});
+
+test('a delegated node admin can reach the edit page for their own node, but cannot manage grants there', function () {
+    $node = Node::factory()->create();
+    $delegatedAdmin = User::factory()->create();
+    NodeAdminGrant::factory()->for($delegatedAdmin)->for($node)->create();
+
+    $this->actingAs($delegatedAdmin)
+        ->get(route('nodes.edit', $node))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('nodes/edit')
+            ->where('canManageAdminGrants', false)
+        );
+});
+
+test('a delegated node admin sees only their own granted node on the index, never the full fleet', function () {
+    $node = Node::factory()->create(['name' => 'own-node']);
+    Node::factory()->create(['name' => 'other-node']);
+    $delegatedAdmin = User::factory()->create();
+    NodeAdminGrant::factory()->for($delegatedAdmin)->for($node)->create();
+
+    $this->actingAs($delegatedAdmin)
+        ->get(route('nodes.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('nodes/index')
+            ->has('nodes.data', 1)
+            ->where('nodes.data.0.name', 'own-node')
+        );
 });
 
 test('a provider admin can suspend and unsuspend a node', function () {

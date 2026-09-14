@@ -41,6 +41,10 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
                 'is_provider_admin' => $request->user()?->isProviderAdmin() ?? false,
+                // A user with no platform role can still be a delegated admin of one or more
+                // nodes (see App\Models\NodeAdminGrant); the sidebar's own Nodes section stays
+                // visible for them, scoped to just their own granted node(s), not the full fleet.
+                'has_node_admin_grants' => $request->user()?->nodeAdminGrants()->exists() ?? false,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

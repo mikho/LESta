@@ -13,6 +13,7 @@ export type User = {
 export type Auth = {
     user: User;
     is_provider_admin: boolean;
+    has_node_admin_grants: boolean;
 };
 
 export type Passkey = {

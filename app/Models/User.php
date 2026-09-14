@@ -57,6 +57,14 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(Membership::class);
     }
 
+    /**
+     * @return HasMany<NodeAdminGrant, $this>
+     */
+    public function nodeAdminGrants(): HasMany
+    {
+        return $this->hasMany(NodeAdminGrant::class);
+    }
+
     public function isProviderAdmin(): bool
     {
         return $this->memberships()->whereNull('account_id')
@@ -80,5 +88,17 @@ class User extends Authenticatable implements PasskeyUser
     {
         return $this->memberships()->whereNull('account_id')
             ->whereHas('role.permissions', fn ($query) => $query->where('name', $name))->exists();
+    }
+
+    /**
+     * Whether this user has been delegated full admin of $node specifically (see
+     * App\Models\NodeAdminGrant's own doc comment): infrastructure-only, never a path to any
+     * tenant resource hosted on that node. A full provider_admin always passes too, so callers
+     * never need to check isProviderAdmin() separately alongside this.
+     */
+    public function hasNodeAdminGrant(Node $node): bool
+    {
+        return $this->isProviderAdmin()
+            || $this->nodeAdminGrants()->where('node_id', $node->id)->exists();
     }
 }
