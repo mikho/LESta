@@ -16,6 +16,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('nodes/{node}/enable-scheduled-backups', [NodeController::class, 'enableScheduledBackups'])->name('nodes.enable-scheduled-backups');
     Route::post('nodes/{node}/disable-scheduled-backups', [NodeController::class, 'disableScheduledBackups'])->name('nodes.disable-scheduled-backups');
     Route::post('nodes/{node}/enrollment-token', [NodeController::class, 'issueEnrollmentToken'])->name('nodes.enrollment-token');
+    Route::post('nodes/{node}/admin-grants', [NodeController::class, 'grantAdmin'])->name('nodes.admin-grants.store');
+    Route::delete('nodes/{node}/admin-grants/{grant}', [NodeController::class, 'revokeAdminGrant'])->name('nodes.admin-grants.destroy');
 
     Route::post('nodes/{node}/capabilities', [NodeCapabilityController::class, 'store'])->name('nodes.capabilities.store');
     Route::post('nodes/{node}/capabilities/{nodeCapability}/suspend', [NodeCapabilityController::class, 'suspend'])->name('nodes.capabilities.suspend');

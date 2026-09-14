@@ -5,16 +5,20 @@ namespace App\Http\Controllers\Nodes;
 use App\Actions\Cron\DeleteOrphanedAccountNodeIdentity;
 use App\Actions\Nodes\CreateNode;
 use App\Actions\Nodes\DeleteNode;
+use App\Actions\Nodes\GrantNodeAdmin;
 use App\Actions\Nodes\IssueNodeEnrollmentToken;
+use App\Actions\Nodes\RevokeNodeAdminGrant;
 use App\Actions\Nodes\SuspendNode;
 use App\Actions\Nodes\UnsuspendNode;
 use App\Actions\Nodes\UpdateNode;
 use App\Actions\Nodes\UpdateNodeScheduledBackups;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Nodes\GrantNodeAdminRequest;
 use App\Http\Requests\Nodes\StoreNodeRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
 use App\Models\AccountNodeIdentity;
 use App\Models\Node;
+use App\Models\NodeAdminGrant;
 use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
 use Illuminate\Database\Eloquent\Collection;
@@ -34,9 +38,16 @@ class NodeController extends Controller
         Gate::authorize('viewAny', Node::class);
 
         $search = trim((string) $request->string('search'));
+        $user = $request->user();
 
         $nodes = Node::query()
             ->withCount('capabilities')
+            // A node-scoped admin (no platform nodes.view_any permission) sees only the node(s)
+            // they were actually granted, never the full platform fleet.
+            ->when(
+                ! $user->hasPermission('nodes.view_any'),
+                fn ($query) => $query->whereIn('id', $user->nodeAdminGrants()->pluck('node_id'))
+            )
             ->when(
                 $search !== '',
                 fn ($query) => $query->where('name', 'like', '%'.$search.'%')
@@ -86,6 +97,7 @@ class NodeController extends Controller
         $node->load([
             'capabilities',
             'provisioningOperations' => fn ($query) => $query->latest('issued_at')->limit(20),
+            'adminGrants.user',
         ]);
 
         $orphanedIdentities = AccountNodeIdentity::query()
@@ -95,7 +107,32 @@ class NodeController extends Controller
 
         return Inertia::render('nodes/edit', [
             'node' => $this->presentForEdit($node, $orphanedIdentities),
+            'canManageAdminGrants' => $request->user()->hasPermission('nodes.update'),
         ]);
+    }
+
+    /**
+     * Delegate full admin of the given node to the user identified by the submitted email.
+     */
+    public function grantAdmin(GrantNodeAdminRequest $request, Node $node): RedirectResponse
+    {
+        app(GrantNodeAdmin::class)->handle($request->user(), $node, $request->validated('email'));
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Node admin access granted.')]);
+
+        return to_route('nodes.edit', $node);
+    }
+
+    /**
+     * Revoke a previously delegated node admin grant.
+     */
+    public function revokeAdminGrant(Request $request, Node $node, NodeAdminGrant $grant): RedirectResponse
+    {
+        app(RevokeNodeAdminGrant::class)->handle($request->user(), $grant);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Node admin access revoked.')]);
+
+        return to_route('nodes.edit', $node);
     }
 
     /**
@@ -247,6 +284,24 @@ class NodeController extends Controller
             'orphaned_identities' => $orphanedIdentities
                 ->map(fn (AccountNodeIdentity $identity): array => $this->presentOrphanedIdentity($identity))
                 ->all(),
+            'admin_grants' => $node->adminGrants
+                ->map(fn (NodeAdminGrant $grant): array => $this->presentAdminGrant($grant))
+                ->all(),
+        ];
+    }
+
+    /**
+     * Shape a node admin grant for the frontend.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentAdminGrant(NodeAdminGrant $grant): array
+    {
+        return [
+            'uuid' => $grant->uuid,
+            'user_name' => $grant->user->name,
+            'user_email' => $grant->user->email,
+            'created_at' => $grant->created_at?->toIso8601String(),
         ];
     }
 

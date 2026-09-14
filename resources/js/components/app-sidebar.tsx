@@ -103,9 +103,15 @@ const footerNavItems: NavItem[] = [
 export function AppSidebar() {
     const { auth } = usePage().props;
 
-    const items = auth.is_provider_admin
-        ? [...mainNavItems, accountsNavItem, nodesNavItem, backupsNavItem]
-        : mainNavItems;
+    let items = mainNavItems;
+
+    if (auth.is_provider_admin) {
+        items = [...items, accountsNavItem, nodesNavItem, backupsNavItem];
+    } else if (auth.has_node_admin_grants) {
+        // A delegated node admin sees Nodes only, scoped server-side to just their own
+        // granted node(s) -- never Accounts or Backups, which stay platform-admin-only.
+        items = [...items, nodesNavItem];
+    }
 
     return (
         <Sidebar collapsible="icon" variant="inset">

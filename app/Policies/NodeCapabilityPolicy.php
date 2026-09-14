@@ -2,71 +2,58 @@
 
 namespace App\Policies;
 
+use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\User;
 
 /**
- * NodeCapability implements ProviderAdminManaged, so AuthorizationServiceProvider's global
- * Gate::before grants a provider admin every ability here before any of these methods ever run.
- * Every method below returning false is therefore complete, not a stub: a non-admin must never
- * gain any NodeCapability ability, since a node's capabilities are platform infrastructure with
- * no account scoping at all.
+ * NodeCapability implements ProviderAdminManaged; AuthorizationServiceProvider's
+ * PERMISSION_BACKED_MODELS excludes it from the blanket Gate::before bypass, mirroring the exact
+ * same real-permission migration Phase 28 already did for Package/Node/Backup. Only create/
+ * suspend/unsuspend are ever actually checked anywhere in this app today (NodeCapabilityController's
+ * own three routes); viewAny/view/update/delete stay real, deliberate "no non-admin path" stubs
+ * exactly as before this migration -- nothing currently calls them, and a future caller wiring one
+ * up should have to make its own real decision, not silently inherit a blanket bypass.
+ *
+ * create() takes an explicit Node argument (Gate::authorize('create', [NodeCapability::class,
+ * $node]), not the bare class) since adding a capability is meaningless without knowing which
+ * node it's being added to -- the one place a class-only "create" check would have made a
+ * node-scoped grant impossible to express at all.
  */
 class NodeCapabilityPolicy
 {
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function viewAny(User $user): bool
     {
         return false;
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function view(User $user, NodeCapability $nodeCapability): bool
     {
         return false;
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
-    public function create(User $user): bool
+    public function create(User $user, Node $node): bool
     {
-        return false;
+        return $user->hasPermission('nodes.update') || $user->hasNodeAdminGrant($node);
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function update(User $user, NodeCapability $nodeCapability): bool
     {
         return false;
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function delete(User $user, NodeCapability $nodeCapability): bool
     {
         return false;
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function suspend(User $user, NodeCapability $nodeCapability): bool
     {
-        return false;
+        return $user->hasPermission('nodes.update') || $user->hasNodeAdminGrant($nodeCapability->node);
     }
 
-    /**
-     * Never true for a non-admin; a provider admin bypasses this via Gate::before.
-     */
     public function unsuspend(User $user, NodeCapability $nodeCapability): bool
     {
-        return false;
+        return $user->hasPermission('nodes.update') || $user->hasNodeAdminGrant($nodeCapability->node);
     }
 }

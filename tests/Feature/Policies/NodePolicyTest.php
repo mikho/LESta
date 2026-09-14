@@ -4,6 +4,7 @@ use App\Enums\RoleScope;
 use App\Models\Account;
 use App\Models\Membership;
 use App\Models\Node;
+use App\Models\NodeAdminGrant;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
@@ -32,4 +33,30 @@ test('a platform role without nodes.update cannot update a node, even though it 
     expect(Gate::forUser($limitedAdmin)->allows('view', $node))->toBeTrue()
         ->and(Gate::forUser($limitedAdmin)->allows('update', $node))->toBeFalse()
         ->and(Gate::forUser($limitedAdmin)->allows('delete', $node))->toBeFalse();
+});
+
+test('a delegated node admin can view/update/suspend/unsuspend only their own granted node, never create or delete one', function () {
+    $node = Node::factory()->create();
+    $otherNode = Node::factory()->create();
+    $delegatedAdmin = User::factory()->create();
+    NodeAdminGrant::factory()->for($delegatedAdmin)->for($node)->create();
+
+    expect(Gate::forUser($delegatedAdmin)->allows('view', $node))->toBeTrue()
+        ->and(Gate::forUser($delegatedAdmin)->allows('update', $node))->toBeTrue()
+        ->and(Gate::forUser($delegatedAdmin)->allows('suspend', $node))->toBeTrue()
+        ->and(Gate::forUser($delegatedAdmin)->allows('unsuspend', $node))->toBeTrue()
+        ->and(Gate::forUser($delegatedAdmin)->allows('create', Node::class))->toBeFalse()
+        ->and(Gate::forUser($delegatedAdmin)->allows('delete', $node))->toBeFalse()
+        ->and(Gate::forUser($delegatedAdmin)->allows('view', $otherNode))->toBeFalse()
+        ->and(Gate::forUser($delegatedAdmin)->allows('update', $otherNode))->toBeFalse();
+});
+
+test('viewAny passes for a delegated node admin with no platform role, so they can reach a (server-scoped) node list', function () {
+    $node = Node::factory()->create();
+    $delegatedAdmin = User::factory()->create();
+    NodeAdminGrant::factory()->for($delegatedAdmin)->for($node)->create();
+    $stranger = User::factory()->create();
+
+    expect(Gate::forUser($delegatedAdmin)->allows('viewAny', Node::class))->toBeTrue()
+        ->and(Gate::forUser($stranger)->allows('viewAny', Node::class))->toBeFalse();
 });

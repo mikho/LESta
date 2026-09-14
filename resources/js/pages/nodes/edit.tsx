@@ -26,6 +26,7 @@ import {
 import nodes from '@/routes/nodes';
 import type {
     Node,
+    NodeAdminGrant,
     NodeCapability,
     NodeProvisioningOperation,
     OrphanedAccountNodeIdentity,
@@ -345,10 +346,46 @@ function OrphanedIdentityRow({
     );
 }
 
-export default function Edit({ node }: { node: Node }) {
+function AdminGrantRow({ node, grant }: { node: Node; grant: NodeAdminGrant }) {
+    return (
+        <tr className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border">
+            <td className="px-4 py-2 font-medium">{grant.user_name}</td>
+            <td className="px-4 py-2 text-muted-foreground">
+                {grant.user_email}
+            </td>
+            <td className="px-4 py-2">
+                <Form
+                    {...nodes.adminGrants.destroy.form([node, grant])}
+                    options={{ preserveScroll: true }}
+                >
+                    {({ processing }) => (
+                        <Button
+                            type="submit"
+                            variant="destructive"
+                            size="sm"
+                            disabled={processing}
+                            asChild
+                        >
+                            <button type="submit">Revoke</button>
+                        </Button>
+                    )}
+                </Form>
+            </td>
+        </tr>
+    );
+}
+
+export default function Edit({
+    node,
+    canManageAdminGrants,
+}: {
+    node: Node;
+    canManageAdminGrants: boolean;
+}) {
     const capabilities = node.capabilities ?? [];
     const operations = node.recent_operations ?? [];
     const orphanedIdentities = node.orphaned_identities ?? [];
+    const adminGrants = node.admin_grants ?? [];
 
     return (
         <>
@@ -508,6 +545,86 @@ export default function Edit({ node }: { node: Node }) {
                         </p>
                     )}
                 </div>
+
+                {canManageAdminGrants && (
+                    <div className="space-y-4 rounded-lg border p-4">
+                        <Heading
+                            variant="small"
+                            title="Node admins"
+                            description="Users delegated full admin of this one node (infrastructure only -- never a tenant's own web/mail/database resources hosted here), without a platform-wide admin role."
+                        />
+
+                        <Form
+                            {...nodes.adminGrants.store.form(node)}
+                            options={{ preserveScroll: true }}
+                            resetOnSuccess
+                            className="flex items-start gap-2"
+                        >
+                            {({ processing, errors }) => (
+                                <>
+                                    <div className="flex-1 space-y-1">
+                                        <Label htmlFor="email">
+                                            User email
+                                        </Label>
+                                        <Input
+                                            id="email"
+                                            name="email"
+                                            type="email"
+                                            required
+                                        />
+                                        <InputError message={errors.email} />
+                                    </div>
+
+                                    <Button
+                                        type="submit"
+                                        disabled={processing}
+                                        className="mt-6"
+                                    >
+                                        Grant access
+                                    </Button>
+                                </>
+                            )}
+                        </Form>
+
+                        <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                            <table className="w-full text-left text-sm">
+                                <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
+                                    <tr>
+                                        <th className="px-4 py-2 font-medium">
+                                            Name
+                                        </th>
+                                        <th className="px-4 py-2 font-medium">
+                                            Email
+                                        </th>
+                                        <th className="px-4 py-2 font-medium">
+                                            Actions
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {adminGrants.length === 0 && (
+                                        <tr>
+                                            <td
+                                                colSpan={3}
+                                                className="px-4 py-6 text-center text-muted-foreground"
+                                            >
+                                                No delegated node admins.
+                                            </td>
+                                        </tr>
+                                    )}
+
+                                    {adminGrants.map((grant) => (
+                                        <AdminGrantRow
+                                            key={grant.uuid}
+                                            node={node}
+                                            grant={grant}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

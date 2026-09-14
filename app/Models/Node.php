@@ -167,4 +167,12 @@ class Node extends Model implements ProviderAdminManaged
     {
         return $this->hasMany(Backup::class);
     }
+
+    /**
+     * @return HasMany<NodeAdminGrant, $this>
+     */
+    public function adminGrants(): HasMany
+    {
+        return $this->hasMany(NodeAdminGrant::class);
+    }
 }

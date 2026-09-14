@@ -26,6 +26,13 @@ export type OrphanedAccountNodeIdentity = {
     created_at: string | null;
 };
 
+export type NodeAdminGrant = {
+    uuid: string;
+    user_name: string;
+    user_email: string;
+    created_at: string | null;
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -41,4 +48,5 @@ export type Node = {
     capabilities?: NodeCapability[];
     recent_operations?: NodeProvisioningOperation[];
     orphaned_identities?: OrphanedAccountNodeIdentity[];
+    admin_grants?: NodeAdminGrant[];
 };

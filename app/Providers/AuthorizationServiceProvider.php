@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\ProviderAdminManaged;
 use App\Models\Backup;
 use App\Models\Node;
+use App\Models\NodeCapability;
 use App\Models\Package;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
@@ -29,6 +30,7 @@ class AuthorizationServiceProvider extends ServiceProvider
     private const array PERMISSION_BACKED_MODELS = [
         Package::class,
         Node::class,
+        NodeCapability::class,
         Backup::class,
     ];
 
