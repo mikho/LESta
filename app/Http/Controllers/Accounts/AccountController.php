@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Accounts;
 
+use App\Actions\Accounts\AssignAccountToReseller;
 use App\Actions\Accounts\DeleteAccount;
 use App\Actions\Accounts\SuspendAccount;
+use App\Actions\Accounts\UnassignAccountFromReseller;
 use App\Actions\Accounts\UnsuspendAccount;
 use App\Actions\Accounts\UpdateAccount;
 use App\Actions\Support\ViewAccountAsSupport;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Accounts\AssignAccountToResellerRequest;
 use App\Http\Requests\Accounts\UpdateAccountRequest;
 use App\Models\Account;
 use App\Models\Membership;
@@ -65,6 +68,8 @@ class AccountController extends Controller
             'package',
             'memberships.user',
             'memberships.role',
+            'resellerAccount',
+            'managedAccounts',
         ])->loadCount([
             'webDomains',
             'mailDomains',
@@ -77,7 +82,35 @@ class AccountController extends Controller
         return Inertia::render('accounts/show', [
             'account' => $this->presentForShow($account),
             'packages' => $packages,
+            'canManageReseller' => $request->user()->hasPermission('accounts.update'),
         ]);
+    }
+
+    /**
+     * Assign the given account to be managed by the reseller account identified by the submitted
+     * uuid.
+     */
+    public function assignReseller(AssignAccountToResellerRequest $request, Account $account): RedirectResponse
+    {
+        $resellerAccount = Account::where('uuid', $request->validated('reseller_account_uuid'))->firstOrFail();
+
+        app(AssignAccountToReseller::class)->handle($request->user(), $account, $resellerAccount);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Reseller assigned.')]);
+
+        return to_route('accounts.show', $account);
+    }
+
+    /**
+     * Unassign the given account from its current reseller, if any.
+     */
+    public function unassignReseller(Request $request, Account $account): RedirectResponse
+    {
+        app(UnassignAccountFromReseller::class)->handle($request->user(), $account);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Reseller unassigned.')]);
+
+        return to_route('accounts.show', $account);
     }
 
     /**
@@ -171,6 +204,23 @@ class AccountController extends Controller
             'memberships' => $account->memberships
                 ->map(fn (Membership $membership): array => $this->presentMembership($membership))
                 ->all(),
+            'reseller_account_uuid' => $account->resellerAccount?->uuid,
+            'reseller_account_name' => $account->resellerAccount?->name,
+            'managed_accounts' => $account->managedAccounts
+                ->map(fn (Account $managed): array => $this->presentManagedAccount($managed))
+                ->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function presentManagedAccount(Account $account): array
+    {
+        return [
+            'uuid' => $account->uuid,
+            'name' => $account->name,
+            'contact_email' => $account->contact_email,
         ];
     }
 

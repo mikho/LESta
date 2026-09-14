@@ -10,12 +10,12 @@ class MailAccountPolicy
 {
     public function viewAny(User $user, MailDomain $mailDomain): bool
     {
-        return $user->memberships()->where('account_id', $mailDomain->account_id)->exists();
+        return $user->hasAnyAccountMembership($mailDomain->account);
     }
 
     public function view(User $user, MailAccount $mailAccount): bool
     {
-        return $user->memberships()->where('account_id', $mailAccount->mailDomain->account_id)->exists();
+        return $user->hasAnyAccountMembership($mailAccount->mailDomain->account);
     }
 
     public function create(User $user, MailDomain $mailDomain): bool
