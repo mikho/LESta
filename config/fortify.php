@@ -161,7 +161,10 @@ return [
     */
 
     'features' => [
-        Features::registration(),
+        // Deliberately disabled: this product has no public self-service account creation.
+        // Only administrators (and, later, resellers) create users, via
+        // App\Actions\Accounts\CreateAccount -- see Phase 47's own decision log.
+        // Features::registration(),
         Features::resetPasswords(),
         Features::emailVerification(),
         Features::twoFactorAuthentication([
