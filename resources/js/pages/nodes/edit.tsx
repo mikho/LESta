@@ -39,6 +39,9 @@ const capabilityOptions = [
     'tls.acme.v1',
     'database.tenant.v1',
     'scheduler.account-cron.v1',
+    'mail.smtp-imap.v1',
+    'backup.encrypted-artifacts.v1',
+    'metrics.usage.v1',
 ] as const;
 
 const operationStatusBadgeClasses: Record<string, string> = {

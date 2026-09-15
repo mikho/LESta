@@ -7,6 +7,7 @@ export type * from './domains';
 export type * from './mail';
 export type * from './navigation';
 export type * from './nodes';
+export type * from './packages';
 export type * from './tenant-databases';
 export type * from './ui';
 export type * from './usage';
