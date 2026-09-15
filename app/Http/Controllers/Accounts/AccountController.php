@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Accounts;
 
 use App\Actions\Accounts\AssignAccountToReseller;
+use App\Actions\Accounts\CreateAccount;
 use App\Actions\Accounts\DeleteAccount;
 use App\Actions\Accounts\SuspendAccount;
 use App\Actions\Accounts\UnassignAccountFromReseller;
@@ -11,6 +12,7 @@ use App\Actions\Accounts\UpdateAccount;
 use App\Actions\Support\ViewAccountAsSupport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Accounts\AssignAccountToResellerRequest;
+use App\Http\Requests\Accounts\StoreAccountRequest;
 use App\Http\Requests\Accounts\UpdateAccountRequest;
 use App\Models\Account;
 use App\Models\Membership;
@@ -52,17 +54,76 @@ class AccountController extends Controller
         return Inertia::render('accounts/index', [
             'accounts' => $accounts,
             'search' => $search,
+            'canCreate' => $request->user()->hasPermission('accounts.create'),
         ]);
     }
 
     /**
-     * Show a single account's own details. ViewAccountAsSupport itself authorizes (viewAsSupport)
-     * and records the real, separately-audited support-view AuditEvent -- this controller never
-     * duplicates either.
+     * Show the form for creating a new hosting account. Platform-admin-only for this first
+     * version -- a reseller creating their own managed accounts is a deliberately deferred,
+     * separate future capability.
+     */
+    public function create(Request $request): Response
+    {
+        Gate::authorize('create', Account::class);
+
+        $packages = Package::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+
+        return Inertia::render('accounts/create', [
+            'packages' => $packages,
+        ]);
+    }
+
+    /**
+     * Store a newly created hosting account, binding an existing or brand-new user as its owner.
+     */
+    public function store(StoreAccountRequest $request): RedirectResponse
+    {
+        $account = app(CreateAccount::class)->handle($request->user(), $request->validated());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Account created.')]);
+
+        return to_route('accounts.show', $account);
+    }
+
+    /**
+     * List every account the current user is a real member of -- the self-service equivalent of
+     * the platform-wide index() above, which stays support/admin-only.
+     */
+    public function mine(Request $request): Response
+    {
+        $accounts = $request->user()->memberships()
+            ->whereNotNull('account_id')
+            ->with('account.package')
+            ->get()
+            ->pluck('account')
+            ->unique('id')
+            ->values();
+
+        return Inertia::render('accounts/mine', [
+            'accounts' => $accounts->map(fn (Account $account): array => $this->presentForIndex($account))->all(),
+        ]);
+    }
+
+    /**
+     * Show a single account's own details. A real member (owner or otherwise, including via a
+     * reseller fallback -- see AccountPolicy::view) reaches their own account with no audit
+     * event; anyone else falls through to ViewAccountAsSupport, which authorizes (viewAsSupport)
+     * and records the real, separately-audited support-view AuditEvent. Anyone who fails both
+     * gets a 404, not a 403: distinguishing "exists, no access" from "doesn't exist" is exactly
+     * the account-enumeration signal this route must never leak.
      */
     public function show(Request $request, Account $account): Response
     {
-        app(ViewAccountAsSupport::class)->handle($request->user(), $account);
+        $user = $request->user();
+
+        if (Gate::forUser($user)->denies('view', $account)) {
+            if (Gate::forUser($user)->denies('viewAsSupport', $account)) {
+                abort(404);
+            }
+
+            app(ViewAccountAsSupport::class)->handle($user, $account);
+        }
 
         $account->load([
             'package',
@@ -88,11 +149,11 @@ class AccountController extends Controller
 
     /**
      * Assign the given account to be managed by the reseller account identified by the submitted
-     * uuid.
+     * public id.
      */
     public function assignReseller(AssignAccountToResellerRequest $request, Account $account): RedirectResponse
     {
-        $resellerAccount = Account::where('uuid', $request->validated('reseller_account_uuid'))->firstOrFail();
+        $resellerAccount = Account::where('public_id', $request->validated('reseller_account_public_id'))->firstOrFail();
 
         app(AssignAccountToReseller::class)->handle($request->user(), $account, $resellerAccount);
 
@@ -172,7 +233,7 @@ class AccountController extends Controller
     private function presentForIndex(Account $account): array
     {
         return [
-            'uuid' => $account->uuid,
+            'public_id' => $account->public_id,
             'name' => $account->name,
             'contact_email' => $account->contact_email,
             'package_name' => $account->package?->name,
@@ -189,7 +250,7 @@ class AccountController extends Controller
     private function presentForShow(Account $account): array
     {
         return [
-            'uuid' => $account->uuid,
+            'public_id' => $account->public_id,
             'name' => $account->name,
             'contact_email' => $account->contact_email,
             'package_id' => $account->package_id,
@@ -204,7 +265,7 @@ class AccountController extends Controller
             'memberships' => $account->memberships
                 ->map(fn (Membership $membership): array => $this->presentMembership($membership))
                 ->all(),
-            'reseller_account_uuid' => $account->resellerAccount?->uuid,
+            'reseller_account_public_id' => $account->resellerAccount?->public_id,
             'reseller_account_name' => $account->resellerAccount?->name,
             'managed_accounts' => $account->managedAccounts
                 ->map(fn (Account $managed): array => $this->presentManagedAccount($managed))
@@ -218,7 +279,7 @@ class AccountController extends Controller
     private function presentManagedAccount(Account $account): array
     {
         return [
-            'uuid' => $account->uuid,
+            'public_id' => $account->public_id,
             'name' => $account->name,
             'contact_email' => $account->contact_email,
         ];

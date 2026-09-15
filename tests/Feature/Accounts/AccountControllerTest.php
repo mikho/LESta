@@ -4,26 +4,44 @@ use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Package;
+use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
-test('a guest is redirected to login', function () {
+test('a guest is redirected to login, identically for a real and a nonexistent account token', function () {
     $account = Account::factory()->create();
 
     $this->get(route('accounts.index'))->assertRedirect(route('login'));
     $this->get(route('accounts.show', $account))->assertRedirect(route('login'));
+
+    // Laravel's own default middleware priority (verified directly against this app's real
+    // framework version) runs `auth` before route-model binding, so a guest never reaches the
+    // point where a nonexistent token would 404 differently from a real one -- both redirect to
+    // login identically, leaking nothing about which accounts exist.
+    $this->get('/accounts/does-not-exist')->assertRedirect(route('login'));
 });
 
-test('a non-owner member is denied on every account route, since only owners and provider admins may manage an account', function () {
+test('a non-owner member is denied on management routes, but can view their own account with no support-view audit event', function () {
     $account = Account::factory()->create();
     $member = Membership::factory()->for($account)->member()->create()->user;
     $package = Package::factory()->create();
 
     $this->actingAs($member)->get(route('accounts.index'))->assertForbidden();
-    $this->actingAs($member)->get(route('accounts.show', $account))->assertForbidden();
     $this->actingAs($member)->put(route('accounts.update', $account), ['name' => 'x', 'package_id' => $package->id])->assertForbidden();
     $this->actingAs($member)->post(route('accounts.suspend', $account))->assertForbidden();
     $this->actingAs($member)->post(route('accounts.unsuspend', $account))->assertForbidden();
     $this->actingAs($member)->delete(route('accounts.destroy', $account))->assertForbidden();
+
+    $this->actingAs($member)->get(route('accounts.show', $account))->assertOk();
+
+    expect(AuditEvent::where('action', 'account.viewed_as_support')->where('auditable_id', $account->id)->exists())->toBeFalse();
+});
+
+test('a logged-in stranger with no membership gets a 404, not a 403, for both a real and a nonexistent account', function () {
+    $account = Account::factory()->create();
+    $stranger = User::factory()->create();
+
+    $this->actingAs($stranger)->get(route('accounts.show', $account))->assertNotFound();
+    $this->actingAs($stranger)->get('/accounts/does-not-exist')->assertNotFound();
 });
 
 test('a provider admin can list accounts', function () {
@@ -121,4 +139,42 @@ test('a provider admin can delete an account', function () {
         ->assertRedirect(route('accounts.index'));
 
     expect(Account::find($id))->toBeNull();
+});
+
+test('a non-admin cannot reach the create-account form or submit it', function () {
+    $user = User::factory()->create();
+    $package = Package::factory()->create(['is_active' => true]);
+
+    $this->actingAs($user)->get(route('accounts.create'))->assertForbidden();
+    $this->actingAs($user)->post(route('accounts.store'), [
+        'name' => 'acme',
+        'package_id' => $package->id,
+        'owner_name' => 'Ada',
+        'owner_email' => 'ada@example.test',
+    ])->assertForbidden();
+});
+
+test('a user with no account memberships sees an empty "my account" list', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('accounts.mine'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('accounts/mine')
+            ->has('accounts', 0)
+        );
+});
+
+test('a member sees their own account on the "my account" list', function () {
+    $account = Account::factory()->create(['name' => 'acme-inc']);
+    $member = Membership::factory()->for($account)->member()->create()->user;
+
+    $this->actingAs($member)
+        ->get(route('accounts.mine'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('accounts', 1)
+            ->where('accounts.0.name', 'acme-inc')
+        );
 });

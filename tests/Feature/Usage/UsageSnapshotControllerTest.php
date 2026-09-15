@@ -78,13 +78,13 @@ test('a provider admin can view an arbitrary account own usage via the account q
         ->create(['disk_bytes' => 999]);
 
     $this->actingAs($admin)
-        ->get(route('usage.index', ['account' => $account->uuid]))
+        ->get(route('usage.index', ['account' => $account->public_id]))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('usage/index')
             ->has('snapshots.data', 1)
             ->where('snapshots.data.0.disk_bytes', 999)
-            ->where('viewingAccount.uuid', $account->uuid)
+            ->where('viewingAccount.public_id', $account->public_id)
             ->where('viewingAccount.name', $account->name)
         );
 });
@@ -98,7 +98,7 @@ test('a plain member of one account cannot view another account own usage via th
     UsageSnapshot::factory()->for($otherAccount)->for($node)->create();
 
     $this->actingAs($owner)
-        ->get(route('usage.index', ['account' => $otherAccount->uuid]))
+        ->get(route('usage.index', ['account' => $otherAccount->public_id]))
         ->assertForbidden();
 });
 

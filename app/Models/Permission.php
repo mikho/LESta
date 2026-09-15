@@ -52,7 +52,7 @@ class Permission extends Model implements ProviderAdminManaged
      * @var list<string>
      */
     public const array CATALOG = [
-        'accounts.view_as_support', 'accounts.update', 'accounts.suspend', 'accounts.unsuspend', 'accounts.delete',
+        'accounts.create', 'accounts.view_as_support', 'accounts.update', 'accounts.suspend', 'accounts.unsuspend', 'accounts.delete',
         'memberships.view', 'memberships.create', 'memberships.update', 'memberships.delete', 'memberships.impersonate',
         'packages.view_any', 'packages.view', 'packages.create', 'packages.update', 'packages.delete',
         'nodes.view_any', 'nodes.view', 'nodes.create', 'nodes.update', 'nodes.delete', 'nodes.suspend', 'nodes.unsuspend',

@@ -122,7 +122,7 @@ export default function Show({
 
                         <Link
                             href={usage.index.url({
-                                query: { account: account.uuid },
+                                query: { account: account.public_id },
                             })}
                             className="text-sm underline"
                         >
@@ -247,7 +247,7 @@ export default function Show({
                                         {account.managed_accounts.map(
                                             (managed) => (
                                                 <tr
-                                                    key={managed.uuid}
+                                                    key={managed.public_id}
                                                     className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
                                                 >
                                                     <td className="px-4 py-2 font-medium">
@@ -281,7 +281,7 @@ export default function Show({
                             description="The reseller account, if any, that manages this account"
                         />
 
-                        {account.reseller_account_uuid ? (
+                        {account.reseller_account_public_id ? (
                             <div className="flex items-center justify-between gap-4">
                                 <p className="text-sm">
                                     Managed by{' '}
@@ -318,19 +318,19 @@ export default function Show({
                                 {({ processing, errors }) => (
                                     <>
                                         <div className="grid flex-1 gap-2">
-                                            <Label htmlFor="reseller_account_uuid">
-                                                Reseller account UUID
+                                            <Label htmlFor="reseller_account_public_id">
+                                                Reseller account ID
                                             </Label>
 
                                             <Input
-                                                id="reseller_account_uuid"
-                                                name="reseller_account_uuid"
+                                                id="reseller_account_public_id"
+                                                name="reseller_account_public_id"
                                                 required
                                             />
 
                                             <InputError
                                                 message={
-                                                    errors.reseller_account_uuid
+                                                    errors.reseller_account_public_id
                                                 }
                                             />
                                         </div>

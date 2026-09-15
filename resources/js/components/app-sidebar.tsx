@@ -11,6 +11,7 @@ import {
     LayoutGrid,
     Network,
     Server,
+    UserRound,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavFooter } from '@/components/nav-footer';
@@ -87,6 +88,12 @@ const backupsNavItem: NavItem = {
     icon: Archive,
 };
 
+const myAccountNavItem: NavItem = {
+    title: 'My account',
+    href: accounts.mine(),
+    icon: UserRound,
+};
+
 const footerNavItems: NavItem[] = [
     {
         title: 'Repository',
@@ -111,6 +118,12 @@ export function AppSidebar() {
         // A delegated node admin sees Nodes only, scoped server-side to just their own
         // granted node(s) -- never Accounts or Backups, which stay platform-admin-only.
         items = [...items, nodesNavItem];
+    }
+
+    if (auth.has_any_account_membership) {
+        // Independent of admin/node-admin capacity: a provider admin who also happens to hold a
+        // real membership sees both the platform-wide Accounts list and their own account.
+        items = [...items, myAccountNavItem];
     }
 
     return (

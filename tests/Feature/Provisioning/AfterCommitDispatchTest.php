@@ -3,18 +3,18 @@
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
-use App\Models\Account;
 use App\Models\ProvisioningOperation;
+use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 test('a provisioning operation stays pending inside an open transaction and applies only after commit', function () {
-    $account = Account::factory()->create();
+    $webDomain = WebDomain::factory()->create();
     $operationId = null;
 
-    DB::transaction(function () use ($account, &$operationId) {
+    DB::transaction(function () use ($webDomain, &$operationId) {
         $operation = app(RecordsProvisioningOperation::class)->record(
-            $account, 'web.nginx.v1', ProvisioningVerb::Create, [], (string) Str::uuid(),
+            $webDomain, 'web.nginx.v1', ProvisioningVerb::Create, [], (string) Str::uuid(),
         );
         $operationId = $operation->id;
 
@@ -28,12 +28,12 @@ test('a provisioning operation stays pending inside an open transaction and appl
 });
 
 test('a rolled-back transaction never dispatches the provisioning operation', function () {
-    $account = Account::factory()->create();
+    $webDomain = WebDomain::factory()->create();
 
     try {
-        DB::transaction(function () use ($account) {
+        DB::transaction(function () use ($webDomain) {
             app(RecordsProvisioningOperation::class)->record(
-                $account, 'web.nginx.v1', ProvisioningVerb::Create, [], (string) Str::uuid(),
+                $webDomain, 'web.nginx.v1', ProvisioningVerb::Create, [], (string) Str::uuid(),
             );
 
             throw new RuntimeException('force rollback');

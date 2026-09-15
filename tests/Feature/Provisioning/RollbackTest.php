@@ -16,7 +16,7 @@ test('a provisioning operation and an audit event written in the same rolled-bac
             ProvisioningOperation::create([
                 'provisionable_type' => $account->getMorphClass(),
                 'provisionable_id' => $account->id,
-                'resource_id' => $account->uuid,
+                'resource_id' => (string) Str::uuid(),
                 'capability' => 'web.nginx.v1',
                 'operation' => ProvisioningVerb::Create,
                 'status' => ProvisioningStatus::Pending,

@@ -28,17 +28,17 @@ class UsageSnapshotController extends Controller
      * usage instead -- the admin cross-account path, reached from the account admin page
      * (accounts/show.tsx), gated by the exact same UsageSnapshotPolicy::viewAny the tenant path
      * already uses: a plain member of some other account can never pass usage.view_any, so
-     * passing an arbitrary account's uuid here grants nothing a member of that OTHER account
+     * passing an arbitrary account's public id here grants nothing a member of that OTHER account
      * couldn't already see through their own membership. Rollups are gated by the same check
      * (they are just a coarser view of the same account's own usage data, not a distinct
      * resource), so there is no separate UsageSnapshotRollupPolicy.
      */
     public function index(Request $request): Response
     {
-        $accountUuid = $request->string('account')->toString();
+        $accountPublicId = $request->string('account')->toString();
 
-        $account = $accountUuid !== ''
-            ? Account::where('uuid', $accountUuid)->firstOrFail()
+        $account = $accountPublicId !== ''
+            ? Account::where('public_id', $accountPublicId)->firstOrFail()
             : $this->resolveAccount($request->user());
 
         Gate::authorize('viewAny', [UsageSnapshot::class, $account]);
@@ -62,8 +62,8 @@ class UsageSnapshotController extends Controller
         return Inertia::render('usage/index', [
             'snapshots' => $snapshots,
             'rollups' => $rollups,
-            'viewingAccount' => $accountUuid !== '' ? [
-                'uuid' => $account->uuid,
+            'viewingAccount' => $accountPublicId !== '' ? [
+                'public_id' => $account->public_id,
                 'name' => $account->name,
             ] : null,
         ]);

@@ -23,8 +23,10 @@ class RecordsProvisioningOperation
         int $desiredStateVersion = 1,
     ): ProvisioningOperation {
         // Resource-agnostic action: $provisionable is expected to expose a `uuid` attribute
-        // (Account does; Phase 2's WebDomain etc. will too), but the bare Model type-hint has
-        // no such property.
+        // (WebDomain, DnsZone, CronJob, MailDomain, ... every real tenant resource that gets
+        // provisioned to a node does; Account itself never does, since an Account is never
+        // provisioned as its own capability resource), but the bare Model type-hint has no such
+        // property.
         $resourceId = $provisionable->uuid; // @phpstan-ignore property.notFound
         $nodeId = $provisionable->node_id; // @phpstan-ignore property.notFound
 

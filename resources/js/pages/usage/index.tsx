@@ -87,7 +87,7 @@ function Pagination({
 }
 
 type ViewingAccount = {
-    uuid: string;
+    public_id: string;
     name: string;
 };
 

@@ -45,6 +45,10 @@ class HandleInertiaRequests extends Middleware
                 // nodes (see App\Models\NodeAdminGrant); the sidebar's own Nodes section stays
                 // visible for them, scoped to just their own granted node(s), not the full fleet.
                 'has_node_admin_grants' => $request->user()?->nodeAdminGrants()->exists() ?? false,
+                // Real self-service account visibility: a user with at least one real membership
+                // (owner or member) sees a "My account" nav entry pointing at their own account(s),
+                // independent of any admin/node-admin capacity they may also hold.
+                'has_any_account_membership' => $request->user()?->memberships()->whereNotNull('account_id')->exists() ?? false,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

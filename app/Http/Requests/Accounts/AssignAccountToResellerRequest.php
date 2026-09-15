@@ -16,7 +16,7 @@ class AssignAccountToResellerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'reseller_account_uuid' => ['required', 'uuid', Rule::exists('accounts', 'uuid')],
+            'reseller_account_public_id' => ['required', 'string', 'size:12', Rule::exists('accounts', 'public_id')],
         ];
     }
 }

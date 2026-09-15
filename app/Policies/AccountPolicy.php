@@ -23,9 +23,17 @@ class AccountPolicy
         return $user->hasAnyAccountMembership($account);
     }
 
-    public function create(User $user, Account $account): bool
+    /**
+     * Gates creating a brand-new hosting account (App\Actions\Accounts\CreateAccount). Bare
+     * class-string check, since no Account instance exists yet -- this replaces a previous,
+     * never-actually-callable version of this method (it took an existing $account and checked
+     * hasAccountRole($account, 'owner'), which cannot mean anything for creating a *new* account
+     * and had zero real callers). Platform-admin-only for this first version: a reseller creating
+     * their own managed accounts is a deliberately deferred, separate capability.
+     */
+    public function create(User $user): bool
     {
-        return $user->hasAccountRole($account, 'owner');
+        return $user->hasPermission('accounts.create');
     }
 
     public function update(User $user, Account $account): bool

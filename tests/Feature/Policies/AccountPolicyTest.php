@@ -34,6 +34,17 @@ test('account authorization matrix: owner, member, no membership, admin with the
         ->and(Gate::forUser($admin)->allows('view', $account))->toBeFalse();
 });
 
+test('creating a brand-new account is gated by accounts.create, never by any existing account membership', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $stranger = User::factory()->create();
+
+    expect(Gate::forUser($admin)->allows('create', Account::class))->toBeTrue()
+        ->and(Gate::forUser($owner)->allows('create', Account::class))->toBeFalse()
+        ->and(Gate::forUser($stranger)->allows('create', Account::class))->toBeFalse();
+});
+
 test('a platform role without accounts.update cannot update an arbitrary account', function () {
     $account = Account::factory()->create();
     $limitedRole = Role::factory()->create(['scope' => RoleScope::Platform]);

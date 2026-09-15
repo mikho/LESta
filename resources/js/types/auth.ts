@@ -14,6 +14,7 @@ export type Auth = {
     user: User;
     is_provider_admin: boolean;
     has_node_admin_grants: boolean;
+    has_any_account_membership: boolean;
 };
 
 export type Passkey = {

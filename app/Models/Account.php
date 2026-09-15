@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
 use App\Enums\SuspensionSource;
 use Database\Factories\AccountFactory;
@@ -12,10 +11,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
- * @property string $uuid
+ * @property string $public_id
  * @property string $name
  * @property string|null $contact_email
  * @property int $package_id
@@ -29,18 +29,44 @@ use Illuminate\Support\Carbon;
 class Account extends Model
 {
     /** @use HasFactory<AccountFactory> */
-    use HasFactory, HasUuid, Suspendable;
+    use HasFactory, Suspendable;
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $account): void {
+            $account->public_id ??= self::generateUniquePublicId();
+        });
+    }
 
     /**
-     * Route model binding resolves by uuid, not the internal auto-increment id, matching every
-     * other admin-managed resource's own route key convention (Node, Backup, WebDomain,
-     * TenantDatabase, ...). Account already had a real uuid column but had never actually been
-     * wired as the route key until the admin account page needed one -- no route bound {account}
-     * at all before this.
+     * Twelve random characters, deliberately never derived from (or correlated with) this row's
+     * own auto-increment id: an account's own id must never be a value worth guessing, since
+     * finding one this way would let an attacker enumerate every account on the server before
+     * ever attempting a single password. A dedicated column rather than the generic HasUuid trait
+     * every other model uses, since a full v4 UUID is unnecessary entropy for this specific
+     * threat model and a shorter opaque token is deliberately preferred here. The collision-retry
+     * loop guards real correctness (a 12-character space is still enormous, but meaningfully
+     * smaller than a UUID's), not just theoretical caution.
+     */
+    private static function generateUniquePublicId(): string
+    {
+        do {
+            $candidate = Str::random(12);
+        } while (self::query()->where('public_id', $candidate)->exists());
+
+        return $candidate;
+    }
+
+    /**
+     * Route model binding resolves by public_id, not the internal auto-increment id, matching
+     * every other admin-managed resource's own route key convention (Node, Backup, WebDomain,
+     * TenantDatabase, ...) in spirit, though this specific column is intentionally its own
+     * dedicated 12-character token rather than the shared HasUuid trait -- see
+     * generateUniquePublicId's own doc comment.
      */
     public function getRouteKeyName(): string
     {
-        return 'uuid';
+        return 'public_id';
     }
 
     /**
