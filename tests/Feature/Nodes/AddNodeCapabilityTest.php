@@ -18,6 +18,19 @@ test('adding a recognized capability creates a row with an audit event', functio
         ->and(AuditEvent::where('action', 'node_capability.added')->where('auditable_id', $capability->id)->exists())->toBeTrue();
 });
 
+test('mail, backup, and metrics capabilities are recognized, closing a real gap where they could never be declared', function (string $capability) {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+
+    $result = app(AddNodeCapability::class)->handle($admin, $node, $capability);
+
+    expect($result->capability)->toBe($capability);
+})->with([
+    'mail.smtp-imap.v1',
+    'backup.encrypted-artifacts.v1',
+    'metrics.usage.v1',
+]);
+
 test('adding an unrecognized capability throws a validation exception', function () {
     $admin = Membership::factory()->providerAdmin()->create()->user;
     $node = Node::factory()->create();

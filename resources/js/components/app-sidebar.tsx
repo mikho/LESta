@@ -11,6 +11,7 @@ import {
     LayoutGrid,
     Mail as MailIcon,
     Network,
+    PackageIcon,
     Server,
     UserRound,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ import dns from '@/routes/dns';
 import domains from '@/routes/domains';
 import mail from '@/routes/mail';
 import nodes from '@/routes/nodes';
+import packages from '@/routes/packages';
 import tenantDatabases from '@/routes/tenant-databases';
 import usage from '@/routes/usage';
 import type { NavItem } from '@/types';
@@ -95,6 +97,12 @@ const backupsNavItem: NavItem = {
     icon: Archive,
 };
 
+const packagesNavItem: NavItem = {
+    title: 'Packages',
+    href: packages.index(),
+    icon: PackageIcon,
+};
+
 const myAccountNavItem: NavItem = {
     title: 'My account',
     href: accounts.mine(),
@@ -120,7 +128,13 @@ export function AppSidebar() {
     let items = mainNavItems;
 
     if (auth.is_provider_admin) {
-        items = [...items, accountsNavItem, nodesNavItem, backupsNavItem];
+        items = [
+            ...items,
+            accountsNavItem,
+            nodesNavItem,
+            backupsNavItem,
+            packagesNavItem,
+        ];
     } else if (auth.has_node_admin_grants) {
         // A delegated node admin sees Nodes only, scoped server-side to just their own
         // granted node(s) -- never Accounts or Backups, which stay platform-admin-only.
