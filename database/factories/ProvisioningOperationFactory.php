@@ -4,8 +4,8 @@ namespace Database\Factories;
 
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
-use App\Models\Account;
 use App\Models\ProvisioningOperation;
+use App\Models\WebDomain;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -43,10 +43,10 @@ class ProvisioningOperationFactory extends Factory
     {
         return $this->afterMaking(function (ProvisioningOperation $operation): void {
             if ($operation->getAttribute('provisionable_type') === null) {
-                $account = Account::factory()->create();
-                $operation->provisionable_type = $account->getMorphClass();
-                $operation->provisionable_id = $account->id;
-                $operation->resource_id = $account->uuid;
+                $webDomain = WebDomain::factory()->create();
+                $operation->provisionable_type = $webDomain->getMorphClass();
+                $operation->provisionable_id = $webDomain->id;
+                $operation->resource_id = $webDomain->uuid;
             }
         });
     }

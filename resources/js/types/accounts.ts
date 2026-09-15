@@ -8,13 +8,13 @@ export type AccountMembership = {
 };
 
 export type ManagedAccount = {
-    uuid: string;
+    public_id: string;
     name: string;
     contact_email: string | null;
 };
 
 export type Account = {
-    uuid: string;
+    public_id: string;
     name: string;
     contact_email: string | null;
     package_id?: number;
@@ -28,7 +28,7 @@ export type Account = {
     tenant_databases_count?: number;
     cron_jobs_count?: number;
     memberships?: AccountMembership[];
-    reseller_account_uuid?: string | null;
+    reseller_account_public_id?: string | null;
     reseller_account_name?: string | null;
     managed_accounts?: ManagedAccount[];
 };

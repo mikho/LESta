@@ -2,6 +2,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import Heading from '@/components/heading';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import accounts from '@/routes/accounts';
 import type { Account } from '@/types';
@@ -18,9 +19,11 @@ type PaginatedAccounts = {
 export default function Index({
     accounts: paginatedAccounts,
     search: initialSearch,
+    canCreate,
 }: {
     accounts: PaginatedAccounts;
     search: string;
+    canCreate: boolean;
 }) {
     const [search, setSearch] = useState(initialSearch);
     const isFirstRender = useRef(true);
@@ -48,10 +51,18 @@ export default function Index({
             <Head title="Accounts" />
 
             <div className="space-y-6 p-4">
-                <Heading
-                    title="Accounts"
-                    description="Every tenant account on the platform"
-                />
+                <div className="flex items-center justify-between gap-4">
+                    <Heading
+                        title="Accounts"
+                        description="Every tenant account on the platform"
+                    />
+
+                    {canCreate && (
+                        <Button asChild>
+                            <Link href={accounts.create()}>Create account</Link>
+                        </Button>
+                    )}
+                </div>
 
                 <Input
                     type="search"
@@ -97,7 +108,7 @@ export default function Index({
 
                             {paginatedAccounts.data.map((account) => (
                                 <tr
-                                    key={account.uuid}
+                                    key={account.public_id}
                                     className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
                                 >
                                     <td className="px-4 py-2 font-medium">
