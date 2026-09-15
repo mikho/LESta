@@ -9,6 +9,7 @@ import {
     FolderGit2,
     Globe,
     LayoutGrid,
+    Mail as MailIcon,
     Network,
     Server,
     UserRound,
@@ -32,6 +33,7 @@ import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
+import mail from '@/routes/mail';
 import nodes from '@/routes/nodes';
 import tenantDatabases from '@/routes/tenant-databases';
 import usage from '@/routes/usage';
@@ -52,6 +54,11 @@ const mainNavItems: NavItem[] = [
         title: 'DNS',
         href: dns.index(),
         icon: Network,
+    },
+    {
+        title: 'Mail',
+        href: mail.index(),
+        icon: MailIcon,
     },
     {
         title: 'Databases',
