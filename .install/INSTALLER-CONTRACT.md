@@ -1,6 +1,6 @@
 # Installer Contract
 
-Every future installer and the shared bootstrap runner must satisfy this contract. This document is normative. The current repository contains no executable installer yet.
+Every installer and the shared bootstrap runner must satisfy this contract. This document is normative. Eight real installers exist today (`nginx`, `apache`, `bind9`, `mariadb`, `cron`, `mail`, `backups`, `agent-daemon`), plus `.install/scripts/install-selected.sh`, a combined installer that runs several of the first seven together in dependency order (see "Combined installation" below).
 
 ## Invocation
 
@@ -86,7 +86,27 @@ Web profile files are metadata, not executable instructions, and are validated a
 
 Installers are convergent and safe to rerun against the same release. A partial run records a checkpoint and leaves a structured incomplete result. Rerunning performs preflight, repairs only declared LESta-owned state, and resumes from the last safe checkpoint. Existing operator-owned files are never overwritten.
 
-Upgrades use side-by-side generations. The prior healthy generation remains available until the new package set, configuration, reload, and health checks pass. Uninstall and destructive migration are separate operator workflows and are never implied by `--apply`.
+Upgrades use side-by-side generations. The prior healthy generation remains available until the new package set, configuration, reload, and health checks pass. Uninstall and destructive migration are separate operator workflows and are never implied by `--apply`. `--prune` (below) is the one named, explicit, off-by-default exception: it is never implied by `--apply` alone.
+
+## Combined installation
+
+`.install/scripts/install-selected.sh` takes `--services <comma-separated list>` (from `nginx,apache,bind9,mariadb,cron,mail,backups`) and runs each selected leaf installer's own `install.sh`, in the order its own `depends_on`/`provides` graph requires, forwarding `--dry-run`/`--apply`/`--yes` and each service's own required flags unchanged. It is bound by every rule above over a *sequence* of leaf installers rather than one:
+
+- Non-interactive, `--dry-run`-first, JSONL output, the same exit codes.
+- Fail-closed before any mutation if a selected service's own dependency is not satisfiable by another selected service *and* not already really installed on the node (checked directly — `dpkg`/`systemctl`/real state-root presence — the same check `--prune` uses to decide what's actually there) — exit `12`, naming exactly which service needs exactly which other one. It never silently selects a service the operator did not ask for. Adding one more service to an already-provisioned node only needs that one service in `--services`: an already-installed prerequisite satisfies the dependency without being re-listed or re-run.
+- No cross-service rollback: if one leaf installer fails, every already-succeeded service in the same run stays applied. Re-running with the same `--services` is always safe — every leaf installer is independently idempotent.
+- `agent-daemon` (node enrollment) is never selectable here: it takes per-node secrets, not a service choice, and stays its own separate, always-manual step.
+
+## Prune
+
+`--prune`, given the same `--services` selection, reconciles the node down to exactly that selection plus a fixed protected baseline (`.install/base/protected-packages.txt`), removing everything else present — including, by design, non-LESta OS packages, not only LESta's own footprint. This is the first uninstall capability in this project; see `.install/lib/uninstall.sh`.
+
+- Never implicit: a separate, named, off-by-default flag. Plain `--apply` never prunes.
+- Always dry-runnable first (`--prune --dry-run`), with zero mutation, listing every real removal candidate by name.
+- The protected baseline is unconditional and cannot be overridden by any flag: SSH, `sudo`, the package manager and its trust chain, `systemd`, core networking, the firewall/intrusion-prevention baseline, unattended security updates, and the running kernel/bootloader are never removed.
+- A service holding real, non-reconstructible tenant state (`mariadb`'s tenant instance, `mail`'s received mail, `backups`' own artifacts) that would be removed requires one additional, explicit `--confirm-data-loss <service>` flag per such service. Missing one fails closed before any mutation. Even when confirmed, that service's real data is quarantined (moved to `/var/lib/lesta/<service>/removed-<UTC-timestamp>/`) rather than deleted outright, matching how every other destructive-looking operation in this codebase already behaves (generation-based rollback, backup retention).
+- `mariadb`'s own control-plane database instance (this application's own database, never a `NodeCapability`) is never a removal candidate under any circumstance, regardless of selection.
+- A successful `--prune` does not itself revoke the corresponding `NodeCapability` row in LESta (no node-side script has a path back to Laravel's own database, by the same boundary stated above); the operator still removes it by hand from the admin app.
 
 ## Automated enforcement
 

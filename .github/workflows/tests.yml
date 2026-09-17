@@ -223,7 +223,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
@@ -2774,3 +2774,208 @@ jobs:
       # code path here is reached only when OFFLINE_BUNDLE is set), so
       # their own continuing to pass unmodified in this same job run is
       # itself the proof.
+
+      # --- Scenario 28: combined installer (install-selected.sh), a
+      #     successful multi-service run --------------------------------
+      #
+      # Everything above exercised each leaf install.sh directly.
+      # .install/scripts/install-selected.sh is under test from here on:
+      # given a --services selection, it resolves the real dependency order
+      # from each manifest's own depends_on/provides and runs each leaf
+      # installer in turn. nginx, cron, and backups have no ordering
+      # relationship with each other (none provides a capability another one
+      # of the three depends_on), so this proves the straightforward case:
+      # several independent services, one invocation, one combined result.
+
+      - name: "Scenario 28 setup: reset the runner to a bare node"
+        run: |
+          sudo systemctl stop nginx apache2 named bind9 cron exim4 dovecot 'mariadb@tenant' mariadb 2>/dev/null || true
+          sudo apt-get purge -y nginx apache2 apache2-bin apache2-data apache2-utils bind9 bind9-utils mariadb-server mariadb-client cron exim4-daemon-heavy dovecot-imapd dovecot-lmtpd dovecot-sieve dovecot-core clamav-daemon clamav-freshclam spamassassin spamd 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo userdel lesta-agent 2>/dev/null || true
+          sudo groupdel lesta 2>/dev/null || true
+          sudo rm -rf /etc/lesta /var/lib/lesta /var/log/lesta
+          sudo apt-get update
+
+      - name: "Scenario 28 setup: provision nginx's own manual include-line prerequisite before even a --dry-run is attempted (install-selected.sh never runs --prepare-config itself, matching Documentation/Installation Guide.md Chapter 4)"
+        run: |
+          sudo apt-get install -y nginx
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
+
+      - name: "Scenario 28: --dry-run over three independent services must resolve all three and perform each one's own complete preflight, with zero mutation"
+        run: |
+          result=$(sudo sh .install/scripts/install-selected.sh --dry-run --services nginx,cron,backups --web-server nginx)
+          echo "${result}"
+          printf '%s' "${result}" | grep -q '"status":"would_change"' \
+            || { echo "expected the final orchestrator line to report \"status\":\"would_change\"" >&2; exit 1; }
+          dpkg -l cron 2>/dev/null | grep -q '^ii' && { echo "--dry-run must not have installed cron" >&2; exit 1; }
+          [ -d /var/lib/lesta/backups ] && { echo "--dry-run must not have created /var/lib/lesta/backups" >&2; exit 1; }
+          true
+
+      - name: "Scenario 28: --apply over nginx,cron,backups must succeed and leave all three genuinely healthy"
+        run: |
+          set +e
+          result=$(sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx,cron,backups --web-server nginx 2>/tmp/scenario28-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario28-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the final orchestrator line to report \"status\":\"applied\"" >&2; exit 1; }
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+          sudo systemctl is-active cron
+          [ -d /var/lib/lesta/backups ] || { echo "expected /var/lib/lesta/backups to exist after backups was applied" >&2; exit 1; }
+
+      # --- Scenario 29: combined installer, fail-closed missing prerequisite
+      #     (mail alone) ---------------------------------------------------
+      #
+      # mail's own manifest depends_on dns.bind9.v1, web.nginx.v1, and
+      # tls.acme.v1 (plus the always-bootstrapped firewall/node-health).
+      # Selecting mail alone leaves the first two unsatisfiable by anything
+      # else in the selection, so install-selected.sh's own resolve_order
+      # must fail closed before invoking mail/install.sh at all -- this is
+      # the ORCHESTRATOR's own dependency-graph check, distinct from any
+      # leaf installer's own preflight. tls.acme.v1 is deliberately NOT
+      # named in the failure: no selectable service provides a certificate
+      # (acme has no standalone install.sh -- it is a Laravel-side job), so
+      # there is nothing this orchestrator could tell an operator to
+      # additionally select for it; mail/install.sh's own real preflight
+      # remains the enforcement point for the real certificate file, exactly
+      # as it already is when mail is run standalone.
+
+      - name: "Scenario 29: --services mail alone must fail closed (exit 12) before mail/install.sh is ever invoked, naming its real missing prerequisites"
+        run: |
+          set +e
+          result=$(sudo sh .install/scripts/install-selected.sh --apply --yes --services mail --mail-hostname mail.lesta-ci.invalid 2>/tmp/scenario29-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario29-stderr.log || true
+          if [ "${status}" -ne 12 ]; then
+            echo "expected exit 12 (EXIT_PREFLIGHT_CONFLICT), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q 'dns.bind9.v1' \
+            || { echo "expected the result body to name the missing dns.bind9.v1 prerequisite" >&2; exit 1; }
+          printf '%s' "${result}" | grep -q 'web.nginx.v1' \
+            || { echo "expected the result body to name the missing web.nginx.v1 prerequisite" >&2; exit 1; }
+          printf '%s' "${result}" | grep -q 'tls.acme.v1' \
+            && { echo "tls.acme.v1 is not provided by any selectable service and must not be named as something to additionally select" >&2; exit 1; }
+          dpkg -l exim4-daemon-heavy 2>/dev/null | grep -q '^ii' \
+            && { echo "expected zero mutation: exim4-daemon-heavy must not be installed after a fail-closed dependency resolution" >&2; exit 1; }
+          true
+
+      # --- Scenario 30/31: --prune ----------------------------------------
+      #
+      # Same node, two invocations of the same command differing only in
+      # --confirm-data-loss: Scenario 30 proves the fail-closed default
+      # (mariadb holds real tenant data and --prune refuses to touch it
+      # without the extra confirmation, leaving the node completely
+      # unmutated); Scenario 31 proves the real removal once confirmed,
+      # including the one case this feature exists specifically to get
+      # right: mariadb-server/mariadb-client are shared between the tenant
+      # instance (dropped here) and the control-plane instance (this
+      # application's own database, never a removal candidate under any
+      # circumstance), so they must survive and mariadb.service must still
+      # be active throughout, even though the tenant capability is gone.
+      #
+      # The broader-OS-trim half of --prune (removing non-LESta packages
+      # too, the operator's own explicit choice -- see
+      # .install/INSTALLER-CONTRACT.md's own "Prune" section) is exercised
+      # for real in Scenario 31 as well, not mocked: a deliberately
+      # installed, wholly unrelated canary package must be gone afterward,
+      # proving the sweep reaches beyond LESta's own footprint exactly as
+      # designed, while openssh-server, sudo, and the running kernel package
+      # (protected-packages.txt) must all still be present.
+
+      - name: "Scenario 30 setup: reset to bare again, then install nginx, bind9, and mariadb together via install-selected.sh"
+        run: |
+          sudo systemctl stop nginx apache2 named bind9 cron 'mariadb@tenant' mariadb 2>/dev/null || true
+          sudo apt-get purge -y nginx apache2 apache2-bin apache2-data apache2-utils bind9 bind9-utils mariadb-server mariadb-client cron 2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo userdel lesta-agent 2>/dev/null || true
+          sudo groupdel lesta 2>/dev/null || true
+          sudo rm -rf /etc/lesta /var/lib/lesta /var/log/lesta
+          sudo apt-get update
+          sudo apt-get install -y nginx bind9 bind9-utils cowsay
+          sudo sh .install/services/nginx/install.sh --prepare-config --yes
+          sudo sh .install/services/bind9/install.sh --prepare-config --yes
+          sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx,bind9,mariadb --web-server nginx
+
+      - name: "Scenario 30: --prune without --confirm-data-loss must fail closed (exit 12) and leave the node completely unmutated"
+        run: |
+          set +e
+          result=$(sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx --web-server nginx --prune 2>/tmp/scenario30-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario30-stderr.log || true
+          if [ "${status}" -ne 12 ]; then
+            echo "expected exit 12 (EXIT_PREFLIGHT_CONFLICT), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"code":"missing_confirm_data_loss"' \
+            || { echo "expected the result body to contain \"code\":\"missing_confirm_data_loss\"" >&2; exit 1; }
+          printf '%s' "${result}" | grep -q 'mariadb' \
+            || { echo "expected the missing-confirmation error to name mariadb" >&2; exit 1; }
+          sudo systemctl is-active named
+          dpkg-query -W -f '${Status}' mariadb-server | grep -q ' installed$'
+          sudo systemctl is-active mariadb
+          [ -d /var/lib/lesta/mariadb/tenant ] || { echo "expected the mariadb tenant data root to still be present (nothing confirmed, nothing should have moved)" >&2; exit 1; }
+          dpkg -l cowsay 2>/dev/null | grep -q '^ii' || { echo "expected the canary package to still be present (the fail-closed prune must not purge anything)" >&2; exit 1; }
+
+      - name: "Scenario 31: --prune --confirm-data-loss mariadb must remove bind9 and the mariadb tenant instance, quarantine its data, purge the canary, and leave the control-plane instance and protected baseline untouched"
+        run: |
+          set +e
+          result=$(sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx --web-server nginx --prune --confirm-data-loss mariadb 2>/tmp/scenario31-stderr.log)
+          status=$?
+          set -e
+          echo "${result}"
+          echo "--- stderr log ---"
+          cat /tmp/scenario31-stderr.log || true
+          if [ "${status}" -ne 0 ]; then
+            echo "expected exit 0 (EXIT_OK), got ${status}" >&2
+            exit 1
+          fi
+          printf '%s' "${result}" | grep -q '"status":"applied"' \
+            || { echo "expected the final orchestrator line to report \"status\":\"applied\"" >&2; exit 1; }
+
+          # bind9: fully removed (a non-stateful, fully re-derivable capability).
+          dpkg-query -W -f '${Status}' bind9 2>/dev/null | grep -q ' installed$' \
+            && { echo "expected bind9 to be purged" >&2; exit 1; }
+          sudo systemctl is-active named 2>/dev/null && { echo "expected named.service to be inactive" >&2; exit 1; }
+          [ -d /etc/bind/lesta.d ] && { echo "expected /etc/bind/lesta.d to be removed" >&2; exit 1; }
+
+          # mariadb tenant instance: unit stopped, data quarantined, package
+          # NEVER purged (shared with the control-plane instance).
+          sudo systemctl is-active 'mariadb@tenant' 2>/dev/null && { echo "expected mariadb@tenant.service to be inactive" >&2; exit 1; }
+          [ -d /var/lib/lesta/mariadb/tenant ] && { echo "expected the tenant data root to have been moved (quarantined), not left in place" >&2; exit 1; }
+          quarantine_count=$(find /var/lib/lesta/mariadb -maxdepth 1 -name 'removed-*' -type d | wc -l)
+          [ "${quarantine_count}" -ge 1 ] || { echo "expected at least one /var/lib/lesta/mariadb/removed-* quarantine directory" >&2; exit 1; }
+
+          # mariadb control-plane instance: never touched.
+          dpkg-query -W -f '${Status}' mariadb-server | grep -q ' installed$' \
+            || { echo "expected mariadb-server to still be installed (shared with the never-droppable control-plane instance)" >&2; exit 1; }
+          sudo systemctl is-active mariadb
+          [ -d /var/lib/lesta/mariadb/control-plane ] || { echo "expected the control-plane data root to be untouched" >&2; exit 1; }
+
+          # Broader OS trim: the canary is gone, the protected baseline survives.
+          dpkg -l cowsay 2>/dev/null | grep -q '^ii' && { echo "expected the unrelated canary package to have been purged by the broader OS trim" >&2; exit 1; }
+          dpkg-query -W -f '${Status}' openssh-server | grep -q ' installed$'
+          dpkg-query -W -f '${Status}' sudo | grep -q ' installed$'
+          dpkg -l 'linux-image-*' | grep -q '^ii' || { echo "expected the running kernel package to still be present" >&2; exit 1; }
+
+          # nginx: still selected, still healthy.
+          sudo systemctl is-active nginx
+          curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
+
+      - name: "Scenario 31 cleanup: remove the mariadb tenant quarantine directory"
+        run: sudo rm -rf /var/lib/lesta/mariadb/removed-*

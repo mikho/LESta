@@ -564,6 +564,76 @@ function checkGitArchiveContents() {
 checkGitArchiveContents();
 
 // ---------------------------------------------------------------------------
+// Check 5: install-selected.sh's own hardcoded SERVICES_ALL list must name
+// exactly the services that actually have a real, independently-runnable
+// install.sh on disk right now -- neither missing one (a new leaf installer
+// silently left out of the combined tool, the exact class of bug that once
+// left a real capability out of the admin UI's own node-capability
+// dropdown) nor naming one that no longer exists.
+// ---------------------------------------------------------------------------
+
+function discoverLeafInstallerServiceIds() {
+    const servicesDir = join(INSTALL_ROOT, 'services');
+    const ids = [];
+
+    for (const entry of readdirSync(servicesDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        try {
+            readFileSync(join(servicesDir, entry.name, 'install.sh'));
+            ids.push(entry.name);
+        } catch {
+            // no independently-runnable install.sh in this service directory
+        }
+    }
+
+    return ids.sort();
+}
+
+function checkInstallSelectedServiceList() {
+    const scriptPath = join(INSTALL_ROOT, 'scripts', 'install-selected.sh');
+    const context = relPath(scriptPath);
+    let contents;
+    try {
+        contents = readFileSync(scriptPath, 'utf8');
+    } catch (error) {
+        violate(context, `failed to read: ${error.message}`);
+        return;
+    }
+
+    const match = contents.match(/^SERVICES_ALL="([^"]*)"/m);
+    if (!match) {
+        violate(context, 'could not find a SERVICES_ALL="..." assignment to check against real install.sh files on disk');
+        return;
+    }
+
+    const declared = match[1].split(/\s+/).filter(Boolean).sort();
+    // agent-daemon has a real install.sh but is deliberately excluded from
+    // this combined tool (it takes per-node enrollment secrets, not a
+    // service selection -- see install-selected.sh's own usage text), so it
+    // is excluded here too rather than flagged as missing.
+    const real = discoverLeafInstallerServiceIds().filter((id) => id !== 'agent-daemon');
+
+    const declaredSet = new Set(declared);
+    const realSet = new Set(real);
+
+    for (const id of real) {
+        if (!declaredSet.has(id)) {
+            violate(context, `SERVICES_ALL is missing "${id}", which has a real install.sh on disk (services/${id}/install.sh)`);
+        }
+    }
+
+    for (const id of declared) {
+        if (!realSet.has(id)) {
+            violate(context, `SERVICES_ALL names "${id}", which has no install.sh on disk at services/${id}/install.sh`);
+        }
+    }
+}
+
+checkInstallSelectedServiceList();
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 

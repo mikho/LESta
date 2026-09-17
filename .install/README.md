@@ -18,7 +18,7 @@ Laravel never executes host commands and never calls `.install`, directly or thr
 - Service configuration is rendered by the agent into staged generations, validated, atomically activated, health-checked, and rollback-capable.
 - A blank server may select `nginx`, `apache`, or `both`. In the `both` profile, nginx owns public ports 80 and 443 and proxies to Apache on a LESta-owned loopback port.
 
-No service installer is implemented in this scaffolding step. The directory contains contracts, manifests, and discoverable service boundaries only.
+Seven services have a real, independently-runnable installer: `nginx`, `apache`, `bind9`, `mariadb`, `cron`, `mail`, `backups` (plus `agent-daemon`, the separate node-enrollment installer). `firewall` and `node-health` bootstrap automatically inside every one of those; `acme` and `statistics` have no standalone installer at all. `.install/scripts/install-selected.sh` runs several of the seven together in the correct dependency order from one invocation; see `Documentation/Installation Guide.md` (in the project vault) for the full walkthrough, including its `--prune` option for removing services no longer wanted.
 
 ## Directory layout
 

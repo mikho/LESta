@@ -1,0 +1,73 @@
+# .install/base/protected-packages.txt
+#
+# Packages install-selected.sh's own --prune mode refuses to remove under any
+# circumstance, regardless of service selection. One exact package name per
+# line; a trailing "*" matches a name prefix (used for kernel/bootloader
+# families, where the exact package name embeds a version number and cannot
+# be listed literally). Blank lines and lines starting with "#" are ignored.
+#
+# This is a fixed, reviewable list, not a schema-validated structure -- see
+# .install/lib/uninstall.sh's own uninstall_is_protected_package for how it
+# is read. Extend this list, never remove-and-relist an entry via a code
+# change, if a future service needs a new package protected.
+
+# SSH access -- losing this can mean losing the node entirely.
+openssh-server
+openssh-client
+
+# Package management and its own trust chain.
+apt
+apt-transport-https
+apt-utils
+ca-certificates
+gnupg
+dpkg
+
+# Privilege escalation -- required for every installer (including this one)
+# to keep running as intended.
+sudo
+
+# Init system and service supervision.
+systemd
+systemd-sysv
+init
+
+# Networking baseline -- removing these can cut the node off the network
+# entirely, which no later step could then recover from.
+netplan.io
+isc-dhcp-client
+iproute2
+ifupdown
+
+# Cloud-init: only relevant on a cloud-provisioned VM, but harmless to
+# protect unconditionally on a bare-metal node too.
+cloud-init
+
+# Firewall and intrusion-prevention baseline this project's own bootstrap
+# already assumes is present.
+ufw
+nftables
+fail2ban
+
+# Unattended security updates.
+unattended-upgrades
+
+# mariadb-server/mariadb-client are shared between the tenant database
+# instance (a real, droppable NodeCapability) and the control-plane instance
+# (this application's own database, never a NodeCapability, never a --prune
+# candidate under any circumstance -- see .install/lib/uninstall.sh's own
+# uninstall_service_packages). Dropping only the tenant instance never
+# purges these packages, only stops mariadb@tenant.service and removes the
+# tenant's own owned_roots; without this entry, --prune's own broader
+# OS-trim pass (which has no notion of "shared with a never-droppable
+# instance") would otherwise purge them the moment mariadb is absent from
+# --services, taking the control-plane instance down with it.
+mariadb-server
+mariadb-client
+
+# Kernel and bootloader families (versioned package names -- prefix match).
+linux-image-*
+linux-headers-*
+linux-modules-*
+grub-pc*
+grub-efi*
