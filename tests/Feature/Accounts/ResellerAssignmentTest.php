@@ -80,3 +80,46 @@ test('a non-platform-admin cannot unassign an account from its reseller', functi
 
     app(UnassignAccountFromReseller::class)->handle($stranger, $account);
 })->throws(AuthorizationException::class);
+
+test('reseller candidate search matches by name, excludes an already reseller-managed account, and still offers one already managing others', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $account = Account::factory()->create();
+    $eligible = Account::factory()->create(['name' => 'acme-hosting']);
+    $alreadyManaged = Account::factory()->create(['name' => 'acme-managed', 'reseller_account_id' => $eligible->id]);
+    $alreadyAReseller = Account::factory()->create(['name' => 'acme-reseller']);
+    Account::factory()->create(['reseller_account_id' => $alreadyAReseller->id]);
+
+    $response = $this->actingAs($admin)
+        ->getJson(route('accounts.reseller-candidates', $account).'?q=acme')
+        ->assertOk();
+
+    $names = collect($response->json('candidates'))->pluck('name');
+
+    // acme-managed is itself reseller-managed (would fail AssignAccountToReseller's own
+    // anti-chaining rule if picked), so it's excluded. acme-reseller already manages a different
+    // account, which is a perfectly normal, still-eligible reseller -- one reseller can manage
+    // several accounts at once.
+    expect($names)->toContain('acme-hosting')
+        ->and($names)->toContain('acme-reseller')
+        ->and($names)->not->toContain('acme-managed');
+});
+
+test('reseller candidate search excludes the account itself', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $account = Account::factory()->create(['name' => 'self-account']);
+
+    $response = $this->actingAs($admin)
+        ->getJson(route('accounts.reseller-candidates', $account).'?q=self')
+        ->assertOk();
+
+    expect(collect($response->json('candidates'))->pluck('name'))->not->toContain('self-account');
+});
+
+test('a non-admin cannot search reseller candidates', function () {
+    $account = Account::factory()->create();
+    $stranger = User::factory()->create();
+
+    $this->actingAs($stranger)
+        ->getJson(route('accounts.reseller-candidates', $account).'?q=x')
+        ->assertForbidden();
+});

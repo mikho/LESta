@@ -1,5 +1,7 @@
 import { Form, Head, Link } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
+import MembershipController from '@/actions/App/Http/Controllers/Memberships/MembershipController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -25,14 +27,100 @@ import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
 import type { Account, AccountPackage } from '@/types';
 
+type ResellerCandidate = { public_id: string; name: string };
+
+/**
+ * A raw-text input for reseller_account_public_id, augmented with a native
+ * <datalist> of name-matching eligible candidates fetched from
+ * AccountController::resellerCandidates as the operator types. Submits
+ * whatever text is in the box either way -- picking a suggestion just fills
+ * the box with that account's own public_id, matching the backend's
+ * existing exists:accounts,public_id validation exactly; no new wire
+ * contract. No combobox/command component exists anywhere in this app yet,
+ * so a native datalist is the zero-new-dependency choice here rather than
+ * introducing one for a single input.
+ */
+function ResellerAccountInput({ account }: { account: Account }) {
+    const [query, setQuery] = useState('');
+    const [candidates, setCandidates] = useState<ResellerCandidate[]>([]);
+
+    // Rendered options are derived from both query and candidates below, so
+    // a blank query simply renders no options -- no need to clear
+    // candidates state itself just because the box emptied out.
+    useEffect(() => {
+        if (query.trim() === '') {
+            return;
+        }
+
+        const controller = new AbortController();
+
+        const timeout = setTimeout(() => {
+            fetch(
+                AccountController.resellerCandidates.url(account) +
+                    `?q=${encodeURIComponent(query)}`,
+                {
+                    signal: controller.signal,
+                    headers: { Accept: 'application/json' },
+                },
+            )
+                .then((response) => response.json())
+                .then((data: { candidates: ResellerCandidate[] }) =>
+                    setCandidates(data.candidates),
+                )
+                .catch(() => {});
+        }, 300);
+
+        return () => {
+            clearTimeout(timeout);
+            controller.abort();
+        };
+    }, [query, account]);
+
+    return (
+        <>
+            <Input
+                id="reseller_account_public_id"
+                name="reseller_account_public_id"
+                list="reseller-account-candidates"
+                autoComplete="off"
+                required
+                onChange={(e) => setQuery(e.target.value)}
+            />
+            <datalist id="reseller-account-candidates">
+                {query.trim() !== '' &&
+                    candidates.map((candidate) => (
+                        <option
+                            key={candidate.public_id}
+                            value={candidate.public_id}
+                        >
+                            {candidate.name}
+                        </option>
+                    ))}
+            </datalist>
+        </>
+    );
+}
+
 export default function Show({
     account,
     packages,
     canManageReseller,
+    canUpdateAccount,
+    canSuspendAccount,
+    canUnsuspendAccount,
+    canDeleteAccount,
+    canInviteMembers,
+    canRemoveMembers,
 }: {
     account: Account;
     packages: AccountPackage[];
     canManageReseller: boolean;
+    canUpdateAccount: boolean;
+    canSuspendAccount: boolean;
+    canUnsuspendAccount: boolean;
+    canDeleteAccount: boolean;
+    canInviteMembers: boolean;
+    canRemoveMembers: boolean;
 }) {
     return (
         <>
@@ -44,77 +132,98 @@ export default function Show({
                     description="View and manage this account"
                 />
 
-                <Form
-                    {...AccountController.update.form(account)}
-                    options={{ preserveScroll: true }}
-                    className="space-y-6"
-                >
-                    {({ processing, errors }) => (
-                        <>
-                            <div className="grid gap-2">
-                                <Label htmlFor="name">Name</Label>
+                {canUpdateAccount ? (
+                    <Form
+                        {...AccountController.update.form(account)}
+                        options={{ preserveScroll: true }}
+                        className="space-y-6"
+                    >
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="name">Name</Label>
 
-                                <Input
-                                    id="name"
-                                    name="name"
-                                    required
-                                    defaultValue={account.name}
-                                />
+                                    <Input
+                                        id="name"
+                                        name="name"
+                                        required
+                                        defaultValue={account.name}
+                                    />
 
-                                <InputError message={errors.name} />
-                            </div>
+                                    <InputError message={errors.name} />
+                                </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="contact_email">
-                                    Contact email
-                                </Label>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="contact_email">
+                                        Contact email
+                                    </Label>
 
-                                <Input
-                                    id="contact_email"
-                                    name="contact_email"
-                                    type="email"
-                                    defaultValue={account.contact_email ?? ''}
-                                />
+                                    <Input
+                                        id="contact_email"
+                                        name="contact_email"
+                                        type="email"
+                                        defaultValue={
+                                            account.contact_email ?? ''
+                                        }
+                                    />
 
-                                <InputError message={errors.contact_email} />
-                            </div>
+                                    <InputError
+                                        message={errors.contact_email}
+                                    />
+                                </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="package_id">Package</Label>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="package_id">Package</Label>
 
-                                <Select
-                                    name="package_id"
-                                    defaultValue={String(account.package_id)}
-                                >
-                                    <SelectTrigger id="package_id">
-                                        <SelectValue placeholder="Select a package" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {packages.map((pkg) => (
-                                            <SelectItem
-                                                key={pkg.id}
-                                                value={String(pkg.id)}
-                                            >
-                                                {pkg.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    <Select
+                                        name="package_id"
+                                        defaultValue={String(
+                                            account.package_id,
+                                        )}
+                                    >
+                                        <SelectTrigger id="package_id">
+                                            <SelectValue placeholder="Select a package" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {packages.map((pkg) => (
+                                                <SelectItem
+                                                    key={pkg.id}
+                                                    value={String(pkg.id)}
+                                                >
+                                                    {pkg.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
 
-                                <InputError message={errors.package_id} />
-                            </div>
+                                    <InputError message={errors.package_id} />
+                                </div>
 
-                            <div className="flex items-center gap-4">
-                                <Button
-                                    disabled={processing}
-                                    data-test="update-account-button"
-                                >
-                                    Save
-                                </Button>
-                            </div>
-                        </>
-                    )}
-                </Form>
+                                <div className="flex items-center gap-4">
+                                    <Button
+                                        disabled={processing}
+                                        data-test="update-account-button"
+                                    >
+                                        Save
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+                    </Form>
+                ) : (
+                    <dl className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <dt className="text-muted-foreground">Name</dt>
+                            <dd>{account.name}</dd>
+                        </div>
+                        <div>
+                            <dt className="text-muted-foreground">
+                                Contact email
+                            </dt>
+                            <dd>{account.contact_email ?? '—'}</dd>
+                        </div>
+                    </dl>
+                )}
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex items-center justify-between gap-4">
@@ -186,6 +295,11 @@ export default function Show({
                                     <th className="px-4 py-2 font-medium">
                                         Role
                                     </th>
+                                    {canRemoveMembers && (
+                                        <th className="px-4 py-2 font-medium">
+                                            Actions
+                                        </th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
@@ -193,7 +307,7 @@ export default function Show({
                                     account.memberships.length === 0) && (
                                     <tr>
                                         <td
-                                            colSpan={3}
+                                            colSpan={canRemoveMembers ? 4 : 3}
                                             className="px-4 py-6 text-center text-muted-foreground"
                                         >
                                             No members yet.
@@ -215,11 +329,105 @@ export default function Show({
                                         <td className="px-4 py-2 text-muted-foreground">
                                             {membership.role_name}
                                         </td>
+                                        {canRemoveMembers && (
+                                            <td className="px-4 py-2">
+                                                <Form
+                                                    {...MembershipController.destroy.form(
+                                                        [account, membership],
+                                                    )}
+                                                    options={{
+                                                        preserveScroll: true,
+                                                    }}
+                                                >
+                                                    {({ processing }) => (
+                                                        <Button
+                                                            type="submit"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            disabled={
+                                                                processing
+                                                            }
+                                                            data-test="remove-member-button"
+                                                        >
+                                                            Remove
+                                                        </Button>
+                                                    )}
+                                                </Form>
+                                            </td>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
+
+                    {canInviteMembers && (
+                        <Form
+                            {...MembershipController.store.form(account)}
+                            options={{ preserveScroll: true }}
+                            resetOnSuccess
+                            className="flex flex-wrap items-end gap-4"
+                        >
+                            {({ processing, errors }) => (
+                                <>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="member_name">
+                                            Name
+                                        </Label>
+                                        <Input
+                                            id="member_name"
+                                            name="name"
+                                            required
+                                        />
+                                        <InputError message={errors.name} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="member_email">
+                                            Email
+                                        </Label>
+                                        <Input
+                                            id="member_email"
+                                            name="email"
+                                            type="email"
+                                            required
+                                        />
+                                        <InputError message={errors.email} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="member_role">
+                                            Role
+                                        </Label>
+                                        <Select
+                                            name="role"
+                                            defaultValue="member"
+                                        >
+                                            <SelectTrigger id="member_role">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="member">
+                                                    Member
+                                                </SelectItem>
+                                                <SelectItem value="owner">
+                                                    Owner
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <InputError message={errors.role} />
+                                    </div>
+
+                                    <Button
+                                        disabled={processing}
+                                        data-test="invite-member-button"
+                                    >
+                                        Invite
+                                    </Button>
+                                </>
+                            )}
+                        </Form>
+                    )}
                 </div>
 
                 {account.managed_accounts &&
@@ -319,13 +527,11 @@ export default function Show({
                                     <>
                                         <div className="grid flex-1 gap-2">
                                             <Label htmlFor="reseller_account_public_id">
-                                                Reseller account ID
+                                                Reseller account
                                             </Label>
 
-                                            <Input
-                                                id="reseller_account_public_id"
-                                                name="reseller_account_public_id"
-                                                required
+                                            <ResellerAccountInput
+                                                account={account}
                                             />
 
                                             <InputError
@@ -348,113 +554,125 @@ export default function Show({
                     </div>
                 )}
 
-                <div className="space-y-4 rounded-lg border p-4">
-                    <Heading
-                        variant="small"
-                        title={
-                            account.suspended_at
-                                ? 'Unsuspend account'
-                                : 'Suspend account'
-                        }
-                        description={
-                            account.suspended_at
-                                ? 'Resume this account and its non-manually-suspended resources.'
-                                : 'Stop this account and cascade-suspend its web, mail, database, and cron resources until it is unsuspended.'
-                        }
-                    />
+                {(account.suspended_at
+                    ? canUnsuspendAccount
+                    : canSuspendAccount) && (
+                    <div className="space-y-4 rounded-lg border p-4">
+                        <Heading
+                            variant="small"
+                            title={
+                                account.suspended_at
+                                    ? 'Unsuspend account'
+                                    : 'Suspend account'
+                            }
+                            description={
+                                account.suspended_at
+                                    ? 'Resume this account and its non-manually-suspended resources.'
+                                    : 'Stop this account and cascade-suspend its web, mail, database, and cron resources until it is unsuspended.'
+                            }
+                        />
 
-                    <Form
-                        {...(account.suspended_at
-                            ? AccountController.unsuspend.form(account)
-                            : AccountController.suspend.form(account))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    account.suspended_at ? 'default' : 'outline'
-                                }
-                                disabled={processing}
-                                data-test="toggle-suspend-account-button"
-                            >
-                                {account.suspended_at ? 'Unsuspend' : 'Suspend'}
-                            </Button>
-                        )}
-                    </Form>
-                </div>
-
-                <div className="space-y-6">
-                    <Heading
-                        variant="small"
-                        title="Delete account"
-                        description="Delete this account"
-                    />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
-
-                        <Dialog>
-                            <DialogTrigger asChild>
+                        <Form
+                            {...(account.suspended_at
+                                ? AccountController.unsuspend.form(account)
+                                : AccountController.suspend.form(account))}
+                            options={{ preserveScroll: true }}
+                        >
+                            {({ processing }) => (
                                 <Button
-                                    variant="destructive"
-                                    data-test="delete-account-button"
+                                    variant={
+                                        account.suspended_at
+                                            ? 'default'
+                                            : 'outline'
+                                    }
+                                    disabled={processing}
+                                    data-test="toggle-suspend-account-button"
                                 >
-                                    Delete account
+                                    {account.suspended_at
+                                        ? 'Unsuspend'
+                                        : 'Suspend'}
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {account.name}?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    This deletes the account and every web
-                                    domain, mail domain, tenant database, and
-                                    cron job it owns.
-                                </DialogDescription>
-
-                                <Form
-                                    {...AccountController.destroy.form(account)}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing, errors }) => (
-                                        <>
-                                            <InputError
-                                                message={errors.account}
-                                            />
-
-                                            <DialogFooter className="gap-2">
-                                                <DialogClose asChild>
-                                                    <Button variant="secondary">
-                                                        Cancel
-                                                    </Button>
-                                                </DialogClose>
-
-                                                <Button
-                                                    variant="destructive"
-                                                    disabled={processing}
-                                                    asChild
-                                                >
-                                                    <button
-                                                        type="submit"
-                                                        data-test="confirm-delete-account-button"
-                                                    >
-                                                        Delete account
-                                                    </button>
-                                                </Button>
-                                            </DialogFooter>
-                                        </>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            )}
+                        </Form>
                     </div>
-                </div>
+                )}
+
+                {canDeleteAccount && (
+                    <div className="space-y-6">
+                        <Heading
+                            variant="small"
+                            title="Delete account"
+                            description="Delete this account"
+                        />
+                        <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
+                            <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
+                                <p className="font-medium">Warning</p>
+                                <p className="text-sm">
+                                    Please proceed with caution, this cannot be
+                                    undone.
+                                </p>
+                            </div>
+
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button
+                                        variant="destructive"
+                                        data-test="delete-account-button"
+                                    >
+                                        Delete account
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                    <DialogTitle>
+                                        Are you sure you want to delete{' '}
+                                        {account.name}?
+                                    </DialogTitle>
+                                    <DialogDescription>
+                                        This deletes the account and every web
+                                        domain, mail domain, tenant database,
+                                        and cron job it owns.
+                                    </DialogDescription>
+
+                                    <Form
+                                        {...AccountController.destroy.form(
+                                            account,
+                                        )}
+                                        options={{ preserveScroll: true }}
+                                    >
+                                        {({ processing, errors }) => (
+                                            <>
+                                                <InputError
+                                                    message={errors.account}
+                                                />
+
+                                                <DialogFooter className="gap-2">
+                                                    <DialogClose asChild>
+                                                        <Button variant="secondary">
+                                                            Cancel
+                                                        </Button>
+                                                    </DialogClose>
+
+                                                    <Button
+                                                        variant="destructive"
+                                                        disabled={processing}
+                                                        asChild
+                                                    >
+                                                        <button
+                                                            type="submit"
+                                                            data-test="confirm-delete-account-button"
+                                                        >
+                                                            Delete account
+                                                        </button>
+                                                    </Button>
+                                                </DialogFooter>
+                                            </>
+                                        )}
+                                    </Form>
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    </div>
+                )}
             </div>
         </>
     );

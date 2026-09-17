@@ -17,6 +17,7 @@ use App\Http\Requests\Accounts\UpdateAccountRequest;
 use App\Models\Account;
 use App\Models\Membership;
 use App\Models\Package;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -144,7 +145,56 @@ class AccountController extends Controller
             'account' => $this->presentForShow($account),
             'packages' => $packages,
             'canManageReseller' => $request->user()->hasPermission('accounts.update'),
+            // Mirrors AccountPolicy::update/suspend/unsuspend/delete exactly (each is
+            // owner-or-its-own-permission, not a single shared one) -- every one of
+            // UpdateAccount/SuspendAccount/UnsuspendAccount/DeleteAccount already enforces this
+            // server-side, so a plain member submitting any of these forms already gets a real
+            // 403; these props only stop the UI from showing buttons that would fail.
+            'canUpdateAccount' => Gate::forUser($user)->allows('update', $account),
+            'canSuspendAccount' => Gate::forUser($user)->allows('suspend', $account),
+            'canUnsuspendAccount' => Gate::forUser($user)->allows('unsuspend', $account),
+            'canDeleteAccount' => Gate::forUser($user)->allows('delete', $account),
+            'canInviteMembers' => Gate::forUser($user)->allows('create', [Membership::class, $account]),
+            // MembershipPolicy::delete's own owner-or-permission check only depends on the acting
+            // user and the account, never on which specific membership row is being removed, so
+            // one account-scoped flag correctly represents every row's own real ability.
+            'canRemoveMembers' => $user->hasAccountRole($account, 'owner') || $user->hasPermission('memberships.delete'),
         ]);
+    }
+
+    /**
+     * Search for accounts eligible to become $account's reseller (by name or public id),
+     * powering the assign-reseller autocomplete on the show page. Excludes itself and any
+     * already reseller-managed account (AssignAccountToReseller's own anti-chaining rule for
+     * whichever account becomes the reseller) -- a candidate that already manages other accounts
+     * is still eligible, since one reseller normally manages several accounts at once.
+     * AssignAccountToReseller's third rule (an account that already manages others cannot itself
+     * become reseller-managed) is about $account, the fixed target, not about which candidate is
+     * picked, so it isn't a candidate filter here at all: if it would reject the assignment, it
+     * would reject it identically for every candidate, and that rejection still surfaces for real
+     * at submit time regardless.
+     */
+    public function resellerCandidates(Request $request, Account $account): JsonResponse
+    {
+        Gate::authorize('update', $account);
+
+        $search = trim((string) $request->string('q'));
+
+        $candidates = Account::query()
+            ->where('id', '!=', $account->id)
+            ->whereNull('reseller_account_id')
+            ->when(
+                $search !== '',
+                fn ($query) => $query->where(fn ($query) => $query
+                    ->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('public_id', 'like', '%'.$search.'%')
+                )
+            )
+            ->orderBy('name')
+            ->limit(10)
+            ->get(['public_id', 'name']);
+
+        return response()->json(['candidates' => $candidates]);
     }
 
     /**

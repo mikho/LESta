@@ -31,9 +31,34 @@ test('a non-owner member is denied on management routes, but can view their own 
     $this->actingAs($member)->post(route('accounts.unsuspend', $account))->assertForbidden();
     $this->actingAs($member)->delete(route('accounts.destroy', $account))->assertForbidden();
 
-    $this->actingAs($member)->get(route('accounts.show', $account))->assertOk();
+    $this->actingAs($member)
+        ->get(route('accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('accounts/show')
+            ->where('canUpdateAccount', false)
+            ->where('canSuspendAccount', false)
+            ->where('canUnsuspendAccount', false)
+            ->where('canDeleteAccount', false)
+        );
 
     expect(AuditEvent::where('action', 'account.viewed_as_support')->where('auditable_id', $account->id)->exists())->toBeFalse();
+});
+
+test('an account owner sees management controls on their own account page', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->get(route('accounts.show', $account))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('accounts/show')
+            ->where('canUpdateAccount', true)
+            ->where('canSuspendAccount', true)
+            ->where('canUnsuspendAccount', true)
+            ->where('canDeleteAccount', true)
+        );
 });
 
 test('a logged-in stranger with no membership gets a 404, not a 403, for both a real and a nonexistent account', function () {
