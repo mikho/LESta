@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { dashboard } from '@/routes';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
@@ -97,17 +98,7 @@ export default function Dashboard({
                         </div>
                     </>
                 ) : (
-                    <div className="space-y-4 rounded-xl border border-sidebar-border/70 p-8 text-center dark:border-sidebar-border">
-                        <Heading
-                            title="Welcome"
-                            description="You are not a member of any account yet."
-                        />
-                        <p className="text-sm text-muted-foreground">
-                            An administrator or reseller needs to set up a
-                            hosting account for you before there is anything to
-                            manage here.
-                        </p>
-                    </div>
+                    <NoAccountNotice />
                 )}
             </div>
         </>

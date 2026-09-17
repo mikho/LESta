@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -62,7 +63,7 @@ export default function Index({
     mailDomains,
     search: initialSearch,
 }: {
-    mailDomains: PaginatedMailDomains;
+    mailDomains: PaginatedMailDomains | null;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -85,6 +86,18 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (mailDomains === null) {
+        return (
+            <>
+                <Head title="Mail" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

@@ -58,10 +58,17 @@ test('a user only ever sees their own account own usage snapshots, never another
         );
 });
 
-test('a user with no account membership at all is denied', function () {
+test('a user with no account membership sees the index with no data instead of a 404', function () {
     $stranger = User::factory()->create();
 
-    $this->actingAs($stranger)->get(route('usage.index'))->assertNotFound();
+    $this->actingAs($stranger)
+        ->get(route('usage.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('usage/index')
+            ->where('snapshots', null)
+            ->where('rollups', null)
+        );
 });
 
 test('a provider admin can view an arbitrary account own usage via the account query param', function () {

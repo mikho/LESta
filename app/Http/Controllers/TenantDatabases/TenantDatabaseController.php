@@ -29,6 +29,10 @@ class TenantDatabaseController extends Controller
     {
         $account = $this->resolveAccount($request->user());
 
+        if ($account === null) {
+            return Inertia::render('tenant-databases/index', ['tenantDatabases' => null, 'search' => '']);
+        }
+
         Gate::authorize('viewAny', [TenantDatabase::class, $account]);
 
         $search = trim((string) $request->string('search'));
@@ -48,11 +52,16 @@ class TenantDatabaseController extends Controller
     }
 
     /**
-     * Show the form for creating a new tenant database.
+     * Show the form for creating a new tenant database. No account -> nothing sensible to
+     * render; back to the index, which shows the same real "no hosting account" notice.
      */
-    public function create(Request $request): Response
+    public function create(Request $request): Response|RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('tenant-databases.index');
+        }
 
         Gate::authorize('create', [TenantDatabase::class, $account]);
 
@@ -69,6 +78,10 @@ class TenantDatabaseController extends Controller
     public function store(StoreTenantDatabaseRequest $request): RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('tenant-databases.index');
+        }
 
         try {
             [$tenantDatabase, $password] = app(CreateTenantDatabase::class)->handle($request->user(), $account, $request->validated());
@@ -147,14 +160,15 @@ class TenantDatabaseController extends Controller
     }
 
     /**
-     * Resolve the acting account: the user's first account-scoped membership. There is no
-     * account switcher yet, so a user belonging to multiple accounts is limited to the first
-     * one, a known limitation, not a silent gap.
+     * Resolve the acting account: the user's first account-scoped membership, or null for a user
+     * with none -- every caller renders a real "no hosting account" notice for that case rather
+     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
+     * limited to the first one, a known limitation, not a silent gap.
      */
-    private function resolveAccount(User $user): Account
+    private function resolveAccount(User $user): ?Account
     {
-        /** @var Account */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->firstOrFail()->account;
+        /** @var Account|null */
+        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

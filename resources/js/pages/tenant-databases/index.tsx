@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -62,7 +63,7 @@ export default function Index({
     tenantDatabases: paginatedTenantDatabases,
     search: initialSearch,
 }: {
-    tenantDatabases: PaginatedTenantDatabases;
+    tenantDatabases: PaginatedTenantDatabases | null;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -85,6 +86,18 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (paginatedTenantDatabases === null) {
+        return (
+            <>
+                <Head title="Databases" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

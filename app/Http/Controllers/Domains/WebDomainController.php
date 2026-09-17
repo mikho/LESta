@@ -30,6 +30,10 @@ class WebDomainController extends Controller
     {
         $account = $this->resolveAccount($request->user());
 
+        if ($account === null) {
+            return Inertia::render('domains/index', ['webDomains' => null, 'search' => '']);
+        }
+
         Gate::authorize('viewAny', [WebDomain::class, $account]);
 
         $search = trim((string) $request->string('search'));
@@ -50,11 +54,16 @@ class WebDomainController extends Controller
     }
 
     /**
-     * Show the form for creating a new web domain.
+     * Show the form for creating a new web domain. No account -> nothing sensible to render;
+     * back to the index, which shows the same real "no hosting account" notice.
      */
-    public function create(Request $request): Response
+    public function create(Request $request): Response|RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('domains.index');
+        }
 
         Gate::authorize('create', [WebDomain::class, $account]);
 
@@ -67,6 +76,10 @@ class WebDomainController extends Controller
     public function store(StoreWebDomainRequest $request): RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('domains.index');
+        }
 
         try {
             app(CreateWebDomain::class)->handle($request->user(), $account, $request->validated());
@@ -142,14 +155,17 @@ class WebDomainController extends Controller
     }
 
     /**
-     * Resolve the acting account: the user's first account-scoped membership. There is no
-     * account switcher yet, so a user belonging to multiple accounts is limited to the first
-     * one, a known limitation, not a silent gap.
+     * Resolve the acting account: the user's first account-scoped membership, or null for a user
+     * with none (a brand-new admin-created user, or a pure platform admin with no account of
+     * their own) -- every caller renders a real "no hosting account" notice for that case rather
+     * than a 404 from a firstOrFail() this line used to have. There is no account switcher yet,
+     * so a user belonging to multiple accounts is limited to the first one, a known limitation,
+     * not a silent gap.
      */
-    private function resolveAccount(User $user): Account
+    private function resolveAccount(User $user): ?Account
     {
-        /** @var Account */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->firstOrFail()->account;
+        /** @var Account|null */
+        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

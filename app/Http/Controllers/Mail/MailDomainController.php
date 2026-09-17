@@ -31,6 +31,10 @@ class MailDomainController extends Controller
     {
         $account = $this->resolveAccount($request->user());
 
+        if ($account === null) {
+            return Inertia::render('mail/index', ['mailDomains' => null, 'search' => '']);
+        }
+
         Gate::authorize('viewAny', [MailDomain::class, $account]);
 
         $search = trim((string) $request->string('search'));
@@ -51,11 +55,16 @@ class MailDomainController extends Controller
     }
 
     /**
-     * Show the form for creating a new mail domain.
+     * Show the form for creating a new mail domain. No account -> nothing sensible to render;
+     * back to the index, which shows the same real "no hosting account" notice.
      */
-    public function create(Request $request): Response
+    public function create(Request $request): Response|RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('mail.index');
+        }
 
         Gate::authorize('create', [MailDomain::class, $account]);
 
@@ -68,6 +77,10 @@ class MailDomainController extends Controller
     public function store(StoreMailDomainRequest $request): RedirectResponse
     {
         $account = $this->resolveAccount($request->user());
+
+        if ($account === null) {
+            return to_route('mail.index');
+        }
 
         try {
             app(CreateMailDomain::class)->handle($request->user(), $account, $request->validated());
@@ -143,14 +156,16 @@ class MailDomainController extends Controller
     }
 
     /**
-     * Resolve the acting account: the user's first account-scoped membership. There is no
-     * account switcher yet, so a user belonging to multiple accounts is limited to the first
-     * one, a known limitation, not a silent gap (matches DnsZoneController's own precedent).
+     * Resolve the acting account: the user's first account-scoped membership, or null for a user
+     * with none -- every caller renders a real "no hosting account" notice for that case rather
+     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
+     * limited to the first one, a known limitation, not a silent gap (matches DnsZoneController's
+     * own precedent).
      */
-    private function resolveAccount(User $user): Account
+    private function resolveAccount(User $user): ?Account
     {
-        /** @var Account */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->firstOrFail()->account;
+        /** @var Account|null */
+        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

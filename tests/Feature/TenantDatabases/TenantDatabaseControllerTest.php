@@ -6,6 +6,7 @@ use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
 use App\Models\TenantDatabase;
+use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function actingAsOwnerWithTenantDatabaseCapableAccount(): array
@@ -34,6 +35,26 @@ test('the index page lists the account tenant databases', function () {
 
 test('a guest is redirected to login', function () {
     $this->get(route('tenant-databases.index'))->assertRedirect(route('login'));
+});
+
+test('a user with no account membership sees the index with no data instead of a 404', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('tenant-databases.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('tenant-databases/index')
+            ->where('tenantDatabases', null)
+        );
+});
+
+test('a user with no account membership is redirected away from the create page, not 404d', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('tenant-databases.create'))
+        ->assertRedirect(route('tenant-databases.index'));
 });
 
 test('storing a tenant database redirects to the edit page with a flash message', function () {

@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
 import type {
@@ -96,10 +97,22 @@ export default function Index({
     rollups: paginatedRollups,
     viewingAccount,
 }: {
-    snapshots: Paginated<UsageSnapshot>;
-    rollups: Paginated<UsageSnapshotRollup>;
+    snapshots: Paginated<UsageSnapshot> | null;
+    rollups: Paginated<UsageSnapshotRollup> | null;
     viewingAccount: ViewingAccount | null;
 }) {
+    if (paginatedSnapshots === null || paginatedRollups === null) {
+        return (
+            <>
+                <Head title="Usage" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
+
     return (
         <>
             <Head

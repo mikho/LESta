@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -73,7 +74,7 @@ export default function Index({
     webDomains,
     search: initialSearch,
 }: {
-    webDomains: PaginatedWebDomains;
+    webDomains: PaginatedWebDomains | null;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -96,6 +97,18 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (webDomains === null) {
+        return (
+            <>
+                <Head title="Domains" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

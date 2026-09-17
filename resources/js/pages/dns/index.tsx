@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -62,7 +63,7 @@ export default function Index({
     dnsZones,
     search: initialSearch,
 }: {
-    dnsZones: PaginatedDnsZones;
+    dnsZones: PaginatedDnsZones | null;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -85,6 +86,18 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (dnsZones === null) {
+        return (
+            <>
+                <Head title="DNS" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

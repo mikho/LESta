@@ -41,6 +41,19 @@ class UsageSnapshotController extends Controller
             ? Account::where('public_id', $accountPublicId)->firstOrFail()
             : $this->resolveAccount($request->user());
 
+        // No account param and no account-scoped membership at all: nothing to be gated from,
+        // just nothing to show yet -- mirrors the identical empty-state fix already applied to
+        // Domains/DNS/Mail/TenantDatabases/CronJobs's own resolveAccount() (see NoAccountNotice).
+        // The explicit ?account= admin path above still 404s on a bad public id, since that is a
+        // real "this account doesn't exist" error, not "you have no account".
+        if ($account === null) {
+            return Inertia::render('usage/index', [
+                'snapshots' => null,
+                'rollups' => null,
+                'viewingAccount' => null,
+            ]);
+        }
+
         Gate::authorize('viewAny', [UsageSnapshot::class, $account]);
 
         $snapshots = $account->usageSnapshots()
@@ -69,9 +82,9 @@ class UsageSnapshotController extends Controller
         ]);
     }
 
-    private function resolveAccount(User $user): Account
+    private function resolveAccount(User $user): ?Account
     {
-        return $user->memberships()->whereNotNull('account_id')->with('account')->firstOrFail()->account;
+        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

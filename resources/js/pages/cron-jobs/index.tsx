@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import CronJobController from '@/actions/App/Http/Controllers/CronJobs/CronJobController';
 import Heading from '@/components/heading';
+import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -104,7 +105,7 @@ export default function Index({
     cronJobs: paginatedCronJobs,
     search: initialSearch,
 }: {
-    cronJobs: PaginatedCronJobs;
+    cronJobs: PaginatedCronJobs | null;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -127,6 +128,18 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (paginatedCronJobs === null) {
+        return (
+            <>
+                <Head title="Cron jobs" />
+
+                <div className="p-4">
+                    <NoAccountNotice />
+                </div>
+            </>
+        );
+    }
 
     return (
         <>

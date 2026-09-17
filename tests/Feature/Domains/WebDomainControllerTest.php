@@ -6,6 +6,7 @@ use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
+use App\Models\User;
 use App\Models\WebDomain;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -36,6 +37,26 @@ test('the index page lists the account web domains', function () {
 
 test('a guest is redirected to login', function () {
     $this->get(route('domains.index'))->assertRedirect(route('login'));
+});
+
+test('a user with no account membership sees the index with no data instead of a 404', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('domains.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('domains/index')
+            ->where('webDomains', null)
+        );
+});
+
+test('a user with no account membership is redirected away from the create page, not 404d', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('domains.create'))
+        ->assertRedirect(route('domains.index'));
 });
 
 test('storing a web domain redirects to the index with a flash message', function () {

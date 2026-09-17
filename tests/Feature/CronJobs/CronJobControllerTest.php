@@ -6,6 +6,7 @@ use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
+use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
 function actingAsOwnerWithCronCapableAccount(): array
@@ -34,6 +35,26 @@ test('the index page lists the account cron jobs', function () {
 
 test('a guest is redirected to login', function () {
     $this->get(route('cron-jobs.index'))->assertRedirect(route('login'));
+});
+
+test('a user with no account membership sees the index with no data instead of a 404', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('cron-jobs.index'))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('cron-jobs/index')
+            ->where('cronJobs', null)
+        );
+});
+
+test('a user with no account membership is redirected away from the create page, not 404d', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('cron-jobs.create'))
+        ->assertRedirect(route('cron-jobs.index'));
 });
 
 test('storing a cron job redirects to the index with a flash message', function () {
