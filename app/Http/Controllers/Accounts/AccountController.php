@@ -159,6 +159,11 @@ class AccountController extends Controller
             // user and the account, never on which specific membership row is being removed, so
             // one account-scoped flag correctly represents every row's own real ability.
             'canRemoveMembers' => $user->hasAccountRole($account, 'owner') || $user->hasPermission('memberships.delete'),
+            // MembershipPolicy::impersonate is never owner-accessible (only the
+            // memberships.impersonate permission grants it) and every row here already has a
+            // non-null account_id, so this is safely one account-wide flag rather than something
+            // computed per row.
+            'canImpersonate' => $user->hasPermission('memberships.impersonate'),
         ]);
     }
 
@@ -343,6 +348,7 @@ class AccountController extends Controller
         return [
             'id' => $membership->id,
             'role_name' => $membership->role->name,
+            'user_id' => $membership->user_id,
             'user_name' => $membership->user?->name,
             'user_email' => $membership->user?->email,
         ];

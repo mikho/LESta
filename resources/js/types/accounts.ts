@@ -3,6 +3,7 @@ import type { SuspensionSource } from './domains';
 export type AccountMembership = {
     id: number;
     role_name: string;
+    user_id: number;
     user_name: string | null;
     user_email: string | null;
 };

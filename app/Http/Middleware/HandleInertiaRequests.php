@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -49,8 +50,29 @@ class HandleInertiaRequests extends Middleware
                 // (owner or member) sees a "My account" nav entry pointing at their own account(s),
                 // independent of any admin/node-admin capacity they may also hold.
                 'has_any_account_membership' => $request->user()?->memberships()->whereNotNull('account_id')->exists() ?? false,
+                // Set by App\Actions\Support\StartImpersonation (a real session swap, not the
+                // separate read-only support view) for the persistent "you are impersonating X"
+                // banner every page needs while it's active, and the admin's own name to return
+                // to via App\Actions\Support\StopImpersonation.
+                'impersonating' => $this->impersonating($request),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
+    }
+
+    /**
+     * @return array{admin_name: string}|null
+     */
+    private function impersonating(Request $request): ?array
+    {
+        $adminId = $request->session()->get('impersonator_id');
+
+        if ($adminId === null) {
+            return null;
+        }
+
+        $admin = User::query()->find((int) $adminId);
+
+        return $admin === null ? null : ['admin_name' => $admin->name];
     }
 }

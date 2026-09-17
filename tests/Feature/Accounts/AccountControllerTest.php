@@ -40,6 +40,7 @@ test('a non-owner member is denied on management routes, but can view their own 
             ->where('canSuspendAccount', false)
             ->where('canUnsuspendAccount', false)
             ->where('canDeleteAccount', false)
+            ->where('canImpersonate', false)
         );
 
     expect(AuditEvent::where('action', 'account.viewed_as_support')->where('auditable_id', $account->id)->exists())->toBeFalse();
@@ -58,6 +59,7 @@ test('an account owner sees management controls on their own account page', func
             ->where('canSuspendAccount', true)
             ->where('canUnsuspendAccount', true)
             ->where('canDeleteAccount', true)
+            ->where('canImpersonate', false)
         );
 });
 
@@ -109,6 +111,7 @@ test('a provider admin can view an account and it is recorded as a support view'
             ->component('accounts/show')
             ->where('account.name', 'acme-inc')
             ->has('account.memberships', 1)
+            ->where('canImpersonate', true)
         );
 
     expect(AuditEvent::where('action', 'account.viewed_as_support')

@@ -1,7 +1,8 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Head, Link, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import MembershipController from '@/actions/App/Http/Controllers/Memberships/MembershipController';
+import ImpersonationController from '@/actions/App/Http/Controllers/Support/ImpersonationController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -23,9 +24,85 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
-import type { Account, AccountPackage } from '@/types';
+import type { Account, AccountMembership, AccountPackage } from '@/types';
+
+/**
+ * A real session swap (App\Actions\Support\StartImpersonation), not the read-only support view
+ * that opening this page under ViewAccountAsSupport already produces -- so it always asks for a
+ * reason, mirroring the delete-account dialog's own confirm-with-context pattern.
+ */
+function ImpersonateMemberDialog({
+    membership,
+}: {
+    membership: AccountMembership;
+}) {
+    const { auth } = usePage().props;
+
+    if (membership.user_id === auth.user.id) {
+        return null;
+    }
+
+    return (
+        <Dialog>
+            <DialogTrigger asChild>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-test="impersonate-member-button"
+                >
+                    Impersonate
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogTitle>
+                    Impersonate {membership.user_name ?? membership.user_email}?
+                </DialogTitle>
+                <DialogDescription>
+                    You will be signed in as this user until you return to your
+                    own account. This is recorded in the audit log.
+                </DialogDescription>
+
+                <Form
+                    {...ImpersonationController.store.form(membership)}
+                    options={{ preserveScroll: true }}
+                >
+                    {({ processing, errors }) => (
+                        <>
+                            <div className="grid gap-2">
+                                <Label htmlFor="reason">Reason</Label>
+                                <Textarea
+                                    id="reason"
+                                    name="reason"
+                                    required
+                                    maxLength={500}
+                                />
+                                <InputError message={errors.reason} />
+                            </div>
+
+                            <DialogFooter className="gap-2">
+                                <DialogClose asChild>
+                                    <Button variant="secondary">Cancel</Button>
+                                </DialogClose>
+
+                                <Button
+                                    type="submit"
+                                    disabled={processing}
+                                    data-test="confirm-impersonate-button"
+                                >
+                                    Impersonate
+                                </Button>
+                            </DialogFooter>
+                        </>
+                    )}
+                </Form>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 type ResellerCandidate = { public_id: string; name: string };
 
@@ -111,6 +188,7 @@ export default function Show({
     canDeleteAccount,
     canInviteMembers,
     canRemoveMembers,
+    canImpersonate,
 }: {
     account: Account;
     packages: AccountPackage[];
@@ -121,6 +199,7 @@ export default function Show({
     canDeleteAccount: boolean;
     canInviteMembers: boolean;
     canRemoveMembers: boolean;
+    canImpersonate: boolean;
 }) {
     return (
         <>
@@ -295,7 +374,7 @@ export default function Show({
                                     <th className="px-4 py-2 font-medium">
                                         Role
                                     </th>
-                                    {canRemoveMembers && (
+                                    {(canRemoveMembers || canImpersonate) && (
                                         <th className="px-4 py-2 font-medium">
                                             Actions
                                         </th>
@@ -307,7 +386,12 @@ export default function Show({
                                     account.memberships.length === 0) && (
                                     <tr>
                                         <td
-                                            colSpan={canRemoveMembers ? 4 : 3}
+                                            colSpan={
+                                                canRemoveMembers ||
+                                                canImpersonate
+                                                    ? 4
+                                                    : 3
+                                            }
                                             className="px-4 py-6 text-center text-muted-foreground"
                                         >
                                             No members yet.
@@ -329,30 +413,48 @@ export default function Show({
                                         <td className="px-4 py-2 text-muted-foreground">
                                             {membership.role_name}
                                         </td>
-                                        {canRemoveMembers && (
+                                        {(canRemoveMembers ||
+                                            canImpersonate) && (
                                             <td className="px-4 py-2">
-                                                <Form
-                                                    {...MembershipController.destroy.form(
-                                                        [account, membership],
-                                                    )}
-                                                    options={{
-                                                        preserveScroll: true,
-                                                    }}
-                                                >
-                                                    {({ processing }) => (
-                                                        <Button
-                                                            type="submit"
-                                                            variant="outline"
-                                                            size="sm"
-                                                            disabled={
-                                                                processing
+                                                <div className="flex items-center gap-2">
+                                                    {canImpersonate && (
+                                                        <ImpersonateMemberDialog
+                                                            membership={
+                                                                membership
                                                             }
-                                                            data-test="remove-member-button"
-                                                        >
-                                                            Remove
-                                                        </Button>
+                                                        />
                                                     )}
-                                                </Form>
+
+                                                    {canRemoveMembers && (
+                                                        <Form
+                                                            {...MembershipController.destroy.form(
+                                                                [
+                                                                    account,
+                                                                    membership,
+                                                                ],
+                                                            )}
+                                                            options={{
+                                                                preserveScroll: true,
+                                                            }}
+                                                        >
+                                                            {({
+                                                                processing,
+                                                            }) => (
+                                                                <Button
+                                                                    type="submit"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    disabled={
+                                                                        processing
+                                                                    }
+                                                                    data-test="remove-member-button"
+                                                                >
+                                                                    Remove
+                                                                </Button>
+                                                            )}
+                                                        </Form>
+                                                    )}
+                                                </div>
                                             </td>
                                         )}
                                     </tr>
