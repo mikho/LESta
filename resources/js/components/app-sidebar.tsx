@@ -6,7 +6,6 @@ import {
     Building2,
     Clock,
     Database,
-    FolderGit2,
     Globe,
     LayoutGrid,
     Mail as MailIcon,
@@ -17,7 +16,6 @@ import {
     UserRound,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
-import { NavFooter } from '@/components/nav-footer';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import {
@@ -34,6 +32,7 @@ import accounts from '@/routes/accounts';
 import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
+import docs from '@/routes/docs';
 import domains from '@/routes/domains';
 import mail from '@/routes/mail';
 import nodes from '@/routes/nodes';
@@ -79,6 +78,11 @@ const mainNavItems: NavItem[] = [
         href: usage.index(),
         icon: BarChart3,
     },
+    {
+        title: 'Documentation',
+        href: docs.index(),
+        icon: BookOpen,
+    },
 ];
 
 const accountsNavItem: NavItem = {
@@ -116,19 +120,6 @@ const myAccountNavItem: NavItem = {
     href: accounts.mine(),
     icon: UserRound,
 };
-
-const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/react-starter-kit',
-        icon: FolderGit2,
-    },
-    {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits#react',
-        icon: BookOpen,
-    },
-];
 
 export function AppSidebar() {
     const { auth } = usePage().props;
@@ -175,7 +166,6 @@ export function AppSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
-                <NavFooter items={footerNavItems} className="mt-auto" />
                 <NavUser />
             </SidebarFooter>
         </Sidebar>
