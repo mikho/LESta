@@ -13,6 +13,7 @@ import {
     Network,
     PackageIcon,
     Server,
+    ShieldCheck,
     UserRound,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
@@ -37,6 +38,7 @@ import domains from '@/routes/domains';
 import mail from '@/routes/mail';
 import nodes from '@/routes/nodes';
 import packages from '@/routes/packages';
+import roles from '@/routes/roles';
 import tenantDatabases from '@/routes/tenant-databases';
 import usage from '@/routes/usage';
 import type { NavItem } from '@/types';
@@ -103,6 +105,12 @@ const packagesNavItem: NavItem = {
     icon: PackageIcon,
 };
 
+const rolesNavItem: NavItem = {
+    title: 'Roles',
+    href: roles.index(),
+    icon: ShieldCheck,
+};
+
 const myAccountNavItem: NavItem = {
     title: 'My account',
     href: accounts.mine(),
@@ -134,6 +142,7 @@ export function AppSidebar() {
             nodesNavItem,
             backupsNavItem,
             packagesNavItem,
+            rolesNavItem,
         ];
     } else if (auth.has_node_admin_grants) {
         // A delegated node admin sees Nodes only, scoped server-side to just their own

@@ -20,3 +20,4 @@ require __DIR__.'/packages.php';
 require __DIR__.'/backups.php';
 require __DIR__.'/usage.php';
 require __DIR__.'/accounts.php';
+require __DIR__.'/roles.php';

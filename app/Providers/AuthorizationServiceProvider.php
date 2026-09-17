@@ -7,6 +7,7 @@ use App\Models\Backup;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -32,6 +33,7 @@ class AuthorizationServiceProvider extends ServiceProvider
         Node::class,
         NodeCapability::class,
         Backup::class,
+        Role::class,
     ];
 
     /**

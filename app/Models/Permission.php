@@ -27,7 +27,7 @@ class Permission extends Model implements ProviderAdminManaged
      * The full permission catalog: one entry per real, admin-gateable ability
      * on the resources that have moved off a blanket role-name check (see
      * AuthorizationServiceProvider's own PERMISSION_BACKED_MODELS and
-     * Account/Membership/Package/Node/BackupPolicy). The single source of
+     * Account/Membership/Package/Node/Backup/RolePolicy). The single source of
      * truth for both PermissionSeeder (the real catalog) and
      * MembershipFactory::providerAdmin() (so a factory-built provider admin
      * in tests keeps exactly today's blanket-everything behavior without
@@ -49,6 +49,14 @@ class Permission extends Model implements ProviderAdminManaged
      * per-account isolation exists is the actual safety property this
      * scoping protects.
      *
+     * roles.* governs managing custom PLATFORM-scope roles only (RolePolicy,
+     * App\Actions\Roles\*): the two fixed ACCOUNT-scope roles, owner and
+     * member, are structural (Membership::role_id, AccountPolicy's own
+     * hasAccountRole() checks, RoleSeeder's own fixed rows) and are never
+     * editable, creatable, or deletable through this permission or the Roles
+     * admin UI at all -- only Role::scope === Platform rows ever appear
+     * there.
+     *
      * @var list<string>
      */
     public const array CATALOG = [
@@ -58,6 +66,7 @@ class Permission extends Model implements ProviderAdminManaged
         'nodes.view_any', 'nodes.view', 'nodes.create', 'nodes.update', 'nodes.delete', 'nodes.suspend', 'nodes.unsuspend',
         'backups.view_any', 'backups.view', 'backups.create', 'backups.delete', 'backups.download', 'backups.restore',
         'usage.view_any',
+        'roles.view_any', 'roles.view', 'roles.create', 'roles.update', 'roles.delete',
     ];
 
     /**
