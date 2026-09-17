@@ -13,7 +13,8 @@
 # already cycle-checks at CI time), and runs each selected leaf install.sh
 # in that order, forwarding --dry-run/--apply/--yes and that service's own
 # real flags. Replaces the manual, order-dependent repetition documented in
-# Documentation/Installation Guide.md's own Chapter 3.
+# the Installation Guide's own Chapter 3 (resources/docs/installation-guide.md,
+# served at /docs in the running application).
 #
 # Also carries --prune: given the same selection, reconciles the node down
 # to exactly that selection plus a fixed protected OS baseline, removing
@@ -36,8 +37,8 @@ SCRIPT_VERSION="1.0.0"
 # The seven services with a real, independently-runnable install.sh
 # (confirmed directly, not assumed: firewall/node-health bootstrap
 # automatically inside every one of these, and acme/statistics have no
-# standalone script at all -- see Documentation/Installation Guide.md's own
-# Chapter 3). Order here is canonical iteration order only, not install
+# standalone script at all -- see each service's own README.md, and the
+# Installation Guide's Chapter 3). Order here is canonical iteration order only, not install
 # order: real install order is resolved from each manifest's own
 # depends_on/provides below.
 SERVICES_ALL="nginx apache bind9 mariadb cron mail backups"
@@ -99,8 +100,8 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
   --services <a,b,c>            Required with --dry-run/--apply. Comma-
                                 separated, from: nginx,apache,bind9,mariadb,
                                 cron,mail,backups. (agent-daemon is a separate,
-                                always-manual enrollment step -- see
-                                Documentation/Installation Guide.md Chapter 2 --
+                                always-manual enrollment step -- see the
+                                Installation Guide's Chapter 2 --
                                 and is never selectable here.) A dependency
                                 already really installed on this node
                                 satisfies a selected service's own

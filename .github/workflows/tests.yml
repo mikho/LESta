@@ -223,7 +223,46 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 install.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+
+      - name: Root install.sh -- argument validation (help/version/dry-run/invalid invocation)
+        run: |
+          ./install.sh --help
+          ./install.sh --version
+          ./install.sh --dry-run --dest /tmp/lesta-dry-run-check
+
+          if ./install.sh 2>/dev/null; then
+            echo "expected install.sh with no arguments to fail invocation" >&2
+            exit 1
+          fi
+
+          if ./install.sh --apply --dest /tmp/lesta-no-yes-check 2>/dev/null; then
+            echo "expected install.sh --apply without --yes to fail invocation" >&2
+            exit 1
+          fi
+
+      - name: Root install.sh -- a real sparse-checkout only ever contains .install and agent/dist
+        run: |
+          # Points --repo at this exact checkout (the runner's own local git clone
+          # of the commit under test, from actions/checkout above), not the public
+          # GitHub URL: this proves the real clone + cone-mode sparse-checkout
+          # mechanism end to end, against the exact code under test, with no
+          # dependency on this commit already being pushed/merged.
+          ./install.sh --apply --yes --repo "${GITHUB_WORKSPACE}" --ref "${GITHUB_SHA}" --dest /tmp/lesta-sparse-checkout-check
+
+          test -f /tmp/lesta-sparse-checkout-check/.install/services/agent-daemon/install.sh
+          test -f /tmp/lesta-sparse-checkout-check/agent/dist/lesta-agent-linux-amd64
+
+          for unwanted in app resources database tests vendor node_modules agent/internal agent/cmd; do
+            if [ -e "/tmp/lesta-sparse-checkout-check/${unwanted}" ]; then
+              echo "expected ${unwanted} to be absent from a .install/agent-dist-only sparse-checkout, but it was present" >&2
+              exit 1
+            fi
+          done
+
+          # Re-running against the same --dest updates in place rather than failing
+          # on an already-existing directory.
+          ./install.sh --apply --yes --repo "${GITHUB_WORKSPACE}" --ref "${GITHUB_SHA}" --dest /tmp/lesta-sparse-checkout-check
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |

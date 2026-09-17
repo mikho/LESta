@@ -6,16 +6,40 @@ This is a working manual for setting up a real infrastructure node — the actua
 
 ## Chapter 1: Prerequisites
 
-- **Operating system**: Ubuntu 24.04 or 26.04 (`.install/base/manifest.json`'s own `supported_ubuntu`). MariaDB is the one exception — see Chapter 6's own note; its upstream package repository doesn't yet support 26.04.
+- **Operating system**: Ubuntu 24.04 or 26.04 (`.install/base/manifest.json`'s own `supported_ubuntu`). MariaDB is the one exception — see Chapter 7's own note; its upstream package repository doesn't yet support 26.04.
 - **A dedicated machine or VM per node.** LESta's own model is one agent per physical/virtual server; nothing here is written to share a node's identity across two separate LESta deployments.
 - **Root or sudo access** on that server, since installers create system users, packages, and firewall rules.
-- **Outbound network access** to Ubuntu's package archives (or a pre-built offline bundle — see Chapter 3).
-- **The LESta control-plane app already running somewhere reachable over HTTPS.** The node's agent authenticates back to it with a bearer token, not mutual TLS (Chapter 2) — the control-plane URL you give the node **must** actually terminate real HTTPS, or the enrollment token and the long-lived credential it exchanges for both travel in plaintext.
-- **Gap, genuinely unclear:** nothing in the repository crisply says how an operator is meant to get the `.install/` directory and a matching agent binary onto a fresh server in the first place. The README speaks of "a signed LESta release bundle" as an established artifact, but the only real build tooling found (`.install/scripts/build-release.sh`) produces a *per-service offline package bundle* (vendored `.deb` files for one service, e.g. nginx or MariaDB), not a combined "get LESta itself onto a node" package. In practice today: clone the repository (or `git archive` it, which is confirmed to preserve `.install/` intact) onto the node, and run the scripts from there.
+- **Outbound network access** to Ubuntu's package archives (or a pre-built offline bundle — see Chapter 4).
+- **The LESta control-plane app already running somewhere reachable over HTTPS.** The node's agent authenticates back to it with a bearer token, not mutual TLS (Chapter 3) — the control-plane URL you give the node **must** actually terminate real HTTPS, or the enrollment token and the long-lived credential it exchanges for both travel in plaintext.
+- **Getting `.install` onto the server:** there is no separate "LESta release bundle" artifact — see "Fetching `.install` onto the node" right below.
 
 ---
 
-## Chapter 2: Enroll the node
+## Chapter 2: Fetching `.install` onto the node, without cloning the whole application
+
+Full application source has no business sitting on a hosting node: the Laravel app, the full Go agent source tree, tests, and every design doc are irrelevant to a server that only ever runs `.install/`'s own scripts and the one prebuilt agent binary. `install.sh`, at the repository's own root, fetches exactly that subset via a real git partial clone plus cone-mode sparse-checkout — `.install/` and `agent/dist/lesta-agent-linux-amd64`, nothing else of substance (cone mode also leaves a handful of harmless top-level repository files present; never `app/`, `resources/`, `database/`, `tests/`, `vendor/`, `node_modules/`, or the Go agent's own source).
+
+This is a two-step, explicit fetch-then-run, never a piped `curl | sh` — `.install/INSTALLER-CONTRACT.md`'s own "no dynamic remote script execution, or unpinned network fetch" rule applies in spirit even though this particular script does no system mutation at all (no package installs, no system users, no firewall changes — it only runs `git`):
+
+```
+curl -fsSL -o install.sh https://raw.githubusercontent.com/mikho/LESta/main/install.sh
+less install.sh   # read it before running it -- it's short, and only ever runs git
+chmod +x install.sh
+sudo ./install.sh --dry-run --dest /opt/lesta
+sudo ./install.sh --apply --yes --dest /opt/lesta
+```
+
+- `--dry-run` reports what would be fetched with zero network access and zero mutation — run this first, exactly like every real leaf installer.
+- `--apply` requires `--yes`, same convention as every other script here.
+- `--repo <url>` and `--ref <branch|tag|commit>` override the default repository/ref, for a fork or a pinned release.
+- Re-running against the same `--dest` **updates it in place** (fetch + checkout) rather than re-cloning — the same "re-running is how you pick up an update" convention every real installer in this family follows.
+- Requires git 2.25+ (partial clone and cone-mode sparse-checkout both shipped together in that release) — Ubuntu 24.04/26.04 ship well past this. `install.sh` checks and fails closed with a clear message if it isn't.
+
+Once this finishes, continue with Chapter 3 below from inside `/opt/lesta` (or whichever `--dest` you chose).
+
+---
+
+## Chapter 3: Enroll the node
 
 Do this in the LESta admin app first, before touching the server:
 
@@ -38,7 +62,7 @@ This step alone doesn't give the node any real capability yet — it just makes 
 
 ---
 
-## Chapter 3: The real installers, and the order they actually need to run in
+## Chapter 4: The real installers, and the order they actually need to run in
 
 | Service | Installs | Depends on |
 |---|---|---|
@@ -49,7 +73,7 @@ This step alone doesn't give the node any real capability yet — it just makes 
 | `bind9` | BIND9 DNS server | firewall, node-health |
 | `mariadb` | **both** the tenant database instance (port 3307) and this app's own control-plane database instance (port 3306) | node-health, firewall |
 | `cron` | account-scoped scheduled jobs | node-health |
-| `acme` | TLS certificates | nginx and/or apache — **no standalone install script**; this is a Laravel-side job (`IssueAcmeCertificate`), not something you run on the node at all. It works automatically once a web server is present. |
+| `acme` | TLS certificates | nginx and/or apache — **no standalone install script**; this is a Laravel-side queued job (`App\Jobs\IssueAcmeCertificate`), not something you run on the node at all. It works automatically once a web server is present. |
 | `mail` | Exim + Dovecot mailboxes | **bind9, nginx, and acme, all already healthy** |
 | `backups` | encrypted whole-node snapshots | node-health only (deliberately minimal — it backs up whatever else happens to be present) |
 | `statistics` | usage/metrics collection | nginx and/or apache, mail, node-health, the tenant database — **no standalone install script either**; real support (access-log directives, a stats database account) is built into nginx/apache's and mariadb's own installers. Only the last step, declaring `metrics.usage.v1` in the admin UI (Admin Guide, Chapter 5), is separate. |
@@ -73,11 +97,11 @@ install.sh --dry-run|--apply|--version [--yes] [--help]
 
 **The web profile choice (nginx/apache/both) is permanent once applied.** There is no supported migration path from one to another after bootstrap — re-running the installer with a different profile is explicitly an unsupported operation, not a safe change.
 
-**You don't have to run these one at a time.** Chapter 4 covers `install-selected.sh`, which runs several of them together, in the correct order, from one invocation.
+**You don't have to run these one at a time.** Chapter 5 covers `install-selected.sh`, which runs several of them together, in the correct order, from one invocation.
 
 ---
 
-## Chapter 4: The combined installer (`install-selected.sh`)
+## Chapter 5: The combined installer (`install-selected.sh`)
 
 `.install/scripts/install-selected.sh` replaces the manual, order-dependent repetition above with one invocation:
 
@@ -85,14 +109,14 @@ install.sh --dry-run|--apply|--version [--yes] [--help]
 install-selected.sh --dry-run|--apply|--version --services <a,b,c> [options]
 ```
 
-- `--services` is a comma-separated list drawn from the seven operator-run installers in Chapter 3's table: `nginx,apache,bind9,mariadb,cron,mail,backups`. `agent-daemon` (Chapter 2) is deliberately never selectable here — it takes per-node enrollment secrets, not a service choice, and stays its own separate, always-manual step.
-- It resolves the real install order itself, from each selected service's own `manifest.json` (`depends_on`/`provides`). You don't have to know the ordering rule from Chapter 3 by heart; naming the services you want is enough.
-- Every per-service flag from Chapter 3 still applies, just forwarded through: `--web-server`, `--web-profile`, `--mail-hostname`. `--offline-bundle` is scoped per service here, since one bundle is only ever built for one service: `--offline-bundle nginx=/path/to/bundle` (repeatable, one per service that needs it).
+- `--services` is a comma-separated list drawn from the seven operator-run installers in Chapter 4's table: `nginx,apache,bind9,mariadb,cron,mail,backups`. `agent-daemon` (Chapter 3) is deliberately never selectable here — it takes per-node enrollment secrets, not a service choice, and stays its own separate, always-manual step.
+- It resolves the real install order itself, from each selected service's own `manifest.json` (`depends_on`/`provides`). You don't have to know the ordering rule from Chapter 4 by heart; naming the services you want is enough.
+- Every per-service flag from Chapter 4 still applies, just forwarded through: `--web-server`, `--web-profile`, `--mail-hostname`. `--offline-bundle` is scoped per service here, since one bundle is only ever built for one service: `--offline-bundle nginx=/path/to/bundle` (repeatable, one per service that needs it).
 - `--dry-run` genuinely runs each selected service's own real preflight — always run it first, exactly as for a single installer.
 - **Fails closed before any mutation** if a selected service's own dependency isn't satisfiable by another selected service — for example, `--services mail` alone, without `bind9`/`nginx` also selected, exits `12` and names exactly what's missing. It never silently pulls in a service you didn't ask for.
 - **An already-installed prerequisite satisfies a dependency without being re-listed.** If nginx and bind9 are already installed from an earlier run and you now want to add mail, `--services mail` alone is enough — the orchestrator checks the node's own real state (the same check `--prune` uses) before failing closed, so it only asks you to add a prerequisite to `--services` when that prerequisite genuinely isn't there yet.
 - If one service in the run fails, every already-succeeded service in the same run stays applied — there's no automatic rollback across services. Fix the reported blocker and re-run with the same `--services`.
-- `install-selected.sh` never runs `--prepare-config` on your behalf (Chapter 6's own manual prerequisite still applies per service).
+- `install-selected.sh` never runs `--prepare-config` on your behalf (Chapter 7's own manual prerequisite still applies per service).
 
 Example — install nginx and cron together on a fresh node:
 
@@ -105,7 +129,7 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 
 ---
 
-## Chapter 5: Removing services (`--prune`)
+## Chapter 6: Removing services (`--prune`)
 
 > **This is a destructive operation. Read this whole chapter before using it.**
 
@@ -132,7 +156,7 @@ sudo .install/scripts/install-selected.sh --prune --apply --yes --services nginx
 
 ---
 
-## Chapter 6: One real, per-service manual step you cannot skip
+## Chapter 7: One real, per-service manual step you cannot skip
 
 nginx, bind9, and apache each refuse to write to their own distribution's main config file (`/etc/nginx/nginx.conf`, `/etc/bind/named.conf`, `/etc/apache2/apache2.conf`) — this is deliberate, not a bug: a silent edit to an operator-owned file is exactly what the installer contract forbids. Before running any of these three with `--apply` (directly or via `install-selected.sh`), you must add one line to that file, either by hand or via `--prepare-config --yes` (a separate, explicit, idempotent mode that does only this one edit and nothing else):
 
@@ -148,7 +172,7 @@ Missing this line fails preflight with exit code `12` and a message naming the e
 
 ---
 
-## Chapter 7: After the installer succeeds
+## Chapter 8: After the installer succeeds
 
 Running `install.sh --apply` on the node (directly, or via `install-selected.sh`) does **not** by itself make LESta aware the capability exists — declare it in the admin app (`Nodes → [your node] → Capabilities`, Admin Guide Chapter 5), matching exactly what you just installed:
 
@@ -167,7 +191,7 @@ A capability's status only shows **Running** once the agent has actually reporte
 
 ---
 
-## Chapter 8: Verifying and re-running
+## Chapter 9: Verifying and re-running
 
 - Every installer writes structured JSON output and a log at `/var/log/lesta/install/<run-id>.jsonl`. Secrets (tokens, credentials, private keys) are redacted before either ever gets written.
 - All are safe to re-run: a rerun performs preflight again, repairs only LESta-owned state, and never touches or overwrites a file it doesn't own. Re-running is how you pick up an update, not a separate "upgrade" command.
@@ -175,8 +199,8 @@ A capability's status only shows **Running** once the agent has actually reporte
 
 ---
 
-## Chapter 9: Known gaps
+## Chapter 10: Fixed since this guide was first written
 
-1. **`mail/README.md` and `backups/README.md` are out of date** in their own prose: mail's own README still frames it as an ungated future capability pending a threat-model review that has, in fact, already happened and already shipped (the real Exim/Dovecot capability, DKIM, spam/virus scanning); backups' own README says runtime storage "uses object storage," but the real, shipped implementation is local-disk-only, a deliberate, disclosed scoping decision. Neither file documents its own installer's real flags or manual prerequisites at all — someone reading only `mail/README.md` would not learn that `--mail-hostname` exists or is required.
-2. **No documented way to get the installer files onto a fresh server in the first place** — see Chapter 1. "Clone the repo" works today but isn't written down as the intended mechanism anywhere.
-3. **`statistics`, `node-health`, `firewall`, and `acme` have manifests and dependency entries but no standalone `install.sh`** — this isn't wrong, but it isn't obvious either; someone following the services directory listing literally would go looking for four scripts that were never meant to exist independently.
+1. ~~`mail/README.md` and `backups/README.md` were out of date~~ — **fixed.** Mail's own README now describes it as the real, shipped capability it is (Exim/Dovecot, DKIM, real ClamAV/SpamAssassin scanning, quotas, password rotation), documents `--mail-hostname`/`--offline-bundle`/`--prepare-config`, and is honest about what its own health check does and doesn't prove. Backups' own README no longer claims object storage — the real, shipped implementation is local-disk-only at `/var/lib/lesta/backups`, a deliberate, disclosed scoping decision — and documents its own (much smaller) flag set.
+2. ~~No documented way to get the installer files onto a fresh server, and cloning the whole application was the only option~~ — **fixed.** See Chapter 2: `install.sh`, at the repository root, fetches only `.install/` and the one prebuilt agent binary via a real git partial clone plus sparse-checkout, never the full application source.
+3. ~~`statistics`, `node-health`, `firewall`, and `acme` had manifests but no standalone `install.sh`, with nothing saying so~~ — **fixed.** Each of the four now has its own "No standalone installer" section explaining exactly where its real bootstrap happens instead (embedded in another installer, a Laravel-side job, or nothing to install at all).
