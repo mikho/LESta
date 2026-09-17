@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Concerns\Suspendable;
 use App\Contracts\ProviderAdminManaged;
+use App\Enums\NodeCapabilityStatus;
 use App\Enums\SuspensionSource;
 use Database\Factories\NodeCapabilityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -16,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int $node_id
  * @property string $capability
+ * @property NodeCapabilityStatus $status
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property Carbon|null $last_seen_at
@@ -36,6 +38,7 @@ class NodeCapability extends Model implements ProviderAdminManaged
     protected function casts(): array
     {
         return [
+            'status' => NodeCapabilityStatus::class,
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,
             'last_seen_at' => 'datetime',

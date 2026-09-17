@@ -31,4 +31,17 @@ enum NodeCapabilityType: string
     case MailSmtpImap = 'mail.smtp-imap.v1';
     case BackupEncryptedArtifacts = 'backup.encrypted-artifacts.v1';
     case MetricsUsage = 'metrics.usage.v1';
+
+    /**
+     * Whether this capability has a real, singular, node-wide "installed or not" concept an
+     * agent heartbeat can confirm. Only MetricsUsage lacks one: it has no standalone install.sh
+     * and no independent state root, since its real support (access-log directives, a stats
+     * database account) is built directly into nginx/apache/mariadb's own installers -- for this
+     * one capability, declaring it here already IS the entire "install" step, so a NodeCapability
+     * status of "not installed" would be actively wrong rather than merely unconfirmed.
+     */
+    public function supportsStatusTracking(): bool
+    {
+        return $this !== self::MetricsUsage;
+    }
 }

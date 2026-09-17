@@ -2,9 +2,16 @@ import type { SuspensionSource } from './domains';
 
 export type NodeEnrollmentStatus = 'pending' | 'enrolled' | 'revoked';
 
+export type NodeCapabilityStatus = 'not_installed' | 'running' | 'stopped';
+export type NodeCapabilityDisplayStatus =
+    NodeCapabilityStatus | 'suspended' | 'unknown';
+
 export type NodeCapability = {
     id: number;
     capability: string;
+    status: NodeCapabilityStatus;
+    display_status: NodeCapabilityDisplayStatus;
+    supports_status_tracking: boolean;
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     last_seen_at: string | null;
@@ -41,6 +48,7 @@ export type Node = {
     protocol_version?: string | null;
     agent_version?: string | null;
     last_seen_at: string | null;
+    agent_reachable?: boolean;
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     backups_scheduled?: boolean;

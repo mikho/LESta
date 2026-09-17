@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Enums\NodeCapabilityStatus;
+use App\Enums\NodeCapabilityType;
 use App\Enums\ProvisioningStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Agent\StoreHeartbeatRequest;
 use App\Models\Node;
-use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -16,8 +17,17 @@ class AgentHeartbeatController extends Controller
 {
     /**
      * Record a node's heartbeat: last_seen_at, reported agent/protocol version, and per-
-     * capability liveness. Never creates NodeCapability rows, only updates rows that already
-     * exist, matching this phase's own explicit boundary.
+     * capability liveness/status. Never creates NodeCapability rows, only updates rows that
+     * already exist, matching this phase's own explicit boundary.
+     *
+     * Status transitions are heartbeat-driven only: a capability this heartbeat reports present
+     * becomes Running (any reported health_state counts -- the Go agent today only ever sends
+     * the literal "healthy" or omits the capability entirely, so there is no other value to map
+     * yet); a capability known to this node but absent from this heartbeat's own array only
+     * changes if it was previously Running, in which case it becomes Stopped (absence is not new
+     * information for a capability that was already NotInstalled or Stopped). Suspension
+     * (suspended_at/suspension_source) is never touched here -- only the underlying status value
+     * changes, independently of whatever an admin has separately suspended.
      */
     public function store(StoreHeartbeatRequest $request): JsonResponse
     {
@@ -45,11 +55,27 @@ class AgentHeartbeatController extends Controller
                 'agent_version' => $validated['agent_version'],
             ])->save();
 
-            foreach ($validated['capabilities'] ?? [] as $entry) {
-                NodeCapability::query()
-                    ->where('node_id', $node->id)
-                    ->where('capability', $entry['capability'])
-                    ->update(['last_seen_at' => now()]);
+            $reportedCapabilities = array_flip(array_column($validated['capabilities'] ?? [], 'capability'));
+
+            foreach ($node->capabilities as $capability) {
+                $type = NodeCapabilityType::tryFrom($capability->capability);
+
+                if ($type === null || ! $type->supportsStatusTracking()) {
+                    continue;
+                }
+
+                if (array_key_exists($capability->capability, $reportedCapabilities)) {
+                    $capability->forceFill([
+                        'last_seen_at' => now(),
+                        'status' => NodeCapabilityStatus::Running,
+                    ])->save();
+
+                    continue;
+                }
+
+                if ($capability->status === NodeCapabilityStatus::Running) {
+                    $capability->forceFill(['status' => NodeCapabilityStatus::Stopped])->save();
+                }
             }
         });
 

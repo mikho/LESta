@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\NodeCapabilityStatus;
+use App\Enums\SuspensionSource;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
@@ -89,6 +91,90 @@ test('heartbeat never creates a NodeCapability row for an unknown capability', f
         ->assertOk();
 
     expect(NodeCapability::query()->where('node_id', $node->id)->count())->toBe(0);
+});
+
+test('a heartbeat reporting a not-installed capability promotes it to running', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+
+    expect($capability->status)->toBe(NodeCapabilityStatus::NotInstalled);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload([
+            'capabilities' => [['capability' => 'web.nginx.v1', 'health_state' => 'healthy']],
+        ]))
+        ->assertOk();
+
+    expect($capability->refresh()->status)->toBe(NodeCapabilityStatus::Running);
+});
+
+test('a running capability absent from a heartbeat becomes stopped', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->running()->create(['capability' => 'web.nginx.v1']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['capabilities' => []]))
+        ->assertOk();
+
+    expect($capability->refresh()->status)->toBe(NodeCapabilityStatus::Stopped);
+});
+
+test('a not-installed capability absent from a heartbeat stays not installed', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['capabilities' => []]))
+        ->assertOk();
+
+    expect($capability->refresh()->status)->toBe(NodeCapabilityStatus::NotInstalled);
+});
+
+test('a stopped capability absent from a heartbeat stays stopped, not re-flagged every cycle', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->stopped()->create(['capability' => 'web.nginx.v1']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['capabilities' => []]))
+        ->assertOk();
+
+    expect($capability->refresh()->status)->toBe(NodeCapabilityStatus::Stopped);
+});
+
+test('a heartbeat updates the underlying status of a suspended capability without touching its suspension', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->suspended()->create(['capability' => 'web.nginx.v1']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload([
+            'capabilities' => [['capability' => 'web.nginx.v1', 'health_state' => 'healthy']],
+        ]))
+        ->assertOk();
+
+    $capability->refresh();
+
+    expect($capability->status)->toBe(NodeCapabilityStatus::Running)
+        ->and($capability->isSuspended())->toBeTrue()
+        ->and($capability->suspension_source)->toBe(SuspensionSource::Manual);
+});
+
+test('metrics.usage.v1 is never mutated by a heartbeat even if reported', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $capability = NodeCapability::factory()->for($node)->create(['capability' => 'metrics.usage.v1']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload([
+            'capabilities' => [['capability' => 'metrics.usage.v1', 'health_state' => 'healthy']],
+        ]))
+        ->assertOk();
+
+    expect($capability->refresh()->status)->toBe(NodeCapabilityStatus::NotInstalled);
 });
 
 test('a heartbeat returns dispatched operations targeting the authenticated node', function () {

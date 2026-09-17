@@ -56,4 +56,9 @@ class NodeCapabilityPolicy
     {
         return $user->hasPermission('nodes.update') || $user->hasNodeAdminGrant($nodeCapability->node);
     }
+
+    public function updateStatus(User $user, NodeCapability $nodeCapability): bool
+    {
+        return $user->hasPermission('nodes.update') || $user->hasNodeAdminGrant($nodeCapability->node);
+    }
 }

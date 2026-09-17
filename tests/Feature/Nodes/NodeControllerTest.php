@@ -239,6 +239,51 @@ test('a provider admin can suspend and unsuspend a node capability', function ()
     expect($capability->refresh()->isSuspended())->toBeFalse();
 });
 
+test('a reachable node reports its real capability statuses, not unknown', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create(['last_seen_at' => now()]);
+    $running = NodeCapability::factory()->for($node)->running()->create(['capability' => 'web.nginx.v1']);
+    $notInstalled = NodeCapability::factory()->for($node)->create(['capability' => 'dns.bind9.v1']);
+    $suspended = NodeCapability::factory()->for($node)->running()->suspended()->create(['capability' => 'web.apache.v1']);
+    $metrics = NodeCapability::factory()->for($node)->create(['capability' => 'metrics.usage.v1']);
+
+    $props = $this->actingAs($admin)->get(route('nodes.edit', $node))->viewData('page')['props'];
+    $capabilities = collect($props['node']['capabilities'])->keyBy('id');
+
+    expect($props['node']['agent_reachable'])->toBeTrue()
+        ->and($capabilities[$running->id]['status'])->toBe('running')
+        ->and($capabilities[$running->id]['display_status'])->toBe('running')
+        ->and($capabilities[$notInstalled->id]['display_status'])->toBe('not_installed')
+        ->and($capabilities[$suspended->id]['display_status'])->toBe('suspended')
+        ->and($capabilities[$metrics->id]['supports_status_tracking'])->toBeFalse();
+});
+
+test('an unreachable node collapses every non-suspended capability status to unknown', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create(['last_seen_at' => now()->subMinutes(10)]);
+    $running = NodeCapability::factory()->for($node)->running()->create(['capability' => 'web.nginx.v1']);
+    $suspended = NodeCapability::factory()->for($node)->running()->suspended()->create(['capability' => 'web.apache.v1']);
+
+    $props = $this->actingAs($admin)->get(route('nodes.edit', $node))->viewData('page')['props'];
+    $capabilities = collect($props['node']['capabilities'])->keyBy('id');
+
+    expect($props['node']['agent_reachable'])->toBeFalse()
+        ->and($capabilities[$running->id]['display_status'])->toBe('unknown')
+        ->and($capabilities[$suspended->id]['display_status'])->toBe('suspended');
+});
+
+test('a node that has never checked in is not agent-reachable', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create(['last_seen_at' => null]);
+
+    $this->actingAs($admin)
+        ->get(route('nodes.edit', $node))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('nodes/edit')
+            ->where('node.agent_reachable', false)
+        );
+});
+
 test('deleting a node with a dependent web domain fails validation and leaves the node intact', function () {
     $admin = actingAsProviderAdmin();
     $node = Node::factory()->create();

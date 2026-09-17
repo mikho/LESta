@@ -100,3 +100,37 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 }
+
+// TestDaemonProductionConfigCapabilityStateRootsIsComplete guards against
+// exactly the kind of accidental omission this test was added to fix: mail
+// and backups both have real, singular, node-wide install state roots
+// (confirmed against mailProductionConfig's own StateRoot and
+// backupProductionConfig's own ArtifactsRoot above) but were missing from
+// CapabilityStateRoots for a while, meaning Laravel's own NodeCapability
+// status could never be heartbeat-confirmed for either. metrics and
+// identity are deliberately absent (see this map's own doc comment) and
+// must stay that way.
+func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
+	want := map[string]string{
+		webNginxCapability:                 "/var/lib/lesta/nginx",
+		dnsBind9Capability:                 "/var/lib/lesta/bind",
+		webApacheCapability:                "/var/lib/lesta/apache",
+		tlsAcmeCapability:                  "/var/lib/lesta/acme",
+		databaseTenantCapability:           "/var/lib/lesta/mariadb/tenant-agent-state",
+		schedulerCronCapability:            "/var/lib/lesta/cron",
+		mailSmtpImapCapability:             "/var/lib/lesta/mail",
+		backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
+	}
+
+	got := daemonProductionConfig().CapabilityStateRoots
+
+	if len(got) != len(want) {
+		t.Fatalf("CapabilityStateRoots has %d entries, want %d: got %v", len(got), len(want), got)
+	}
+
+	for capability, path := range want {
+		if got[capability] != path {
+			t.Errorf("CapabilityStateRoots[%q] = %q, want %q", capability, got[capability], path)
+		}
+	}
+}

@@ -38,6 +38,27 @@ class Node extends Model implements ProviderAdminManaged
     use HasFactory, Suspendable;
 
     /**
+     * 2x the 60-second heartbeat interval every node's daemon-config.json currently uses
+     * (AgentHeartbeatController::store always responds with a hardcoded next_heartbeat_seconds:
+     * 60 -- nothing today negotiates or persists a different interval per node). Missing exactly
+     * one heartbeat at that interval should not yet flip a healthy node to unreachable, but
+     * missing two clearly should. If next_heartbeat_seconds ever becomes genuinely dynamic per
+     * node, this constant must move to a per-node computed value instead of staying fixed.
+     */
+    public const AGENT_UNREACHABLE_AFTER_SECONDS = 120;
+
+    /**
+     * Whether this node's agent has heartbeat-confirmed itself recently enough to trust its own
+     * and its capabilities' last-known state. A node that has never checked in at all
+     * (last_seen_at null) is never considered reachable.
+     */
+    public function isAgentReachable(): bool
+    {
+        return $this->last_seen_at !== null
+            && now()->diffInSeconds($this->last_seen_at, true) <= self::AGENT_UNREACHABLE_AFTER_SECONDS;
+    }
+
+    /**
      * Route model binding resolves by uuid, not the internal auto-increment id, matching every
      * other admin-managed resource's own route key convention (DnsZone, CronJob, WebDomain,
      * TenantDatabase).

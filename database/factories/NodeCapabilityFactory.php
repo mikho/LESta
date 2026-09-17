@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\NodeCapabilityStatus;
 use App\Enums\SuspensionSource;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -22,9 +23,24 @@ class NodeCapabilityFactory extends Factory
         return [
             'node_id' => Node::factory(),
             'capability' => fake()->randomElement(['web.nginx.v1', 'web.apache.v1', 'dns.bind9.v1']),
+            'status' => NodeCapabilityStatus::NotInstalled,
             'suspended_at' => null,
             'suspension_source' => null,
         ];
+    }
+
+    public function running(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => NodeCapabilityStatus::Running,
+        ]);
+    }
+
+    public function stopped(): static
+    {
+        return $this->state(fn (): array => [
+            'status' => NodeCapabilityStatus::Stopped,
+        ]);
     }
 
     public function suspended(): static

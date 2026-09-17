@@ -12,6 +12,7 @@ use App\Actions\Nodes\SuspendNode;
 use App\Actions\Nodes\UnsuspendNode;
 use App\Actions\Nodes\UpdateNode;
 use App\Actions\Nodes\UpdateNodeScheduledBackups;
+use App\Enums\NodeCapabilityType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Nodes\GrantNodeAdminRequest;
 use App\Http\Requests\Nodes\StoreNodeRequest;
@@ -272,11 +273,12 @@ class NodeController extends Controller
             'protocol_version' => $node->protocol_version,
             'agent_version' => $node->agent_version,
             'last_seen_at' => $node->last_seen_at?->toIso8601String(),
+            'agent_reachable' => $node->isAgentReachable(),
             'suspended_at' => $node->suspended_at?->toIso8601String(),
             'suspension_source' => $node->suspension_source?->value,
             'backups_scheduled' => $node->backups_scheduled,
             'capabilities' => $node->capabilities
-                ->map(fn (NodeCapability $capability): array => $this->presentCapability($capability))
+                ->map(fn (NodeCapability $capability): array => $this->presentCapability($node, $capability))
                 ->all(),
             'recent_operations' => $node->provisioningOperations
                 ->map(fn (ProvisioningOperation $operation): array => $this->presentOperation($operation))
@@ -322,18 +324,34 @@ class NodeController extends Controller
     }
 
     /**
-     * Shape a node capability for the frontend.
+     * Shape a node capability for the frontend. Takes the owning Node explicitly (rather than
+     * relying on $capability->node lazy-loading a possibly-different instance) since it's already
+     * in scope in presentForEdit() and is needed here to compute agent reachability.
      *
      * @return array<string, mixed>
      */
-    private function presentCapability(NodeCapability $capability): array
+    private function presentCapability(Node $node, NodeCapability $capability): array
     {
+        $type = NodeCapabilityType::tryFrom($capability->capability);
+        $reachable = $node->isAgentReachable();
+
         return [
             'id' => $capability->id,
             'capability' => $capability->capability,
+            'status' => $capability->status->value,
+            'supports_status_tracking' => $type?->supportsStatusTracking() ?? true,
             'suspended_at' => $capability->suspended_at?->toIso8601String(),
             'suspension_source' => $capability->suspension_source?->value,
             'last_seen_at' => $capability->last_seen_at?->toIso8601String(),
+            // Resolution order: an admin's own suspend action is authoritative and always wins,
+            // even if the node is currently unreachable; otherwise, an unreachable agent collapses
+            // the true underlying status to "unknown" rather than trusting a value we can no
+            // longer verify. Computed here, once, so the frontend never re-derives this rule.
+            'display_status' => match (true) {
+                $capability->isSuspended() => 'suspended',
+                ! $reachable => 'unknown',
+                default => $capability->status->value,
+            },
         ];
     }
 

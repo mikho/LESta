@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Nodes;
 use App\Actions\Nodes\AddNodeCapability;
 use App\Actions\Nodes\SuspendNodeCapability;
 use App\Actions\Nodes\UnsuspendNodeCapability;
+use App\Actions\Nodes\UpdateNodeCapabilityStatus;
+use App\Enums\NodeCapabilityStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Nodes\StoreNodeCapabilityRequest;
+use App\Http\Requests\Nodes\UpdateNodeCapabilityStatusRequest;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use Illuminate\Http\RedirectResponse;
@@ -47,6 +50,23 @@ class NodeCapabilityController extends Controller
         app(UnsuspendNodeCapability::class)->handle($request->user(), $nodeCapability);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Capability unsuspended.')]);
+
+        return to_route('nodes.edit', $node);
+    }
+
+    /**
+     * Manually change the given node capability's underlying not_installed/stopped status.
+     * Running is rejected -- it can only ever be set by a confirmed agent heartbeat.
+     */
+    public function updateStatus(UpdateNodeCapabilityStatusRequest $request, Node $node, NodeCapability $nodeCapability): RedirectResponse
+    {
+        app(UpdateNodeCapabilityStatus::class)->handle(
+            $request->user(),
+            $nodeCapability,
+            NodeCapabilityStatus::from($request->validated('status')),
+        );
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Capability status updated.')]);
 
         return to_route('nodes.edit', $node);
     }

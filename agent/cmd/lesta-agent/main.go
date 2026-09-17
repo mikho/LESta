@@ -577,11 +577,19 @@ func identityProductionConfig() identity.Config {
 // per-deployment, per-node values with no single correct compiled-in
 // default.
 //
-// CapabilityStateRoots's six literal values must stay in lockstep with
+// CapabilityStateRoots's eight literal values must stay in lockstep with
 // nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
-// acmeProductionConfig's/mariadbProductionConfig's/cronProductionConfig's
-// own StateRoot fields above; this function never invokes those
+// acmeProductionConfig's/mariadbProductionConfig's/cronProductionConfig's/
+// mailProductionConfig's own StateRoot fields and backupProductionConfig's
+// own ArtifactsRoot field above; this function never invokes those
 // capabilities, it only os.Stats their fixed StateRoot to report presence.
+// metricsUsageCapability and systemAccountIdentityCapability are
+// deliberately absent: neither has a singular, node-wide "installed" state
+// root at all (metrics has no standalone install.sh, built entirely into
+// nginx/apache/mariadb's own installers; identity is created lazily per
+// tenant account, never a single node-wide install) -- see
+// App\Enums\NodeCapabilityType::supportsStatusTracking() on the Laravel
+// side, which this map's own coverage must stay in sync with.
 func daemonProductionConfig() daemon.Config {
 	const (
 		configPath     = "/etc/lesta/agent/daemon-config.json"
@@ -607,12 +615,14 @@ func daemonProductionConfig() daemon.Config {
 		// this (see .install/services/agent-daemon/install.sh).
 		WatermarkPath: "/var/lib/lesta/agent/daemon-state/cron-execution-watermark.json",
 		CapabilityStateRoots: map[string]string{
-			webNginxCapability:       "/var/lib/lesta/nginx",
-			dnsBind9Capability:       "/var/lib/lesta/bind",
-			webApacheCapability:      "/var/lib/lesta/apache",
-			tlsAcmeCapability:        "/var/lib/lesta/acme",
-			databaseTenantCapability: "/var/lib/lesta/mariadb/tenant-agent-state",
-			schedulerCronCapability:  "/var/lib/lesta/cron",
+			webNginxCapability:                 "/var/lib/lesta/nginx",
+			dnsBind9Capability:                 "/var/lib/lesta/bind",
+			webApacheCapability:                "/var/lib/lesta/apache",
+			tlsAcmeCapability:                  "/var/lib/lesta/acme",
+			databaseTenantCapability:           "/var/lib/lesta/mariadb/tenant-agent-state",
+			schedulerCronCapability:            "/var/lib/lesta/cron",
+			mailSmtpImapCapability:             "/var/lib/lesta/mail",
+			backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
 		},
 	}
 }

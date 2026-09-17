@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Nodes\AddNodeCapability;
+use App\Enums\NodeCapabilityStatus;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Node;
@@ -15,6 +16,7 @@ test('adding a recognized capability creates a row with an audit event', functio
 
     expect($capability)->toBeInstanceOf(NodeCapability::class)
         ->and($capability->capability)->toBe('web.nginx.v1')
+        ->and($capability->status)->toBe(NodeCapabilityStatus::NotInstalled)
         ->and(AuditEvent::where('action', 'node_capability.added')->where('auditable_id', $capability->id)->exists())->toBeTrue();
 });
 

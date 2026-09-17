@@ -1,5 +1,5 @@
 import { Form, Head, router } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
 import Heading from '@/components/heading';
@@ -43,6 +43,34 @@ const capabilityOptions = [
     'backup.encrypted-artifacts.v1',
     'metrics.usage.v1',
 ] as const;
+
+const capabilityDisplayStatusBadgeClasses: Record<string, string> = {
+    not_installed:
+        'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
+    running:
+        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+    stopped:
+        'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    suspended: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+    unknown:
+        'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
+};
+
+const capabilityDisplayStatusLabels: Record<string, string> = {
+    not_installed: 'Not installed',
+    running: 'Running',
+    stopped: 'Stopped',
+    suspended: 'Suspended',
+    unknown: 'Unknown',
+};
+
+const manualCapabilityStatusOptions: {
+    value: 'stopped' | 'not_installed';
+    label: string;
+}[] = [
+    { value: 'stopped', label: 'Mark as stopped' },
+    { value: 'not_installed', label: 'Reset to not installed' },
+];
 
 const operationStatusBadgeClasses: Record<string, string> = {
     pending:
@@ -177,6 +205,72 @@ function IssueEnrollmentTokenDialog({ node }: { node: Node }) {
     );
 }
 
+function ManualStatusControl({
+    node,
+    capability,
+}: {
+    node: Node;
+    capability: NodeCapability;
+}) {
+    const options = manualCapabilityStatusOptions.filter(
+        (option) => option.value !== capability.status,
+    );
+
+    const [target, setTarget] = useState<string>(options[0]?.value ?? '');
+
+    // Derived at render time (matching AddCapabilityForm's own established
+    // pattern in this file), not synced via an effect: once the capability's
+    // own status changes after a successful update, this falls back to
+    // whatever's still a legal target without a setState-in-effect cascade.
+    const selectedTarget = options.some((option) => option.value === target)
+        ? target
+        : (options[0]?.value ?? '');
+
+    if (options.length === 0) {
+        return null;
+    }
+
+    return (
+        <Form
+            {...NodeCapabilityController.updateStatus.form([node, capability])}
+            options={{ preserveScroll: true }}
+            className="flex items-center gap-2"
+        >
+            {({ processing }) => (
+                <>
+                    <Select
+                        name="status"
+                        value={selectedTarget}
+                        onValueChange={setTarget}
+                    >
+                        <SelectTrigger className="h-8 w-44 text-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {options.map((option) => (
+                                <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                >
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={processing}
+                        data-test="update-capability-status-button"
+                    >
+                        Set
+                    </Button>
+                </>
+            )}
+        </Form>
+    );
+}
+
 function CapabilityRow({
     node,
     capability,
@@ -184,53 +278,103 @@ function CapabilityRow({
     node: Node;
     capability: NodeCapability;
 }) {
+    const label =
+        capability.display_status === 'suspended' &&
+        capability.suspension_source === 'cascade'
+            ? 'Suspended (node)'
+            : (capabilityDisplayStatusLabels[capability.display_status] ??
+              capability.display_status);
+
     return (
         <tr className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border">
             <td className="px-4 py-2 font-medium">{capability.capability}</td>
             <td className="px-4 py-2">
-                {capability.suspended_at ? (
-                    <span className="text-red-600 dark:text-red-400">
-                        Suspended
-                        {capability.suspension_source === 'cascade'
-                            ? ' (node)'
-                            : ''}
+                {capability.supports_status_tracking ? (
+                    <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${capabilityDisplayStatusBadgeClasses[capability.display_status] ?? ''}`}
+                    >
+                        {label}
                     </span>
                 ) : (
-                    <span className="text-green-600 dark:text-green-400">
-                        Active
+                    <span className="text-xs text-muted-foreground">
+                        Not tracked
                     </span>
                 )}
             </td>
             <td className="px-4 py-2">
-                <Form
-                    {...(capability.suspended_at
-                        ? NodeCapabilityController.unsuspend.form([
-                              node,
-                              capability,
-                          ])
-                        : NodeCapabilityController.suspend.form([
-                              node,
-                              capability,
-                          ]))}
-                    options={{ preserveScroll: true }}
-                >
-                    {({ processing }) => (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={processing}
-                        >
-                            {capability.suspended_at ? 'Unsuspend' : 'Suspend'}
-                        </Button>
-                    )}
-                </Form>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Form
+                        {...(capability.suspended_at
+                            ? NodeCapabilityController.unsuspend.form([
+                                  node,
+                                  capability,
+                              ])
+                            : NodeCapabilityController.suspend.form([
+                                  node,
+                                  capability,
+                              ]))}
+                        options={{ preserveScroll: true }}
+                    >
+                        {({ processing }) => (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={processing}
+                            >
+                                {capability.suspended_at
+                                    ? 'Unsuspend'
+                                    : 'Suspend'}
+                            </Button>
+                        )}
+                    </Form>
+
+                    {capability.supports_status_tracking &&
+                        !capability.suspended_at && (
+                            <ManualStatusControl
+                                node={node}
+                                capability={capability}
+                            />
+                        )}
+                </div>
             </td>
         </tr>
     );
 }
 
 function AddCapabilityForm({ node }: { node: Node }) {
-    const [capability, setCapability] = useState<string>(capabilityOptions[0]);
+    // Already-declared capabilities (suspended or not -- the backend rejects
+    // a duplicate outright regardless of suspension state) are dropped from
+    // the list, so adding several capabilities in a row never means
+    // re-scanning past ones already added.
+    const availableOptions = useMemo<string[]>(() => {
+        const existing = new Set(
+            (node.capabilities ?? []).map((c) => c.capability),
+        );
+
+        return (capabilityOptions as readonly string[]).filter(
+            (option) => !existing.has(option),
+        );
+    }, [node.capabilities]);
+
+    const [capability, setCapability] = useState<string>(
+        availableOptions[0] ?? '',
+    );
+
+    // Derived at render time rather than synced via an effect: once a
+    // capability is added and drops out of availableOptions, this falls
+    // back to whatever's next without ever needing a setState-in-effect
+    // cascade.
+    const selectedCapability = availableOptions.includes(capability)
+        ? capability
+        : (availableOptions[0] ?? '');
+
+    if (availableOptions.length === 0) {
+        return (
+            <p className="text-sm text-muted-foreground">
+                Every capability has already been declared for this node.
+            </p>
+        );
+    }
 
     return (
         <Form
@@ -245,14 +389,14 @@ function AddCapabilityForm({ node }: { node: Node }) {
 
                         <Select
                             name="capability"
-                            value={capability}
+                            value={selectedCapability}
                             onValueChange={setCapability}
                         >
                             <SelectTrigger id="capability" className="w-64">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {capabilityOptions.map((option) => (
+                                {availableOptions.map((option) => (
                                     <SelectItem key={option} value={option}>
                                         {option}
                                     </SelectItem>
@@ -447,6 +591,17 @@ export default function Edit({
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading variant="small" title="Enrollment" />
+
+                    {!node.agent_reachable && (
+                        <p
+                            className="text-sm font-medium text-red-600 dark:text-red-400"
+                            data-test="agent-unreachable-warning"
+                        >
+                            {node.enrollment_status === 'pending'
+                                ? 'Agent has not enrolled on this node yet.'
+                                : 'Agent is not reachable (no heartbeat received recently). Capability statuses shown below may be out of date.'}
+                        </p>
+                    )}
 
                     <dl className="grid grid-cols-2 gap-4 text-sm">
                         <div>

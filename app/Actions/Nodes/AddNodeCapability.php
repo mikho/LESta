@@ -2,6 +2,7 @@
 
 namespace App\Actions\Nodes;
 
+use App\Enums\NodeCapabilityStatus;
 use App\Enums\NodeCapabilityType;
 use App\Models\AuditEvent;
 use App\Models\Node;
@@ -27,7 +28,16 @@ class AddNodeCapability
 
         return DB::transaction(function () use ($actor, $node, $capability): NodeCapability {
             try {
-                $nodeCapability = $node->capabilities()->create(['capability' => $capability]);
+                // status is set explicitly via forceFill (it is deliberately not in
+                // NodeCapability's own fillable list, mirroring suspended_at/suspension_source)
+                // rather than left to the column's own DB default: Eloquent's create() never
+                // re-fetches a freshly-inserted row, so a DB-only default would silently leave
+                // the in-memory $nodeCapability->status null right after this call (the exact
+                // "create() doesn't reflect DB-computed defaults" bug class this project has hit
+                // before) even though the real database row would be correct.
+                $nodeCapability = $node->capabilities()->make(['capability' => $capability]);
+                $nodeCapability->forceFill(['status' => NodeCapabilityStatus::NotInstalled]);
+                $nodeCapability->save();
             } catch (QueryException $e) {
                 if ($e->getCode() !== '23000') {
                     throw $e;
