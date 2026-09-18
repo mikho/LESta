@@ -18,6 +18,10 @@ class AuthenticateNodeCredential
      * read. This is machine-to-machine, bearer-token authentication over Laravel's own
      * already-terminated HTTPS, never a session or a Sanctum guard.
      *
+     * A suspended node's credential is rejected here too, not just hidden in the UI: an admin
+     * suspending a node is expected to actually cut it off, not merely stop showing it as active
+     * while it keeps heartbeating and submitting operation results underneath.
+     *
      * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
@@ -31,10 +35,11 @@ class AuthenticateNodeCredential
         $node = Node::query()
             ->where('node_credential_hash', hash('sha256', $token))
             ->where('enrollment_status', NodeEnrollmentStatus::Enrolled->value)
+            ->whereNull('suspended_at')
             ->first();
 
         if ($node === null) {
-            abort(401, 'Invalid or unenrolled node credential.');
+            abort(401, 'Invalid, unenrolled, or suspended node credential.');
         }
 
         $request->attributes->set('node', $node);

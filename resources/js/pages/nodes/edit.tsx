@@ -138,15 +138,35 @@ function IssueEnrollmentTokenDialog({ node }: { node: Node }) {
                         size="sm"
                         data-test="issue-enrollment-token-button"
                     >
-                        Issue enrollment token
+                        {node.enrollment_status === 'enrolled'
+                            ? 'Rotate credential'
+                            : 'Issue enrollment token'}
                     </Button>
                 </DialogTrigger>
                 <DialogContent>
-                    <DialogTitle>Issue a new enrollment token?</DialogTitle>
+                    <DialogTitle>
+                        {node.enrollment_status === 'enrolled'
+                            ? `Rotate ${node.name}'s credential?`
+                            : 'Issue a new enrollment token?'}
+                    </DialogTitle>
                     <DialogDescription>
-                        Any previously issued, unused token for {node.name} will
-                        be invalidated. The new token is shown once and cannot
-                        be recovered afterwards.
+                        {node.enrollment_status === 'enrolled' ? (
+                            <>
+                                {node.name} will stop authenticating immediately
+                                and will not be able to heartbeat or report
+                                anything back until you re-run the installer on
+                                the node with the new token below. Use this if
+                                you suspect its current credential has been
+                                exposed.
+                            </>
+                        ) : (
+                            <>
+                                Any previously issued, unused token for{' '}
+                                {node.name} will be invalidated. The new token
+                                is shown once and cannot be recovered
+                                afterwards.
+                            </>
+                        )}
                     </DialogDescription>
 
                     <Form
@@ -165,7 +185,9 @@ function IssueEnrollmentTokenDialog({ node }: { node: Node }) {
                                         type="submit"
                                         data-test="confirm-issue-enrollment-token-button"
                                     >
-                                        Issue token
+                                        {node.enrollment_status === 'enrolled'
+                                            ? 'Rotate credential'
+                                            : 'Issue token'}
                                     </button>
                                 </Button>
                             </DialogFooter>
@@ -597,9 +619,12 @@ export default function Edit({
                             className="text-sm font-medium text-red-600 dark:text-red-400"
                             data-test="agent-unreachable-warning"
                         >
-                            {node.enrollment_status === 'pending'
-                                ? 'Agent has not enrolled on this node yet.'
-                                : 'Agent is not reachable (no heartbeat received recently). Capability statuses shown below may be out of date.'}
+                            {node.enrollment_status === 'pending' &&
+                                'Agent has not enrolled on this node yet.'}
+                            {node.enrollment_status === 'revoked' &&
+                                "This node's credential was revoked. Re-run the installer on the node with the new enrollment token above to reconnect it."}
+                            {node.enrollment_status === 'enrolled' &&
+                                'Agent is not reachable (no heartbeat received recently). Capability statuses shown below may be out of date.'}
                         </p>
                     )}
 

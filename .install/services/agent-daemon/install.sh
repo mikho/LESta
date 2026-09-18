@@ -165,6 +165,20 @@ parse_args() {
     done
 }
 
+# --node-uuid's own sinks (json_kv_str in lib/enrollment.sh and lib/daemon.sh) already
+# string-escape backslash/quote/newline, so a malformed value was never a real injection risk --
+# this exists purely as an earlier, clearer failure than a confusing enrollment/heartbeat error
+# once a copy-paste mistake (an account UUID, a truncated value, stray whitespace) reaches the
+# control plane instead. Standard Str::uuid() shape (RFC 4122, lowercase hex, 8-4-4-4-12), the
+# only format Node::uuid (App\Concerns\HasUuid) ever generates.
+validate_node_uuid() {
+    case "${NODE_UUID}" in
+        '') return 1 ;;
+    esac
+
+    printf '%s' "${NODE_UUID}" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+}
+
 validate_args() {
     case "${MODE}" in
         version)
@@ -176,7 +190,9 @@ validate_args() {
             ;;
     esac
 
-    [ -n "${NODE_UUID}" ] || fail_invocation "--node-uuid is required"
+    if ! validate_node_uuid; then
+        fail_invocation "--node-uuid is required and must be a valid uuid (got: '${NODE_UUID}')"
+    fi
     [ -n "${ENROLLMENT_TOKEN}" ] || fail_invocation "--enrollment-token is required"
     [ -n "${CONTROL_PLANE_URL}" ] || fail_invocation "--control-plane-url is required"
 

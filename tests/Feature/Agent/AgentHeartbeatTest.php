@@ -63,6 +63,16 @@ test('a heartbeat with an invalid bearer credential is rejected', function () {
     $response->assertStatus(401);
 });
 
+test('a heartbeat from a suspended node is rejected, even with a real credential', function () {
+    $node = Node::factory()->suspended()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $response = $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload());
+
+    $response->assertStatus(401);
+});
+
 test('an out-of-order heartbeat is acknowledged without overwriting newer state', function () {
     $node = Node::factory()->create();
     $credential = $node->completeEnrollment('1', '1.0.0');

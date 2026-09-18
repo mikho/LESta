@@ -89,6 +89,18 @@ class Node extends Model implements ProviderAdminManaged
      * Issue a fresh, one-time enrollment token for this node, valid for 30 minutes. The raw
      * token is returned once and never stored; only its sha256 hash is persisted, matching
      * node_credential_hash's own hashing convention below.
+     *
+     * Also revokes this node's own current long-lived credential outright (node_credential_hash
+     * is cleared, not just left to go stale behind enrollment_status changing): the node cannot
+     * authenticate again until it completes enrollment with the new token, minting a genuinely
+     * new credential via completeEnrollment() below. This is the real rotation/revocation path
+     * for a suspected-compromised credential on an already-enrolled node -- see Actions\Nodes\
+     * IssueNodeEnrollmentToken, which records a distinct audit action for this exact case
+     * (revoking a live credential) versus a node's first-ever enrollment, even though both call
+     * this same method. The resulting status is Revoked rather than Pending specifically when a
+     * real credential is being cut off here, not "pending its first enrollment" -- both statuses
+     * equally block AuthenticateNodeCredential (it requires exactly Enrolled), so this only ever
+     * affects what an operator sees, never enforcement.
      */
     public function issueEnrollmentToken(): string
     {
@@ -97,7 +109,10 @@ class Node extends Model implements ProviderAdminManaged
         $this->forceFill([
             'enrollment_token_hash' => hash('sha256', $token),
             'enrollment_token_expires_at' => now()->addMinutes(30),
-            'enrollment_status' => NodeEnrollmentStatus::Pending,
+            'enrollment_status' => $this->enrollment_status === NodeEnrollmentStatus::Enrolled
+                ? NodeEnrollmentStatus::Revoked
+                : NodeEnrollmentStatus::Pending,
+            'node_credential_hash' => null,
         ])->save();
 
         return $token;

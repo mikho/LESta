@@ -82,3 +82,36 @@ test('a full create, issue-token, add-capability, suspend, unsuspend workflow wo
 
     expect($node->refresh()->isSuspended())->toBeFalse();
 });
+
+test('rotating an already-enrolled node credential shows real revocation copy and actually revokes it', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+    $originalCredential = $node->completeEnrollment('1', '1.0.0');
+
+    $this->actingAs($admin);
+
+    $page = visit("/nodes/{$node->uuid}/edit");
+
+    $page->assertNoJavaScriptErrors()
+        ->assertSee('Rotate credential')
+        ->click('[data-test="issue-enrollment-token-button"]')
+        ->assertNoJavaScriptErrors()
+        ->assertSee('will stop authenticating immediately')
+        ->click('[data-test="confirm-issue-enrollment-token-button"]')
+        ->assertNoJavaScriptErrors()
+        ->assertSee('Enrollment token');
+
+    expect($node->refresh()->enrollment_status->value)->toBe('revoked')
+        ->and($node->node_credential_hash)->toBeNull();
+
+    $this->withHeader('Authorization', 'Bearer '.$originalCredential)
+        ->postJson('/agent/v1/heartbeat', [
+            'protocol_version' => '1',
+            'agent_version' => '1.0.0',
+            'ubuntu_release' => '24.04',
+            'architecture' => 'amd64',
+            'timestamp' => now()->toIso8601String(),
+            'capabilities' => [],
+        ])
+        ->assertStatus(401);
+});
