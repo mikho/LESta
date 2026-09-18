@@ -4,12 +4,11 @@ namespace App\Actions\Mail;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesMailCapableNode;
+use App\Concerns\EnforcesPackageQuota;
 use App\Enums\ProvisioningVerb;
-use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\AuditEvent;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
-use App\Models\PackageLimit;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +16,8 @@ use Illuminate\Support\Str;
 
 class CreateMailAccount
 {
+    use EnforcesPackageQuota;
+
     /**
      * @param  array<string, mixed>  $data  Expected shape: array{local_part: string, quota_mb?: int|null, forward_to?: string|null, forward_only?: bool, autoreply_enabled?: bool, autoreply_message?: string|null}
      * @return array{0: MailAccount, 1: string} The created row and its one-time plaintext
@@ -30,18 +31,12 @@ class CreateMailAccount
         Gate::forUser($actor)->authorize('create', [MailAccount::class, $mailDomain]);
 
         return DB::transaction(function () use ($actor, $mailDomain, $data): array {
-            $limit = PackageLimit::query()
-                ->where('package_id', $mailDomain->account->package_id)
-                ->where('resource_type', 'mail_accounts')
-                ->first();
-
-            if ($limit === null) {
-                throw ResourceQuotaExceededException::notConfigured('mail_accounts');
-            }
-
-            if ($limit->limit_value !== null && $mailDomain->accounts()->count() >= $limit->limit_value) {
-                throw ResourceQuotaExceededException::limitReached('mail_accounts', $limit->limit_value);
-            }
+            // Locks the domain, not the account: mail_accounts is a per-domain quota
+            // ($mailDomain->accounts()->count()), so the domain row is the real concurrency
+            // boundary -- two concurrent inserts into two DIFFERENT domains on the same account
+            // were never counted together in the first place and don't need to serialize against
+            // each other.
+            $this->assertPackageQuotaAvailable($mailDomain, $mailDomain->account, 'mail_accounts', fn () => $mailDomain->accounts()->count());
 
             $password = bin2hex(random_bytes(24));
 

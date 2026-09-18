@@ -4,11 +4,10 @@ namespace App\Actions\TenantDatabases;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesTenantDatabaseCapableNode;
+use App\Concerns\EnforcesPackageQuota;
 use App\Enums\ProvisioningVerb;
-use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\Account;
 use App\Models\AuditEvent;
-use App\Models\PackageLimit;
 use App\Models\TenantDatabase;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +16,8 @@ use Illuminate\Support\Str;
 
 class CreateTenantDatabase
 {
+    use EnforcesPackageQuota;
+
     /**
      * @param  array<string, mixed>  $data  Expected shape: array{label: string}
      * @return array{0: TenantDatabase, 1: string} The created row and its one-time plaintext
@@ -30,18 +31,7 @@ class CreateTenantDatabase
         Gate::forUser($actor)->authorize('create', [TenantDatabase::class, $account]);
 
         return DB::transaction(function () use ($actor, $account, $data): array {
-            $limit = PackageLimit::query()
-                ->where('package_id', $account->package_id)
-                ->where('resource_type', 'tenant_databases')
-                ->first();
-
-            if ($limit === null) {
-                throw ResourceQuotaExceededException::notConfigured('tenant_databases');
-            }
-
-            if ($limit->limit_value !== null && $account->tenantDatabases()->count() >= $limit->limit_value) {
-                throw ResourceQuotaExceededException::limitReached('tenant_databases', $limit->limit_value);
-            }
+            $this->assertPackageQuotaAvailable($account, $account, 'tenant_databases', fn () => $account->tenantDatabases()->count());
 
             [$node, $capability] = app(ResolvesTenantDatabaseCapableNode::class)->resolve();
 

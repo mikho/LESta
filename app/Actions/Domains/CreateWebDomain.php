@@ -4,14 +4,13 @@ namespace App\Actions\Domains;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesWebCapableNode;
+use App\Concerns\EnforcesPackageQuota;
 use App\Enums\IpAllocationStatus;
 use App\Enums\ProvisioningVerb;
 use App\Exceptions\NoIpAllocationAvailableException;
-use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\IpAllocation;
-use App\Models\PackageLimit;
 use App\Models\User;
 use App\Models\WebDomain;
 use App\Models\WebDomainAlias;
@@ -21,6 +20,8 @@ use Illuminate\Support\Str;
 
 class CreateWebDomain
 {
+    use EnforcesPackageQuota;
+
     /**
      * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, ssl_mode?: string, aliases?: array<int, string>}
      */
@@ -29,18 +30,7 @@ class CreateWebDomain
         Gate::forUser($actor)->authorize('create', [WebDomain::class, $account]);
 
         return DB::transaction(function () use ($actor, $account, $data): WebDomain {
-            $limit = PackageLimit::query()
-                ->where('package_id', $account->package_id)
-                ->where('resource_type', 'web_domains')
-                ->first();
-
-            if ($limit === null) {
-                throw ResourceQuotaExceededException::notConfigured('web_domains');
-            }
-
-            if ($limit->limit_value !== null && $account->webDomains()->count() >= $limit->limit_value) {
-                throw ResourceQuotaExceededException::limitReached('web_domains', $limit->limit_value);
-            }
+            $this->assertPackageQuotaAvailable($account, $account, 'web_domains', fn () => $account->webDomains()->count());
 
             [$node, $capabilities] = app(ResolvesWebCapableNode::class)->resolve($data['web_server'] ?? 'nginx');
 

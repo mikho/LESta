@@ -4,12 +4,11 @@ namespace App\Actions\Mail;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesMailCapableNode;
+use App\Concerns\EnforcesPackageQuota;
 use App\Enums\ProvisioningVerb;
-use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\MailDomain;
-use App\Models\PackageLimit;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +16,8 @@ use Illuminate\Support\Str;
 
 class CreateMailDomain
 {
+    use EnforcesPackageQuota;
+
     /**
      * @param  array<string, mixed>  $data  Expected shape: array{domain: string, antivirus_enabled?: bool, antispam_enabled?: bool, dkim_enabled?: bool, catchall_email?: string|null}
      */
@@ -25,18 +26,7 @@ class CreateMailDomain
         Gate::forUser($actor)->authorize('create', [MailDomain::class, $account]);
 
         return DB::transaction(function () use ($actor, $account, $data): MailDomain {
-            $limit = PackageLimit::query()
-                ->where('package_id', $account->package_id)
-                ->where('resource_type', 'mail_domains')
-                ->first();
-
-            if ($limit === null) {
-                throw ResourceQuotaExceededException::notConfigured('mail_domains');
-            }
-
-            if ($limit->limit_value !== null && $account->mailDomains()->count() >= $limit->limit_value) {
-                throw ResourceQuotaExceededException::limitReached('mail_domains', $limit->limit_value);
-            }
+            $this->assertPackageQuotaAvailable($account, $account, 'mail_domains', fn () => $account->mailDomains()->count());
 
             [$node, $capability] = app(ResolvesMailCapableNode::class)->resolve();
 

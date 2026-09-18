@@ -4,12 +4,11 @@ namespace App\Actions\Dns;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesDnsCapableNode;
+use App\Concerns\EnforcesPackageQuota;
 use App\Enums\ProvisioningVerb;
-use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\AuditEvent;
 use App\Models\DnsRecord;
 use App\Models\DnsZone;
-use App\Models\PackageLimit;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +16,8 @@ use Illuminate\Support\Str;
 
 class CreateDnsRecord
 {
+    use EnforcesPackageQuota;
+
     /**
      * @param  array<string, mixed>  $data  Expected shape: array{name: string, type: string, priority?: int|null, value: string}
      */
@@ -25,18 +26,11 @@ class CreateDnsRecord
         Gate::forUser($actor)->authorize('create', [DnsRecord::class, $dnsZone]);
 
         return DB::transaction(function () use ($actor, $dnsZone, $data): DnsRecord {
-            $limit = PackageLimit::query()
-                ->where('package_id', $dnsZone->account->package_id)
-                ->where('resource_type', 'dns_records')
-                ->first();
-
-            if ($limit === null) {
-                throw ResourceQuotaExceededException::notConfigured('dns_records');
-            }
-
-            if ($limit->limit_value !== null && $dnsZone->records()->count() >= $limit->limit_value) {
-                throw ResourceQuotaExceededException::limitReached('dns_records', $limit->limit_value);
-            }
+            // Locks the zone, not the account: dns_records is a per-zone quota
+            // ($dnsZone->records()->count()), so the zone row is the real concurrency boundary --
+            // two concurrent inserts into two DIFFERENT zones on the same account were never
+            // counted together in the first place and don't need to serialize against each other.
+            $this->assertPackageQuotaAvailable($dnsZone, $dnsZone->account, 'dns_records', fn () => $dnsZone->records()->count());
 
             $dnsRecord = DnsRecord::query()->create([
                 'dns_zone_id' => $dnsZone->id,
