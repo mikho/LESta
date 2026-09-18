@@ -55,7 +55,13 @@ class ProvisioningOperation extends Model
         return [
             'operation' => ProvisioningVerb::class,
             'status' => ProvisioningStatus::class,
-            'payload' => 'array',
+            // Regularly carries real secrets on the way to a node (a backup's AES-256-GCM key,
+            // an ACME-issued certificate's private key, a freshly generated mailbox password),
+            // so it gets the same `encrypted` treatment as every one of those secrets' own
+            // primary storage column (Backup::encryption_key, AcmeAccount::account_key,
+            // MailAccount::password) -- see the migration that widened this column from json to
+            // text for why a native JSON column can't hold an encrypted value.
+            'payload' => 'encrypted:array',
             'errors' => 'array',
             'data' => 'array',
             'issued_at' => 'datetime',
