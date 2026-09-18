@@ -2,16 +2,18 @@
 
 namespace App\Http\Controllers\Dashboard;
 
+use App\Concerns\ResolvesCurrentAccount;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
 use App\Models\MailAccount;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the current user's own dashboard: a real resource overview for a tenant with at least
      * one account membership, or an empty/welcome state for anyone else (a pure platform admin,
@@ -25,12 +27,6 @@ class DashboardController extends Controller
         return Inertia::render('dashboard', [
             'account' => $account === null ? null : $this->presentAccount($account),
         ]);
-    }
-
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

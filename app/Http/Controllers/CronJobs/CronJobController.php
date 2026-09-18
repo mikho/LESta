@@ -7,14 +7,13 @@ use App\Actions\CronJobs\DeleteCronJob;
 use App\Actions\CronJobs\SuspendCronJob;
 use App\Actions\CronJobs\UnsuspendCronJob;
 use App\Actions\CronJobs\UpdateCronJob;
+use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CronJobs\StoreCronJobRequest;
 use App\Http\Requests\CronJobs\UpdateCronJobRequest;
-use App\Models\Account;
 use App\Models\CronJob;
 use App\Models\CronJobExecution;
-use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,6 +23,8 @@ use Inertia\Response;
 
 class CronJobController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the account's cron job list.
      */
@@ -40,6 +41,7 @@ class CronJobController extends Controller
         $search = trim((string) $request->string('search'));
 
         $cronJobs = $account->cronJobs()
+            ->with('latestProvisioningOperation')
             ->when($search !== '', fn ($query) => $query->where('command', 'like', '%'.$search.'%'))
             ->orderBy('id')
             ->paginate(15)
@@ -155,18 +157,6 @@ class CronJobController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Cron job deleted.')]);
 
         return to_route('cron-jobs.index');
-    }
-
-    /**
-     * Resolve the acting account: the user's first account-scoped membership, or null for a user
-     * with none -- every caller renders a real "no hosting account" notice for that case rather
-     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
-     * limited to the first one, a known limitation, not a silent gap.
-     */
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

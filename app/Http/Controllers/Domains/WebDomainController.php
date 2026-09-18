@@ -7,12 +7,11 @@ use App\Actions\Domains\DeleteWebDomain;
 use App\Actions\Domains\SuspendWebDomain;
 use App\Actions\Domains\UnsuspendWebDomain;
 use App\Actions\Domains\UpdateWebDomain;
+use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Domains\StoreWebDomainRequest;
 use App\Http\Requests\Domains\UpdateWebDomainRequest;
-use App\Models\Account;
-use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +22,8 @@ use Inertia\Response;
 
 class WebDomainController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the account's web domain list.
      */
@@ -152,20 +153,6 @@ class WebDomainController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Web domain deleted.')]);
 
         return to_route('domains.index');
-    }
-
-    /**
-     * Resolve the acting account: the user's first account-scoped membership, or null for a user
-     * with none (a brand-new admin-created user, or a pure platform admin with no account of
-     * their own) -- every caller renders a real "no hosting account" notice for that case rather
-     * than a 404 from a firstOrFail() this line used to have. There is no account switcher yet,
-     * so a user belonging to multiple accounts is limited to the first one, a known limitation,
-     * not a silent gap.
-     */
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

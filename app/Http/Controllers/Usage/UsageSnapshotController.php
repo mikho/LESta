@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers\Usage;
 
+use App\Concerns\ResolvesCurrentAccount;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
 use App\Models\MailAccount;
 use App\Models\TenantDatabase;
 use App\Models\UsageSnapshot;
 use App\Models\UsageSnapshotRollup;
-use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -17,6 +17,8 @@ use Inertia\Response;
 
 class UsageSnapshotController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show an account's own usage history: real, raw, per-collection-cycle snapshots (see
      * App\Console\Commands\CollectUsageMetrics) for the last 90 days, newest first, plus the
@@ -80,11 +82,6 @@ class UsageSnapshotController extends Controller
                 'name' => $account->name,
             ] : null,
         ]);
-    }
-
-    private function resolveAccount(User $user): ?Account
-    {
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

@@ -7,14 +7,13 @@ use App\Actions\Dns\DeleteDnsZone;
 use App\Actions\Dns\SuspendDnsZone;
 use App\Actions\Dns\UnsuspendDnsZone;
 use App\Actions\Dns\UpdateDnsZone;
+use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Dns\StoreDnsZoneRequest;
 use App\Http\Requests\Dns\UpdateDnsZoneRequest;
-use App\Models\Account;
 use App\Models\DnsRecord;
 use App\Models\DnsZone;
-use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,6 +23,8 @@ use Inertia\Response;
 
 class DnsZoneController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the account's DNS zone list.
      */
@@ -41,6 +42,7 @@ class DnsZoneController extends Controller
 
         $dnsZones = $account->dnsZones()
             ->withCount('records')
+            ->with('latestProvisioningOperation')
             ->when($search !== '', fn ($query) => $query->where('domain', 'like', '%'.$search.'%'))
             ->orderBy('domain')
             ->paginate(15)
@@ -153,18 +155,6 @@ class DnsZoneController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('DNS zone deleted.')]);
 
         return to_route('dns.index');
-    }
-
-    /**
-     * Resolve the acting account: the user's first account-scoped membership, or null for a user
-     * with none -- every caller renders a real "no hosting account" notice for that case rather
-     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
-     * limited to the first one, a known limitation, not a silent gap.
-     */
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

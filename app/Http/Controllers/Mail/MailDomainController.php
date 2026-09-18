@@ -7,14 +7,13 @@ use App\Actions\Mail\DeleteMailDomain;
 use App\Actions\Mail\SuspendMailDomain;
 use App\Actions\Mail\UnsuspendMailDomain;
 use App\Actions\Mail\UpdateMailDomain;
+use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Mail\StoreMailDomainRequest;
 use App\Http\Requests\Mail\UpdateMailDomainRequest;
-use App\Models\Account;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
-use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,6 +23,8 @@ use Inertia\Response;
 
 class MailDomainController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the account's mail domain list.
      */
@@ -41,6 +42,7 @@ class MailDomainController extends Controller
 
         $mailDomains = $account->mailDomains()
             ->withCount('accounts')
+            ->with('latestProvisioningOperation')
             ->when($search !== '', fn ($query) => $query->where('domain', 'like', '%'.$search.'%'))
             ->orderBy('domain')
             ->paginate(15)
@@ -153,19 +155,6 @@ class MailDomainController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Mail domain deleted.')]);
 
         return to_route('mail.index');
-    }
-
-    /**
-     * Resolve the acting account: the user's first account-scoped membership, or null for a user
-     * with none -- every caller renders a real "no hosting account" notice for that case rather
-     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
-     * limited to the first one, a known limitation, not a silent gap (matches DnsZoneController's
-     * own precedent).
-     */
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**

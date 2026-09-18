@@ -7,12 +7,11 @@ use App\Actions\TenantDatabases\DeleteTenantDatabase;
 use App\Actions\TenantDatabases\RotateTenantDatabasePassword;
 use App\Actions\TenantDatabases\SuspendTenantDatabase;
 use App\Actions\TenantDatabases\UnsuspendTenantDatabase;
+use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\TenantDatabases\StoreTenantDatabaseRequest;
-use App\Models\Account;
 use App\Models\TenantDatabase;
-use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -22,6 +21,8 @@ use Inertia\Response;
 
 class TenantDatabaseController extends Controller
 {
+    use ResolvesCurrentAccount;
+
     /**
      * Show the account's tenant database list.
      */
@@ -38,6 +39,7 @@ class TenantDatabaseController extends Controller
         $search = trim((string) $request->string('search'));
 
         $tenantDatabases = $account->tenantDatabases()
+            ->with('latestProvisioningOperation')
             ->when($search !== '', fn ($query) => $query->where('label', 'like', '%'.$search.'%'))
             ->orderBy('label')
             ->paginate(15)
@@ -157,18 +159,6 @@ class TenantDatabaseController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tenant database deleted.')]);
 
         return to_route('tenant-databases.index');
-    }
-
-    /**
-     * Resolve the acting account: the user's first account-scoped membership, or null for a user
-     * with none -- every caller renders a real "no hosting account" notice for that case rather
-     * than a 404. There is no account switcher yet, so a user belonging to multiple accounts is
-     * limited to the first one, a known limitation, not a silent gap.
-     */
-    private function resolveAccount(User $user): ?Account
-    {
-        /** @var Account|null */
-        return $user->memberships()->whereNotNull('account_id')->with('account')->first()?->account;
     }
 
     /**
