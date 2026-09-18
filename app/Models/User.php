@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Closure;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -36,6 +37,15 @@ class User extends Authenticatable implements PasskeyUser
     use HasFactory, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
 
     /**
+     * Per-instance memoization cache for isProviderAdmin()/hasPermission()/hasAccountRole()/
+     * hasAnyAccountMembership()/hasNodeAdminGrant() below -- see rememberAuthorizationCheck()'s
+     * own doc comment for why this is safe here.
+     *
+     * @var array<string, bool>
+     */
+    private array $authorizationCheckCache = [];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -67,8 +77,8 @@ class User extends Authenticatable implements PasskeyUser
 
     public function isProviderAdmin(): bool
     {
-        return $this->memberships()->whereNull('account_id')
-            ->whereHas('role', fn ($query) => $query->where('name', 'provider_admin'))->exists();
+        return $this->rememberAuthorizationCheck('isProviderAdmin', fn (): bool => $this->memberships()->whereNull('account_id')
+            ->whereHas('role', fn ($query) => $query->where('name', 'provider_admin'))->exists());
     }
 
     /**
@@ -81,16 +91,18 @@ class User extends Authenticatable implements PasskeyUser
      */
     public function hasAccountRole(Account $account, string $roleName): bool
     {
-        if ($this->memberships()->where('account_id', $account->id)
-            ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists()) {
-            return true;
-        }
+        return $this->rememberAuthorizationCheck("hasAccountRole:{$account->id}:{$roleName}", function () use ($account, $roleName): bool {
+            if ($this->memberships()->where('account_id', $account->id)
+                ->whereHas('role', fn ($query) => $query->where('name', $roleName))->exists()) {
+                return true;
+            }
 
-        if ($account->reseller_account_id === null) {
-            return false;
-        }
+            if ($account->reseller_account_id === null) {
+                return false;
+            }
 
-        return $this->hasAccountRole($account->resellerAccount, $roleName);
+            return $this->hasAccountRole($account->resellerAccount, $roleName);
+        });
     }
 
     /**
@@ -102,15 +114,17 @@ class User extends Authenticatable implements PasskeyUser
      */
     public function hasAnyAccountMembership(Account $account): bool
     {
-        if ($this->memberships()->where('account_id', $account->id)->exists()) {
-            return true;
-        }
+        return $this->rememberAuthorizationCheck("hasAnyAccountMembership:{$account->id}", function () use ($account): bool {
+            if ($this->memberships()->where('account_id', $account->id)->exists()) {
+                return true;
+            }
 
-        if ($account->reseller_account_id === null) {
-            return false;
-        }
+            if ($account->reseller_account_id === null) {
+                return false;
+            }
 
-        return $this->hasAnyAccountMembership($account->resellerAccount);
+            return $this->hasAnyAccountMembership($account->resellerAccount);
+        });
     }
 
     /**
@@ -122,8 +136,8 @@ class User extends Authenticatable implements PasskeyUser
      */
     public function hasPermission(string $name): bool
     {
-        return $this->memberships()->whereNull('account_id')
-            ->whereHas('role.permissions', fn ($query) => $query->where('name', $name))->exists();
+        return $this->rememberAuthorizationCheck("hasPermission:{$name}", fn (): bool => $this->memberships()->whereNull('account_id')
+            ->whereHas('role.permissions', fn ($query) => $query->where('name', $name))->exists());
     }
 
     /**
@@ -134,7 +148,25 @@ class User extends Authenticatable implements PasskeyUser
      */
     public function hasNodeAdminGrant(Node $node): bool
     {
-        return $this->isProviderAdmin()
-            || $this->nodeAdminGrants()->where('node_id', $node->id)->exists();
+        return $this->rememberAuthorizationCheck("hasNodeAdminGrant:{$node->id}", fn (): bool => $this->isProviderAdmin()
+            || $this->nodeAdminGrants()->where('node_id', $node->id)->exists());
+    }
+
+    /**
+     * Every method above ran a fresh DB query on every single call, with several of them called
+     * repeatedly within one request (HandleInertiaRequests::share() alone calls three of them on
+     * every page load, before any controller even runs). Memoized per instance, keyed by method
+     * name plus arguments (a single flag per method would be wrong, not just stale:
+     * hasAccountRole()/hasAnyAccountMembership() recurse onto the SAME instance with a DIFFERENT
+     * $account argument for a reseller fallback). Safe for the lifetime of one instance because
+     * this app has no Octane/long-lived worker reusing a User instance across requests, and
+     * nothing in this codebase mutates a membership/role/grant and then re-checks the same check
+     * on the same already-loaded User instance expecting a fresh answer within one request
+     * (confirmed directly before adding this, not assumed) -- every real caller either checks
+     * once per request or checks a freshly-loaded actor.
+     */
+    private function rememberAuthorizationCheck(string $key, Closure $resolve): bool
+    {
+        return $this->authorizationCheckCache[$key] ??= $resolve();
     }
 }
