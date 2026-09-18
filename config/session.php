@@ -169,7 +169,15 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // Forced true in production (this app's own hard HTTPS invariant -- see
+    // AppServiceProvider's URL::forceScheme('https') and bootstrap/app.php's TrustProxies), not
+    // left to fall back on $request->secure() alone: belt-and-suspenders in case TrustProxies is
+    // ever misconfigured for a given deploy's actual proxy topology. Elsewhere (local/testing),
+    // SESSION_SECURE_COOKIE can still override this explicitly if ever needed. Reads APP_ENV
+    // directly via env() rather than app()->isProduction(): this file is required by the
+    // LoadConfiguration bootstrapper before the container's "env" binding is guaranteed to
+    // exist, and calling app()->isProduction() here throws "Target class [env] does not exist."
+    'secure' => env('APP_ENV') === 'production' ? true : env('SESSION_SECURE_COOKIE'),
 
     /*
     |--------------------------------------------------------------------------
