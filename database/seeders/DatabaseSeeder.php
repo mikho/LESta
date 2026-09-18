@@ -21,11 +21,14 @@ class DatabaseSeeder extends Seeder
             PackageSeeder::class,
         ]);
 
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // UserFactory relies on fakerphp/faker, a require-dev-only package: never reachable in
+        // a real production install (composer install --no-dev), and this placeholder login has
+        // no purpose there anyway.
+        if (app()->environment(['local', 'testing'])) {
+            User::factory()->create([
+                'name' => 'Test User',
+                'email' => 'test@example.com',
+            ]);
+        }
     }
 }

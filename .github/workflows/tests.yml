@@ -223,7 +223,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 install.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 install.sh install-cp.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
 
       - name: Root install.sh -- argument validation (help/version/dry-run/invalid invocation)
         run: |
@@ -263,6 +263,22 @@ jobs:
           # Re-running against the same --dest updates in place rather than failing
           # on an already-existing directory.
           ./install.sh --apply --yes --repo "${GITHUB_WORKSPACE}" --ref "${GITHUB_SHA}" --dest /tmp/lesta-sparse-checkout-check
+
+      - name: Root install-cp.sh -- argument validation and wrong-directory guard
+        run: |
+          # This job has no PHP/Composer/Node setup (that belongs to the Pest test
+          # job, which already exercises composer/npm against this same
+          # composer.json/package.json) -- only the shell-level behavior is
+          # checked here: help/version, and refusing to run outside a full
+          # checkout (proven directly against install.sh's own sparse-checkout
+          # output from the step above, which really does lack artisan/composer.json).
+          ./install-cp.sh --help
+          ./install-cp.sh --version
+
+          if (cd /tmp/lesta-sparse-checkout-check && "${GITHUB_WORKSPACE}/install-cp.sh" --yes 2>/dev/null); then
+            echo "expected install-cp.sh to refuse a directory with no artisan/composer.json" >&2
+            exit 1
+          fi
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
