@@ -8,7 +8,7 @@ Full guides — for hosting customers, platform administrators, and setting up i
 
 ## Setting up the control-plane application
 
-This is the actual LESta web app (the admin/tenant control panel) — a standard Laravel 12 + Inertia v3 + React application, backed by MariaDB. It needs the full repository (not the sparse `.install`-only checkout `install.sh` below produces), since it's the application itself.
+This is the actual LESta web app (the admin/tenant control panel) — a standard Laravel 13 + Inertia v3 + React application, backed by MariaDB. It needs the full repository (not the sparse `.install`-only checkout `install.sh` below produces), since it's the application itself.
 
 `install-cp.sh`, at the repository root, guides you through it: `.env` setup, `composer`/`npm` dependencies, a production asset build, and database migrations. It never touches your web server, systemd, or crontab configuration — it prints copy-pasteable guidance for those at the end instead, since they depend on your own setup.
 
@@ -42,7 +42,7 @@ From there, continue with the in-app **Installation Guide** (`/docs/installation
 
 ## Developing the control-plane application
 
-This is a standard Laravel 12 + Inertia v3 + React application.
+This is a standard Laravel 13 + Inertia v3 + React application.
 
 ```sh
 composer install
