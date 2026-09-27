@@ -35,14 +35,24 @@ func userExists(ctx context.Context, cfg Config, username string) (bool, error) 
 }
 
 // createSystemUser execs useradd --system --no-create-home --shell
-// /usr/sbin/nologin <username>. Relying on useradd's own platform default
-// of also creating a same-named primary group (never passing
-// --no-user-group): runner.go's own per-account directory permissions (see
-// Part B.4's own StateRoot/accounts/<username> layout) depend on that
-// primary group existing so chown root:<username> mode 2750 restricts
-// access to this one account's own dedicated Linux user alone.
+// /usr/sbin/nologin --home-dir /public <username>. Relying on useradd's own
+// platform default of also creating a same-named primary group (never
+// passing --no-user-group): runner.go's own per-account directory
+// permissions (see Part B.4's own StateRoot/accounts/<username> layout)
+// depend on that primary group existing so chown root:<username> mode 2750
+// restricts access to this one account's own dedicated Linux user alone.
+//
+// --home-dir /public (not the real host path, --no-create-home means
+// nothing is created at it): sshd's own ChrootDirectory support resolves a
+// session's home directory *after* chrooting, so a passwd entry of
+// "/public" lands an SFTP session directly inside AccountsRoot/<username>/
+// public -- the same directory ensureChrootTree (chroot.go) already
+// creates and chowns to this exact user -- rather than at the chroot root
+// itself, where the tenant would otherwise have to `cd public` by hand on
+// every connection. --no-create-home means useradd never touches this path
+// on disk; it only writes the passwd field.
 func createSystemUser(ctx context.Context, cfg Config, username string) error {
-	cmd := exec.CommandContext(ctx, cfg.useraddBinary(), "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", username)
+	cmd := exec.CommandContext(ctx, cfg.useraddBinary(), "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--home-dir", "/public", username)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

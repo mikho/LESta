@@ -146,12 +146,15 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends exim4-daemon-heavy dovecot-core dovecot-lmtpd dovecot-sieve
 
-      - name: Install openssh-server
-        # This runner image's own `sshd` already on PATH may be a minimal
-        # preinstalled build; explicitly installing the real Ubuntu package
-        # (matching this job's own nginx/bind9/apache2 precedent) is what the
-        # real identity/SFTP capability actually ships against.
-        run: sudo apt-get update && sudo apt-get install -y openssh-server
+      - name: Install openssh-server and openssh-client
+        # This runner image's own `sshd`/`sftp`/`ssh-keygen` already on PATH
+        # may be a minimal preinstalled build; explicitly installing the
+        # real Ubuntu packages (matching this job's own nginx/bind9/apache2
+        # precedent) is what the real identity/SFTP capability actually
+        # ships against. openssh-client (sftp, ssh-keygen) is what identity's
+        # own real-authenticated-session test (TestRealAuthenticatedSftp...)
+        # uses as the real client side, distinct from openssh-server's sshd.
+        run: sudo apt-get update && sudo apt-get install -y openssh-server openssh-client
 
       - name: Install Pebble
         # Let's Encrypt's own official ACME v2 test server (never a live

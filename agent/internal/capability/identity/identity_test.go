@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,23 @@ func requireRootAndUseradd(t *testing.T) {
 	for _, bin := range []string{"useradd", "userdel", "id"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s is not installed on PATH; skipping the real useradd/userdel contract tests", bin)
+		}
+	}
+}
+
+// requireRealSftpClientAndKeygen skips the calling test unless the real
+// sftp and ssh-keygen client binaries are on PATH -- distinct from
+// requireRealSshd (the server side): this is what actually proves a live
+// authenticated session, not just that the capability's own render/
+// validate/reload pipeline runs, per Web Application Hosting Threat Model
+// and Isolation Design.md's own "sshd -t only checks syntax, never a real
+// connection" disclosed limitation.
+func requireRealSftpClientAndKeygen(t *testing.T) {
+	t.Helper()
+
+	for _, bin := range []string{"sftp", "ssh-keygen"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s is not installed on PATH; skipping the real authenticated-SFTP-session contract test", bin)
 		}
 	}
 }
@@ -201,4 +219,115 @@ func TestCreateAndDeleteRoundTripAgainstARealSystemUser(t *testing.T) {
 	deletedAgain, err := capability.Apply(context.Background(), newOp(protocol.OperationDelete, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
 	requireStatus(t, "delete again (idempotent)", deletedAgain, err, protocol.StatusApplied)
+}
+
+// TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot is
+// the one proof this package's own harness_test.go doc comment explicitly
+// disclaims: `sshd -t` never checks that ChrootDirectory's own real
+// ownership requirement holds, only that the config is syntactically
+// valid, so nothing else in this suite proves a live, authenticated
+// session actually succeeds, stays confined, and behaves the way a real
+// tenant's own SFTP client would experience it. Requires real root (for
+// useradd and the chroot's own root-owned tree) and the real sftp/
+// ssh-keygen client binaries -- skips everywhere neither holds, including
+// this Mac.
+func TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot(t *testing.T) {
+	requireRootAndUseradd(t)
+	requireRealSshd(t)
+	requireRealSftpClientAndKeygen(t)
+
+	sshd := newDisposableSshd(t)
+	capability := identity.New(sshd.reloadConfig())
+	resourceID := newTestUUID()
+	username := "lestatest" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+
+	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
+		map[string]any{"username": username}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	t.Cleanup(func() {
+		_ = exec.Command("userdel", username).Run()
+	})
+
+	keyDir := t.TempDir()
+	privateKeyPath := filepath.Join(keyDir, "id_ed25519")
+
+	keygen := exec.Command("ssh-keygen", "-q", "-N", "", "-t", "ed25519", "-f", privateKeyPath)
+	if out, err := keygen.CombinedOutput(); err != nil {
+		t.Fatalf("generating a real client keypair: %v: %s", err, out)
+	}
+
+	publicKey, err := os.ReadFile(privateKeyPath + ".pub")
+	if err != nil {
+		t.Fatalf("reading the generated public key: %v", err)
+	}
+
+	updated, err := capability.Apply(context.Background(), newOp(protocol.OperationUpdate, resourceID, newTestUUID(),
+		map[string]any{"username": username, "ssh_public_key": strings.TrimSpace(string(publicKey))}))
+	requireStatus(t, "update with the real client key", updated, err, protocol.StatusApplied)
+
+	// A local file to round-trip through the real session, plus a distinct
+	// second file placed directly on this host's own real filesystem
+	// outside the chroot entirely, at the exact relative path a broken
+	// chroot would let the session see straight through to.
+	localUpload := filepath.Join(keyDir, "upload.txt")
+	uploadContent := "lesta sftp real round trip " + resourceID
+	if err := os.WriteFile(localUpload, []byte(uploadContent), 0o644); err != nil {
+		t.Fatalf("writing the local file to upload: %v", err)
+	}
+
+	outsideMarkerPath := filepath.Join(t.TempDir(), "outside-marker.txt")
+	if err := os.WriteFile(outsideMarkerPath, []byte("this file must never be reachable from inside the chroot"), 0o644); err != nil {
+		t.Fatalf("writing the outside-chroot marker file: %v", err)
+	}
+
+	localDownload := filepath.Join(keyDir, "download.txt")
+
+	batch := fmt.Sprintf("put %s roundtrip.txt\nget roundtrip.txt %s\nget %s escaped.txt\n", localUpload, localDownload, outsideMarkerPath)
+	batchPath := filepath.Join(keyDir, "batch.txt")
+	if err := os.WriteFile(batchPath, []byte(batch), 0o644); err != nil {
+		t.Fatalf("writing the sftp batch file: %v", err)
+	}
+
+	sftpCmd := exec.Command("sftp",
+		"-b", batchPath,
+		"-i", privateKeyPath,
+		"-P", strconv.Itoa(sshd.Port),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		fmt.Sprintf("%s@127.0.0.1", username),
+	)
+	out, sftpErr := sftpCmd.CombinedOutput()
+
+	// The batch's own second `get` (outsideMarkerPath, a real, existing
+	// file on this host) MUST fail: inside a real chroot, that absolute
+	// path resolves to AccountsRoot/<username>/tmp/.../outside-marker.txt,
+	// which does not exist, so sftp's own batch-mode behavior is to report
+	// that one command's failure in its output and exit non-zero for the
+	// whole batch -- this is the expected, passing outcome, not a test
+	// failure. A batch-mode `sftp` exiting 0 here would mean the chroot
+	// escape attempt actually succeeded: a real, serious finding, not a
+	// flaky test to retry.
+	if sftpErr == nil {
+		t.Fatalf("sftp batch exited 0; expected the chroot-escape get to fail. Full output:\n%s", out)
+	}
+	if !strings.Contains(string(out), "No such file") {
+		t.Fatalf("sftp batch failed, but not with the expected chroot-escape signature (\"No such file\"); it may have failed for an unrelated reason. Full output:\n%s", out)
+	}
+
+	downloaded, err := os.ReadFile(localDownload)
+	if err != nil {
+		t.Fatalf("the real upload/download round trip (roundtrip.txt) never completed despite the batch's later chroot-escape command failing as expected -- reading %s: %v\nFull sftp output:\n%s", localDownload, err, out)
+	}
+	if string(downloaded) != uploadContent {
+		t.Fatalf("downloaded content = %q, want %q (the real round trip corrupted the file)", downloaded, uploadContent)
+	}
+
+	uploadedOnDisk, err := os.ReadFile(filepath.Join(sshd.Config.AccountsRoot, username, "public", "roundtrip.txt"))
+	if err != nil {
+		t.Fatalf("the uploaded file did not land where ensureChrootTree's own public/ directory should have put it: %v", err)
+	}
+	if string(uploadedOnDisk) != uploadContent {
+		t.Fatalf("the file landed on disk, but with wrong content: got %q, want %q", uploadedOnDisk, uploadContent)
+	}
 }
