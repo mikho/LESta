@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers\Domains;
 
+use App\Actions\AccountNodeIdentities\UpdateSshPublicKey;
 use App\Actions\Domains\CreateWebDomain;
 use App\Actions\Domains\DeleteWebDomain;
 use App\Actions\Domains\SuspendWebDomain;
 use App\Actions\Domains\UnsuspendWebDomain;
 use App\Actions\Domains\UpdateWebDomain;
+use App\Actions\Provisioning\EnsuresAccountNodeIdentity;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Domains\StoreWebDomainRequest;
+use App\Http\Requests\Domains\UpdateSshPublicKeyRequest;
 use App\Http\Requests\Domains\UpdateWebDomainRequest;
 use App\Models\WebDomain;
 use Illuminate\Http\RedirectResponse;
@@ -100,11 +103,38 @@ class WebDomainController extends Controller
     {
         Gate::authorize('update', $webDomain);
 
-        $webDomain->load(['aliases', 'latestProvisioningOperation']);
+        $webDomain->load(['aliases', 'latestProvisioningOperation', 'node']);
+
+        // Backfills the identity for a web domain created before this feature existed -- safe
+        // and idempotent to call on every edit view, matching CreateWebDomain's own call site.
+        $identity = app(EnsuresAccountNodeIdentity::class)->handle($webDomain->account, $webDomain->node);
 
         return Inertia::render('domains/edit', [
             'webDomain' => $this->present($webDomain),
+            'sftp' => [
+                'identityUuid' => $identity->uuid,
+                'username' => $identity->system_username,
+                'hasSshPublicKey' => $identity->ssh_public_key !== null,
+            ],
         ]);
+    }
+
+    /**
+     * Set or clear the tenant's own SFTP login key for this web domain's node.
+     */
+    public function updateSshKey(UpdateSshPublicKeyRequest $request, WebDomain $webDomain): RedirectResponse
+    {
+        // Backfills the identity exactly like edit() above -- a client may reasonably submit
+        // this route without ever having loaded the edit page first (a saved bookmark, a
+        // scripted client), and the identity is otherwise guaranteed to exist by the time any
+        // web domain does, per CreateWebDomain's own call site.
+        $identity = app(EnsuresAccountNodeIdentity::class)->handle($webDomain->account, $webDomain->node);
+
+        app(UpdateSshPublicKey::class)->handle($request->user(), $identity, $request->validated('ssh_public_key'));
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('SFTP key updated.')]);
+
+        return to_route('domains.edit', $webDomain);
     }
 
     /**

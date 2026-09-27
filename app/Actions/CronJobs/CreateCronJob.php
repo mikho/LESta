@@ -2,7 +2,7 @@
 
 namespace App\Actions\CronJobs;
 
-use App\Actions\Cron\EnsuresAccountNodeIdentity;
+use App\Actions\Provisioning\EnsuresAccountNodeIdentity;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesCronCapableNode;
 use App\Concerns\EnforcesPackageQuota;

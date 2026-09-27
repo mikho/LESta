@@ -23,9 +23,15 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import domains from '@/routes/domains';
-import type { WebDomain } from '@/types';
+import type { SftpAccess, WebDomain } from '@/types';
 
-export default function Edit({ webDomain }: { webDomain: WebDomain }) {
+export default function Edit({
+    webDomain,
+    sftp,
+}: {
+    webDomain: WebDomain;
+    sftp: SftpAccess;
+}) {
     return (
         <>
             <Head title={`Edit ${webDomain.domain}`} />
@@ -158,6 +164,54 @@ export default function Edit({ webDomain }: { webDomain: WebDomain }) {
                         </>
                     )}
                 </Form>
+
+                <div className="space-y-4 rounded-lg border p-4">
+                    <Heading
+                        variant="small"
+                        title="SFTP access"
+                        description={`Upload files over SFTP as ${sftp.username}, using your own SSH public key. No password login is offered.`}
+                    />
+
+                    <Form
+                        {...WebDomainController.updateSshKey.form(webDomain)}
+                        options={{ preserveScroll: true }}
+                        className="space-y-4"
+                    >
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="ssh_public_key">
+                                        SSH public key
+                                    </Label>
+
+                                    <Textarea
+                                        id="ssh_public_key"
+                                        name="ssh_public_key"
+                                        rows={3}
+                                        placeholder="ssh-ed25519 AAAA... you@example.com"
+                                    />
+
+                                    <p className="text-sm text-muted-foreground">
+                                        {sftp.hasSshPublicKey
+                                            ? 'A key is already on file. Paste a new one to replace it, or submit an empty field to remove it.'
+                                            : 'No key on file yet — SFTP is disabled for this account until one is added.'}
+                                    </p>
+
+                                    <InputError
+                                        message={errors.ssh_public_key}
+                                    />
+                                </div>
+
+                                <Button
+                                    disabled={processing}
+                                    data-test="update-ssh-key-button"
+                                >
+                                    Save key
+                                </Button>
+                            </>
+                        )}
+                    </Form>
+                </div>
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

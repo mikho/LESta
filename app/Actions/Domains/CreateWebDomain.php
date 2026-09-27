@@ -2,6 +2,7 @@
 
 namespace App\Actions\Domains;
 
+use App\Actions\Provisioning\EnsuresAccountNodeIdentity;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesWebCapableNode;
 use App\Concerns\EnforcesPackageQuota;
@@ -47,6 +48,14 @@ class CreateWebDomain
             if ($ipAllocation === null) {
                 throw new NoIpAllocationAvailableException;
             }
+
+            // Lazily ensure this account's own dedicated, per-node Linux system user exists on
+            // $node -- the same prerequisite CreateCronJob already ensures, now also needed here
+            // since a web domain's own future SFTP access (Web Application Hosting Threat Model
+            // and Isolation Design.md) is provisioned against this exact identity. Dispatches
+            // independently of the web domain's own provisioning operations below (eventual
+            // consistency by design, matching CreateCronJob's own established pattern).
+            app(EnsuresAccountNodeIdentity::class)->handle($account, $node);
 
             $webDomain = WebDomain::query()->create([
                 'account_id' => $account->id,

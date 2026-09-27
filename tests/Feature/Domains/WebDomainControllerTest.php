@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Account;
+use App\Models\AccountNodeIdentity;
 use App\Models\IpAllocation;
 use App\Models\Membership;
 use App\Models\Node;
@@ -9,6 +10,20 @@ use App\Models\Package;
 use App\Models\User;
 use App\Models\WebDomain;
 use Inertia\Testing\AssertableInertia as Assert;
+
+/**
+ * Builds a structurally real "ssh-ed25519" authorized_keys line: the actual RFC 4251 wire
+ * format (a 4-byte big-endian length-prefixed "ssh-ed25519" string, then a 4-byte
+ * length-prefixed 32-byte key), base64-encoded -- not a made-up string -- so
+ * App\Rules\ValidSshPublicKey's own structural decode genuinely passes it.
+ */
+function validSshPublicKeyLine(): string
+{
+    $type = 'ssh-ed25519';
+    $blob = pack('N', strlen($type)).$type.pack('N', 32).random_bytes(32);
+
+    return "{$type} ".base64_encode($blob).' test@example.com';
+}
 
 function actingAsOwnerWithWebCapableAccount(): array
 {
@@ -117,4 +132,87 @@ test('destroying a web domain redirects to the index', function () {
         ->assertRedirect(route('domains.index'));
 
     expect(WebDomain::find($webDomain->id))->toBeNull();
+});
+
+test('the edit page backfills a missing account node identity and reports its sftp username', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+
+    expect(AccountNodeIdentity::query()->where('account_id', $account->id)->where('node_id', $node->id)->exists())->toBeFalse();
+
+    $this->actingAs($owner)
+        ->get(route('domains.edit', $webDomain))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('domains/edit')
+            ->where('sftp.username', 'lesta-t'.$account->id)
+            ->where('sftp.hasSshPublicKey', false)
+        );
+
+    expect(AccountNodeIdentity::query()->where('account_id', $account->id)->where('node_id', $node->id)->exists())->toBeTrue();
+});
+
+test('an owner can set their own account\'s ssh public key for a web domain\'s node', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    $key = validSshPublicKeyLine();
+
+    $this->actingAs($owner)
+        ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => $key])
+        ->assertRedirect(route('domains.edit', $webDomain));
+
+    $identity = AccountNodeIdentity::query()->where('account_id', $account->id)->where('node_id', $node->id)->firstOrFail();
+
+    expect($identity->ssh_public_key)->toBe($key);
+});
+
+test('submitting an empty ssh public key clears an existing one', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    $identity = AccountNodeIdentity::factory()->for($account)->for($node)->create(['ssh_public_key' => validSshPublicKeyLine()]);
+
+    $this->actingAs($owner)
+        ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => ''])
+        ->assertRedirect(route('domains.edit', $webDomain));
+
+    expect($identity->refresh()->ssh_public_key)->toBeNull();
+});
+
+test('an invalid ssh public key is rejected with a validation error', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+
+    $this->actingAs($owner)
+        ->from(route('domains.edit', $webDomain))
+        ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => 'not-a-real-key'])
+        ->assertRedirect(route('domains.edit', $webDomain))
+        ->assertSessionHasErrors('ssh_public_key');
+});
+
+test('an ssh key whose declared type does not match its own encoded blob is rejected', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+
+    // Real base64, decodes cleanly, but claims "ssh-rsa" on the command line while the encoded
+    // blob's own wire-format type string still says "ssh-ed25519" -- exactly the structural
+    // mismatch App\Rules\ValidSshPublicKey exists to catch, not just "is this valid base64".
+    $genuineEd25519 = validSshPublicKeyLine();
+    [, $base64] = explode(' ', $genuineEd25519, 3);
+    $spoofed = "ssh-rsa {$base64} test@example.com";
+
+    $this->actingAs($owner)
+        ->from(route('domains.edit', $webDomain))
+        ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => $spoofed])
+        ->assertRedirect(route('domains.edit', $webDomain))
+        ->assertSessionHasErrors('ssh_public_key');
+});
+
+test('a non-owner member cannot update the account\'s ssh public key', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    $member = Membership::factory()->for($account)->member()->create()->user;
+
+    $this->actingAs($member)
+        ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => validSshPublicKeyLine()])
+        ->assertForbidden();
 });

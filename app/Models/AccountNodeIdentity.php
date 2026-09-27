@@ -14,21 +14,36 @@ use Illuminate\Support\Carbon;
 /**
  * A tenant account's own dedicated, per-node Linux system user
  * (system.account-identity.v1), created lazily the first time that account
- * gets a cron job on a node (see App\Actions\Cron\EnsuresAccountNodeIdentity).
- * Only a provider admin may ever manage this resource directly (see
+ * gets a cron job or a web domain on a node (see
+ * App\Actions\Provisioning\EnsuresAccountNodeIdentity). Only a provider
+ * admin may ever manage this resource directly (see
  * AccountNodeIdentityPolicy): a tenant account never sees or controls its
- * own OS-level identity, it is purely provisioning infrastructure.
+ * own OS-level identity in general, it is purely provisioning
+ * infrastructure -- with one narrow, deliberate exception:
+ * $ssh_public_key is the tenant's own SFTP login credential, writable by
+ * the account's owner via the dedicated App\Actions\AccountNodeIdentities\
+ * UpdateSshPublicKey action (never through general update/patch on this
+ * model), mirroring how a MailAccount's password is tenant-writable even
+ * though the OS mail user underneath it is infrastructure the tenant never
+ * touches directly. Storing the key here does not yet make it do anything
+ * on a node: no provisioning operation is dispatched for it until the real
+ * SFTP capability (step 2 of the isolation design's own build sequence)
+ * exists to apply it -- system.account-identity.v1's own Go capability
+ * still only implements create/delete (see agent/internal/capability/
+ * identity/capability.go's own doc comment for why update was deliberately
+ * unsupported before this field existed).
  *
  * @property int $id
  * @property string $uuid
  * @property int $account_id
  * @property int $node_id
  * @property string $system_username
+ * @property string|null $ssh_public_key
  * @property int $desired_state_version
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['uuid', 'account_id', 'node_id', 'system_username', 'desired_state_version'])]
+#[Fillable(['uuid', 'account_id', 'node_id', 'system_username', 'ssh_public_key', 'desired_state_version'])]
 class AccountNodeIdentity extends Model implements ProviderAdminManaged
 {
     /** @use HasFactory<AccountNodeIdentityFactory> */

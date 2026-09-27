@@ -124,7 +124,14 @@ test('creating a web domain with the default web_server produces exactly one ngi
 
     $webDomain = app(CreateWebDomain::class)->handle($owner, $account, ['domain' => 'example.com']);
 
-    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)->get();
+    // Scoped by provisionable_type too, not just provisionable_id: CreateWebDomain now also
+    // lazily dispatches a system.account-identity.v1 create operation (EnsuresAccountNodeIdentity,
+    // Web Application Hosting Threat Model and Isolation Design.md step 1), whose own row could
+    // otherwise coincidentally share this WebDomain's own auto-increment id in a fresh test
+    // database and get counted here by accident.
+    $operations = ProvisioningOperation::where('provisionable_type', $webDomain->getMorphClass())
+        ->where('provisionable_id', $webDomain->id)
+        ->get();
 
     expect($webDomain->web_server)->toBe(WebServer::Nginx)
         ->and($operations)->toHaveCount(1)
@@ -145,7 +152,11 @@ test('creating a web domain with web_server apache on a both-profile node provis
         'web_server' => 'apache',
     ]);
 
-    $operations = ProvisioningOperation::where('provisionable_id', $webDomain->id)->orderBy('id')->get();
+    // See the previous test's own comment on why provisionable_type is filtered too.
+    $operations = ProvisioningOperation::where('provisionable_type', $webDomain->getMorphClass())
+        ->where('provisionable_id', $webDomain->id)
+        ->orderBy('id')
+        ->get();
 
     expect($webDomain->web_server)->toBe(WebServer::Apache)
         ->and($operations)->toHaveCount(2)

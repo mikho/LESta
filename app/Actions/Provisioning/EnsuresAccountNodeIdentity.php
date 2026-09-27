@@ -1,8 +1,7 @@
 <?php
 
-namespace App\Actions\Cron;
+namespace App\Actions\Provisioning;
 
-use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Enums\ProvisioningVerb;
 use App\Models\Account;
 use App\Models\AccountNodeIdentity;
@@ -18,11 +17,13 @@ class EnsuresAccountNodeIdentity
     /**
      * Return $account's own AccountNodeIdentity on $node, creating it (and dispatching its own
      * system.account-identity.v1 create ProvisioningOperation) the first time this pair is ever
-     * seen. Called from CreateCronJob before it records the cron job's own provisioning
-     * operation: the two dispatch independently (eventual consistency by design, per this
-     * phase's own explicit scope boundary; see this method's own doc comment on why no blocking
-     * dependency between the two operations is built), but are always issued in this order, so
-     * the identity operation's own dispatched_at is always at or before the cron job's own.
+     * seen. Called from both CreateCronJob and CreateWebDomain before either records its own
+     * resource's provisioning operation (moved out of the Cron namespace once a second, unrelated
+     * vertical started calling it too -- see Web Application Hosting Threat Model and Isolation
+     * Design.md step 1): the two always dispatch independently (eventual consistency by design,
+     * this project's own established pattern for a lazily-provisioned prerequisite), but are
+     * always issued in this order, so the identity operation's own dispatched_at is always at or
+     * before the resource's own.
      */
     public function handle(Account $account, Node $node): AccountNodeIdentity
     {

@@ -9,6 +9,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('domains', [WebDomainController::class, 'store'])->name('domains.store');
     Route::get('domains/{webDomain}/edit', [WebDomainController::class, 'edit'])->name('domains.edit');
     Route::put('domains/{webDomain}', [WebDomainController::class, 'update'])->name('domains.update');
+    Route::put('domains/{webDomain}/ssh-key', [WebDomainController::class, 'updateSshKey'])->name('domains.update-ssh-key');
     Route::delete('domains/{webDomain}', [WebDomainController::class, 'destroy'])->name('domains.destroy');
     Route::post('domains/{webDomain}/suspend', [WebDomainController::class, 'suspend'])->name('domains.suspend');
     Route::post('domains/{webDomain}/unsuspend', [WebDomainController::class, 'unsuspend'])->name('domains.unsuspend');

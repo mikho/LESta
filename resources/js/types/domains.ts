@@ -26,3 +26,9 @@ export type WebDomain = {
     suspension_source: SuspensionSource | null;
     provisioning_status: ProvisioningStatus | null;
 };
+
+export type SftpAccess = {
+    identityUuid: string;
+    username: string;
+    hasSshPublicKey: boolean;
+};
