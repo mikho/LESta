@@ -296,7 +296,7 @@ add rather than an automatic change to files it does not own:
 
          location ~ \.php\$ {
              include snippets/fastcgi-php.conf;
-             fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+             fastcgi_pass unix:/run/php/php8.4-fpm.sock;
          }
 
          location ~ /\.(?!well-known).* {
