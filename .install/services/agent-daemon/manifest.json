@@ -13,9 +13,13 @@
       "/etc/lesta/agent/node-credential",
       "/etc/lesta/agent/daemon-config.json",
       "/etc/systemd/system/lesta-agent-daemon.service",
-      "/var/lib/lesta/agent/daemon-state"
+      "/var/lib/lesta/agent/daemon-state",
+      "/etc/ssh/sshd_config.d/00-lesta.conf",
+      "/etc/ssh/sshd_config.d/lesta.d",
+      "/etc/lesta/sftp/authorized_keys",
+      "/var/lib/lesta/web/accounts"
     ],
-    "read_only_roots": [],
+    "read_only_roots": ["/etc/ssh/sshd_config"],
     "refused_roots": []
   }
 }

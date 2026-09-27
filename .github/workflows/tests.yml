@@ -146,6 +146,13 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends exim4-daemon-heavy dovecot-core dovecot-lmtpd dovecot-sieve
 
+      - name: Install openssh-server
+        # This runner image's own `sshd` already on PATH may be a minimal
+        # preinstalled build; explicitly installing the real Ubuntu package
+        # (matching this job's own nginx/bind9/apache2 precedent) is what the
+        # real identity/SFTP capability actually ships against.
+        run: sudo apt-get update && sudo apt-get install -y openssh-server
+
       - name: Install Pebble
         # Let's Encrypt's own official ACME v2 test server (never a live
         # third-party service), matching this job's own real-binary
@@ -193,6 +200,24 @@ jobs:
         # job just installed, despite this step's own name and every one of
         # this repository's real-capability tests appearing to pass.
         run: go test -count=1 ./...
+
+      - name: Test identity's real useradd/userdel/chroot/sshd round trip as root
+        # A second, previously-undiscovered instance of exactly the class of
+        # gap this job's own preceding "-count=1" fix already closed once:
+        # identity_test.go's requireRootAndUseradd skips unless
+        # os.Geteuid() == 0, but this job's default runner user is never
+        # root (it has passwordless sudo, which is a different thing) --
+        # meaning TestCreateAndDeleteRoundTripAgainstARealSystemUser has
+        # skipped, silently, in every run of this job since the identity
+        # capability was first built (Phase 21), never once actually
+        # exercising a real useradd/userdel/chroot/sshd round trip in CI.
+        # sudo is what actually closes it: the plain "go test -count=1 ./..."
+        # step above stays as the unprivileged baseline every other
+        # capability in this module needs (none of the rest require root),
+        # and this step runs only the one package that does, for real, as
+        # root, with -count=1 for the identical caching reason.
+        working-directory: agent
+        run: sudo env "PATH=$PATH" go test -count=1 ./internal/capability/identity/... -v
 
   installer:
     runs-on: ubuntu-latest

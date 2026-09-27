@@ -71,6 +71,18 @@ AGENT_DAEMON_MANIFEST="${INSTALL_ROOT}/services/agent-daemon/manifest.json"
 
 AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 
+# system.account-identity.v1's own real SFTP rendering targets (Web
+# Application Hosting Threat Model and Isolation Design.md step 2b) --
+# bootstrapped here rather than under a dedicated leaf-service installer of
+# their own, since (like agent-daemon itself) they are required-once-per-
+# node infrastructure, not tied to any single leaf capability.
+SFTP_SSHD_CONFIG_PATH="/etc/ssh/sshd_config"
+SFTP_SSHD_CONFIG_D="/etc/ssh/sshd_config.d"
+SFTP_LESTA_CONF_PATH="${SFTP_SSHD_CONFIG_D}/00-lesta.conf"
+SFTP_LESTA_LIVE_DIR="${SFTP_SSHD_CONFIG_D}/lesta.d"
+SFTP_AUTHORIZED_KEYS_DIR="/etc/lesta/sftp/authorized_keys"
+SFTP_ACCOUNTS_ROOT="/var/lib/lesta/web/accounts"
+
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
 # comment).
@@ -301,6 +313,20 @@ run_preflight() {
     # declares ports: [], and the daemon never binds a network listener.
     preflight_check_lesta_identity || failed=1
 
+    # Ubuntu 24.04/26.04's own stock sshd_config already ships
+    # `Include /etc/ssh/sshd_config.d/*.conf` (confirmed directly against a
+    # real image, not assumed) -- unlike nginx/bind9/apache's own main
+    # config, this installer never needs to add the line itself, only
+    # refuse to proceed if a hardened or customized sshd_config removed it,
+    # mirroring those three installers' own "detect, never silently edit an
+    # operator-owned file" boundary exactly.
+    if ! check_lesta_include_present "${SFTP_SSHD_CONFIG_PATH}" "${SFTP_SSHD_CONFIG_D}/*.conf" "Include"; then
+        add_error sshd_config_missing_include \
+            "${SFTP_SSHD_CONFIG_PATH} has no \"Include ${SFTP_SSHD_CONFIG_D}/*.conf\" line -- Ubuntu ships this by default; if it was removed, add it back by hand inside ${SFTP_SSHD_CONFIG_PATH} before continuing. This installer never writes to ${SFTP_SSHD_CONFIG_PATH} itself." \
+            "${SFTP_SSHD_CONFIG_PATH}"
+        failed=1
+    fi
+
     if [ "${failed}" -ne 0 ]; then
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
     fi
@@ -432,6 +458,73 @@ bootstrap_agent_daemon() {
     log_info "bootstrap_agent_daemon complete"
 }
 
+# bootstrap_sftp_prerequisite prepares the fixed, node-wide targets
+# system.account-identity.v1's own real SFTP rendering (agent/internal/
+# capability/identity) needs before its first real Apply call: the
+# per-account Match-block directory, the centralized authorized_keys
+# directory, the chroot accounts root, and the one static, one-time
+# sshd_config.d file that points sshd at all three. Idempotent like every
+# other bootstrap_* here: re-running this installer detects the file
+# already being in place and only verifies it, never re-writing it
+# needlessly.
+bootstrap_sftp_prerequisite() {
+    log_info "bootstrap_sftp_prerequisite: preparing system.account-identity.v1's own real SFTP rendering targets"
+
+    install -d -m 0755 -o root -g root "${SFTP_LESTA_LIVE_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_LESTA_LIVE_DIR}" "failed to create ${SFTP_LESTA_LIVE_DIR}"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_LESTA_LIVE_DIR}" "per-account sshd Match-block directory present, mode 0755 root:root"
+
+    install -d -m 0755 -o root -g root "${SFTP_AUTHORIZED_KEYS_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_AUTHORIZED_KEYS_DIR}" "failed to create ${SFTP_AUTHORIZED_KEYS_DIR}"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_AUTHORIZED_KEYS_DIR}" "centralized authorized_keys directory present, mode 0755 root:root"
+
+    # 0755, not the account subdirectory's own tighter 0750 (see
+    # ensureChrootTree's own doc comment in the Go capability): this exact
+    # root has no tenant-owned content of its own, only per-account
+    # subdirectories the Go capability creates and owns individually on
+    # first use.
+    install -d -m 0755 -o root -g root "${SFTP_ACCOUNTS_ROOT}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_ACCOUNTS_ROOT}" "failed to create ${SFTP_ACCOUNTS_ROOT}"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_ACCOUNTS_ROOT}" "chroot accounts root present, mode 0755 root:root"
+
+    if [ -f "${SFTP_LESTA_CONF_PATH}" ] && grep -qF "${SFTP_LESTA_LIVE_DIR}" "${SFTP_LESTA_CONF_PATH}"; then
+        add_change "${AGENT_DAEMON_CAPABILITY}" verified "${SFTP_LESTA_CONF_PATH}" "already present from a prior apply"
+        log_info "bootstrap_sftp_prerequisite complete (already applied)"
+
+        return 0
+    fi
+
+    cat > "${SFTP_LESTA_CONF_PATH}.tmp" <<SSHDCONF
+AuthorizedKeysFile ${SFTP_AUTHORIZED_KEYS_DIR}/%u
+Include ${SFTP_LESTA_LIVE_DIR}/*.conf
+SSHDCONF
+    chmod 0644 "${SFTP_LESTA_CONF_PATH}.tmp"
+
+    # Same-directory rename: atomic, and sshd_config.d's own glob only ever
+    # sees the final name.
+    mv "${SFTP_LESTA_CONF_PATH}.tmp" "${SFTP_LESTA_CONF_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SFTP_LESTA_CONF_PATH}" "failed to activate ${SFTP_LESTA_CONF_PATH}"
+
+    # Validated against the real, live sshd_config (not a scratch copy):
+    # unlike the Go capability's own per-account validate.go, which always
+    # tests a candidate without disturbing the live config, this file is
+    # itself the one-time global prerequisite being activated for real, so
+    # there is no "candidate" version of the overall config to test instead.
+    if ! sshd -t; then
+        rm -f "${SFTP_LESTA_CONF_PATH}"
+        fail_step "${EXIT_MUTATION_FAILURE}" sshd_config_invalid "${SFTP_SSHD_CONFIG_PATH}" "sshd -t rejected the real sshd_config after writing ${SFTP_LESTA_CONF_PATH}; the file was removed"
+    fi
+
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SFTP_LESTA_CONF_PATH}" "one-time global AuthorizedKeysFile + Include directive written and validated"
+
+    systemctl reload ssh \
+        || fail_step "${EXIT_HEALTH_FAILURE}" sshd_reload_failed "" "systemctl reload ssh failed after writing ${SFTP_LESTA_CONF_PATH}"
+    add_change "${AGENT_DAEMON_CAPABILITY}" healthy "" "systemctl reload ssh succeeded"
+
+    checkpoint_write bootstrap_sftp_prerequisite "${MANIFEST_DIGEST}"
+    log_info "bootstrap_sftp_prerequisite complete"
+}
+
 # --- main -------------------------------------------------------------
 
 main() {
@@ -468,6 +561,7 @@ main() {
     # "phase 2" comment above.
     bootstrap_node_health
     bootstrap_agent_daemon
+    bootstrap_sftp_prerequisite
 
     checkpoint_remove
     release_write "${RELEASE_ID}" "${MANIFEST_DIGEST}"
