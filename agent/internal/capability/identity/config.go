@@ -40,10 +40,13 @@ type Config struct {
 	// AuthorizedKeysDir is where each account's own single-line
 	// authorized_keys file lives, named <username> (sshd's global
 	// AuthorizedKeysFile directive, rendered once into SftpConfigDir's own
-	// static prerequisite file, points here via a %u substitution) --
-	// centralized rather than per-home-directory ~/.ssh/authorized_keys,
-	// since every account's own Linux user is created --no-create-home.
-	// Production: /etc/lesta/sftp/authorized_keys.
+	// static prerequisite file, adds this path via a %u substitution
+	// alongside the default ".ssh/authorized_keys" -- not in place of it,
+	// since every other account on the box still needs its own default
+	// lookup to keep working) -- centralized rather than
+	// per-home-directory ~/.ssh/authorized_keys, since every account's own
+	// Linux user is created --no-create-home. Production:
+	// /etc/lesta/sftp/authorized_keys.
 	AuthorizedKeysDir string
 	// StateRoot is the root generation history nests under (e.g.
 	// /var/lib/lesta/identity). Generations live at

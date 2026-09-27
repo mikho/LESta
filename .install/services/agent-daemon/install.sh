@@ -494,8 +494,18 @@ bootstrap_sftp_prerequisite() {
         return 0
     fi
 
+    # AuthorizedKeysFile takes multiple whitespace-separated paths and stops
+    # at the first that resolves to a real key -- ".ssh/authorized_keys"
+    # first keeps every non-LESta account (root, other admins) on its own
+    # default lookup exactly as before this file existed. Writing only the
+    # second path here was a real bug, found deploying to a real box for the
+    # first time: it silently replaced sshd's global default instead of
+    # extending it, breaking key auth for every account that isn't a LESta
+    # tenant identity -- invisible in CI, whose disposable sshd instance
+    # (harness_test.go) sets PermitRootLogin no and never has a competing
+    # admin account to break.
     cat > "${SFTP_LESTA_CONF_PATH}.tmp" <<SSHDCONF
-AuthorizedKeysFile ${SFTP_AUTHORIZED_KEYS_DIR}/%u
+AuthorizedKeysFile .ssh/authorized_keys ${SFTP_AUTHORIZED_KEYS_DIR}/%u
 Include ${SFTP_LESTA_LIVE_DIR}/*.conf
 SSHDCONF
     chmod 0644 "${SFTP_LESTA_CONF_PATH}.tmp"
