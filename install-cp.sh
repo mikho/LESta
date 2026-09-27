@@ -123,10 +123,12 @@ require_php_version() {
     php_major=$(printf '%s' "${php_version}" | cut -d. -f1)
     php_minor=$(printf '%s' "${php_version}" | cut -d. -f2)
 
-    # composer.json's own real constraint ("php": "^8.3"), not the 8.4 this
-    # project otherwise develops against -- checked here, not assumed.
-    if [ "${php_major}" -lt 8 ] || { [ "${php_major}" -eq 8 ] && [ "${php_minor}" -lt 3 ]; }; then
-        printf 'install-cp.sh: PHP %s found, but composer.json requires ^8.3.\n' "${php_version}" >&2
+    # composer.json's own real constraint ("php": "^8.4") -- checked here,
+    # not assumed. composer.lock's locked symfony/lcobucci versions already
+    # require PHP >=8.4.1 for a production (--no-dev) install, so ^8.4 is
+    # the actual floor, not just what CI happens to run.
+    if [ "${php_major}" -lt 8 ] || { [ "${php_major}" -eq 8 ] && [ "${php_minor}" -lt 4 ]; }; then
+        printf 'install-cp.sh: PHP %s found, but composer.json requires ^8.4.\n' "${php_version}" >&2
         exit "${EXIT_UNSUPPORTED_PLATFORM}"
     fi
 }
