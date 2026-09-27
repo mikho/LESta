@@ -540,21 +540,37 @@ func metricsProductionConfig() metrics.Config {
 	}
 }
 
-// identityProductionConfig points at the real useradd/userdel/id binaries
-// system.account-identity.v1 execs. Mirroring every other capability's own
-// *Binary field: these are fixed, non-configurable literals (see
-// internal/capability/identity/config.go's own Config doc comment), not
-// environment overrides, since each is passed straight into an exec.Command
-// call. There is no StateRoot here at all: unlike every other capability in
-// this module, this one keeps no generation history or served file tree of
-// its own (see internal/capability/identity's own package doc comment on
-// why) -- its only state is the OS's own /etc/passwd, which useradd/userdel/
-// id already own outright.
+// identityProductionConfig points at the real useradd/userdel/id/sshd
+// binaries and paths system.account-identity.v1 execs against and renders
+// into. Mirroring every other capability's own *Binary field: these are
+// fixed, non-configurable literals, not environment overrides.
+//
+// SftpConfigDir sits one level below /etc/ssh/sshd_config.d itself (rather
+// than directly in it, the way nginx's LiveDir sits directly under
+// /etc/nginx): Ubuntu 24.04/26.04's own stock sshd_config already ships
+// `Include /etc/ssh/sshd_config.d/*.conf`, so a one-time, LESta-owned static
+// file at /etc/ssh/sshd_config.d/00-lesta.conf (written once by this node's
+// own agent-daemon installer, not by this capability) is what actually
+// nests a second `Include .../lesta.d/*.conf` beneath it -- unlike nginx/
+// bind9/apache, no manual operator edit to a file LESta doesn't own is ever
+// needed, since dropping a brand-new file under an already-included
+// directory requires no edit to sshd_config itself at all. SshdConfigPath
+// still points at the real, read-only main /etc/ssh/sshd_config: that file
+// is what validate.go's own synthetic-config harness copies and rewrites
+// the Include line of, exactly mirroring nginx's own NginxConfPath.
 func identityProductionConfig() identity.Config {
 	return identity.Config{
-		UseraddBinary: "useradd",
-		UserdelBinary: "userdel",
-		IDBinary:      "id",
+		UseraddBinary:     "useradd",
+		UserdelBinary:     "userdel",
+		IDBinary:          "id",
+		AccountsRoot:      "/var/lib/lesta/web/accounts",
+		SftpConfigDir:     "/etc/ssh/sshd_config.d/lesta.d",
+		AuthorizedKeysDir: "/etc/lesta/sftp/authorized_keys",
+		StateRoot:         "/var/lib/lesta/identity",
+		SshdBinary:        "sshd",
+		SshdConfigPath:    "/etc/ssh/sshd_config",
+		Port:              22,
+		ReloadCommand:     []string{"systemctl", "reload", "ssh"},
 	}
 }
 

@@ -25,13 +25,12 @@ use Illuminate\Support\Carbon;
  * UpdateSshPublicKey action (never through general update/patch on this
  * model), mirroring how a MailAccount's password is tenant-writable even
  * though the OS mail user underneath it is infrastructure the tenant never
- * touches directly. Storing the key here does not yet make it do anything
- * on a node: no provisioning operation is dispatched for it until the real
- * SFTP capability (step 2 of the isolation design's own build sequence)
- * exists to apply it -- system.account-identity.v1's own Go capability
- * still only implements create/delete (see agent/internal/capability/
- * identity/capability.go's own doc comment for why update was deliberately
- * unsupported before this field existed).
+ * touches directly. Real since step 2 of the isolation design's own build
+ * sequence: system.account-identity.v1's Go capability now renders a real
+ * sshd Match block plus authorized_keys file per account (see
+ * agent/internal/capability/identity/capability.go), so UpdateSshPublicKey
+ * dispatches a real Update ProvisioningOperation, not just a database
+ * write.
  *
  * @property int $id
  * @property string $uuid
@@ -109,14 +108,21 @@ class AccountNodeIdentity extends Model implements ProviderAdminManaged
 
     /**
      * Shape the desired-state payload sent to a provisioner, matching
-     * system.account-identity.v1's own Go payload shape exactly.
+     * system.account-identity.v1's own Go Payload shape exactly
+     * (agent/internal/capability/identity/payload.go). ssh_public_key is
+     * included even when null: the Go side's own ParsePayload reads a
+     * missing/null key as "no key on file", never as "leave whatever was
+     * there before" -- every dispatch, create included, is a complete
+     * desired-state statement, matching every other capability's own
+     * payload discipline.
      *
-     * @return array{username: string}
+     * @return array{username: string, ssh_public_key: string|null}
      */
     public function toProvisioningPayload(): array
     {
         return [
             'username' => $this->system_username,
+            'ssh_public_key' => $this->ssh_public_key,
         ];
     }
 }

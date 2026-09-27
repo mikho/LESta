@@ -7,6 +7,7 @@ use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
+use App\Models\ProvisioningOperation;
 use App\Models\User;
 use App\Models\WebDomain;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -164,6 +165,16 @@ test('an owner can set their own account\'s ssh public key for a web domain\'s n
     $identity = AccountNodeIdentity::query()->where('account_id', $account->id)->where('node_id', $node->id)->firstOrFail();
 
     expect($identity->ssh_public_key)->toBe($key);
+
+    $updateOperation = ProvisioningOperation::query()
+        ->where('provisionable_type', $identity->getMorphClass())
+        ->where('provisionable_id', $identity->id)
+        ->where('operation', 'update')
+        ->first();
+
+    expect($updateOperation)->not->toBeNull()
+        ->and($updateOperation->capability)->toBe('system.account-identity.v1')
+        ->and($updateOperation->payload['ssh_public_key'])->toBe($key);
 });
 
 test('submitting an empty ssh public key clears an existing one', function () {
