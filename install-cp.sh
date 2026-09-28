@@ -284,9 +284,26 @@ add rather than an automatic change to files it does not own:
 
 1. Web server (nginx + php-fpm example; document root MUST be public/, never the repo root):
 
+   If this same server also runs any hosting-node service (the single-node
+   default), put this app on its own port (8443 shown) instead of 443 --
+   nginx can multiplex it with every tenant WebDomain's own vhost on 443 via
+   SNI, but keeping the admin/management interface off the tenant-facing
+   port is worth doing anyway, and costs nothing on a node with spare ports.
+   Match APP_URL above to whichever port you actually use. Running this app
+   standalone, with nothing else on this server? Skip the redirect block and
+   use plain "listen 443 ssl;" directly instead.
+
      server {
          listen 80;
          server_name your-lesta-domain.example;
+         return 301 https://\$host:8443\$request_uri;
+     }
+
+     server {
+         listen 8443 ssl;
+         server_name your-lesta-domain.example;
+         ssl_certificate     /path/to/your/certificate.crt;
+         ssl_certificate_key /path/to/your/certificate.key;
          root ${app_dir}/public;
          index index.php;
 
