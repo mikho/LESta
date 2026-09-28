@@ -29,23 +29,23 @@ func (c *NginxCapability) validateCandidate(ctx context.Context, resourceID stri
 	}
 	defer cleanup()
 
-	// nginx resolves every relative path in the config (e.g. a stock
-	// `include snippets/fastcgi-php.conf;` in some other, non-LESta-managed
-	// site nginx.conf's own `include sites-enabled/*;` line pulls in) against
-	// its "prefix", not against wherever -c's file happens to live. c.cfg.Prefix
-	// is empty in production (commandArgs then omits -p entirely, correct for
-	// reload/-c NginxConfPath, since that file really does live under the
-	// real prefix) -- but here -c points at a synthetic file under a scratch
-	// tmpDir, so omitting -p makes nginx resolve those other sites' relative
-	// includes against tmpDir instead of the real prefix, rejecting a
-	// perfectly valid live config. Explicit -p keeps validation's own
-	// resolution identical to what reload would see for the same real files.
-	prefix := c.cfg.Prefix
-	if prefix == "" {
-		prefix = filepath.Dir(c.cfg.NginxConfPath)
-	}
-
-	args := append([]string{"-p", prefix}, "-t", "-c", syntheticConfPath)
+	// NOTE on relative paths in some OTHER, non-LESta-managed site's own
+	// config (e.g. a stock `include snippets/fastcgi-php.conf;` inside a
+	// hand-authored vhost that coexists in sites-enabled/ on a combined
+	// control-plane+node deployment): nginx resolves a relative include
+	// against the directory portion of whatever path was given to -c, never
+	// against -p (confirmed directly against a real nginx binary -- -p had
+	// zero effect here, contrary to what an earlier version of this comment
+	// claimed). Since -c always points at a synthetic file under a scratch
+	// tmpDir here, any coexisting site with a relative include of its own
+	// will fail this validation no matter what flags are added -- there is
+	// no fix on this side of the boundary. The real fix is operational: any
+	// hand-authored site sharing a node with LESta's own managed fragments
+	// must use absolute include paths (documented in the Installation
+	// Guide's own Chapter 11 template). Every path LESta itself ever writes
+	// into a fragment is already absolute, so this only affects config this
+	// capability does not own.
+	args := c.cfg.commandArgs("-t", "-c", syntheticConfPath)
 
 	cmd := exec.CommandContext(ctx, c.cfg.nginxBinary(), args...)
 	out, err := cmd.CombinedOutput()

@@ -627,8 +627,18 @@ install_bind9() {
     # filename/content as agent/internal/capability/bind9/validate.go's own
     # ensurePlaceholderFragment, so its own idempotent glob check sees this
     # file as already-present and does nothing later.
-    install -d -m 0755 "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
-    add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0755"
+    # 0770 root:lesta, not plain root:root 0755 -- the real running
+    # lesta-agent-daemon (User=lesta-agent, group lesta) is the process that
+    # actually has to write each zone's own fragment in here for a real
+    # create/update/delete, not just the root-invoked one-shot self-test
+    # below, which masked this for a long time by running privileged. named
+    # itself reads its config as root before dropping to the bind user
+    # (Ubuntu's own /etc/default/bind9 OPTIONS="-u bind"), same as
+    # nginx/apache's own master-process pattern, so root:lesta stays
+    # readable to it. Confirmed directly (root:root 0755 left the daemon's
+    # own user unable to even touch a file here), not assumed.
+    install -d -m 0770 -o root -g lesta "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
+    add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
 
     if [ -z "$(find "${BIND9_LIVE_DIR}" -maxdepth 1 -name '*.conf' -print -quit 2>/dev/null)" ]; then
         cat > "${BIND9_LIVE_DIR}/_lesta-placeholder.conf" <<'PLACEHOLDER'

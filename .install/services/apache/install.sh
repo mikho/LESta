@@ -791,9 +791,16 @@ install_apache() {
         log_info "AppArmor local override file for apache2 not present (${apache_apparmor_local}); assuming AppArmor is not enforcing apache2 on this host, skipping"
     fi
 
-    install -d -m 0755 "${APACHE_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
+    # 0770 root:lesta, not plain root:root 0755 -- the real running
+    # lesta-agent-daemon (User=lesta-agent, group lesta) is the process that
+    # actually has to write each resource's own fragment in here for a real
+    # create/update/delete, not just the root-invoked one-shot self-test
+    # below, which masked this for a long time by running privileged.
+    # Confirmed directly (root:root 0755 left the daemon's own user unable
+    # to even touch a file here), not assumed.
+    install -d -m 0770 -o root -g lesta "${APACHE_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
     install -d -m 0750 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
-    add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0755"
+    add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
     add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0750 root:lesta"
 
     # APACHE_LOG_DIR must exist before apache2ctl configtest below: every

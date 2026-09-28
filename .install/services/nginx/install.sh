@@ -728,9 +728,16 @@ install_nginx() {
         add_change web.nginx.v1 installed "" "apt-get install -y nginx succeeded; dpkg-query reports version ${installed_version}. ${deb_note}"
     fi
 
-    install -d -m 0755 "${NGINX_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
+    # 0770 root:lesta, not plain root:root 0755 -- the real running
+    # lesta-agent-daemon (User=lesta-agent, group lesta) is the process that
+    # actually has to write each resource's own fragment in here for a real
+    # create/update/delete, not just the root-invoked one-shot self-test
+    # below, which masked this for a long time by running privileged.
+    # Confirmed directly (root:root 0755 left the daemon's own user unable
+    # to even touch a file here), not assumed.
+    install -d -m 0770 -o root -g lesta "${NGINX_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
     install -d -m 0750 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
-    add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0755"
+    add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
     add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0750 root:lesta"
 
     # NGINX_LOG_DIR must exist before nginx -t below: every rendered vhost's
