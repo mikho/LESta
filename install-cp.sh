@@ -295,7 +295,19 @@ add rather than an automatic change to files it does not own:
          }
 
          location ~ \.php\$ {
-             include snippets/fastcgi-php.conf;
+             # Not "include snippets/fastcgi-php.conf;": if this same server
+             # also runs the nginx hosting-node capability (the single-node
+             # default), that stock file's own nested relative include
+             # breaks web.nginx.v1's own config validation for every other
+             # resource on the node. Inlined here instead; see the
+             # Installation Guide's Chapter 11 for why.
+             fastcgi_split_path_info ^(.+?\\.php)(/.*)\$;
+             try_files \$fastcgi_script_name =404;
+             set \$path_info \$fastcgi_path_info;
+             fastcgi_param PATH_INFO \$path_info;
+             fastcgi_index index.php;
+             include /etc/nginx/fastcgi_params;
+             fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
              fastcgi_pass unix:/run/php/php8.4-fpm.sock;
          }
 
