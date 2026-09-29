@@ -207,6 +207,15 @@ configure_env_file() {
     set_env_value APP_URL "${app_url}"
     set_env_value APP_ENV "production"
     set_env_value APP_DEBUG "false"
+    # config/provisioning.php's own default ("fake", never touches a real
+    # node, always reports success) is correct for automated tests, never
+    # for a real deployment -- found the hard way deploying to a real node
+    # for the first time: every provisioning operation silently no-ops and
+    # reports success regardless. Forced explicitly here rather than
+    # relying solely on .env.example's own default, since an existing .env
+    # created before this fix (or by some other means) would otherwise
+    # keep silently defaulting to fake forever.
+    set_env_value PROVISIONING_DRIVER "daemon"
 
     if [ -r "${CONTROL_PLANE_CREDENTIALS_FILE}" ]; then
         printf 'install-cp.sh: found %s (written by .install/services/mariadb/install.sh on this node) -- using its real, generated DB credentials instead of asking.\n' "${CONTROL_PLANE_CREDENTIALS_FILE}"
