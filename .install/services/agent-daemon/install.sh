@@ -424,6 +424,21 @@ bootstrap_agent_daemon() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/agent/daemon-state "failed to create /var/lib/lesta/agent/daemon-state"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/agent/daemon-state "daemon's own writable runtime-state directory present, mode 0750 lesta-agent:lesta"
 
+    # metrics.usage.v1's own OffsetStateRoot (metricsProductionConfig,
+    # cmd/lesta-agent/main.go): the exact same gap as daemon-state just
+    # above, found the same way, directly against a real node --
+    # statistics/README.md's own claim that "there is nothing distinct
+    # left to bootstrap once a web server and the tenant database are
+    # already installed" was wrong, since nothing anywhere ever created
+    # this directory. Created here, not in nginx/apache/mariadb's own
+    # installers, because it is genuinely capability-agnostic (mail/
+    # tenant-database/web usage collection all share it) and this
+    # installer already runs unconditionally on every node regardless of
+    # which capabilities are chosen, exactly like daemon-state above.
+    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/statistics/offsets \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/statistics/offsets "failed to create /var/lib/lesta/statistics/offsets"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/statistics/offsets "metrics.usage.v1's own writable offset-bookkeeping directory present, mode 0750 lesta-agent:lesta"
+
     if [ -s /etc/lesta/agent/node-credential ]; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified /etc/lesta/agent/node-credential "already enrolled by a prior apply"
     else
