@@ -29,7 +29,7 @@ func (c *NginxCapability) reload(ctx context.Context) error {
 		cmd = exec.CommandContext(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
 	} else {
 		args := c.cfg.commandArgs("-s", "reload", "-c", c.cfg.NginxConfPath)
-		cmd = exec.CommandContext(ctx, c.cfg.nginxBinary(), args...)
+		cmd = c.cfg.command(ctx, args...)
 	}
 
 	out, err := cmd.CombinedOutput()

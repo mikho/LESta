@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -47,7 +46,7 @@ func (c *NginxCapability) validateCandidate(ctx context.Context, resourceID stri
 	// capability does not own.
 	args := c.cfg.commandArgs("-t", "-c", syntheticConfPath)
 
-	cmd := exec.CommandContext(ctx, c.cfg.nginxBinary(), args...)
+	cmd := c.cfg.command(ctx, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return &ValidationError{

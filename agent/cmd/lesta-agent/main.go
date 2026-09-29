@@ -206,7 +206,16 @@ func nginxProductionConfig() nginx.Config {
 		StateRoot:     "/var/lib/lesta/nginx",
 		NginxConfPath: "/etc/nginx/nginx.conf",
 		NginxBinary:   "nginx",
-		Port:          80,
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly deploying to
+		// a real node: nginx -t/-s reload both refuse to open any real,
+		// correctly root-protected TLS private key referenced anywhere
+		// in the whole merged config -- not just this capability's own
+		// fragment -- unless run as root. sudo routes both through this
+		// same binary, scoped by .install/services/nginx/install.sh's
+		// own sudoers rule.
+		SudoBinary: "sudo",
+		Port:       80,
 		// ProxyBackend: the fixed loopback address+port Apache listens on in
 		// the "both" web profile (see apacheProductionConfig's own
 		// apachePortForProfile), matching

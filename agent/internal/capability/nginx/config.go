@@ -1,5 +1,10 @@
 package nginx
 
+import (
+	"context"
+	"os/exec"
+)
+
 // Config parameterizes NginxCapability by root paths and invocation details, so
 // the identical implementation runs against a real system-wide nginx install in
 // production or a fully disposable per-test nginx instance.
@@ -68,6 +73,23 @@ type Config struct {
 	// systemctl-managed nginx would use; it isn't exercised this phase. Empty
 	// means the default `nginx -s reload [-p Prefix] -c NginxConfPath`.
 	ReloadCommand []string
+	// SudoBinary, when non-empty, routes both real root-only nginx
+	// invocations (validate's own `-t`, and reload's default `-s reload`)
+	// through "<SudoBinary> <nginxBinary()> ...". Production sets this to
+	// "sudo": the real lesta-agent-daemon systemd unit runs as the
+	// unprivileged lesta-agent user, confirmed directly deploying to a
+	// real node -- nginx itself refuses to even test or reload a config
+	// that references a real, correctly root-protected TLS private key
+	// (any coexisting HTTPS vhost's own, not just one of this
+	// capability's own fragments) unless run as root, since nginx always
+	// re-parses and opens every referenced certificate as part of both
+	// operations, not just the one fragment actually being validated or
+	// activated. .install/services/nginx/install.sh's own sudoers rule
+	// scopes exactly which binary this may run, nothing else. Empty means
+	// invoke nginx directly, matching this package's own disposable test
+	// harness, which already runs with whatever privilege `go test`
+	// itself has.
+	SudoBinary string
 }
 
 func (c Config) nginxBinary() string {
@@ -76,6 +98,20 @@ func (c Config) nginxBinary() string {
 	}
 
 	return c.NginxBinary
+}
+
+// command builds the real nginx invocation for args, routed through
+// SudoBinary when set (see its own doc comment on Config for why: nginx
+// always re-parses and opens every referenced TLS private key across the
+// whole real config for both -t and -s reload, not just whatever this
+// capability's own fragment is doing, and a real, correctly root-protected
+// key refuses to open for anything but root).
+func (c Config) command(ctx context.Context, args ...string) *exec.Cmd {
+	if c.SudoBinary == "" {
+		return exec.CommandContext(ctx, c.nginxBinary(), args...)
+	}
+
+	return exec.CommandContext(ctx, c.SudoBinary, append([]string{c.nginxBinary()}, args...)...)
 }
 
 // commandArgs prepends -p Prefix (when set) to extra, for every nginx

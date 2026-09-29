@@ -91,6 +91,8 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 # and takes these as explicit parameters instead).
 NGINX_CONF_PATH="/etc/nginx/nginx.conf"
 NGINX_LIVE_DIR="/etc/nginx/lesta.d"
+NGINX_BINARY_PATH="/usr/sbin/nginx"
+SUDOERS_LESTA_NGINX_PATH="/etc/sudoers.d/lesta-nginx"
 
 # NGINX_LOG_DIR: must stay in lockstep with
 # agent/cmd/lesta-agent/main.go's own nginxProductionConfig() LogDir literal.
@@ -346,11 +348,11 @@ nginx_would_install_note() {
 
     if [ -n "${OFFLINE_BUNDLE}" ]; then
         retain_note=$(offline_bundle_would_retain_note nginx "${OFFLINE_BUNDLE}" "$(nginx_offline_bundle_seed_artifact_name "${OFFLINE_BUNDLE}/${BUNDLE_MANIFEST_FILENAME}")")
-        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required); %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s%s' \
-            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "${NGINX_LIVE_DIR}" "${trailer}" "${retain_note}"
+        printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required); %s and /var/lib/lesta/nginx would be created; %s would be rendered and validated, scoping lesta-agent to run %s as root, nothing else; nginx would be enabled and health-probed%s%s' \
+            "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "${NGINX_LIVE_DIR}" "${SUDOERS_LESTA_NGINX_PATH}" "${NGINX_BINARY_PATH}" "${trailer}" "${retain_note}"
     else
-        printf 'apt-get install -y nginx would run; %s and /var/lib/lesta/nginx would be created; nginx would be enabled and health-probed%s' \
-            "${NGINX_LIVE_DIR}" "${trailer}"
+        printf 'apt-get install -y nginx would run; %s and /var/lib/lesta/nginx would be created; %s would be rendered and validated, scoping lesta-agent to run %s as root, nothing else; nginx would be enabled and health-probed%s' \
+            "${NGINX_LIVE_DIR}" "${SUDOERS_LESTA_NGINX_PATH}" "${NGINX_BINARY_PATH}" "${trailer}"
     fi
 }
 
@@ -765,6 +767,35 @@ ${NGINX_LOG_DIR}/*.access.log {
 LOGROTATE
     add_change web.nginx.v1 written /etc/logrotate.d/lesta-nginx "logrotate policy installed: daily, 14 rotations, copytruncate (never signals nginx -- metrics.usage.v1's own offset-tracked reader treats a shorter file as freshly rotated)"
 
+    # --- sudoers: the real daemon's own nginx -t/-s reload need root too -----
+    #
+    # The real lesta-agent-daemon systemd unit runs as the unprivileged
+    # lesta-agent user, confirmed directly deploying to a real node: nginx
+    # always re-parses and opens every TLS private key referenced anywhere
+    # in the whole merged config for both -t and -s reload, not just
+    # whatever this capability's own fragment is doing -- and a real,
+    # correctly root-protected key (any coexisting HTTPS vhost's own, not
+    # just one of this capability's own fragments) refuses to open for
+    # anything but root. This rule scopes lesta-agent to running exactly
+    # the real nginx binary as root, nothing else -- nginx itself has no
+    # CLI flag that writes to an attacker-chosen path, so wildcarding its
+    # own arguments here is safe in a way a wildcarded arbitrary-command
+    # rule would not be.
+    cat > "${SUDOERS_LESTA_NGINX_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} *
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_NGINX_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_NGINX_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_NGINX_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_NGINX_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_NGINX_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_NGINX_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    mv "${SUDOERS_LESTA_NGINX_PATH}.tmp" "${SUDOERS_LESTA_NGINX_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_NGINX_PATH}" "failed to activate ${SUDOERS_LESTA_NGINX_PATH}"
+    add_change web.nginx.v1 installed "${SUDOERS_LESTA_NGINX_PATH}" "sudoers rule written and validated: lesta-agent may run ${NGINX_BINARY_PATH} as root, nothing else"
+
     check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
         fail_step "${EXIT_PREFLIGHT_CONFLICT}" nginx_conf_include_missing "${NGINX_CONF_PATH}" "the lesta.d include line disappeared between preflight and this defensive re-check; investigate concurrent nginx.conf edits"
@@ -857,6 +888,23 @@ run_node_health_selftest() {
     fi
 
     log_info "bootstrap_node_health self-test: create returned status=applied"
+
+    # Genuine proof the sudoers rule above actually grants what the REAL
+    # unprivileged lesta-agent-daemon needs -- not just that this
+    # self-test's own create/delete round trip succeeded, which proves
+    # nothing here: this whole self-test runs from install.sh, already
+    # root, and root running `sudo <anything>` always succeeds regardless
+    # of any sudoers rule at all. Switch to lesta-agent first (sudo -u
+    # lesta-agent, itself trivially allowed since this process really is
+    # root), then have IT invoke sudo -- the exact call the new sudoers
+    # rule exists to gate. nginx -t is read-only, so this needs no
+    # cleanup of its own.
+    if ! sudo -u lesta-agent sudo "${NGINX_BINARY_PATH}" -t -c "${NGINX_CONF_PATH}" >/dev/null 2>&1; then
+        run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_validate_failed "${SUDOERS_LESTA_NGINX_PATH}" "lesta-agent could not run 'sudo ${NGINX_BINARY_PATH} -t' as itself -- the sudoers rule at ${SUDOERS_LESTA_NGINX_PATH} is not granting what the real daemon needs"
+    fi
+
+    log_info "bootstrap_node_health self-test: lesta-agent's own sudoers rule genuinely grants running nginx as root, verified as lesta-agent itself, not as root"
 
     if ! run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${NGINX_LIVE_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward; ${AGENT_BINARY_DEST} may have left a stray fragment for ${resource_id} under ${NGINX_LIVE_DIR}"
