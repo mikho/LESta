@@ -86,6 +86,7 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 FRAGMENT_DIR="/etc/cron.d"
 CRON_STATE_ROOT="/var/lib/lesta/cron"
 RUNNER_USER="lesta-cron"
+SUDOERS_LESTA_CRON_PATH="/etc/sudoers.d/lesta-cron"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
@@ -262,7 +263,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway cron job against the real, just-installed cron, including a direct invocation of the cron-run wrapper"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; ${SUDOERS_LESTA_CRON_PATH} would be rendered and validated, scoping lesta-agent to cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir as root, nothing else; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -495,6 +496,38 @@ install_cron() {
     # self-test skip exercising that exact lazy-creation code path, which is
     # precisely what a real tenant account's own first cron job depends on.
 
+    # --- sudoers: the two real root-only actions the real daemon needs ------
+    #
+    # The real lesta-agent-daemon systemd unit runs as the unprivileged
+    # lesta-agent user, confirmed directly deploying to a real node: cron
+    # itself refuses to honor any ${FRAGMENT_DIR} fragment not owned by
+    # root (a real, deliberate cron security check, not an oversight this
+    # installer could just widen around -- confirmed directly, not
+    # assumed), and ensureAccountDir's own chown to a tenant-specific group
+    # requires root too. This rule scopes lesta-agent to running exactly
+    # three subcommands on this node's own fixed, vendored agent binary as
+    # root, nothing else -- see agent/internal/capability/cron/privileged.go
+    # and cmd/lesta-agent/main.go's own dispatch for what each subcommand
+    # does and how its own arguments are re-validated on the other side of
+    # this privilege boundary, never trusted just because sudo let the call
+    # through.
+    cat > "${SUDOERS_LESTA_CRON_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: ${AGENT_BINARY_DEST} cron-install-fragment *, ${AGENT_BINARY_DEST} cron-remove-fragment *, ${AGENT_BINARY_DEST} cron-ensure-account-dir *
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_CRON_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_CRON_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_CRON_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_CRON_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_CRON_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_CRON_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    # Same-directory rename: atomic, and sudo's own #includedir
+    # /etc/sudoers.d parsing only ever sees the final name.
+    mv "${SUDOERS_LESTA_CRON_PATH}.tmp" "${SUDOERS_LESTA_CRON_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_CRON_PATH}" "failed to activate ${SUDOERS_LESTA_CRON_PATH}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${SUDOERS_LESTA_CRON_PATH}" "sudoers rule written and validated: lesta-agent may run exactly cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir on ${AGENT_BINARY_DEST} as root"
+
     # --- enable + health-probe ------------------------------------------
     systemctl enable --now cron || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now cron failed"
     add_change "${SCHEDULER_CRON_CAPABILITY}" enabled "" "systemctl enable --now cron succeeded"
@@ -590,6 +623,54 @@ run_node_health_selftest() {
     fi
 
     log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 against the real sidecar"
+
+    # Genuine proof the sudoers rule above actually grants what the REAL
+    # unprivileged lesta-agent-daemon needs -- not just that this
+    # self-test's own create/delete round trip succeeded, which proves
+    # nothing here: this whole self-test runs from install.sh, already
+    # root, and root running `sudo <anything>` always succeeds regardless
+    # of any sudoers rule at all. A second, disposable resource_id,
+    # invoked exactly as the real daemon would: switch to lesta-agent
+    # first (sudo -u lesta-agent, itself trivially allowed since this
+    # process really is root), then have IT invoke sudo -- the exact call
+    # the new sudoers rule exists to gate.
+    local sudo_check_id sudo_check_path fragment_owner
+    sudo_check_id=$(selftest_new_uuid)
+    sudo_check_path="${FRAGMENT_DIR}/lesta-${sudo_check_id}"
+
+    if ! printf '* * * * * root true\n' | sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-install-fragment "${sudo_check_id}" >/dev/null 2>&1; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-install-fragment' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
+    fi
+
+    if [ ! -f "${sudo_check_path}" ]; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_missing "${sudo_check_path}" "lesta-agent's own sudo cron-install-fragment call exited 0 but no fragment was written"
+    fi
+
+    fragment_owner=$(stat -c '%U' "${sudo_check_path}" 2>/dev/null || true)
+    if [ "${fragment_owner}" != "root" ]; then
+        sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-remove-fragment "${sudo_check_id}" >/dev/null 2>&1 || true
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_wrong_owner "${sudo_check_path}" "fragment written via the lesta-agent sudo path is owned by ${fragment_owner:-unknown}, not root -- cron would refuse to honor it"
+    fi
+
+    if ! sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-remove-fragment "${sudo_check_id}" >/dev/null 2>&1; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_remove_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-remove-fragment' as itself, to clean up its own self-test fragment"
+    fi
+
+    if [ -f "${sudo_check_path}" ]; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_remove_left_file "${sudo_check_path}" "lesta-agent's own sudo cron-remove-fragment call exited 0 but the fragment still exists"
+    fi
+
+    if ! sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-ensure-account-dir "${RUNNER_USER}" >/dev/null 2>&1; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_ensure_account_dir_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-ensure-account-dir' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
+    fi
+
+    log_info "bootstrap_node_health self-test: lesta-agent's own sudoers rule genuinely grants cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir, verified as lesta-agent itself, not as root"
 
     if ! run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${FRAGMENT_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward"

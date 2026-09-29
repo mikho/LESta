@@ -51,4 +51,20 @@ type Config struct {
 	// agent/cmd/lesta-agent/main.go's own cronProductionConfig for why this
 	// is a fixed production literal, not an environment override.
 	AgentBinaryPath string
+	// SudoBinary, when non-empty, routes the two real root-only actions
+	// this capability needs (writing/removing FragmentDir's own fragment,
+	// and ensureAccountDir's chown) through
+	// "<SudoBinary> <AgentBinaryPath> cron-install-fragment|cron-remove-
+	// fragment|cron-ensure-account-dir ...", instead of performing them
+	// directly in-process. Production sets this to "sudo": the real
+	// lesta-agent-daemon systemd unit runs as the unprivileged lesta-agent
+	// user (confirmed directly, not assumed, deploying to a real node --
+	// /etc/cron.d refuses to honor any fragment not owned by root, and
+	// ensureAccountDir's own chown to a tenant-specific group requires
+	// root too), while .install/services/cron/install.sh's own sudoers
+	// rule scopes exactly which subcommands may run this way. Empty means
+	// perform both actions directly in-process, matching this package's
+	// own disposable test harness, which already runs with whatever
+	// privilege `go test` itself has over its own temp tree.
+	SudoBinary string
 }

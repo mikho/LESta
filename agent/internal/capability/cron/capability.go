@@ -123,7 +123,7 @@ func (c *CronCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 	}
 
 	fragment := renderFragment(c.cfg, payload, op.ResourceID)
-	if err := writeFileAtomic(c.fragmentPath(op.ResourceID), fragment, 0o644); err != nil {
+	if err := c.installFragment(op.ResourceID, fragment); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -133,7 +133,7 @@ func (c *CronCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 	// is what actually restricts traversal to this one account's own
 	// dedicated Linux user, so it must be established with the right
 	// ownership first, not left to MkdirAll's own default mode.
-	if err := ensureAccountDir(c.cfg.StateRoot, payload.RunAs); err != nil {
+	if err := c.ensureAccountDirPrivileged(payload.RunAs); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -158,7 +158,7 @@ func (c *CronCapability) applyDelete(op protocol.OperationEnvelope) (protocol.Re
 		return c.rejectedFromValidationError(op, verr)
 	}
 
-	if err := os.Remove(c.fragmentPath(op.ResourceID)); err != nil && !os.IsNotExist(err) {
+	if err := c.removeFragment(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, fmt.Errorf("removing crontab fragment for %s: %w", op.ResourceID, err)
 	}
 
@@ -234,10 +234,6 @@ func renderFragment(cfg Config, payload Payload, resourceID string) []byte {
 	return []byte(fmt.Sprintf("%s %s %s %s %s %s %s cron-run %s %s\n",
 		payload.Minute, payload.Hour, payload.DayOfMonth, payload.Month, payload.DayOfWeek,
 		payload.RunAs, cfg.AgentBinaryPath, resourceID, payload.RunAs))
-}
-
-func (c *CronCapability) fragmentPath(resourceID string) string {
-	return filepath.Join(c.cfg.FragmentDir, "lesta-"+resourceID)
 }
 
 // sidecarPath returns this resource's own JSON sidecar path, keyed by

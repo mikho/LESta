@@ -87,6 +87,26 @@ func main() {
 		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
+	// "cron-install-fragment"/"cron-remove-fragment"/"cron-ensure-account-dir"
+	// are the three real root-only actions scheduler.account-cron.v1 needs
+	// (see cron.Config's own SudoBinary doc comment): never an
+	// OperationEnvelope from stdin, and never invoked directly by an
+	// operator -- only ever via the narrowly-scoped sudoers rule
+	// .install/services/cron/install.sh writes, which restricts the
+	// unprivileged lesta-agent-daemon to running exactly these three
+	// subcommands as root, nothing else.
+	if len(os.Args) >= 3 && os.Args[1] == "cron-install-fragment" {
+		os.Exit(cron.InstallFragment(cronProductionConfig(), os.Args[2], os.Stdin))
+	}
+
+	if len(os.Args) >= 3 && os.Args[1] == "cron-remove-fragment" {
+		os.Exit(cron.RemoveFragment(cronProductionConfig(), os.Args[2]))
+	}
+
+	if len(os.Args) >= 3 && os.Args[1] == "cron-ensure-account-dir" {
+		os.Exit(cron.EnsureAccountDir(cronProductionConfig(), os.Args[2]))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
@@ -416,6 +436,15 @@ func cronProductionConfig() cron.Config {
 		StateRoot:       "/var/lib/lesta/cron",
 		RunnerUser:      "lesta-cron",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly deploying to
+		// a real node: /etc/cron.d refuses to honor any fragment not
+		// owned by root, and ensureAccountDir's own chown to a
+		// tenant-specific group requires root too. sudo routes both
+		// through this same binary's own cron-install-fragment/
+		// cron-remove-fragment/cron-ensure-account-dir CLI modes, scoped
+		// by .install/services/cron/install.sh's own sudoers rule.
+		SudoBinary: "sudo",
 	}
 }
 
