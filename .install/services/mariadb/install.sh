@@ -819,7 +819,16 @@ install_mariadb_control_plane() {
     # --- fresh migration: relocate the already-live default instance -------
     systemctl stop mariadb.service 2>/dev/null || true
 
-    install -d -m 0750 -o mysql -g mysql /var/lib/lesta/mariadb || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/mariadb "failed to create /var/lib/lesta/mariadb"
+    # 0755, not 0750: this is only the shared parent -- the real datadir
+    # content stays protected by its own separate 0750 mysql:mysql on
+    # CONTROL_PLANE_DATADIR/tenant's own directories below, unaffected by
+    # this. The real running lesta-agent-daemon (group lesta, not mysql)
+    # needs to traverse this exact directory to reach its own sibling
+    # database.tenant.v1 state root (tenant-agent-state, root:root 0755) --
+    # confirmed empirically that a 0750 mysql:mysql parent silently blocked
+    # that traversal, so the capability was structurally installed and
+    # healthy but could never be reported Running by a real heartbeat.
+    install -d -m 0755 -o mysql -g mysql /var/lib/lesta/mariadb || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/mariadb "failed to create /var/lib/lesta/mariadb"
     install -d -m 0750 -o mysql -g mysql "${CONTROL_PLANE_DATADIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CONTROL_PLANE_DATADIR}" "failed to create ${CONTROL_PLANE_DATADIR}"
 
     if [ -d "${CONTROL_PLANE_STOCK_DATADIR}" ] && [ -n "$(ls -A "${CONTROL_PLANE_STOCK_DATADIR}" 2>/dev/null)" ]; then
