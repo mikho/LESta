@@ -263,7 +263,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway cron job against the real, just-installed cron, including a direct invocation of the cron-run wrapper"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; ${SUDOERS_LESTA_CRON_PATH} would be rendered and validated, scoping lesta-agent to cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar as root, nothing else; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; ${SUDOERS_LESTA_CRON_PATH} would be rendered and validated, scoping lesta-agent to cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state as root, nothing else; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -517,15 +517,25 @@ install_cron() {
     # directory root:<run_as> mode 2750, deliberately never group-readable
     # by the shared lesta group either -- found the same way, deploying to
     # a real node, immediately after the first four of these five were
-    # already fixed. This rule scopes lesta-agent to running exactly five
-    # subcommands on this node's own fixed, vendored agent binary as root,
-    # nothing else -- see agent/internal/capability/cron/privileged.go and
+    # already fixed. cron-archive-state grants a sixth, different kind of
+    # exception: backup.encrypted-artifacts.v1's own archive step (running
+    # as the same unprivileged lesta-agent-daemon) needs to read every
+    # account's own StateRoot/accounts/<run_as> tree to capture real tenant
+    # cron job content in a backup artifact, which the same root:<run_as>
+    # isolation above blocks just as completely -- found deploying to a
+    # real node while re-verifying backup.encrypted-artifacts.v1 itself.
+    # This rule scopes lesta-agent to running exactly six subcommands on
+    # this node's own fixed, vendored agent binary as root, nothing else --
+    # see agent/internal/capability/cron/privileged.go,
+    # agent/internal/capability/cron/archive.go, and
     # cmd/lesta-agent/main.go's own dispatch for what each subcommand does
     # and how its own arguments are re-validated on the other side of this
     # privilege boundary, never trusted just because sudo let the call
-    # through.
+    # through. cron-archive-state takes no arguments at all (it always
+    # archives this node's own single, fixed StateRoot), so it is granted
+    # without a trailing wildcard.
     cat > "${SUDOERS_LESTA_CRON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${AGENT_BINARY_DEST} cron-install-fragment *, ${AGENT_BINARY_DEST} cron-remove-fragment *, ${AGENT_BINARY_DEST} cron-ensure-account-dir *, ${AGENT_BINARY_DEST} cron-install-sidecar *, ${AGENT_BINARY_DEST} cron-remove-sidecar *
+lesta-agent ALL=(root) NOPASSWD: ${AGENT_BINARY_DEST} cron-install-fragment *, ${AGENT_BINARY_DEST} cron-remove-fragment *, ${AGENT_BINARY_DEST} cron-ensure-account-dir *, ${AGENT_BINARY_DEST} cron-install-sidecar *, ${AGENT_BINARY_DEST} cron-remove-sidecar *, ${AGENT_BINARY_DEST} cron-archive-state
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_CRON_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_CRON_PATH}.tmp"
@@ -539,7 +549,7 @@ SUDOERSEOF
     # /etc/sudoers.d parsing only ever sees the final name.
     mv "${SUDOERS_LESTA_CRON_PATH}.tmp" "${SUDOERS_LESTA_CRON_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_CRON_PATH}" "failed to activate ${SUDOERS_LESTA_CRON_PATH}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${SUDOERS_LESTA_CRON_PATH}" "sudoers rule written and validated: lesta-agent may run exactly cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar on ${AGENT_BINARY_DEST} as root"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${SUDOERS_LESTA_CRON_PATH}" "sudoers rule written and validated: lesta-agent may run exactly cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state on ${AGENT_BINARY_DEST} as root"
 
     # --- enable + health-probe ------------------------------------------
     systemctl enable --now cron || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now cron failed"
@@ -680,7 +690,7 @@ run_node_health_selftest() {
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_ensure_account_dir_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-ensure-account-dir' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
     fi
 
-    log_info "bootstrap_node_health self-test: cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar all work as lesta-agent, and the written fragment is genuinely owned root:root"
+    log_info "bootstrap_node_health self-test: cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state all work as lesta-agent, and the written fragment is genuinely owned root:root"
 
     if ! run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${FRAGMENT_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward"

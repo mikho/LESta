@@ -171,7 +171,7 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 		return c.failed(op, "database_dump_failed", err.Error())
 	}
 
-	plaintext, err := archiveStateRoots(c.cfg.StateRoots, included, dumps, dumpedCapabilities)
+	plaintext, err := archiveStateRoots(ctx, c.cfg.SudoBinary, c.cfg.AgentBinaryPath, c.cfg.StateRoots, included, dumps, dumpedCapabilities)
 	if err != nil {
 		return c.failed(op, "archive_failed", err.Error())
 	}

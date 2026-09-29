@@ -66,4 +66,19 @@ type Config struct {
 	// both directly, matching this package's own disposable test harness,
 	// which already runs with whatever privilege `go test` itself has.
 	SudoBinary string
+
+	// AgentBinaryPath is this same lesta-agent binary's own real installed
+	// path (.install/lib/agent.sh's own AGENT_BINARY_DEST), used together
+	// with SudoBinary to re-invoke this binary's own "cron-archive-state"
+	// CLI mode as root when archiving scheduler.account-cron.v1:
+	// StateRoot/accounts/<run_as> is deliberately root:<run_as> mode 2750,
+	// never readable by the shared lesta group the real unprivileged
+	// lesta-agent-daemon runs as (see cron package's own ensureAccountDir
+	// doc comment on why), confirmed directly deploying to a real node --
+	// a direct filepath.Walk from this process can never read real tenant
+	// cron job content. Empty means archiveStateRoots falls back to
+	// walking scheduler.account-cron.v1's own StateRoots entry directly,
+	// matching this package's own disposable test harness, which owns its
+	// own temp directories outright.
+	AgentBinaryPath string
 }

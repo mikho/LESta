@@ -88,13 +88,16 @@ func main() {
 	}
 
 	// "cron-install-fragment"/"cron-remove-fragment"/"cron-ensure-account-dir"/
-	// "cron-install-sidecar"/"cron-remove-sidecar" are the five real
-	// root-only actions scheduler.account-cron.v1 needs (see cron.Config's
-	// own SudoBinary doc comment): never an OperationEnvelope from stdin,
-	// and never invoked directly by an operator -- only ever via the
-	// narrowly-scoped sudoers rule .install/services/cron/install.sh
+	// "cron-install-sidecar"/"cron-remove-sidecar"/"cron-archive-state" are
+	// the six real root-only actions scheduler.account-cron.v1 needs (see
+	// cron.Config's own SudoBinary doc comment): never an OperationEnvelope
+	// from stdin, and never invoked directly by an operator -- only ever via
+	// the narrowly-scoped sudoers rule .install/services/cron/install.sh
 	// writes, which restricts the unprivileged lesta-agent-daemon to
-	// running exactly these five subcommands as root, nothing else.
+	// running exactly these six subcommands as root, nothing else.
+	// cron-archive-state is invoked by backup.encrypted-artifacts.v1's own
+	// archive step, not by cron itself -- see cron.ArchiveState's own doc
+	// comment.
 	if len(os.Args) >= 3 && os.Args[1] == "cron-install-fragment" {
 		os.Exit(cron.InstallFragment(cronProductionConfig(), os.Args[2], os.Stdin))
 	}
@@ -113,6 +116,10 @@ func main() {
 
 	if len(os.Args) >= 4 && os.Args[1] == "cron-remove-sidecar" {
 		os.Exit(cron.RemoveSidecar(cronProductionConfig(), os.Args[2], os.Args[3]))
+	}
+
+	if len(os.Args) >= 2 && os.Args[1] == "cron-archive-state" {
+		os.Exit(cron.ArchiveState(cronProductionConfig(), os.Stdout))
 	}
 
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
@@ -476,8 +483,9 @@ func cronProductionConfig() cron.Config {
 		// owned by root, and ensureAccountDir's own chown to a
 		// tenant-specific group requires root too. sudo routes both
 		// through this same binary's own cron-install-fragment/
-		// cron-remove-fragment/cron-ensure-account-dir CLI modes, scoped
-		// by .install/services/cron/install.sh's own sudoers rule.
+		// cron-remove-fragment/cron-ensure-account-dir/cron-archive-state
+		// CLI modes, scoped by .install/services/cron/install.sh's own
+		// sudoers rule.
 		SudoBinary: "sudo",
 	}
 }
@@ -585,6 +593,18 @@ func backupProductionConfig() backup.Config {
 		// routes both through this same binary, scoped by
 		// .install/services/backups/install.sh's own sudoers rule.
 		SudoBinary: "sudo",
+		// AgentBinaryPath, used together with SudoBinary, lets the
+		// archive step re-invoke this same binary's own
+		// "cron-archive-state" CLI mode as root when archiving
+		// scheduler.account-cron.v1: found directly deploying to a
+		// real node -- StateRoot/accounts/<run_as> is deliberately
+		// root:<run_as> mode 2750 (see cron package's own
+		// ensureAccountDir doc comment), never readable by the
+		// shared lesta group lesta-agent itself runs as, so a direct
+		// walk from this process can never read real tenant cron job
+		// content. Must stay in lockstep with .install/lib/agent.sh's
+		// own AGENT_BINARY_DEST.
+		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
 }
 

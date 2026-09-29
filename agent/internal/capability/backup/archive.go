@@ -4,13 +4,21 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
+
+// schedulerCronCapability mirrors mailCapability's own established pattern
+// (restore.go) of locally duplicating a capability name string constant
+// rather than importing it from cmd/lesta-agent/main.go.
+const schedulerCronCapability = "scheduler.account-cron.v1"
 
 // discoverIncludedCapabilities returns the sorted list of capability names
 // whose StateRoots entry exists on disk as a real, non-empty directory. A
@@ -53,13 +61,34 @@ func dirHasContent(root string) bool {
 // database capabilities, not arbitrary media, so the real-world size here
 // stays bounded. A future pass can revisit this if a real deployment's own
 // state roots or database dumps ever grow large enough for it to matter.
-func archiveStateRoots(stateRoots map[string]string, included []string, dumps map[string][]byte, dumpedCapabilities []string) ([]byte, error) {
+func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, stateRoots map[string]string, included []string, dumps map[string][]byte, dumpedCapabilities []string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
 
 	for _, capability := range included {
+		// scheduler.account-cron.v1's own StateRoots entry contains
+		// StateRoot/accounts/<run_as>, deliberately root:<run_as> mode
+		// 2750 (see cron package's own ensureAccountDir doc comment) --
+		// never readable by the shared lesta group this process itself
+		// runs as. Root-mediated via the same sudo mechanism
+		// dumpSocket/restoreSocket already use, rather than a direct
+		// walk, which would fail with a permission error, confirmed
+		// directly deploying to a real node.
+		if capability == schedulerCronCapability && sudoBinary != "" && agentBinaryPath != "" {
+			nested, err := archiveCronStatePrivileged(ctx, sudoBinary, agentBinaryPath)
+			if err != nil {
+				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			}
+
+			if err := mergeNestedArchive(tw, nested, capability); err != nil {
+				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			}
+
+			continue
+		}
+
 		if err := addDirToTar(tw, stateRoots[capability], capability); err != nil {
 			return nil, fmt.Errorf("archiving %s: %w", capability, err)
 		}
@@ -101,6 +130,64 @@ func addBytesToTar(tw *tar.Writer, content []byte, name string) error {
 	_, err := tw.Write(content)
 
 	return err
+}
+
+// archiveCronStatePrivileged execs this same agent binary's own
+// "cron-archive-state" CLI mode via sudo, root-mediated exactly like
+// dumpSocket's/restoreSocket's own mariadb-dump/mariadb invocations, and
+// returns its real gzip-compressed tar of scheduler.account-cron.v1's own
+// entire StateRoot (see cron.ArchiveState's own doc comment for why this
+// exception exists).
+func archiveCronStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "cron-archive-state")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
+	}
+
+	return stdout.Bytes(), nil
+}
+
+// mergeNestedArchive decompresses a gzip-compressed tar stream produced by
+// a privileged helper invocation (archiveCronStatePrivileged) and copies
+// every entry into tw, renaming each one from its own root-relative name
+// (e.g. "accounts/lesta-cron/jobs/sidecar/<id>.json") to
+// "<prefix>/<that name>" -- the same "<capability>/..." naming convention
+// addDirToTar already establishes for every other capability's own entries.
+func mergeNestedArchive(tw *tar.Writer, nested []byte, prefix string) error {
+	gz, err := gzip.NewReader(bytes.NewReader(nested))
+	if err != nil {
+		return fmt.Errorf("opening nested gzip stream: %w", err)
+	}
+	defer gz.Close()
+
+	tr := tar.NewReader(gz)
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("reading nested tar entry: %w", err)
+		}
+
+		hdr.Name = prefix + "/" + hdr.Name
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			return fmt.Errorf("writing merged entry %s: %w", hdr.Name, err)
+		}
+
+		if hdr.Typeflag == tar.TypeReg {
+			if _, err := io.Copy(tw, tr); err != nil {
+				return fmt.Errorf("copying merged entry %s: %w", hdr.Name, err)
+			}
+		}
+	}
 }
 
 func addDirToTar(tw *tar.Writer, root, prefix string) error {
