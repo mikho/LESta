@@ -453,6 +453,7 @@ bootstrap_node_health() {
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
 
     run_node_health_selftest
+    agent_restart_daemon_if_enabled "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}"
 
     checkpoint_write bootstrap_node_health "${MANIFEST_DIGEST}"
     log_info "bootstrap_node_health complete"

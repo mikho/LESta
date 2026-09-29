@@ -186,3 +186,39 @@ agent_fail_selftest_with_rollback() {
             "${message} -- automatic rollback to the previous agent binary generation ALSO failed after this health check failure; this node's agent binary may now be in an inconsistent state and requires manual operator intervention, inspect ${AGENT_BINARY_DEST} and ${AGENT_BINARY_DEST}.previous by hand"
     fi
 }
+
+# agent_restart_daemon_if_enabled <capability>
+# Found deploying to a real node: agent_install_binary only ever swaps the
+# on-disk AGENT_BINARY_DEST -- it never touches the real, separately
+# running lesta-agent-daemon systemd service, which keeps executing
+# whatever code it already loaded into memory at its own last start,
+# completely unaffected by a newer file now sitting on disk under it. Every
+# leaf installer's own self-test still passed regardless, since
+# selftest_invoke_agent always execs a fresh one-shot process (which picks
+# up the new file automatically) -- so this was invisible for as long as
+# nothing ever compared the self-test's own verdict against what the real,
+# persistent daemon was actually still running.
+#
+# Called only after a leaf installer's own run_node_health_selftest has
+# already passed against the fresh on-disk binary: restarting only on
+# success, never before, means a self-test failure's own rollback (see
+# agent_fail_selftest_with_rollback above) restores the previous binary
+# file while the daemon -- never yet restarted onto the bad generation --
+# keeps running the last known-good one throughout, undisturbed.
+#
+# Silently a no-op if lesta-agent-daemon is not installed/enabled at all: a
+# node that has never run agent-daemon/install.sh's own enrollment (e.g. a
+# fresh node with only web.nginx.v1 installed so far, node.health.v1 still
+# only "structurally installed") has no such service to restart yet, which
+# is expected, not an error.
+agent_restart_daemon_if_enabled() {
+    local capability="$1"
+
+    if ! systemctl is-enabled lesta-agent-daemon >/dev/null 2>&1; then
+        return 0
+    fi
+
+    systemctl restart lesta-agent-daemon \
+        || fail_step "${EXIT_HEALTH_FAILURE}" daemon_restart_failed "" "the real lesta-agent-daemon service is enabled but 'systemctl restart lesta-agent-daemon' failed after installing a new agent binary generation; the on-disk binary and the running daemon may now disagree -- restart it by hand and confirm before trusting this node's own capability reporting"
+    add_change "${capability}" restarted "" "lesta-agent-daemon restarted so the real, persistent daemon picks up the agent binary generation just installed and self-tested (was previously left running whatever it already had in memory, undisturbed by an on-disk-only swap)"
+}

@@ -391,6 +391,13 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+    # A no-op on a fresh enrollment (the service doesn't exist yet --
+    # bootstrap_agent_daemon below does the real first enable+start with
+    # this same binary already in place); on a re-run against an already-
+    # enrolled node, this is what actually gets the new binary generation
+    # running, since bootstrap_agent_daemon's own `enable --now` does
+    # nothing to a service that's already active.
+    agent_restart_daemon_if_enabled "${AGENT_DAEMON_CAPABILITY}"
 
     checkpoint_write bootstrap_node_health "${MANIFEST_DIGEST}"
     log_info "bootstrap_node_health complete"
