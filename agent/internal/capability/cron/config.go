@@ -51,20 +51,23 @@ type Config struct {
 	// agent/cmd/lesta-agent/main.go's own cronProductionConfig for why this
 	// is a fixed production literal, not an environment override.
 	AgentBinaryPath string
-	// SudoBinary, when non-empty, routes the two real root-only actions
-	// this capability needs (writing/removing FragmentDir's own fragment,
-	// and ensureAccountDir's chown) through
-	// "<SudoBinary> <AgentBinaryPath> cron-install-fragment|cron-remove-
-	// fragment|cron-ensure-account-dir ...", instead of performing them
-	// directly in-process. Production sets this to "sudo": the real
+	// SudoBinary, when non-empty, routes the real root-only actions this
+	// capability needs (writing/removing FragmentDir's own fragment;
+	// ensureAccountDir's chown; writing/removing each resource's own
+	// per-account JSON sidecar) through "<SudoBinary> <AgentBinaryPath>
+	// cron-install-fragment|cron-remove-fragment|cron-ensure-account-dir|
+	// cron-install-sidecar|cron-remove-sidecar ...", instead of performing
+	// them directly in-process. Production sets this to "sudo": the real
 	// lesta-agent-daemon systemd unit runs as the unprivileged lesta-agent
 	// user (confirmed directly, not assumed, deploying to a real node --
-	// /etc/cron.d refuses to honor any fragment not owned by root, and
+	// /etc/cron.d refuses to honor any fragment not owned by root;
 	// ensureAccountDir's own chown to a tenant-specific group requires
-	// root too), while .install/services/cron/install.sh's own sudoers
-	// rule scopes exactly which subcommands may run this way. Empty means
-	// perform both actions directly in-process, matching this package's
-	// own disposable test harness, which already runs with whatever
-	// privilege `go test` itself has over its own temp tree.
+	// root too; and the sidecar's own parent directory, root:<run_as>
+	// mode 2750, is deliberately never group-readable by the shared lesta
+	// group either), while .install/services/cron/install.sh's own
+	// sudoers rule scopes exactly which subcommands may run this way.
+	// Empty means perform every action directly in-process, matching this
+	// package's own disposable test harness, which already runs with
+	// whatever privilege `go test` itself has over its own temp tree.
 	SudoBinary string
 }

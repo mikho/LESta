@@ -106,3 +106,70 @@ func TestEnsureAccountDirRejectsAnInvalidRunAs(t *testing.T) {
 		t.Fatalf("EnsureAccountDir accepted a run_as containing a path separator; must reject before ever touching the filesystem")
 	}
 }
+
+func TestInstallSidecarWritesContentForAValidRunAsAndResourceID(t *testing.T) {
+	stateRoot := t.TempDir()
+	cfg := cron.Config{StateRoot: stateRoot}
+
+	if code := cron.InstallSidecar(cfg, testRunAs, testValidResourceID, strings.NewReader(`{"command":"true"}`)); code != 0 {
+		t.Fatalf("InstallSidecar returned %d, want 0", code)
+	}
+
+	got, err := os.ReadFile(filepath.Join(stateRoot, "accounts", testRunAs, "jobs", "sidecar", testValidResourceID+".json"))
+	if err != nil {
+		t.Fatalf("reading installed sidecar: %v", err)
+	}
+
+	if string(got) != `{"command":"true"}` {
+		t.Fatalf("installed sidecar content = %q, want the exact content passed in", got)
+	}
+}
+
+func TestInstallSidecarRejectsAnInvalidRunAsOrResourceID(t *testing.T) {
+	stateRoot := t.TempDir()
+	cfg := cron.Config{StateRoot: stateRoot}
+
+	if code := cron.InstallSidecar(cfg, "../etc", testValidResourceID, strings.NewReader("malicious")); code == 0 {
+		t.Fatalf("InstallSidecar accepted a run_as containing a path separator; must reject before ever touching the filesystem")
+	}
+
+	if code := cron.InstallSidecar(cfg, testRunAs, "not-a-uuid", strings.NewReader("malicious")); code == 0 {
+		t.Fatalf("InstallSidecar accepted a non-UUID resource id; must reject before ever touching the filesystem")
+	}
+}
+
+func TestRemoveSidecarRemovesAnExistingSidecarAndToleratesRepeat(t *testing.T) {
+	stateRoot := t.TempDir()
+	cfg := cron.Config{StateRoot: stateRoot}
+
+	if code := cron.InstallSidecar(cfg, testRunAs, testValidResourceID, strings.NewReader(`{"command":"true"}`)); code != 0 {
+		t.Fatalf("InstallSidecar returned %d, want 0", code)
+	}
+
+	if code := cron.RemoveSidecar(cfg, testRunAs, testValidResourceID); code != 0 {
+		t.Fatalf("RemoveSidecar returned %d, want 0", code)
+	}
+
+	if _, err := os.Stat(filepath.Join(stateRoot, "accounts", testRunAs, "jobs", "sidecar", testValidResourceID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("sidecar still exists after RemoveSidecar: err=%v", err)
+	}
+
+	// Repeat: a resource whose create never landed, or a retried delete,
+	// must stay idempotent -- matching applyDelete's own pre-existing
+	// contract, now enforced inside RemoveSidecar itself.
+	if code := cron.RemoveSidecar(cfg, testRunAs, testValidResourceID); code != 0 {
+		t.Fatalf("second RemoveSidecar (already absent) returned %d, want 0", code)
+	}
+}
+
+func TestRemoveSidecarRejectsAnInvalidRunAsOrResourceID(t *testing.T) {
+	cfg := cron.Config{StateRoot: t.TempDir()}
+
+	if code := cron.RemoveSidecar(cfg, "../etc", testValidResourceID); code == 0 {
+		t.Fatalf("RemoveSidecar accepted a run_as containing a path separator; must reject rather than attempt any removal")
+	}
+
+	if code := cron.RemoveSidecar(cfg, testRunAs, "not-a-uuid"); code == 0 {
+		t.Fatalf("RemoveSidecar accepted a non-UUID resource id; must reject rather than attempt any removal")
+	}
+}

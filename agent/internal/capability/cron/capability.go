@@ -33,7 +33,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -142,7 +141,7 @@ func (c *CronCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 		return protocol.ResultEnvelope{}, fmt.Errorf("encoding sidecar for %s: %w", op.ResourceID, err)
 	}
 
-	if err := writeFileAtomic(c.sidecarPath(payload.RunAs, op.ResourceID), sidecar, 0o640); err != nil {
+	if err := c.installSidecar(payload.RunAs, op.ResourceID, sidecar); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -162,7 +161,7 @@ func (c *CronCapability) applyDelete(op protocol.OperationEnvelope) (protocol.Re
 		return protocol.ResultEnvelope{}, fmt.Errorf("removing crontab fragment for %s: %w", op.ResourceID, err)
 	}
 
-	if err := os.Remove(c.sidecarPath(payload.RunAs, op.ResourceID)); err != nil && !os.IsNotExist(err) {
+	if err := c.removeSidecar(payload.RunAs, op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, fmt.Errorf("removing sidecar for %s: %w", op.ResourceID, err)
 	}
 
@@ -246,13 +245,7 @@ func renderFragment(cfg Config, payload Payload, resourceID string) []byte {
 // creates/chowns/chmods StateRoot/accounts/<run_as> itself, root:<run_as>
 // mode 2750, the first time any resource is written under it.
 func (c *CronCapability) sidecarPath(runAs, resourceID string) string {
-	return filepath.Join(c.accountDir(runAs), "jobs", "sidecar", resourceID+".json")
-}
-
-// accountDir returns StateRoot/accounts/<run_as>, this account's own owned
-// root under this capability's shared StateRoot.
-func (c *CronCapability) accountDir(runAs string) string {
-	return filepath.Join(c.cfg.StateRoot, "accounts", runAs)
+	return sidecarPathFor(c.cfg.StateRoot, runAs, resourceID)
 }
 
 // recordGenerationAndBuildResult persists payload as this resource's next

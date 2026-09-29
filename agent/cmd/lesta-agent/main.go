@@ -87,14 +87,14 @@ func main() {
 		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
-	// "cron-install-fragment"/"cron-remove-fragment"/"cron-ensure-account-dir"
-	// are the three real root-only actions scheduler.account-cron.v1 needs
-	// (see cron.Config's own SudoBinary doc comment): never an
-	// OperationEnvelope from stdin, and never invoked directly by an
-	// operator -- only ever via the narrowly-scoped sudoers rule
-	// .install/services/cron/install.sh writes, which restricts the
-	// unprivileged lesta-agent-daemon to running exactly these three
-	// subcommands as root, nothing else.
+	// "cron-install-fragment"/"cron-remove-fragment"/"cron-ensure-account-dir"/
+	// "cron-install-sidecar"/"cron-remove-sidecar" are the five real
+	// root-only actions scheduler.account-cron.v1 needs (see cron.Config's
+	// own SudoBinary doc comment): never an OperationEnvelope from stdin,
+	// and never invoked directly by an operator -- only ever via the
+	// narrowly-scoped sudoers rule .install/services/cron/install.sh
+	// writes, which restricts the unprivileged lesta-agent-daemon to
+	// running exactly these five subcommands as root, nothing else.
 	if len(os.Args) >= 3 && os.Args[1] == "cron-install-fragment" {
 		os.Exit(cron.InstallFragment(cronProductionConfig(), os.Args[2], os.Stdin))
 	}
@@ -105,6 +105,14 @@ func main() {
 
 	if len(os.Args) >= 3 && os.Args[1] == "cron-ensure-account-dir" {
 		os.Exit(cron.EnsureAccountDir(cronProductionConfig(), os.Args[2]))
+	}
+
+	if len(os.Args) >= 4 && os.Args[1] == "cron-install-sidecar" {
+		os.Exit(cron.InstallSidecar(cronProductionConfig(), os.Args[2], os.Args[3], os.Stdin))
+	}
+
+	if len(os.Args) >= 4 && os.Args[1] == "cron-remove-sidecar" {
+		os.Exit(cron.RemoveSidecar(cronProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
