@@ -1,6 +1,10 @@
 package mariadb
 
-import "strconv"
+import (
+	"context"
+	"os/exec"
+	"strconv"
+)
 
 // Config parameterizes MariaDBCapability by connection details and root
 // paths, so the identical implementation runs against a real, disposable
@@ -40,6 +44,21 @@ type Config struct {
 	// speaks to it over its SQL client protocol, so this capability's own
 	// bookkeeping lives at a separate path it owns outright.
 	StateRoot string
+	// SudoBinary, when non-empty, routes the real mariadb CLI invocation
+	// through "<SudoBinary> <mariadbBinary()> ...". Production sets this
+	// to "sudo": the real lesta-agent-daemon systemd unit runs as the
+	// unprivileged lesta-agent user, confirmed directly deploying to a
+	// real node -- DefaultsExtraFile is deliberately root-owned 0600 (see
+	// its own doc comment), so lesta-agent cannot open it directly; sudo
+	// lets the client process itself run as root, able to read the file,
+	// while the actual SQL authentication still happens entirely over the
+	// TCP connection's own credential handshake, unaffected by which OS
+	// user opened the file. .install/services/mariadb/install.sh's own
+	// sudoers rule scopes exactly which binary this may run. Empty means
+	// invoke the client directly, matching this package's own disposable
+	// test harness, which already runs with whatever privilege `go test`
+	// itself has.
+	SudoBinary string
 }
 
 func (c Config) mariadbBinary() string {
@@ -48,6 +67,16 @@ func (c Config) mariadbBinary() string {
 	}
 
 	return c.MariaDBBinary
+}
+
+// command builds the real mariadb CLI invocation for args, routed through
+// SudoBinary when set (see its own doc comment on Config for why).
+func (c Config) command(ctx context.Context, args ...string) *exec.Cmd {
+	if c.SudoBinary == "" {
+		return exec.CommandContext(ctx, c.mariadbBinary(), args...)
+	}
+
+	return exec.CommandContext(ctx, c.SudoBinary, append([]string{c.mariadbBinary()}, args...)...)
 }
 
 func (c Config) host() string {

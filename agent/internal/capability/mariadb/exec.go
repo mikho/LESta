@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -22,7 +21,7 @@ import (
 // protocol.StatusFailed via failed(), never lets it escape as a bare Go
 // error.
 func runSQL(ctx context.Context, cfg Config, script string) (string, error) {
-	cmd := exec.CommandContext(ctx, cfg.mariadbBinary(), cfg.baseArgs()...)
+	cmd := cfg.command(ctx, cfg.baseArgs()...)
 	cmd.Stdin = strings.NewReader(script)
 
 	var stdout, stderr bytes.Buffer

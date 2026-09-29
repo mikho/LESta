@@ -432,6 +432,14 @@ func mariadbProductionConfig() mariadb.Config {
 		MariaDBBinary:     "mariadb",
 		DefaultsExtraFile: "/etc/lesta/mariadb-tenant-admin.cnf",
 		StateRoot:         "/var/lib/lesta/mariadb/tenant-agent-state",
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly deploying
+		// to a real node: DefaultsExtraFile above is deliberately
+		// root-owned 0600, so lesta-agent cannot open it directly.
+		// sudo routes the mariadb client through this same binary,
+		// scoped by .install/services/mariadb/install.sh's own
+		// sudoers rule.
+		SudoBinary: "sudo",
 	}
 }
 
