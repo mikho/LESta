@@ -166,7 +166,7 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 		return protocol.ResultEnvelope{}, ctx.Err()
 	}
 
-	dumps, dumpedCapabilities, err := dumpDatabases(ctx, c.cfg.DatabaseDumpSockets)
+	dumps, dumpedCapabilities, err := dumpDatabases(ctx, c.cfg.SudoBinary, c.cfg.DatabaseDumpSockets)
 	if err != nil {
 		return c.failed(op, "database_dump_failed", err.Error())
 	}

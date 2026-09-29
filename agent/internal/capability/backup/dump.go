@@ -44,7 +44,7 @@ func mariadbDumpBinary() string {
 // A configured socket whose file doesn't exist on disk is skipped, not an
 // error: exactly like an empty StateRoots directory, it means that instance
 // simply isn't running on this node.
-func dumpDatabases(ctx context.Context, sockets map[string]string) (map[string][]byte, []string, error) {
+func dumpDatabases(ctx context.Context, sudoBinary string, sockets map[string]string) (map[string][]byte, []string, error) {
 	dumps := make(map[string][]byte, len(sockets))
 	included := make([]string, 0, len(sockets))
 
@@ -60,7 +60,7 @@ func dumpDatabases(ctx context.Context, sockets map[string]string) (map[string][
 			return nil, nil, fmt.Errorf("checking for %s's own socket at %s: %w", capability, socket, err)
 		}
 
-		dump, err := dumpSocket(ctx, socket)
+		dump, err := dumpSocket(ctx, sudoBinary, socket)
 		if err != nil {
 			return nil, nil, fmt.Errorf("dumping %s: %w", capability, err)
 		}
@@ -114,10 +114,20 @@ func discoverPresentDumpSockets(sockets map[string]string) []string {
 // mechanism Phase 31's own "no FLUSH TABLES WITH READ LOCK/mysqldump step"
 // concern was waiting on; --quick streams rows rather than buffering the
 // whole result set in mysqldump's own memory.
-func dumpSocket(ctx context.Context, socketPath string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, mariadbDumpBinary(),
-		"--socket="+socketPath, "-u", "root",
-		"--all-databases", "--single-transaction", "--quick")
+//
+// unix_socket auth authenticates by checking that the *OS* user making the
+// connection is literally named "root" -- sudoBinary (empty in tests, real
+// "sudo" in production; see Config's own SudoBinary doc comment) is what
+// makes that true for the real unprivileged lesta-agent-daemon.
+func dumpSocket(ctx context.Context, sudoBinary, socketPath string) ([]byte, error) {
+	args := []string{"--socket=" + socketPath, "-u", "root", "--all-databases", "--single-transaction", "--quick"}
+
+	var cmd *exec.Cmd
+	if sudoBinary == "" {
+		cmd = exec.CommandContext(ctx, mariadbDumpBinary(), args...)
+	} else {
+		cmd = exec.CommandContext(ctx, sudoBinary, append([]string{mariadbDumpBinary()}, args...)...)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

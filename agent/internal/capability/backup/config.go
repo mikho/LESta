@@ -49,4 +49,21 @@ type Config struct {
 	// mail.smtp-imap.v1's ordinary StateRoots entry, so this field exists
 	// purely so restore knows where to write it back to.
 	VMailRoot string
+	// SudoBinary, when non-empty, routes both real mariadb-dump/mariadb
+	// client invocations (dumpSocket, restoreSocket) through
+	// "<SudoBinary> <resolved binary> ...". Production sets this to
+	// "sudo": the real lesta-agent-daemon systemd unit runs as the
+	// unprivileged lesta-agent user, confirmed directly deploying to a
+	// real node -- dumpSocket's/restoreSocket's own "-u root" connects via
+	// MariaDB's unix_socket auth plugin, which authenticates by checking
+	// that the *OS* user making the connection is literally named "root",
+	// not by any password; lesta-agent fails that check regardless of any
+	// file permission. sudo lets the client process itself run as real
+	// root, satisfying the plugin -- the same mechanism this project's own
+	// installers already use for their own root-authenticated health
+	// checks. .install/services/backups/install.sh's own sudoers rule
+	// scopes exactly which two binaries this may run. Empty means invoke
+	// both directly, matching this package's own disposable test harness,
+	// which already runs with whatever privilege `go test` itself has.
+	SudoBinary string
 }

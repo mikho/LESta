@@ -110,7 +110,7 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 			continue
 		}
 
-		if err := restoreSocket(ctx, socket, sql); err != nil {
+		if err := restoreSocket(ctx, c.cfg.SudoBinary, socket, sql); err != nil {
 			return c.failed(op, "database_restore_failed", fmt.Sprintf("%s: %s", capability, err.Error()))
 		}
 
@@ -278,8 +278,17 @@ func mariadbClientBinary() string {
 // that didn't exist in the dump at all (e.g. one created after the backup
 // was taken) -- a real, disclosed restore semantic, not "make live state
 // exactly match the backup."
-func restoreSocket(ctx context.Context, socketPath string, dumpSQL []byte) error {
-	cmd := exec.CommandContext(ctx, mariadbClientBinary(), "--socket="+socketPath, "-u", "root")
+//
+// sudoBinary: see dumpSocket's own doc comment on why unix_socket auth
+// needs this for the real unprivileged lesta-agent-daemon.
+func restoreSocket(ctx context.Context, sudoBinary, socketPath string, dumpSQL []byte) error {
+	var cmd *exec.Cmd
+	if sudoBinary == "" {
+		cmd = exec.CommandContext(ctx, mariadbClientBinary(), "--socket="+socketPath, "-u", "root")
+	} else {
+		cmd = exec.CommandContext(ctx, sudoBinary, mariadbClientBinary(), "--socket="+socketPath, "-u", "root")
+	}
+
 	cmd.Stdin = bytes.NewReader(dumpSQL)
 
 	var stderr bytes.Buffer

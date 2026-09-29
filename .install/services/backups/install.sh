@@ -88,6 +88,15 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 # this literal may ever appear; keep them in lockstep.
 BACKUPS_ARTIFACTS_ROOT="/var/lib/lesta/backups"
 
+# Real absolute paths on Ubuntu 24.04/26.04's own mariadb-client package,
+# matching mariadb/install.sh's own MARIADB_CLIENT_BINARY_PATH exactly (that
+# package ships mariadb-dump/mariadb as the real binaries; mysqldump/mysql
+# are compatibility symlinks this project never invokes directly -- see
+# agent/internal/capability/backup/dump.go's own mariadbDumpBinary()).
+MARIADB_DUMP_BINARY_PATH="/usr/bin/mariadb-dump"
+MARIADB_CLIENT_BINARY_PATH="/usr/bin/mariadb"
+SUDOERS_LESTA_BACKUPS_PATH="/etc/sudoers.d/lesta-backups"
+
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
 # comment).
@@ -235,7 +244,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway backup artifact against the real, just-installed capability"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0770 root:lesta. No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0770 root:lesta; ${SUDOERS_LESTA_BACKUPS_PATH} would be rendered and validated, scoping lesta-agent to run ${MARIADB_DUMP_BINARY_PATH} and ${MARIADB_CLIENT_BINARY_PATH} as root, nothing else. No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener of its own"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -356,6 +365,40 @@ install_backups() {
     # nginx/bind9/apache's own LiveDir.
     install -d -m 0770 -o root -g lesta "${BACKUPS_ARTIFACTS_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BACKUPS_ARTIFACTS_ROOT}" "failed to create ${BACKUPS_ARTIFACTS_ROOT}"
     add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" ensured "${BACKUPS_ARTIFACTS_ROOT}" "artifacts directory present, mode 0770 root:lesta"
+
+    # --- sudoers: dumpSocket/restoreSocket's own real client invocations ----
+    #
+    # Confirmed deploying to a real node: dumpSocket/restoreSocket
+    # (agent/internal/capability/backup/dump.go, restore.go) authenticate
+    # against a live MariaDB instance's own unix socket via unix_socket
+    # auth -- the same local, no-password mechanism this project's own
+    # installer health checks already use -- which authenticates by checking
+    # that the *OS* user making the connection is literally named "root".
+    # The real lesta-agent-daemon systemd unit runs as the unprivileged
+    # lesta-agent user, so it never passes that check by file permissions
+    # alone; sudo lets the client process itself run as real root instead.
+    # Wildcarding args is safe here for the same reason mariadb/install.sh's
+    # own rule already established: neither mariadb-dump nor mariadb has a
+    # flag that writes to an arbitrary path outside the real dump/restore
+    # shapes dump.go/restore.go actually build, and both are always invoked
+    # with a fixed, hardcoded argv from this project's own Go code, never
+    # from payload content.
+    cat > "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: ${MARIADB_DUMP_BINARY_PATH} *, ${MARIADB_CLIENT_BINARY_PATH} *
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_BACKUPS_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_BACKUPS_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    # Same-directory rename: atomic, and sudo's own #includedir
+    # /etc/sudoers.d parsing only ever sees the final name.
+    mv "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" "${SUDOERS_LESTA_BACKUPS_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_BACKUPS_PATH}" "failed to activate ${SUDOERS_LESTA_BACKUPS_PATH}"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "${SUDOERS_LESTA_BACKUPS_PATH}" "sudoers rule written and validated: lesta-agent may run ${MARIADB_DUMP_BINARY_PATH} and ${MARIADB_CLIENT_BINARY_PATH} as root, nothing else"
 
     checkpoint_write install_backups "${MANIFEST_DIGEST}"
     log_info "install_backups complete"

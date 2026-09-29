@@ -577,6 +577,14 @@ func backupProductionConfig() backup.Config {
 			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
 		VMailRoot: "/var/lib/lesta/mail/vmail",
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly
+		// deploying to a real node: dumpSocket's/restoreSocket's own
+		// unix_socket auth authenticates by checking the *OS* user
+		// is literally "root", which lesta-agent never is. sudo
+		// routes both through this same binary, scoped by
+		// .install/services/backups/install.sh's own sudoers rule.
+		SudoBinary: "sudo",
 	}
 }
 
