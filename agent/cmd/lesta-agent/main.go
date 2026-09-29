@@ -268,8 +268,17 @@ func bind9ProductionConfig() bind9.Config {
 		NamedConfPath:        "/etc/bind/named.conf",
 		NamedCheckconfBinary: "named-checkconf",
 		RndcBinary:           "rndc",
-		Port:                 53,
-		Nameservers:          []string{"ns1.lesta-hosting.example.", "ns2.lesta-hosting.example."},
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly deploying
+		// to a real node: rndc always needs to read
+		// /etc/bind/rndc.key (bind:bind 0640) to authenticate its own
+		// reload request, and lesta-agent is deliberately never added
+		// to the bind group. sudo routes rndc through this same
+		// binary, scoped by .install/services/bind9/install.sh's own
+		// sudoers rule.
+		SudoBinary:  "sudo",
+		Port:        53,
+		Nameservers: []string{"ns1.lesta-hosting.example.", "ns2.lesta-hosting.example."},
 	}
 }
 

@@ -1,5 +1,10 @@
 package bind9
 
+import (
+	"context"
+	"os/exec"
+)
+
 // Config parameterizes Bind9Capability by root paths and invocation details, so
 // the identical implementation runs against a real system-wide BIND9 install in
 // production or a fully disposable per-test named instance.
@@ -46,6 +51,19 @@ type Config struct {
 	// (e.g. for failure-injection tests). Empty means the default
 	// `rndc [-c RndcConfigPath] reload`.
 	ReloadCommand []string
+	// SudoBinary, when non-empty, routes rndc reload through
+	// "<SudoBinary> <rndcBinary()> ...". Production sets this to "sudo":
+	// the real lesta-agent-daemon systemd unit runs as the unprivileged
+	// lesta-agent user, confirmed directly deploying to a real node --
+	// rndc always needs to read /etc/bind/rndc.key (bind:bind 0640) to
+	// authenticate its own control-channel request to named, and
+	// lesta-agent is deliberately never added to the bind group (that
+	// would grant it everything bind can read, not just this one key).
+	// .install/services/bind9/install.sh's own sudoers rule scopes
+	// exactly which binary this may run. Empty means invoke rndc
+	// directly, matching this package's own disposable test harness,
+	// which already runs with whatever privilege `go test` itself has.
+	SudoBinary string
 }
 
 func (c Config) namedCheckconfBinary() string {
@@ -62,6 +80,16 @@ func (c Config) rndcBinary() string {
 	}
 
 	return c.RndcBinary
+}
+
+// command builds the real rndc invocation for args, routed through
+// SudoBinary when set (see its own doc comment on Config for why).
+func (c Config) command(ctx context.Context, args ...string) *exec.Cmd {
+	if c.SudoBinary == "" {
+		return exec.CommandContext(ctx, c.rndcBinary(), args...)
+	}
+
+	return exec.CommandContext(ctx, c.SudoBinary, append([]string{c.rndcBinary()}, args...)...)
 }
 
 // rndcArgs prepends -c RndcConfigPath (when set) to extra, for every rndc

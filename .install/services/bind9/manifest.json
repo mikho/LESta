@@ -8,5 +8,5 @@
   "packages": [],
   "ports": [{"protocol": "udp", "port": 53, "direction": "inbound"}, {"protocol": "tcp", "port": 53, "direction": "inbound"}],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/etc/bind/lesta.d", "/var/lib/lesta/bind"], "read_only_roots": ["/etc/bind/named.conf"], "refused_roots": ["/etc/bind/named.conf"]}
+  "ownership": {"owned_roots": ["/etc/bind/lesta.d", "/var/lib/lesta/bind", "/etc/sudoers.d/lesta-bind9"], "read_only_roots": ["/etc/bind/named.conf"], "refused_roots": ["/etc/bind/named.conf", "/etc/sudoers"]}
 }

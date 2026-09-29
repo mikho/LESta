@@ -93,6 +93,8 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 # equivalent to nginx/install.sh's own NGINX_CONF_PATH/NGINX_LIVE_DIR.
 NAMED_CONF_PATH="/etc/bind/named.conf"
 BIND9_LIVE_DIR="/etc/bind/lesta.d"
+RNDC_BINARY_PATH="/usr/sbin/rndc"
+SUDOERS_LESTA_BIND9_PATH="/etc/sudoers.d/lesta-bind9"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # nginx's own (/var/lib/lesta/install/nginx.checkpoint,
@@ -314,7 +316,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway zone against the real, just-installed bind9"
-    add_change dns.bind9.v1 would_install "${OFFLINE_BUNDLE}" "$(bind9_would_install_note); ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; bind9 would be enabled, restarted, and health-probed"
+    add_change dns.bind9.v1 would_install "${OFFLINE_BUNDLE}" "$(bind9_would_install_note); ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; ${SUDOERS_LESTA_BIND9_PATH} would be rendered and validated, scoping lesta-agent to run ${RNDC_BINARY_PATH} as root, nothing else; bind9 would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -733,6 +735,32 @@ PLACEHOLDER
     # privilege -- widening only adds group write, removes nothing.
     install -d -m 0770 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
     add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0770 root:lesta"
+
+    # --- sudoers: the real daemon's own rndc reload needs root too ----------
+    #
+    # The real lesta-agent-daemon systemd unit runs as the unprivileged
+    # lesta-agent user, confirmed directly deploying to a real node: rndc
+    # always needs to read /etc/bind/rndc.key (bind:bind 0640) to
+    # authenticate its own reload request, and lesta-agent is deliberately
+    # never added to the bind group (that would grant it everything bind
+    # can read, not just this one key). This rule scopes lesta-agent to
+    # running the real rndc binary as root, nothing else -- safe to
+    # wildcard its own arguments here, same reasoning as nginx's own
+    # sudoers rule.
+    cat > "${SUDOERS_LESTA_BIND9_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: ${RNDC_BINARY_PATH} *
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_BIND9_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_BIND9_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_BIND9_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_BIND9_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_BIND9_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_BIND9_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    mv "${SUDOERS_LESTA_BIND9_PATH}.tmp" "${SUDOERS_LESTA_BIND9_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_BIND9_PATH}" "failed to activate ${SUDOERS_LESTA_BIND9_PATH}"
+    add_change dns.bind9.v1 installed "${SUDOERS_LESTA_BIND9_PATH}" "sudoers rule written and validated: lesta-agent may run ${RNDC_BINARY_PATH} as root, nothing else"
 
     check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then

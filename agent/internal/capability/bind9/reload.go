@@ -24,7 +24,7 @@ func (c *Bind9Capability) reload(ctx context.Context) error {
 		cmd = exec.CommandContext(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
 	} else {
 		args := c.cfg.rndcArgs("reload")
-		cmd = exec.CommandContext(ctx, c.cfg.rndcBinary(), args...)
+		cmd = c.cfg.command(ctx, args...)
 	}
 
 	out, err := cmd.CombinedOutput()
