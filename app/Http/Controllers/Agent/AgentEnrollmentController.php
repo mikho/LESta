@@ -25,7 +25,15 @@ class AgentEnrollmentController extends Controller
             return response()->json(['error' => 'Node not found.'], 404);
         }
 
-        $tokenIsValid = $node->enrollment_status === NodeEnrollmentStatus::Pending
+        // Pending: first-time enrollment. Revoked: Node::issueEnrollmentToken() sets exactly
+        // this status when a fresh token is issued for an already-Enrolled node (credential
+        // rotation -- see IssueNodeEnrollmentToken action's own doc comment), and that fresh
+        // token must be able to complete enrollment the same way a first-time one does. Found
+        // deploying to a real node: without Revoked here, issuing a rotation token permanently
+        // revokes the live credential with no way to ever complete the rotation through this
+        // endpoint, even with a valid, unexpired token -- the feature could revoke but never
+        // actually rotate.
+        $tokenIsValid = in_array($node->enrollment_status, [NodeEnrollmentStatus::Pending, NodeEnrollmentStatus::Revoked], true)
             && $node->enrollment_token_hash !== null
             && $node->enrollment_token_expires_at !== null
             && $node->enrollment_token_expires_at->isFuture()
