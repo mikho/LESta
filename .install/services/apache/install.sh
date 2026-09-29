@@ -738,7 +738,7 @@ install_apache() {
     # worker (which never reads anything under its own state root at request
     # time: its content is a `return` directive baked directly into the
     # already-parsed vhost .conf), Apache's own mod_asis-served content lives
-    # in a real file under /var/lib/lesta/apache (0750 root:lesta) that
+    # in a real file under /var/lib/lesta/apache (0770 root:lesta) that
     # www-data itself must open at request time, not just the agent. This is
     # the exact same class of gap bind9/install.sh's own installation of
     # named already hit and fixed (see its own comment for the full
@@ -799,9 +799,12 @@ install_apache() {
     # Confirmed directly (root:root 0755 left the daemon's own user unable
     # to even touch a file here), not assumed.
     install -d -m 0770 -o root -g lesta "${APACHE_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
-    install -d -m 0750 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
+    # 0770, not 0750: generation.Store's own bookkeeping is written
+    # directly into this StateRoot by the real unprivileged daemon too,
+    # same reasoning as APACHE_LIVE_DIR just above.
+    install -d -m 0770 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
     add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
-    add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0750 root:lesta"
+    add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0770 root:lesta"
 
     # APACHE_LOG_DIR must exist before apache2ctl configtest below: every
     # rendered vhost's own CustomLog directive names a path under it, and

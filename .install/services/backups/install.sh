@@ -235,7 +235,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway backup artifact against the real, just-installed capability"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0750 root:lesta. No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0770 root:lesta. No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -346,8 +346,16 @@ bootstrap_base() {
 install_backups() {
     log_info "install_backups: ensuring the owned artifacts directory exists"
 
-    install -d -m 0750 -o root -g lesta "${BACKUPS_ARTIFACTS_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BACKUPS_ARTIFACTS_ROOT}" "failed to create ${BACKUPS_ARTIFACTS_ROOT}"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" ensured "${BACKUPS_ARTIFACTS_ROOT}" "artifacts directory present, mode 0750 root:lesta"
+    # 0770, not 0750: the real lesta-agent-daemon (group lesta, not the
+    # owner root) is the process that actually has to write/remove each
+    # artifact here for a real create/delete, not just the root-invoked
+    # one-shot self-test below, which masked a plain 0750 (group read+
+    # execute, no write) for a long time by running privileged. Confirmed
+    # empirically (0750 left the daemon's own user unable to even touch a
+    # file here), same bug class already found and fixed this phase for
+    # nginx/bind9/apache's own LiveDir.
+    install -d -m 0770 -o root -g lesta "${BACKUPS_ARTIFACTS_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BACKUPS_ARTIFACTS_ROOT}" "failed to create ${BACKUPS_ARTIFACTS_ROOT}"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" ensured "${BACKUPS_ARTIFACTS_ROOT}" "artifacts directory present, mode 0770 root:lesta"
 
     checkpoint_write install_backups "${MANIFEST_DIGEST}"
     log_info "install_backups complete"

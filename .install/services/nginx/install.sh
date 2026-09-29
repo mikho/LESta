@@ -736,9 +736,13 @@ install_nginx() {
     # Confirmed directly (root:root 0755 left the daemon's own user unable
     # to even touch a file here), not assumed.
     install -d -m 0770 -o root -g lesta "${NGINX_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
-    install -d -m 0750 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
+    # 0770, not 0750: generation.Store's own bookkeeping (manifests,
+    # current/previous symlinks) is written directly into this StateRoot
+    # by the real unprivileged daemon too, same reasoning as NGINX_LIVE_DIR
+    # just above -- confirmed empirically, not assumed.
+    install -d -m 0770 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
     add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
-    add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0750 root:lesta"
+    add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0770 root:lesta"
 
     # NGINX_LOG_DIR must exist before nginx -t below: every rendered vhost's
     # own access_log directive names a path under it, and nginx -t opens

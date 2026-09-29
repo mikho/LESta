@@ -1013,8 +1013,13 @@ install_mail() {
     # install.sh's own placeholder-fragment-before-package-install
     # precedent (see that file's own comment on the identical ordering
     # requirement for named.conf's include).
-    install -d -m 0750 -o root -g lesta "${DOVECOT_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0750 root:lesta"
+    # 0770, not 0750: the real unprivileged lesta-agent-daemon is the
+    # process that writes into this directory for a real create/update/
+    # delete, not just this installer's own root-invoked self-test -- same
+    # bug class already found and fixed for every other capability's own
+    # LiveDir/StateRoot this phase.
+    install -d -m 0770 -o root -g lesta "${DOVECOT_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0770 root:lesta"
 
     mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
@@ -1126,18 +1131,25 @@ install_mail() {
     # created parent would otherwise inherit whatever the umask happens to
     # leave it with, exactly the kind of gap bind9/mariadb's own installers
     # avoid by creating every owned root explicitly.
-    install -d -m 0750 -o root -g lesta "${MAIL_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${MAIL_STATE_ROOT}" "state root present, mode 0750 root:lesta"
+    # 0770, not 0750, for this and every directory below: the real
+    # unprivileged lesta-agent-daemon writes into all of these for a real
+    # create/update/delete, not just this installer's own root-invoked
+    # self-test -- same bug class already found and fixed for every other
+    # capability's own LiveDir/StateRoot this phase. DKIM private keys
+    # stay individually 0600 regardless (that file-level mode is
+    # unaffected by the directory's own mode).
+    install -d -m 0770 -o root -g lesta "${MAIL_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${MAIL_STATE_ROOT}" "state root present, mode 0770 root:lesta"
 
-    install -d -m 0750 -o root -g lesta "${EXIM_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_LIVE_DIR}" "failed to create ${EXIM_LIVE_DIR}"
-    install -d -m 0750 -o root -g lesta "${EXIM_DATA_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${EXIM_DATA_DIR}" "lookup-data directory present, mode 0750 root:lesta"
+    install -d -m 0770 -o root -g lesta "${EXIM_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_LIVE_DIR}" "failed to create ${EXIM_LIVE_DIR}"
+    install -d -m 0770 -o root -g lesta "${EXIM_DATA_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${EXIM_DATA_DIR}" "lookup-data directory present, mode 0770 root:lesta"
 
-    install -d -m 0750 -o root -g lesta "${DKIM_KEY_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0750 root:lesta"
+    install -d -m 0770 -o root -g lesta "${DKIM_KEY_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0770 root:lesta"
 
-    install -d -m 0750 -o root -g lesta "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 0750 root:lesta"
+    install -d -m 0770 -o root -g lesta "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 0770 root:lesta"
 
     systemctl enable exim4 || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable exim4 failed"
 

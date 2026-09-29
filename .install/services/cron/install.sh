@@ -480,11 +480,19 @@ install_cron() {
     install -d -m 0755 -o root -g root "${FRAGMENT_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FRAGMENT_DIR}" "failed to create ${FRAGMENT_DIR}"
     add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${FRAGMENT_DIR}" "directory present, mode 0755 root:root"
 
-    install -d -m 0750 -o root -g lesta "${CRON_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0750 root:lesta"
+    # 0770, not 0750: generation.Store's own bookkeeping (manifests,
+    # current/previous symlinks under jobs/) is written directly by the
+    # real unprivileged daemon -- this write path was never routed through
+    # the sudoers rule above (only the /etc/cron.d fragment and
+    # ensureAccountDir's own chown needed that; StateRoot bookkeeping is
+    # the daemon's own, already-owned-by-its-group data). Confirmed
+    # empirically, same bug class as every other capability's own
+    # StateRoot this phase.
+    install -d -m 0770 -o root -g lesta "${CRON_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0770 root:lesta"
 
-    install -d -m 0750 -o root -g lesta "${CRON_STATE_ROOT}/jobs" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0750 root:lesta"
+    install -d -m 0770 -o root -g lesta "${CRON_STATE_ROOT}/jobs" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0770 root:lesta"
 
     # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar and
     # execution-log directory, owned root:<run_as> mode 2750 setgid) is

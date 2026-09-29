@@ -679,7 +679,7 @@ PLACEHOLDER
     # state root directly: its served content lives entirely inside the
     # world-traversable NGINX_LIVE_DIR tree), bind9's zone stanza's own
     # `file` directive points straight at a path under /var/lib/lesta/bind
-    # (0750 root:lesta), which named itself must open at zone-load time,
+    # (0770 root:lesta), which named itself must open at zone-load time,
     # not just the agent. Without this, named's own Unix DAC check would
     # fail traversing the parent directory regardless of anything else.
     # (Verified directly against CI that this grant alone is NOT
@@ -726,8 +726,13 @@ PLACEHOLDER
         log_info "AppArmor local override file for named not present (${apparmor_local_named}); assuming AppArmor is not enforcing named on this host, skipping"
     fi
 
-    install -d -m 0750 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
-    add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0750 root:lesta"
+    # 0770, not 0750: generation.Store's own bookkeeping is written
+    # directly into this StateRoot by the real unprivileged daemon too,
+    # same reasoning as BIND9_LIVE_DIR above. Still readable to `bind`
+    # (already a member of group lesta) for zone data after named drops
+    # privilege -- widening only adds group write, removes nothing.
+    install -d -m 0770 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
+    add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0770 root:lesta"
 
     check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
