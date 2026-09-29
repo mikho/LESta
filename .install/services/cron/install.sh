@@ -632,16 +632,13 @@ run_node_health_selftest() {
 
     log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 against the real sidecar"
 
-    # Genuine proof the sudoers rule above actually grants what the REAL
-    # unprivileged lesta-agent-daemon needs -- not just that this
-    # self-test's own create/delete round trip succeeded, which proves
-    # nothing here: this whole self-test runs from install.sh, already
-    # root, and root running `sudo <anything>` always succeeds regardless
-    # of any sudoers rule at all. A second, disposable resource_id,
-    # invoked exactly as the real daemon would: switch to lesta-agent
-    # first (sudo -u lesta-agent, itself trivially allowed since this
-    # process really is root), then have IT invoke sudo -- the exact call
-    # the new sudoers rule exists to gate.
+    # The create/delete round trip above already ran as lesta-agent
+    # (selftest_invoke_agent, lib/selftest.sh, via sudo -u), so it already
+    # genuinely exercises the sudoers rule -- this second, disposable
+    # resource_id goes further, verifying something the round trip's own
+    # status=applied check does not: that the fragment landed owned
+    # root:root specifically, the actual thing cron itself enforces before
+    # honoring a fragment at all, not just that some write happened.
     local sudo_check_id sudo_check_path fragment_owner
     sudo_check_id=$(selftest_new_uuid)
     sudo_check_path="${FRAGMENT_DIR}/lesta-${sudo_check_id}"
@@ -678,7 +675,7 @@ run_node_health_selftest() {
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_ensure_account_dir_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-ensure-account-dir' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
     fi
 
-    log_info "bootstrap_node_health self-test: lesta-agent's own sudoers rule genuinely grants cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir, verified as lesta-agent itself, not as root"
+    log_info "bootstrap_node_health self-test: cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir all work as lesta-agent, and the written fragment is genuinely owned root:root"
 
     if ! run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${FRAGMENT_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward"

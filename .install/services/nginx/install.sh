@@ -889,22 +889,12 @@ run_node_health_selftest() {
 
     log_info "bootstrap_node_health self-test: create returned status=applied"
 
-    # Genuine proof the sudoers rule above actually grants what the REAL
-    # unprivileged lesta-agent-daemon needs -- not just that this
-    # self-test's own create/delete round trip succeeded, which proves
-    # nothing here: this whole self-test runs from install.sh, already
-    # root, and root running `sudo <anything>` always succeeds regardless
-    # of any sudoers rule at all. Switch to lesta-agent first (sudo -u
-    # lesta-agent, itself trivially allowed since this process really is
-    # root), then have IT invoke sudo -- the exact call the new sudoers
-    # rule exists to gate. nginx -t is read-only, so this needs no
-    # cleanup of its own.
-    if ! sudo -u lesta-agent sudo "${NGINX_BINARY_PATH}" -t -c "${NGINX_CONF_PATH}" >/dev/null 2>&1; then
-        run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_validate_failed "${SUDOERS_LESTA_NGINX_PATH}" "lesta-agent could not run 'sudo ${NGINX_BINARY_PATH} -t' as itself -- the sudoers rule at ${SUDOERS_LESTA_NGINX_PATH} is not granting what the real daemon needs"
-    fi
-
-    log_info "bootstrap_node_health self-test: lesta-agent's own sudoers rule genuinely grants running nginx as root, verified as lesta-agent itself, not as root"
+    # This create/delete round trip already genuinely proves the sudoers
+    # rule above (selftest_invoke_agent, lib/selftest.sh, runs the agent as
+    # lesta-agent via sudo -u, never as root) -- no separate re-check
+    # needed here the way an earlier version of this file required, back
+    # when the self-test itself still ran as root and so proved nothing
+    # about a sudoers grant on its own.
 
     if ! run_node_health_selftest_delete "${WEB_NGINX_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${NGINX_LIVE_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward; ${AGENT_BINARY_DEST} may have left a stray fragment for ${resource_id} under ${NGINX_LIVE_DIR}"

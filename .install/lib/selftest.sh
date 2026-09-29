@@ -50,8 +50,22 @@ selftest_envelope() {
 # passes any environment override: the shipped binary only ever knows each
 # capability's own productionConfig() fixed paths (see
 # agent/cmd/lesta-agent/main.go).
+#
+# Runs as lesta-agent (sudo -u), never as root, even though this whole
+# script always runs as root via sudo: the real lesta-agent-daemon systemd
+# unit runs as the unprivileged lesta-agent user, and a self-test invoked
+# as root instead proves nothing about whether the real daemon can
+# actually do the same thing -- found the hard way, repeatedly, deploying
+# to a real node: nginx's own validate/reload, cron's own /etc/cron.d
+# fragment writes, and generation.Store's own lazily-created StateRoot
+# subdirectories (whichever identity creates a given path first is the
+# only one that can write there afterward) all passed a root-run self-test
+# while genuinely failing for the real daemon. Every one of those would
+# have been caught immediately, before ever leaving this installer, had
+# the self-test always run as the same identity as the real daemon from
+# the start.
 selftest_invoke_agent() {
-    printf '%s' "$1" | "${AGENT_BINARY_DEST}"
+    printf '%s' "$1" | sudo -u lesta-agent -- "${AGENT_BINARY_DEST}"
 }
 
 # selftest_status_from_output <agent_stdout> -> the "status" field's value,
