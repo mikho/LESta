@@ -88,6 +88,16 @@ type Config struct {
 	// directly, matching this package's own disposable test harness, which
 	// already runs with whatever privilege `go test` itself has.
 	SudoBinary string
+	// AgentBinaryPath is this same lesta-agent binary's own real installed
+	// path (.install/lib/agent.sh's own AGENT_BINARY_DEST), used together
+	// with SudoBinary to re-invoke this binary's own
+	// "identity-ensure-chroot-tree" CLI mode as root: ensureChrootTree's
+	// own os.MkdirAll/os.Chown calls (privileged.go) require real root,
+	// which sudo cannot grant to an in-process Go syscall the way it can a
+	// separate exec.Command invocation -- confirmed directly deploying to
+	// a real node. Empty means EnsureChrootTree runs in-process directly,
+	// matching this package's own disposable test harness.
+	AgentBinaryPath string
 }
 
 // command builds an *exec.Cmd for binary+args, routed through

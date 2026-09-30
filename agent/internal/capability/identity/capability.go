@@ -143,7 +143,7 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 			}
 		}
 
-		if err := ensureChrootTree(c.cfg, payload.Username); err != nil {
+		if err := ensureChrootTreePrivileged(c.cfg, payload.Username); err != nil {
 			return c.failed(op, "chroot_setup_failed", err.Error())
 		}
 	}

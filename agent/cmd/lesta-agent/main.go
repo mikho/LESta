@@ -122,6 +122,16 @@ func main() {
 		os.Exit(cron.ArchiveState(cronProductionConfig(), os.Stdout))
 	}
 
+	// "identity-ensure-chroot-tree" is the one real root-only action
+	// system.account-identity.v1 needs beyond useradd/userdel (see
+	// identity.Config's own AgentBinaryPath doc comment): never an
+	// OperationEnvelope from stdin, and never invoked directly by an
+	// operator -- only ever via the narrowly-scoped sudoers rule
+	// agent-daemon/install.sh writes.
+	if len(os.Args) >= 3 && os.Args[1] == "identity-ensure-chroot-tree" {
+		os.Exit(identity.EnsureChrootTree(identityProductionConfig(), os.Args[2]))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
@@ -670,6 +680,16 @@ func identityProductionConfig() identity.Config {
 		// sudo routes both through this same binary, scoped by
 		// .install/services/agent-daemon/install.sh's own sudoers rule.
 		SudoBinary: "sudo",
+		// AgentBinaryPath, used together with SudoBinary, lets
+		// ensureChrootTreePrivileged re-invoke this same binary's own
+		// "identity-ensure-chroot-tree" CLI mode as root: found directly
+		// deploying to a real node -- ensureChrootTree's own
+		// os.MkdirAll/os.Chown calls (privileged.go) require real root
+		// too, the same way useradd/userdel do, but sudo can only wrap a
+		// separate exec.Command invocation, never an in-process Go
+		// syscall. Must stay in lockstep with .install/lib/agent.sh's own
+		// AGENT_BINARY_DEST.
+		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
 }
 
