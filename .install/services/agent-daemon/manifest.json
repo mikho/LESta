@@ -17,9 +17,11 @@
       "/etc/ssh/sshd_config.d/00-lesta.conf",
       "/etc/ssh/sshd_config.d/lesta.d",
       "/etc/lesta/sftp/authorized_keys",
-      "/var/lib/lesta/web/accounts"
+      "/var/lib/lesta/web/accounts",
+      "/var/lib/lesta/statistics/offsets",
+      "/etc/sudoers.d/lesta-agent-daemon"
     ],
     "read_only_roots": ["/etc/ssh/sshd_config"],
-    "refused_roots": []
+    "refused_roots": ["/etc/sudoers"]
   }
 }

@@ -123,7 +123,19 @@ func (d *disposableSshd) start(t *testing.T) {
 	// default daemonizing start, and why waitForPidFile below is needed
 	// (this Command's own Run() already returned by the time the real
 	// daemon has written its pid file).
-	cmd := exec.Command("sshd", "-f", d.Config.SshdConfigPath)
+	//
+	// exec.LookPath, not a bare "sshd": Apple's own OpenSSH build (macOS)
+	// refuses to run at all via a relative/PATH-resolved name ("sshd
+	// requires execution with an absolute path"), unlike Linux's -- found
+	// running this suite's own first-ever root-independent sshd-dependent
+	// test locally (every other one skips before reaching this point
+	// unless already running as root).
+	sshdPath, err := exec.LookPath("sshd")
+	if err != nil {
+		t.Fatalf("resolving sshd's own absolute path: %v", err)
+	}
+
+	cmd := exec.Command(sshdPath, "-f", d.Config.SshdConfigPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("starting disposable sshd: %v: %s", err, out)
 	}

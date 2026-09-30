@@ -52,7 +52,7 @@ func userExists(ctx context.Context, cfg Config, username string) (bool, error) 
 // every connection. --no-create-home means useradd never touches this path
 // on disk; it only writes the passwd field.
 func createSystemUser(ctx context.Context, cfg Config, username string) error {
-	cmd := exec.CommandContext(ctx, cfg.useraddBinary(), "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--home-dir", "/public", username)
+	cmd := cfg.command(ctx, cfg.useraddBinary(), "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--home-dir", "/public", username)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -66,7 +66,7 @@ func createSystemUser(ctx context.Context, cfg Config, username string) error {
 
 // deleteSystemUser execs userdel <username>.
 func deleteSystemUser(ctx context.Context, cfg Config, username string) error {
-	cmd := exec.CommandContext(ctx, cfg.userdelBinary(), username)
+	cmd := cfg.command(ctx, cfg.userdelBinary(), username)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

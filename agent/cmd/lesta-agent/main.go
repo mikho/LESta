@@ -662,6 +662,14 @@ func identityProductionConfig() identity.Config {
 		SshdConfigPath:    "/etc/ssh/sshd_config",
 		Port:              22,
 		ReloadCommand:     []string{"systemctl", "reload", "ssh"},
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user, confirmed directly deploying to
+		// a real node: useradd/userdel always require root (they write
+		// /etc/passwd/etc/shadow/etc/group directly; there is no
+		// file-permission fix, only running the process itself as root).
+		// sudo routes both through this same binary, scoped by
+		// .install/services/agent-daemon/install.sh's own sudoers rule.
+		SudoBinary: "sudo",
 	}
 }
 

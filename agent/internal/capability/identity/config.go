@@ -1,5 +1,10 @@
 package identity
 
+import (
+	"context"
+	"os/exec"
+)
+
 // Config parameterizes IdentityCapability by the external binaries it execs
 // and the paths its real SFTP/chroot rendering (Web Application Hosting
 // Threat Model and Isolation Design.md step 2) writes to, so the identical
@@ -71,6 +76,31 @@ type Config struct {
 	// own pid, signaled with SIGHUP directly -- the seam a disposable test
 	// harness uses instead of systemctl.
 	ReloadPID int
+	// SudoBinary, when non-empty, routes useradd/userdel (createSystemUser,
+	// deleteSystemUser) through "<SudoBinary> <resolved binary> ...".
+	// Production sets this to "sudo": the real lesta-agent-daemon systemd
+	// unit runs as the unprivileged lesta-agent user, confirmed directly
+	// deploying to a real node -- useradd/userdel always require root
+	// (they write /etc/passwd/, /etc/shadow, /etc/group directly; there is
+	// no file-permission fix, only running the process itself as root).
+	// .install/services/agent-daemon/install.sh's own sudoers rule scopes
+	// exactly which two binaries this may run. Empty means invoke both
+	// directly, matching this package's own disposable test harness, which
+	// already runs with whatever privilege `go test` itself has.
+	SudoBinary string
+}
+
+// command builds an *exec.Cmd for binary+args, routed through
+// "<SudoBinary> <binary> <args...>" when SudoBinary is set, or invoking
+// binary directly otherwise. Shared by createSystemUser/deleteSystemUser
+// (exec.go); mirrors nginx.Config's/bind9.Config's own command() helper
+// exactly.
+func (c Config) command(ctx context.Context, binary string, args ...string) *exec.Cmd {
+	if c.SudoBinary == "" {
+		return exec.CommandContext(ctx, binary, args...)
+	}
+
+	return exec.CommandContext(ctx, c.SudoBinary, append([]string{binary}, args...)...)
 }
 
 func (c Config) useraddBinary() string {

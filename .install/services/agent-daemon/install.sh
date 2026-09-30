@@ -83,6 +83,12 @@ SFTP_LESTA_LIVE_DIR="${SFTP_SSHD_CONFIG_D}/lesta.d"
 SFTP_AUTHORIZED_KEYS_DIR="/etc/lesta/sftp/authorized_keys"
 SFTP_ACCOUNTS_ROOT="/var/lib/lesta/web/accounts"
 
+# Real absolute paths on Ubuntu 24.04/26.04, matching every other leaf
+# installer's own *_BINARY_PATH sudoers-rule convention.
+USERADD_BINARY_PATH="/usr/sbin/useradd"
+USERDEL_BINARY_PATH="/usr/sbin/userdel"
+SUDOERS_LESTA_AGENT_DAEMON_PATH="/etc/sudoers.d/lesta-agent-daemon"
+
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
 # comment).
@@ -268,7 +274,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place (a no-op if node-health already installed it)"
     add_change "${AGENT_DAEMON_CAPABILITY}" would_enroll "/etc/lesta/agent/node-credential" "this node would exchange its enrollment token for a long-lived node credential against ${CONTROL_PLANE_URL}/agent/v1/enroll, unless a credential is already present"
-    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${USERADD_BINARY_PATH} and ${USERDEL_BINARY_PATH} as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -508,6 +514,38 @@ bootstrap_sftp_prerequisite() {
     install -d -m 0755 -o root -g root "${SFTP_ACCOUNTS_ROOT}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_ACCOUNTS_ROOT}" "failed to create ${SFTP_ACCOUNTS_ROOT}"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_ACCOUNTS_ROOT}" "chroot accounts root present, mode 0755 root:root"
+
+    # --- sudoers: useradd/userdel, the two real root-only actions ----------
+    #
+    # The real lesta-agent-daemon systemd unit runs as the unprivileged
+    # lesta-agent user, confirmed directly against a real node, the hard
+    # way: a real tenant's own first CronJob create failed with "useradd:
+    # Permission denied" -- system.account-identity.v1's own useradd/userdel
+    # invocations (agent/internal/capability/identity/exec.go) had never
+    # been routed through sudo at all, unlike every other capability's own
+    # root-only actions this project already fixed. useradd/userdel always
+    # require root (they write /etc/passwd/etc/shadow/etc/group directly);
+    # there is no file-permission fix, only running the process itself as
+    # root. Always ensured, even on a re-run past the early-return below:
+    # this rule must exist before the very first real account identity is
+    # ever created, and re-rendering an already-identical file is a cheap,
+    # safe no-op.
+    cat > "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_AGENT_DAEMON_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    # Same-directory rename: atomic, and sudo's own #includedir
+    # /etc/sudoers.d parsing only ever sees the final name.
+    mv "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "failed to activate ${SUDOERS_LESTA_AGENT_DAEMON_PATH}"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${USERADD_BINARY_PATH} and ${USERDEL_BINARY_PATH} as root, nothing else"
 
     if [ -f "${SFTP_LESTA_CONF_PATH}" ] && grep -qF "${SFTP_LESTA_LIVE_DIR}" "${SFTP_LESTA_CONF_PATH}"; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified "${SFTP_LESTA_CONF_PATH}" "already present from a prior apply"
