@@ -498,13 +498,26 @@ bootstrap_agent_daemon() {
 bootstrap_sftp_prerequisite() {
     log_info "bootstrap_sftp_prerequisite: preparing system.account-identity.v1's own real SFTP rendering targets"
 
-    install -d -m 0755 -o root -g root "${SFTP_LESTA_LIVE_DIR}" \
+    # 0770 root:lesta, not 0755 root:root: the real lesta-agent-daemon
+    # systemd unit runs as the unprivileged lesta-agent user, confirmed
+    # directly against a real node -- writeStaging/activateLive/removeLive
+    # and writeAuthorizedKeys (activate.go) are plain file writes/renames,
+    # never a chown to an arbitrary uid (unlike SFTP_ACCOUNTS_ROOT's own
+    # per-account subdirectories just below, which genuinely do need real
+    # root and are routed through identity-ensure-chroot-tree instead), so
+    # the same "make the parent directory group-writable" fix nginx's/
+    # bind9's/cron's own LiveDir/StateRoot already needed this phase
+    # applies here too: the real daemon reading Include'd *.conf files as
+    # root before dropping privileges never cares about this directory's
+    # own group-write bit, only OpenSSH's ChrootDirectory requirement
+    # (SFTP_ACCOUNTS_ROOT, unaffected by this) does.
+    install -d -m 0770 -o root -g lesta "${SFTP_LESTA_LIVE_DIR}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_LESTA_LIVE_DIR}" "failed to create ${SFTP_LESTA_LIVE_DIR}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_LESTA_LIVE_DIR}" "per-account sshd Match-block directory present, mode 0755 root:root"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_LESTA_LIVE_DIR}" "per-account sshd Match-block directory present, mode 0770 root:lesta"
 
-    install -d -m 0755 -o root -g root "${SFTP_AUTHORIZED_KEYS_DIR}" \
+    install -d -m 0770 -o root -g lesta "${SFTP_AUTHORIZED_KEYS_DIR}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_AUTHORIZED_KEYS_DIR}" "failed to create ${SFTP_AUTHORIZED_KEYS_DIR}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_AUTHORIZED_KEYS_DIR}" "centralized authorized_keys directory present, mode 0755 root:root"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_AUTHORIZED_KEYS_DIR}" "centralized authorized_keys directory present, mode 0770 root:lesta"
 
     # 0755, not the account subdirectory's own tighter 0750 (see
     # ensureChrootTree's own doc comment in the Go capability): this exact
