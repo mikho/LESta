@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
 	"syscall"
 	"time"
@@ -22,7 +21,7 @@ import (
 // reload` has.
 func (c *IdentityCapability) reload(ctx context.Context) error {
 	if len(c.cfg.ReloadCommand) > 0 {
-		cmd := exec.CommandContext(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
+		cmd := c.cfg.command(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
 
 		out, err := cmd.CombinedOutput()
 		if err != nil {

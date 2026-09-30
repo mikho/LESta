@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -32,7 +31,7 @@ func (c *IdentityCapability) validateCandidate(ctx context.Context, resourceID s
 	}
 	defer cleanup()
 
-	cmd := exec.CommandContext(ctx, c.cfg.sshdBinary(), "-t", "-f", syntheticConfPath)
+	cmd := c.cfg.command(ctx, c.cfg.sshdBinary(), "-t", "-f", syntheticConfPath)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -87,6 +87,8 @@ SFTP_ACCOUNTS_ROOT="/var/lib/lesta/web/accounts"
 # installer's own *_BINARY_PATH sudoers-rule convention.
 USERADD_BINARY_PATH="/usr/sbin/useradd"
 USERDEL_BINARY_PATH="/usr/sbin/userdel"
+SSHD_BINARY_PATH="/usr/sbin/sshd"
+SYSTEMCTL_BINARY_PATH="/usr/bin/systemctl"
 SUDOERS_LESTA_AGENT_DAEMON_PATH="/etc/sudoers.d/lesta-agent-daemon"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
@@ -274,7 +276,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place (a no-op if node-health already installed it)"
     add_change "${AGENT_DAEMON_CAPABILITY}" would_enroll "/etc/lesta/agent/node-credential" "this node would exchange its enrollment token for a long-lived node credential against ${CONTROL_PLANE_URL}/agent/v1/enroll, unless a credential is already present"
-    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, and ${AGENT_BINARY_DEST} identity-ensure-chroot-tree as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${SSHD_BINARY_PATH} -t, and ${SYSTEMCTL_BINARY_PATH} reload ssh as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -528,7 +530,7 @@ bootstrap_sftp_prerequisite() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_ACCOUNTS_ROOT}" "failed to create ${SFTP_ACCOUNTS_ROOT}"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_ACCOUNTS_ROOT}" "chroot accounts root present, mode 0755 root:root"
 
-    # --- sudoers: useradd/userdel/identity-ensure-chroot-tree ---------------
+    # --- sudoers: useradd/userdel/identity-ensure-chroot-tree/sshd/reload --
     #
     # The real lesta-agent-daemon systemd unit runs as the unprivileged
     # lesta-agent user, confirmed directly against a real node, the hard
@@ -548,12 +550,21 @@ bootstrap_sftp_prerequisite() {
     # invocation -- routed instead through this same binary's own
     # "identity-ensure-chroot-tree" CLI mode (privileged.go), the same
     # self-re-exec shape cron's own cron-archive-state already established.
-    # Always ensured, even on a re-run past the early-return below: this
-    # rule must exist before the very first real account identity is ever
-    # created, and re-rendering an already-identical file is a cheap, safe
-    # no-op.
+    # sshd -t and systemctl reload ssh grant a fourth and fifth, found
+    # immediately after the first three on the same real node:
+    # validateCandidate's own `sshd -t` needs root to read the real host
+    # key files (0600, root-only) it falls back to when a candidate config
+    # names none explicitly; reload's own `systemctl reload ssh` needs root
+    # the same way every other systemd-unit mutation this project execs
+    # does. systemctl is scoped to exactly "reload ssh" args, never a bare
+    # wildcard: unlike every other binary in this rule, a wildcarded
+    # systemctl could restart/stop/mask arbitrary units, a real privilege
+    # escalation this rule must never grant. Always ensured, even on a
+    # re-run past the early-return below: this rule must exist before the
+    # very first real account identity is ever created, and re-rendering an
+    # already-identical file is a cheap, safe no-op.
     cat > "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *
+lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
@@ -567,7 +578,7 @@ SUDOERSEOF
     # /etc/sudoers.d parsing only ever sees the final name.
     mv "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "failed to activate ${SUDOERS_LESTA_AGENT_DAEMON_PATH}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, and ${AGENT_BINARY_DEST} identity-ensure-chroot-tree as root, nothing else"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${SSHD_BINARY_PATH} -t, and ${SYSTEMCTL_BINARY_PATH} reload ssh as root, nothing else"
 
     if [ -f "${SFTP_LESTA_CONF_PATH}" ] && grep -qF "${SFTP_LESTA_LIVE_DIR}" "${SFTP_LESTA_CONF_PATH}"; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified "${SFTP_LESTA_CONF_PATH}" "already present from a prior apply"

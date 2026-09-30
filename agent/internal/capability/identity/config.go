@@ -91,14 +91,19 @@ type Config struct {
 	// harness uses instead of systemctl.
 	ReloadPID int
 	// SudoBinary, when non-empty, routes useradd/userdel (createSystemUser,
-	// deleteSystemUser) through "<SudoBinary> <resolved binary> ...".
-	// Production sets this to "sudo": the real lesta-agent-daemon systemd
-	// unit runs as the unprivileged lesta-agent user, confirmed directly
-	// deploying to a real node -- useradd/userdel always require root
-	// (they write /etc/passwd/, /etc/shadow, /etc/group directly; there is
-	// no file-permission fix, only running the process itself as root).
+	// deleteSystemUser), sshd -t (validateCandidate), and ReloadCommand
+	// (reload) through "<SudoBinary> <resolved binary> ...". Production
+	// sets this to "sudo": the real lesta-agent-daemon systemd unit runs
+	// as the unprivileged lesta-agent user, confirmed directly deploying
+	// to a real node -- useradd/userdel always require root (they write
+	// /etc/passwd/etc/shadow/etc/group directly; there is no
+	// file-permission fix, only running the process itself as root);
+	// sshd -t needs root too, to read the real host key files (0600,
+	// root-only) it falls back to when none are named explicitly in the
+	// synthetic candidate config; systemctl reload ssh needs root the same
+	// way every other systemd-unit mutation this project execs does.
 	// .install/services/agent-daemon/install.sh's own sudoers rule scopes
-	// exactly which two binaries this may run. Empty means invoke both
+	// exactly which invocations this may run. Empty means invoke all three
 	// directly, matching this package's own disposable test harness, which
 	// already runs with whatever privilege `go test` itself has.
 	SudoBinary string
