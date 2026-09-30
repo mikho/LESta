@@ -60,9 +60,23 @@ type Config struct {
 	// SshdBinary is the sshd executable used for `-t` config validation.
 	// Empty means "sshd" resolved via PATH.
 	SshdBinary string
-	// SshdConfigPath is the real, read-only main sshd_config this node's
-	// real sshd daemon reads. Used only to build a synthetic validation
-	// config (validate.go); never written to.
+	// SshdConfigPath is the read-only file buildSyntheticConfig (validate.go)
+	// scans for the one `Include <SftpConfigDir>/*.conf` line it swaps to
+	// build a candidate validation config; never written to. In the
+	// disposable test harness this is the single flat sshd_config sshd
+	// itself is launched with (Include lives directly in it). In
+	// production it is deliberately NOT the real top-level
+	// /etc/ssh/sshd_config -- that file only Includes
+	// /etc/ssh/sshd_config.d/*.conf (Ubuntu's own stock default, matching
+	// every *.conf dropped there, not specifically SftpConfigDir); the
+	// actual `Include <SftpConfigDir>/*.conf` line lives one level deeper,
+	// in agent-daemon/install.sh's own one-time
+	// /etc/ssh/sshd_config.d/00-lesta.conf. Found deploying to a real
+	// node: pointing this at the real top-level file (as this field's own
+	// name suggests) made every real create/update fail validation with
+	// "has no Include ... line", since the test harness's own flat,
+	// single-file structure had never surfaced that these are two
+	// different files in production.
 	SshdConfigPath string
 	// Port is the port sshd listens on: 22 in production, an ephemeral
 	// loopback port for a disposable test instance.

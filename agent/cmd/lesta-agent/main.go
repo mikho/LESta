@@ -656,9 +656,15 @@ func metricsProductionConfig() metrics.Config {
 // bind9/apache, no manual operator edit to a file LESta doesn't own is ever
 // needed, since dropping a brand-new file under an already-included
 // directory requires no edit to sshd_config itself at all. SshdConfigPath
-// still points at the real, read-only main /etc/ssh/sshd_config: that file
-// is what validate.go's own synthetic-config harness copies and rewrites
-// the Include line of, exactly mirroring nginx's own NginxConfPath.
+// deliberately does NOT point at the real top-level /etc/ssh/sshd_config
+// (that file only Includes /etc/ssh/sshd_config.d/*.conf, matching every
+// dropped-in *.conf generically, not specifically SftpConfigDir) -- it
+// points at 00-lesta.conf itself instead, the one file that actually
+// carries the `Include <SftpConfigDir>/*.conf` line validate.go's own
+// buildSyntheticConfig scans for and rewrites. Found deploying to a real
+// node: pointing this at the real top-level file, as its own name
+// suggests, made every real create/update fail with "has no Include ...
+// line" -- see Config's own SshdConfigPath doc comment for the full story.
 func identityProductionConfig() identity.Config {
 	return identity.Config{
 		UseraddBinary:     "useradd",
@@ -669,7 +675,7 @@ func identityProductionConfig() identity.Config {
 		AuthorizedKeysDir: "/etc/lesta/sftp/authorized_keys",
 		StateRoot:         "/var/lib/lesta/identity",
 		SshdBinary:        "sshd",
-		SshdConfigPath:    "/etc/ssh/sshd_config",
+		SshdConfigPath:    "/etc/ssh/sshd_config.d/00-lesta.conf",
 		Port:              22,
 		ReloadCommand:     []string{"systemctl", "reload", "ssh"},
 		// The real lesta-agent-daemon systemd unit runs as the
