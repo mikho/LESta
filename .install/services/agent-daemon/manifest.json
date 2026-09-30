@@ -19,6 +19,7 @@
       "/etc/lesta/sftp/authorized_keys",
       "/var/lib/lesta/web/accounts",
       "/var/lib/lesta/statistics/offsets",
+      "/var/lib/lesta/identity",
       "/etc/sudoers.d/lesta-agent-daemon"
     ],
     "read_only_roots": ["/etc/ssh/sshd_config"],

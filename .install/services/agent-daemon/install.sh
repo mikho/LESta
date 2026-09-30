@@ -447,6 +447,19 @@ bootstrap_agent_daemon() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/statistics/offsets "failed to create /var/lib/lesta/statistics/offsets"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/statistics/offsets "metrics.usage.v1's own writable offset-bookkeeping directory present, mode 0750 lesta-agent:lesta"
 
+    # system.account-identity.v1's own StateRoot (identityProductionConfig,
+    # cmd/lesta-agent/main.go): the exact same gap as daemon-state/
+    # statistics/offsets above, found the same way, directly against a
+    # real node -- generation.Store's own bookkeeping directory for this
+    # capability was never created anywhere, since (like the SFTP
+    # prerequisites above) identity has no dedicated leaf-service
+    # install.sh of its own to have created it. Created here for the same
+    # reason as the two directories just above: this installer already
+    # runs unconditionally on every node.
+    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/identity \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/identity "failed to create /var/lib/lesta/identity"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/identity "system.account-identity.v1's own generation-history bookkeeping directory present, mode 0750 lesta-agent:lesta"
+
     if [ -s /etc/lesta/agent/node-credential ]; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified /etc/lesta/agent/node-credential "already enrolled by a prior apply"
     else
