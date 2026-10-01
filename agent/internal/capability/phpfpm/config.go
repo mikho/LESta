@@ -84,11 +84,16 @@ func (c Config) socketPath(version, resourceID string) string {
 	return c.SocketRoot + "/" + version + "/" + resourceID + ".sock"
 }
 
-// docroot returns AccountsRoot/<accountID>/domains/<resourceID>/public,
-// matching the exact per-domain webroot layout web.nginx.v1/web.apache.v1
-// resolve independently from the same two inputs.
-func (c Config) docroot(accountID, resourceID string) string {
-	return c.AccountsRoot + "/" + accountID + "/domains/" + resourceID + "/public"
+// docroot returns AccountsRoot/<accountUsername>/domains/<resourceID>/public,
+// matching the exact per-domain webroot layout web.nginx.v1 resolves
+// independently from the same two inputs. Keyed by the account's own real
+// system username, not its numeric id, so this path lands inside that same
+// account's own SFTP chroot root (identity's own AccountsRoot/<username>) --
+// web.nginx.v1's own docroot.go is the one that actually creates this
+// directory; this capability only ever reads the convention, for
+// php_admin_value[open_basedir].
+func (c Config) docroot(accountUsername, resourceID string) string {
+	return c.AccountsRoot + "/" + accountUsername + "/domains/" + resourceID + "/public"
 }
 
 // command builds the real php-fpm invocation for binary+args, routed

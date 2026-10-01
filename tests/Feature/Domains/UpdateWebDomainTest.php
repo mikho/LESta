@@ -19,6 +19,7 @@ test('an owner can update a web domain, bumping the desired state version and re
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'old.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     WebDomainAlias::factory()->for($webDomain)->create(['alias' => 'stale.example.com']);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
@@ -45,6 +46,7 @@ test('a non-owner member cannot update a web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $member = Membership::factory()->for($webDomain->account)->member()->create()->user;
 
     app(UpdateWebDomain::class)->handle($member, $webDomain, ['domain' => 'new.example.com']);
@@ -54,6 +56,7 @@ test('updating a web domain with the default web_server still produces exactly o
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain]);
@@ -72,6 +75,7 @@ test('updating a web domain to web_server apache on a both-profile node provisio
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
     $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'old.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UpdateWebDomain::class)->handle($owner, $webDomain, [
@@ -162,6 +166,7 @@ test('leaving php_version off the whole time records no web.php-fpm.v1 operation
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain]);
@@ -175,6 +180,7 @@ test('updating with an empty aliases list removes all existing aliases', functio
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     WebDomainAlias::factory()->for($webDomain)->create();
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 

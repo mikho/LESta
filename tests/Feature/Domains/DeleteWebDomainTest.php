@@ -17,6 +17,7 @@ test('deleting a suspended web domain force-unsuspends then deletes as one actio
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->suspended()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
     $id = $webDomain->id;
 
@@ -36,6 +37,7 @@ test('deleting a web domain with the default web_server still produces exactly o
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
     $id = $webDomain->id;
 
@@ -54,6 +56,7 @@ test('deleting a web domain configured for apache on a both-profile node deletes
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
     $webDomain = WebDomain::factory()->for($node)->create(['web_server' => WebServer::Apache]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
     $id = $webDomain->id;
 
@@ -92,6 +95,7 @@ test('a non-owner member cannot delete a web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $member = Membership::factory()->for($webDomain->account)->member()->create()->user;
 
     app(DeleteWebDomain::class)->handle($member, $webDomain);
@@ -101,6 +105,7 @@ test('deleting a web domain removes its aliases via the cascade FK', function ()
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->withAlias()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
     $id = $webDomain->id;
 

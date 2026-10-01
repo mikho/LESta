@@ -119,6 +119,12 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return protocol.ResultEnvelope{}, err
 	}
 
+	if payload.PhpSocket != "" {
+		if err := ensureDocrootPrivileged(c.cfg, payload.AccountUsername, op.ResourceID); err != nil {
+			return protocol.ResultEnvelope{}, err
+		}
+	}
+
 	content, err := renderVhost(vhostData{
 		ResourceID:        op.ResourceID,
 		Domain:            payload.Domain,
@@ -132,7 +138,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		PrivateKeyPath:    payload.SSL.PrivateKeyPath,
 		SSLPort:           c.cfg.SSLPort,
 		AccessLogPath:     filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"),
-		Docroot:           filepath.Join(c.cfg.AccountsRoot, strconv.Itoa(payload.AccountID), "domains", op.ResourceID, "public"),
+		Docroot:           filepath.Join(c.cfg.AccountsRoot, payload.AccountUsername, "domains", op.ResourceID, "public"),
 		PhpSocket:         payload.PhpSocket,
 		FastcgiParamsPath: filepath.Join(filepath.Dir(c.cfg.NginxConfPath), "fastcgi_params"),
 	}, payload.Suspended)

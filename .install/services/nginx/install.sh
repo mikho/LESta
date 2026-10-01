@@ -780,9 +780,14 @@ LOGROTATE
     # the real nginx binary as root, nothing else -- nginx itself has no
     # CLI flag that writes to an attacker-chosen path, so wildcarding its
     # own arguments here is safe in a way a wildcarded arbitrary-command
-    # rule would not be.
+    # rule would not be. It also grants this same binary's own
+    # "nginx-ensure-docroot" CLI mode (docroot.go), the same real-root
+    # requirement identity-ensure-chroot-tree already has and for the same
+    # reason: creating a PHP-enabled domain's own per-domain docroot
+    # directory inside that account's root-owned SFTP chroot tree, owned
+    # by the account's own uid/gid, needs real root.
     cat > "${SUDOERS_LESTA_NGINX_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} *
+lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} *, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_NGINX_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_NGINX_PATH}.tmp"
@@ -794,7 +799,7 @@ SUDOERSEOF
 
     mv "${SUDOERS_LESTA_NGINX_PATH}.tmp" "${SUDOERS_LESTA_NGINX_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_NGINX_PATH}" "failed to activate ${SUDOERS_LESTA_NGINX_PATH}"
-    add_change web.nginx.v1 installed "${SUDOERS_LESTA_NGINX_PATH}" "sudoers rule written and validated: lesta-agent may run ${NGINX_BINARY_PATH} as root, nothing else"
+    add_change web.nginx.v1 installed "${SUDOERS_LESTA_NGINX_PATH}" "sudoers rule written and validated: lesta-agent may run ${NGINX_BINARY_PATH} and ${AGENT_BINARY_DEST} nginx-ensure-docroot as root, nothing else"
 
     check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then

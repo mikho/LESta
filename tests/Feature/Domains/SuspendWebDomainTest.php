@@ -17,6 +17,7 @@ test('an owner can suspend their web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(SuspendWebDomain::class)->handle($owner, $webDomain);
@@ -39,6 +40,7 @@ test('suspending a web domain with the default web_server still produces exactly
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(SuspendWebDomain::class)->handle($owner, $webDomain);
@@ -56,6 +58,7 @@ test('suspending a web domain configured for apache on a both-profile node suspe
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
     $webDomain = WebDomain::factory()->for($node)->create(['web_server' => WebServer::Apache]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(SuspendWebDomain::class)->handle($owner, $webDomain);
@@ -74,6 +77,7 @@ test('duplicate suspend submissions do not create a second audit row', function 
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(SuspendWebDomain::class)->handle($owner, $webDomain);
@@ -104,6 +108,7 @@ test('a non-owner member cannot suspend a web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $member = Membership::factory()->for($webDomain->account)->member()->create()->user;
 
     app(SuspendWebDomain::class)->handle($member, $webDomain);
@@ -113,6 +118,7 @@ test('a cascade suspension records the cascade source', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(SuspendWebDomain::class)->handle($owner, $webDomain, SuspensionSource::Cascade);

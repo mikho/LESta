@@ -16,6 +16,7 @@ test('an owner can unsuspend their web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->suspended()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UnsuspendWebDomain::class)->handle($owner, $webDomain);
@@ -37,6 +38,7 @@ test('unsuspending a web domain with the default web_server still produces exact
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->suspended()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UnsuspendWebDomain::class)->handle($owner, $webDomain);
@@ -54,6 +56,7 @@ test('unsuspending a web domain configured for apache on a both-profile node uns
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
     $webDomain = WebDomain::factory()->suspended()->for($node)->create(['web_server' => WebServer::Apache]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UnsuspendWebDomain::class)->handle($owner, $webDomain);
@@ -72,6 +75,7 @@ test('unsuspending an already-active web domain is a no-op', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     app(UnsuspendWebDomain::class)->handle($owner, $webDomain);
@@ -101,6 +105,7 @@ test('a non-owner member cannot unsuspend a web domain', function () {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $webDomain = WebDomain::factory()->suspended()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $member = Membership::factory()->for($webDomain->account)->member()->create()->user;
 
     app(UnsuspendWebDomain::class)->handle($member, $webDomain);

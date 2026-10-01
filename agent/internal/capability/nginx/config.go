@@ -62,12 +62,31 @@ type Config struct {
 	// at its own temp directory instead.
 	AcmeChallengeDir string
 	// AccountsRoot is system.account-identity.v1's own chroot accounts
-	// root (identity.Config's own field of the same name); this
-	// capability never writes there, only reads the convention to
-	// compute each domain's own per-domain docroot
-	// (AccountsRoot/<account_id>/domains/<resource_id>/public) for the
-	// real content+FastCGI template. Production: /var/lib/lesta/web/accounts.
+	// root (identity.Config's own field of the same name). This
+	// capability computes each domain's own per-domain docroot
+	// (AccountsRoot/<account_username>/domains/<resource_id>/public) for
+	// the real content+FastCGI template, keyed by the account's own real
+	// system username (not its numeric id) specifically so this path
+	// lands inside that same account's own SFTP chroot root
+	// (identity's own ensureChrootTree creates AccountsRoot/<username>,
+	// root-owned, exactly the tree this path nests under). Unlike
+	// identity, which only ever reads/writes there as root (every path
+	// component up to the chroot root must stay root-owned, an OpenSSH
+	// hard requirement), this capability also creates the leaf
+	// "domains/<resource_id>/public" directory itself, owned by the
+	// account's own uid/gid, via docroot.go's own ensureDocrootPrivileged
+	// -- see that file's own doc comment for why that one piece still
+	// needs root. Production: /var/lib/lesta/web/accounts.
 	AccountsRoot string
+	// AgentBinaryPath is this same lesta-agent binary's own real installed
+	// path, used together with SudoBinary to re-invoke this binary's own
+	// "nginx-ensure-docroot" CLI mode as root (see docroot.go). Mirrors
+	// identity.Config's own field of the same name exactly, including its
+	// own reasoning: a plain sudo grant cannot hand root to an in-process
+	// Go syscall the way it can a separate exec.Command invocation. Empty
+	// means ensureDocroot runs in-process directly, matching this
+	// package's own disposable test harness.
+	AgentBinaryPath string
 	// SSLPort is the port templates/default_ssl.conf.tmpl's second (HTTPS)
 	// server block listens on: 443 in production, an ephemeral loopback
 	// port for a disposable test instance (binding to the literal port 443

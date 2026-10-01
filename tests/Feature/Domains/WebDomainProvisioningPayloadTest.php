@@ -18,6 +18,7 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
     $account = Account::factory()->create();
     $node = Node::factory()->create();
     $allocation = IpAllocation::factory()->for($node)->create(['ip_address' => '203.0.113.10']);
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
     $webDomain = WebDomain::factory()
         ->for($account)
         ->for($node)
@@ -33,16 +34,18 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'ip_address' => '203.0.113.10',
         'web_template' => 'default',
         'account_id' => $account->id,
+        'account_username' => 'lesta-t'.$account->id,
         'php_socket' => null,
         'ssl' => ['mode' => 'manual'],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'php_socket', 'ssl', 'suspended']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'ssl', 'suspended']);
 });
 
 test('toProvisioningPayload reports a real php_socket once php_version is set', function () {
     $node = Node::factory()->create();
     $webDomain = WebDomain::factory()->for($node)->create(['php_version' => PhpVersion::Php83]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])
         ->toBe("/run/lesta-php/8.3/{$webDomain->uuid}.sock");
@@ -51,6 +54,7 @@ test('toProvisioningPayload reports a real php_socket once php_version is set', 
 test('toProvisioningPayload reports a null php_socket when php_version is not set', function () {
     $node = Node::factory()->create();
     $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])->toBeNull();
 });
@@ -98,6 +102,7 @@ test('toPhpFpmProvisioningPayload throws when no AccountNodeIdentity exists yet'
 test('toProvisioningPayload omits ssl certificate paths until a certificate has actually been issued', function () {
     $node = Node::factory()->create();
     $webDomain = WebDomain::factory()->for($node)->create(['ssl_mode' => SslMode::LetsEncrypt, 'certificate_issued_at' => null]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['ssl'])->toBe(['mode' => 'lets_encrypt']);
 });
@@ -109,6 +114,7 @@ test('toProvisioningPayload adds ssl certificate paths for web.nginx.v1 once a c
         'ssl_mode' => SslMode::LetsEncrypt,
         'certificate_issued_at' => now(),
     ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['ssl'])->toBe([
         'mode' => 'lets_encrypt',
@@ -125,6 +131,7 @@ test('toProvisioningPayload adds ssl certificate paths for web.apache.v1 once a 
         'ssl_mode' => SslMode::LetsEncrypt,
         'certificate_issued_at' => now(),
     ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.apache.v1')['ssl'])->toBe([
         'mode' => 'lets_encrypt',
@@ -140,6 +147,7 @@ test('toProvisioningPayload omits ssl certificate paths for web.apache.v1 until 
         'ssl_mode' => SslMode::LetsEncrypt,
         'certificate_issued_at' => null,
     ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.apache.v1')['ssl'])->toBe(['mode' => 'lets_encrypt']);
 });
@@ -163,6 +171,7 @@ test('resolveDnsZone returns null when no exact-match zone exists', function () 
 test('toProvisioningPayload reflects the current suspension state', function () {
     $node = Node::factory()->create();
     $webDomain = WebDomain::factory()->suspended()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['suspended'])->toBeTrue();
 });
@@ -173,6 +182,7 @@ test('toProvisioningPayload overrides web_template to apache-proxy for nginx whe
         'web_template' => 'custom',
         'web_server' => WebServer::Apache,
     ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['web_template'])->toBe('apache-proxy')
         ->and($webDomain->toProvisioningPayload('web.apache.v1')['web_template'])->toBe('custom');
@@ -184,6 +194,7 @@ test('toProvisioningPayload never overrides web_template when web_server is ngin
         'web_template' => 'custom',
         'web_server' => WebServer::Nginx,
     ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['web_template'])->toBe('custom');
 });

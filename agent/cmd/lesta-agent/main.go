@@ -134,6 +134,16 @@ func main() {
 		os.Exit(identity.EnsureChrootTree(identityProductionConfig(), os.Args[2]))
 	}
 
+	// "nginx-ensure-docroot" mirrors "identity-ensure-chroot-tree" exactly,
+	// one layer further down the same chroot tree: creating a PHP-enabled
+	// domain's own per-domain docroot directory, owned by that account's
+	// own uid/gid, requires real root the same way identity's own chroot
+	// tree creation does (see nginx.Config's own AgentBinaryPath doc
+	// comment).
+	if len(os.Args) >= 4 && os.Args[1] == "nginx-ensure-docroot" {
+		os.Exit(nginx.EnsureDocroot(nginxProductionConfig(), os.Args[2], os.Args[3]))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
@@ -247,9 +257,13 @@ func nginxProductionConfig() nginx.Config {
 		Port:       80,
 		// AccountsRoot mirrors identityProductionConfig's own AccountsRoot
 		// exactly (system.account-identity.v1's own chroot accounts
-		// root) -- this capability never writes there, only reads the
-		// convention to compute each PHP-enabled domain's own docroot.
-		AccountsRoot: "/var/lib/lesta/web/accounts",
+		// root): this capability computes each PHP-enabled domain's own
+		// docroot from it, and also creates that one leaf directory
+		// itself (see docroot.go), routed through AgentBinaryPath below
+		// for the same root-requirement reason identityProductionConfig
+		// already documents.
+		AccountsRoot:    "/var/lib/lesta/web/accounts",
+		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 		// ProxyBackend: the fixed loopback address+port Apache listens on in
 		// the "both" web profile (see apacheProductionConfig's own
 		// apachePortForProfile), matching

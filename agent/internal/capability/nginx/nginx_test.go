@@ -310,6 +310,41 @@ func TestParsePayloadRejectsUnknownWebTemplate(t *testing.T) {
 	}
 }
 
+func TestParsePayloadRejectsPhpSocketWithoutAccountUsername(t *testing.T) {
+	payload := nginxPayloadWithTemplate("php.example.test", "127.0.0.1", "default", false)
+	payload["php_socket"] = "/run/lesta-php/8.3/res-123.sock"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	_, err = nginx.ParsePayload(raw)
+
+	var verr *nginx.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected a *nginx.ValidationError, got %v", err)
+	}
+	if verr.Code != "invalid_account_username" {
+		t.Fatalf("expected code invalid_account_username, got %q", verr.Code)
+	}
+}
+
+func TestParsePayloadAcceptsPhpSocketWithAccountUsername(t *testing.T) {
+	payload := nginxPayloadWithTemplate("php.example.test", "127.0.0.1", "default", false)
+	payload["php_socket"] = "/run/lesta-php/8.3/res-123.sock"
+	payload["account_username"] = "lesta-t1"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	if _, err := nginx.ParsePayload(raw); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
 // TestApacheProxyTemplateProxiesToBackend proves apache_proxy.conf.tmpl
 // actually works as a reverse proxy against a real backend: a plain
 // httptest.Server stands in for Apache here (this file's own suite has no

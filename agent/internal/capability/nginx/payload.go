@@ -58,19 +58,26 @@ type Payload struct {
 	Aliases     []string `json:"aliases"`
 	IPAddress   string   `json:"ip_address"`
 	WebTemplate string   `json:"web_template"`
-	// AccountID and PhpSocket are new as of web.php-fpm.v1. AccountID lets
-	// renderVhost compute this domain's own per-domain docroot
-	// (AccountsRoot/{AccountID}/domains/{ResourceID}/public) the same way
-	// web.php-fpm.v1 itself does, both sides independently deriving the
-	// identical path from the same two inputs. PhpSocket, when non-empty,
-	// selects the real content+FastCGI template variant over the existing
-	// marker-only default (see template.go's own renderVhost doc comment
-	// for why this stays opt-in rather than replacing the default
-	// template for every domain).
-	AccountID int    `json:"account_id"`
-	PhpSocket string `json:"php_socket"`
-	SSL       SSL    `json:"ssl"`
-	Suspended bool   `json:"suspended"`
+	// AccountID, AccountUsername, and PhpSocket are new as of
+	// web.php-fpm.v1. AccountUsername lets renderVhost compute this
+	// domain's own per-domain docroot
+	// (AccountsRoot/{AccountUsername}/domains/{ResourceID}/public) the
+	// same way web.php-fpm.v1 itself does, both sides independently
+	// deriving the identical path from the same two inputs -- keyed by
+	// username, not AccountID, so it lands inside the same account's own
+	// SFTP chroot root (identity's own AccountsRoot/<username>).
+	// AccountID is kept only because it is already a required, validated
+	// field; nothing in this package derives a path from it. PhpSocket,
+	// when non-empty, selects the real content+FastCGI template variant
+	// over the existing marker-only default (see template.go's own
+	// renderVhost doc comment for why this stays opt-in rather than
+	// replacing the default template for every domain), and also gates
+	// docroot.go's own ensureDocrootPrivileged call.
+	AccountID       int    `json:"account_id"`
+	AccountUsername string `json:"account_username"`
+	PhpSocket       string `json:"php_socket"`
+	SSL             SSL    `json:"ssl"`
+	Suspended       bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -115,6 +122,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.AccountID <= 0 {
 		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
+	}
+
+	if p.PhpSocket != "" && !docrootUsernamePattern.MatchString(p.AccountUsername) {
+		return Payload{}, &ValidationError{Code: "invalid_account_username", Message: "account_username is required and must be a valid system username when php_socket is set", Field: "account_username"}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

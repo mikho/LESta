@@ -162,14 +162,17 @@ class WebDomain extends Model
      * always wins in the "both" profile, per ResolvesWebCapableNode's own priority), so this never
      * needs a web_server-based guard of its own.
      *
-     * account_id/php_socket are new as of web.php-fpm.v1: account_id lets web.nginx.v1/
-     * web.apache.v1 resolve this domain's own per-domain docroot
-     * (AccountsRoot/{account_id}/domains/{resource_id}/public, resource_id being this operation's
-     * own OperationEnvelope.ResourceID, i.e. this domain's uuid -- never recomputed from anything
-     * tenant-supplied) themselves, agent-side, exactly like every other filesystem path this
-     * project already resolves on that side of the wire. php_socket is null when php_version is
-     * null (static-only, no FastCGI block rendered at all); otherwise it is the exact same
-     * deterministic path web.php-fpm.v1's own pool listens on
+     * account_id/account_username/php_socket are new as of web.php-fpm.v1: account_username lets
+     * web.nginx.v1 resolve this domain's own per-domain docroot
+     * (AccountsRoot/{account_username}/domains/{resource_id}/public, resource_id being this
+     * operation's own OperationEnvelope.ResourceID, i.e. this domain's uuid -- never recomputed
+     * from anything tenant-supplied) itself, agent-side, exactly like every other filesystem path
+     * this project already resolves on that side of the wire. Keyed by the account's own real
+     * system username, not its numeric id, so the path lands inside that same account's own SFTP
+     * chroot root (system.account-identity.v1's own AccountsRoot/{username}) -- account_id alone
+     * would point nginx at a directory no SFTP session could ever reach. php_socket is null when
+     * php_version is null (static-only, no FastCGI block rendered at all); otherwise it is the
+     * exact same deterministic path web.php-fpm.v1's own pool listens on
      * (/run/lesta-php/{php_version}/{resource_id}.sock), computed here from the same fixed formula
      * both sides of the protocol share, never passed the other way (the pool config that actually
      * creates the socket is authoritative; this is just how the vhost knows where to find it).
@@ -178,7 +181,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, php_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -201,10 +204,32 @@ class WebDomain extends Model
             'ip_address' => $this->ipAllocation->ip_address,
             'web_template' => $webTemplate,
             'account_id' => $this->account_id,
+            'account_username' => $this->resolveAccountUsername(),
             'php_socket' => $this->phpSocketPath(),
             'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
         ];
+    }
+
+    /**
+     * This domain's own account's real per-node OS identity
+     * (system.account-identity.v1, already provisioned by EnsuresAccountNodeIdentity before this
+     * domain's own creation ever records a provisioning operation -- see CreateWebDomain's own
+     * call site). Shared by toProvisioningPayload() and toPhpFpmProvisioningPayload() below,
+     * rather than each resolving it separately.
+     */
+    private function resolveAccountUsername(): string
+    {
+        $identity = AccountNodeIdentity::query()
+            ->where('account_id', $this->account_id)
+            ->where('node_id', $this->node_id)
+            ->first();
+
+        if ($identity === null) {
+            throw new RuntimeException("No AccountNodeIdentity exists for account {$this->account_id} on node {$this->node_id}; EnsuresAccountNodeIdentity should have created one before this domain's own provisioning operation was ever recorded.");
+        }
+
+        return $identity->system_username;
     }
 
     /**
@@ -247,18 +272,9 @@ class WebDomain extends Model
             throw new RuntimeException("toPhpFpmProvisioningPayload() called for web domain {$this->uuid} with no php_version, and none was passed explicitly.");
         }
 
-        $identity = AccountNodeIdentity::query()
-            ->where('account_id', $this->account_id)
-            ->where('node_id', $this->node_id)
-            ->first();
-
-        if ($identity === null) {
-            throw new RuntimeException("No AccountNodeIdentity exists for account {$this->account_id} on node {$this->node_id}; EnsuresAccountNodeIdentity should have created one before this domain's own php-fpm operation was ever recorded.");
-        }
-
         return [
             'account_id' => $this->account_id,
-            'account_username' => $identity->system_username,
+            'account_username' => $this->resolveAccountUsername(),
             'php_version' => $version->value,
             'suspended' => $this->isSuspended(),
         ];

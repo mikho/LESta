@@ -5,6 +5,7 @@ use App\Actions\Accounts\SuspendAccount;
 use App\Actions\Accounts\UnsuspendAccount;
 use App\Enums\SuspensionSource;
 use App\Models\Account;
+use App\Models\AccountNodeIdentity;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -15,6 +16,7 @@ test('account suspend cascades to active web domains and unsuspend reactivates o
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $preManuallySuspended = WebDomain::factory()->suspended()->for($account)->for($node)->create();
     $active = WebDomain::factory()->for($account)->for($node)->create();
@@ -39,6 +41,7 @@ test('a web domain suspended individually before the account suspend stays suspe
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $manuallySuspended = WebDomain::factory()->suspended()->for($account)->for($node)->create();
 
@@ -54,6 +57,7 @@ test('deleting an account cascades to delete every owned web domain', function (
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $first = WebDomain::factory()->for($account)->for($node)->create();
     $second = WebDomain::factory()->suspended()->for($account)->for($node)->create();

@@ -144,7 +144,7 @@ func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.Oper
 		return protocol.ResultEnvelope{}, err
 	}
 
-	docroot := c.cfg.docroot(strconv.Itoa(payload.AccountID), op.ResourceID)
+	docroot := c.cfg.docroot(payload.AccountUsername, op.ResourceID)
 
 	content, err := renderPool(poolData{
 		ResourceID:      op.ResourceID,

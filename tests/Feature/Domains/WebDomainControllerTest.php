@@ -106,6 +106,7 @@ test('a non-owner member is forbidden from the create page', function () {
 test('updating a web domain redirects back to the edit page', function () {
     [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $this->actingAs($owner)
         ->put(route('domains.update', $webDomain), ['domain' => 'updated.example.com'])
@@ -115,6 +116,7 @@ test('updating a web domain redirects back to the edit page', function () {
 test('suspending a web domain redirects back', function () {
     [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $this->actingAs($owner)
         ->from(route('domains.index'))
@@ -127,6 +129,7 @@ test('suspending a web domain redirects back', function () {
 test('destroying a web domain redirects to the index', function () {
     [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $this->actingAs($owner)
         ->delete(route('domains.destroy', $webDomain))
