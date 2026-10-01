@@ -339,6 +339,25 @@ bootstrap_base() {
         add_change base.os.v1 verified /etc/group "group lesta-agent already exists"
     fi
 
+    # Every pool's own socket is listen.owner=<account username>,
+    # listen.group=www-data, listen.mode=0660 (pool.conf.tmpl): only that
+    # one account's own processes and www-data (nginx, serving real
+    # traffic) can connect. The running lesta-agent-daemon dials that same
+    # socket directly as its own post-create health check
+    # (agent/internal/capability/phpfpm/reload.go's own waitHealthy), as
+    # the unprivileged lesta-agent user -- neither the account's own user
+    # nor www-data, so that dial fails with EACCES unless lesta-agent is
+    # also, supplementarily, in www-data's own group. Root (this installer
+    # itself, and its own self-test's direct CLI invocation of the agent
+    # binary) never hits this: it bypasses the permission check entirely,
+    # which is exactly why the self-test alone never caught this.
+    if ! id -nG lesta-agent | tr ' ' '\n' | grep -qx www-data; then
+        usermod -a -G www-data lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed /etc/group "failed to add lesta-agent to www-data"
+        add_change base.os.v1 created /etc/group "added lesta-agent to the www-data group, so its own real post-create socket health check can dial a pool's own listen.group=www-data socket the same way nginx itself does"
+    else
+        add_change base.os.v1 verified /etc/group "lesta-agent already in the www-data group"
+    fi
+
     install -d -m 0750 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
     install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
