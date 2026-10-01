@@ -5,9 +5,9 @@
 // exists yet between Laravel and a running agent; that is out of scope for
 // this phase.
 //
-// Ten capabilities are wired up: web.nginx.v1, dns.bind9.v1, web.apache.v1,
-// tls.acme.v1, database.tenant.v1, scheduler.account-cron.v1,
-// system.account-identity.v1, mail.smtp-imap.v1,
+// Eleven capabilities are wired up: web.nginx.v1, dns.bind9.v1,
+// web.apache.v1, web.php-fpm.v1, tls.acme.v1, database.tenant.v1,
+// scheduler.account-cron.v1, system.account-identity.v1, mail.smtp-imap.v1,
 // backup.encrypted-artifacts.v1, and metrics.usage.v1.
 //
 // A third CLI mode, "daemon", is a genuinely long-running process (unlike
@@ -36,6 +36,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/metrics"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
+	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
 	"github.com/mikho/LESta/agent/internal/daemon"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
@@ -44,6 +45,7 @@ const (
 	webNginxCapability       = "web.nginx.v1"
 	dnsBind9Capability       = "dns.bind9.v1"
 	webApacheCapability      = "web.apache.v1"
+	webPhpFpmCapability      = "web.php-fpm.v1"
 	tlsAcmeCapability        = "tls.acme.v1"
 	databaseTenantCapability = "database.tenant.v1"
 	// databaseControlPlaneCapability has no Go capability dispatch case at
@@ -184,6 +186,8 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = bind9.New(bind9ProductionConfig())
 	case webApacheCapability:
 		capability = apache.New(apacheProductionConfig())
+	case webPhpFpmCapability:
+		capability = phpfpm.New(phpFpmProductionConfig())
 	case tlsAcmeCapability:
 		capability = acme.New(acmeProductionConfig())
 	case databaseTenantCapability:
@@ -199,7 +203,7 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 	case metricsUsageCapability:
 		capability = metrics.New(metricsProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability, metricsUsageCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, webPhpFpmCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability, metricsUsageCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -241,6 +245,11 @@ func nginxProductionConfig() nginx.Config {
 		// own sudoers rule.
 		SudoBinary: "sudo",
 		Port:       80,
+		// AccountsRoot mirrors identityProductionConfig's own AccountsRoot
+		// exactly (system.account-identity.v1's own chroot accounts
+		// root) -- this capability never writes there, only reads the
+		// convention to compute each PHP-enabled domain's own docroot.
+		AccountsRoot: "/var/lib/lesta/web/accounts",
 		// ProxyBackend: the fixed loopback address+port Apache listens on in
 		// the "both" web profile (see apacheProductionConfig's own
 		// apachePortForProfile), matching
@@ -416,6 +425,35 @@ func apacheProductionConfig() apache.Config {
 			"APACHE_LOCK_DIR=/var/lock/apache2",
 			"APACHE_LOG_DIR=/var/log/apache2",
 		},
+	}
+}
+
+// phpFpmProductionConfig points at the real, fixed host paths
+// .install/services/php-fpm/install.sh establishes: PoolBaseDir mirrors
+// Ubuntu/ondrej packaging's own layout (/etc/php/<version>/fpm/pool.d,
+// /etc/php/<version>/fpm/php-fpm.conf); SocketRoot must stay in lockstep
+// with WebDomain::phpSocketPath()'s own identical, independently-computed
+// formula on the Laravel side (see phpfpm.Config's own SocketRoot doc
+// comment); AccountsRoot mirrors identityProductionConfig's own
+// AccountsRoot exactly (system.account-identity.v1's own chroot accounts
+// root -- this capability never writes there, only reads the convention
+// to compute each domain's own open_basedir).
+func phpFpmProductionConfig() phpfpm.Config {
+	return phpfpm.Config{
+		PoolBaseDir:  "/etc/php",
+		AccountsRoot: "/var/lib/lesta/web/accounts",
+		SocketRoot:   "/run/lesta-php",
+		StateRoot:    "/var/lib/lesta/php-fpm",
+		// The real lesta-agent-daemon systemd unit runs as the
+		// unprivileged lesta-agent user: validate's own `php-fpm -t`
+		// needs to read every other tenant's own pool config on this
+		// node (not a secret this process should be trusted with
+		// directly), and reload's own `systemctl reload php<version>-fpm`
+		// needs root the same way every other systemd-unit mutation
+		// this project execs does. sudo routes both through this same
+		// binary, scoped by .install/services/php-fpm/install.sh's own
+		// sudoers rule.
+		SudoBinary: "sudo",
 	}
 }
 

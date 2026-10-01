@@ -37,6 +37,10 @@ export default function Create() {
                                       .map((alias: string) => alias.trim())
                                       .filter((alias: string) => alias !== '')
                                 : [],
+                        php_version:
+                            data.php_version === 'none'
+                                ? null
+                                : data.php_version,
                     })}
                     className="space-y-6"
                 >
@@ -108,6 +112,39 @@ export default function Create() {
                                 </p>
 
                                 <InputError message={errors.web_server} />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="php_version">PHP version</Label>
+
+                                <Select name="php_version" defaultValue="none">
+                                    <SelectTrigger id="php_version">
+                                        <SelectValue placeholder="Select a PHP version" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">
+                                            None (static only)
+                                        </SelectItem>
+                                        <SelectItem value="8.1">
+                                            PHP 8.1
+                                        </SelectItem>
+                                        <SelectItem value="8.2">
+                                            PHP 8.2
+                                        </SelectItem>
+                                        <SelectItem value="8.3">
+                                            PHP 8.3
+                                        </SelectItem>
+                                        <SelectItem value="8.4">
+                                            PHP 8.4
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+
+                                <p className="text-sm text-muted-foreground">
+                                    Requires this node to offer PHP execution.
+                                </p>
+
+                                <InputError message={errors.php_version} />
                             </div>
 
                             <div className="grid gap-2">

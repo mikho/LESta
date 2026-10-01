@@ -50,6 +50,17 @@ class SuspendWebDomain
                     $webDomain->desired_state_version,
                 );
             }
+
+            if ($webDomain->php_version !== null) {
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    'web.php-fpm.v1',
+                    ProvisioningVerb::Suspend,
+                    $webDomain->toPhpFpmProvisioningPayload(),
+                    $correlationId,
+                    $webDomain->desired_state_version,
+                );
+            }
         });
     }
 }

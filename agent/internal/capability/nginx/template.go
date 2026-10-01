@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -57,6 +57,15 @@ type vhostData struct {
 	// Config.LogDir's own doc comment for why this is per-resource, never a
 	// single combined log).
 	AccessLogPath string
+	// Docroot and PhpSocket are new as of web.php-fpm.v1. Docroot backs
+	// php.conf.tmpl's own `root` directive (this domain's own real
+	// per-domain webroot, per Config.AccountsRoot's own doc comment).
+	// PhpSocket, non-empty, selects php.conf.tmpl over the existing
+	// marker-only default.conf.tmpl (see renderVhost's own doc comment
+	// for why this stays opt-in rather than replacing the default
+	// template for every domain).
+	Docroot   string
+	PhpSocket string
 	// Marker is a known string embedded in the rendered default vhost's body,
 	// so a health check can assert that *this* resource answered, not just
 	// that some nginx vhost is alive. It is deliberately a function of
@@ -82,11 +91,22 @@ func (d vhostData) marker() string {
 // domain shows nginx's ordinary suspended page directly, never reaching
 // Apache at all, reusing 100% of the existing suspended-page mechanism);
 // otherwise data.WebTemplate selects apache_proxy.conf.tmpl when it is
-// "apache-proxy", falling back to default_ssl.conf.tmpl when a certificate
-// path is present, and to the default content-rendering template for
-// everything else. All three selectors are pure functions of the payload,
-// never of the requested operation's name, so create/update/suspend/
-// unsuspend can all funnel through the identical rendering call.
+// "apache-proxy" (nginx is only proxying in that case, never serving real
+// content of its own, so PhpSocket is irrelevant and deliberately checked
+// after this case); then PhpSocket being non-empty selects the real
+// content+FastCGI template over the existing marker-only default -- kept as
+// its own separate, opt-in template file rather than folded into
+// default.conf.tmpl, so every domain that never opts into PHP keeps
+// rendering byte-identical output to before this capability existed, and
+// every existing marker-based health check stays meaningful unchanged;
+// falling back to default_ssl.conf.tmpl when a certificate path is present
+// (SSL is not yet wired into php.conf.tmpl this pass -- a PHP-enabled
+// domain with a certificate issued still renders HTTP-only, a disclosed,
+// narrower gap than SSL's own existing HTTP-only-until-issued design),
+// and to the marker-only default content-rendering template for everything
+// else. All selectors are pure functions of the payload, never of the
+// requested operation's name, so create/update/suspend/unsuspend can all
+// funnel through the identical rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	data.Marker = data.marker()
 
@@ -98,6 +118,8 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 		data.SuspendedPage = string(suspendedHTML)
 	case data.WebTemplate == "apache-proxy":
 		name = "apache_proxy.conf.tmpl"
+	case data.PhpSocket != "":
+		name = "php.conf.tmpl"
 	case data.CertificatePath != "":
 		name = "default_ssl.conf.tmpl"
 	}

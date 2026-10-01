@@ -132,6 +132,8 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
 		SSLPort:          c.cfg.SSLPort,
 		AccessLogPath:    filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"),
+		Docroot:          filepath.Join(c.cfg.AccountsRoot, strconv.Itoa(payload.AccountID), "domains", op.ResourceID, "public"),
+		PhpSocket:        payload.PhpSocket,
 	}, payload.Suspended)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err

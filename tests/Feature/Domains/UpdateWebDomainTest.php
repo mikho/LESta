@@ -4,6 +4,8 @@ use App\Actions\Domains\UpdateWebDomain;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Enums\WebServer;
+use App\Exceptions\NoPhpCapableNodeAvailableException;
+use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Node;
@@ -88,6 +90,85 @@ test('updating a web domain to web_server apache on a both-profile node provisio
         ->and($operations->get(1)->capability)->toBe('web.nginx.v1')
         ->and($operations->get(0)->payload['web_template'])->toBe('default')
         ->and($operations->get(1)->payload['web_template'])->toBe('apache-proxy');
+});
+
+test('turning php_version on for the first time records a web.php-fpm.v1 create operation', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain, 'php_version' => '8.3']);
+
+    $operation = ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $webDomain->id)
+        ->first();
+
+    expect($operation)->not->toBeNull()
+        ->and($operation->operation)->toBe(ProvisioningVerb::Create)
+        ->and($operation->payload['php_version'])->toBe('8.3');
+});
+
+test('changing php_version while already on records a web.php-fpm.v1 update operation', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => '8.1']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain, 'php_version' => '8.4']);
+
+    $operation = ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $webDomain->id)
+        ->first();
+
+    expect($operation->operation)->toBe(ProvisioningVerb::Update)
+        ->and($operation->payload['php_version'])->toBe('8.4');
+});
+
+test('turning php_version off records a web.php-fpm.v1 delete operation carrying the previous version', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => '8.2']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain, 'php_version' => null]);
+
+    $operation = ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $webDomain->id)
+        ->first();
+
+    expect($webDomain->refresh()->php_version)->toBeNull()
+        ->and($operation->operation)->toBe(ProvisioningVerb::Delete)
+        ->and($operation->payload['php_version'])->toBe('8.2');
+});
+
+test('turning php_version on fails when the resolved node has no active web.php-fpm.v1 capability', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create();
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain, 'php_version' => '8.3']);
+})->throws(NoPhpCapableNodeAvailableException::class);
+
+test('leaving php_version off the whole time records no web.php-fpm.v1 operation', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => $webDomain->domain]);
+
+    expect(ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $webDomain->id)
+        ->exists())->toBeFalse();
 });
 
 test('updating with an empty aliases list removes all existing aliases', function () {

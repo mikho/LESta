@@ -61,6 +61,13 @@ type Config struct {
 	// hardcoded in the template, so a disposable test instance can point it
 	// at its own temp directory instead.
 	AcmeChallengeDir string
+	// AccountsRoot is system.account-identity.v1's own chroot accounts
+	// root (identity.Config's own field of the same name); this
+	// capability never writes there, only reads the convention to
+	// compute each domain's own per-domain docroot
+	// (AccountsRoot/<account_id>/domains/<resource_id>/public) for the
+	// real content+FastCGI template. Production: /var/lib/lesta/web/accounts.
+	AccountsRoot string
 	// SSLPort is the port templates/default_ssl.conf.tmpl's second (HTTPS)
 	// server block listens on: 443 in production, an ephemeral loopback
 	// port for a disposable test instance (binding to the literal port 443

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
+use App\Enums\PhpVersion;
 use App\Enums\SslMode;
 use App\Enums\SuspensionSource;
 use App\Enums\WebServer;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Carbon;
+use RuntimeException;
 
 /**
  * @property int $id
@@ -25,6 +27,7 @@ use Illuminate\Support\Carbon;
  * @property string $domain
  * @property string $web_template
  * @property WebServer $web_server
+ * @property PhpVersion|null $php_version
  * @property SslMode $ssl_mode
  * @property string|null $certificate_authority
  * @property Carbon|null $certificate_issued_at
@@ -36,7 +39,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'php_version', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
@@ -51,6 +54,7 @@ class WebDomain extends Model
     {
         return [
             'web_server' => WebServer::class,
+            'php_version' => PhpVersion::class,
             'ssl_mode' => SslMode::class,
             'certificate_issued_at' => 'datetime',
             'certificate_expires_at' => 'datetime',
@@ -158,7 +162,23 @@ class WebDomain extends Model
      * always wins in the "both" profile, per ResolvesWebCapableNode's own priority), so this never
      * needs a web_server-based guard of its own.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * account_id/php_socket are new as of web.php-fpm.v1: account_id lets web.nginx.v1/
+     * web.apache.v1 resolve this domain's own per-domain docroot
+     * (AccountsRoot/{account_id}/domains/{resource_id}/public, resource_id being this operation's
+     * own OperationEnvelope.ResourceID, i.e. this domain's uuid -- never recomputed from anything
+     * tenant-supplied) themselves, agent-side, exactly like every other filesystem path this
+     * project already resolves on that side of the wire. php_socket is null when php_version is
+     * null (static-only, no FastCGI block rendered at all); otherwise it is the exact same
+     * deterministic path web.php-fpm.v1's own pool listens on
+     * (/run/lesta-php/{php_version}/{resource_id}.sock), computed here from the same fixed formula
+     * both sides of the protocol share, never passed the other way (the pool config that actually
+     * creates the socket is authoritative; this is just how the vhost knows where to find it).
+     *
+     * web.php-fpm.v1 itself receives a different shape entirely (account_username/php_version,
+     * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
+     * separately since it is only ever dispatched when php_version is actually set.
+     *
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, php_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -180,7 +200,66 @@ class WebDomain extends Model
             'aliases' => $this->aliases()->pluck('alias')->all(),
             'ip_address' => $this->ipAllocation->ip_address,
             'web_template' => $webTemplate,
+            'account_id' => $this->account_id,
+            'php_socket' => $this->phpSocketPath(),
             'ssl' => $ssl,
+            'suspended' => $this->isSuspended(),
+        ];
+    }
+
+    /**
+     * The deterministic socket path web.php-fpm.v1's own pool for this domain listens on, or null
+     * when php_version isn't set (static-only). Shared, fixed formula both this method and
+     * web.php-fpm.v1's own pool-rendering template independently compute from the same two
+     * inputs (php_version, this domain's own uuid) -- never sent from one side to the other,
+     * exactly like every other agent-resolved path in this payload.
+     */
+    private function phpSocketPath(): ?string
+    {
+        if ($this->php_version === null) {
+            return null;
+        }
+
+        return "/run/lesta-php/{$this->php_version->value}/{$this->uuid}.sock";
+    }
+
+    /**
+     * Shape the desired-state payload sent to web.php-fpm.v1 specifically, only ever called when
+     * a php version is actually in play (callers gate on that before dispatching this capability
+     * at all -- see CreateWebDomain/UpdateWebDomain). account_username is this domain's own
+     * account's real per-node OS identity (system.account-identity.v1, already provisioned by
+     * EnsuresAccountNodeIdentity before this domain's own creation ever records a provisioning
+     * operation): the pool's own user/group directives, never a value this method invents.
+     *
+     * $version defaults to this domain's own current php_version; UpdateWebDomain passes the
+     * *previous* version explicitly when a domain turns PHP off (a Delete operation still needs
+     * to know which version's own pool.d directory the fragment being removed lives under, even
+     * though the model's own php_version column is already null by the time that delete is
+     * recorded).
+     *
+     * @return array{account_id: int, account_username: string, php_version: string, suspended: bool}
+     */
+    public function toPhpFpmProvisioningPayload(?PhpVersion $version = null): array
+    {
+        $version ??= $this->php_version;
+
+        if ($version === null) {
+            throw new RuntimeException("toPhpFpmProvisioningPayload() called for web domain {$this->uuid} with no php_version, and none was passed explicitly.");
+        }
+
+        $identity = AccountNodeIdentity::query()
+            ->where('account_id', $this->account_id)
+            ->where('node_id', $this->node_id)
+            ->first();
+
+        if ($identity === null) {
+            throw new RuntimeException("No AccountNodeIdentity exists for account {$this->account_id} on node {$this->node_id}; EnsuresAccountNodeIdentity should have created one before this domain's own php-fpm operation was ever recorded.");
+        }
+
+        return [
+            'account_id' => $this->account_id,
+            'account_username' => $identity->system_username,
+            'php_version' => $version->value,
             'suspended' => $this->isSuspended(),
         ];
     }

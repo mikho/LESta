@@ -65,6 +65,8 @@ func nginxPayload(domain string, suspended bool) json.RawMessage {
 		"aliases":      []string{},
 		"ip_address":   "127.0.0.1",
 		"web_template": "default",
+		"account_id":   1,
+		"php_socket":   "",
 		"ssl":          map[string]any{"mode": "off"},
 		"suspended":    suspended,
 	})

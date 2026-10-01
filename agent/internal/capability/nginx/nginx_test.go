@@ -573,6 +573,8 @@ func nginxPayloadWithTemplate(domain, ip, webTemplate string, suspended bool) ma
 		"aliases":      []string{},
 		"ip_address":   ip,
 		"web_template": webTemplate,
+		"account_id":   1,
+		"php_socket":   "",
 		"ssl":          map[string]any{"mode": "off"},
 		"suspended":    suspended,
 	}

@@ -36,6 +36,7 @@ const capabilityOptions = [
     'web.nginx.v1',
     'dns.bind9.v1',
     'web.apache.v1',
+    'web.php-fpm.v1',
     'tls.acme.v1',
     'database.tenant.v1',
     'scheduler.account-cron.v1',

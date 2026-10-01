@@ -58,8 +58,19 @@ type Payload struct {
 	Aliases     []string `json:"aliases"`
 	IPAddress   string   `json:"ip_address"`
 	WebTemplate string   `json:"web_template"`
-	SSL         SSL      `json:"ssl"`
-	Suspended   bool     `json:"suspended"`
+	// AccountID and PhpSocket are new as of web.php-fpm.v1. AccountID lets
+	// renderVhost compute this domain's own per-domain docroot
+	// (AccountsRoot/{AccountID}/domains/{ResourceID}/public) the same way
+	// web.php-fpm.v1 itself does, both sides independently deriving the
+	// identical path from the same two inputs. PhpSocket, when non-empty,
+	// selects the real content+FastCGI template variant over the existing
+	// marker-only default (see template.go's own renderVhost doc comment
+	// for why this stays opt-in rather than replacing the default
+	// template for every domain).
+	AccountID int    `json:"account_id"`
+	PhpSocket string `json:"php_socket"`
+	SSL       SSL    `json:"ssl"`
+	Suspended bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -100,6 +111,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 				Field:   fmt.Sprintf("aliases[%d]", i),
 			}
 		}
+	}
+
+	if p.AccountID <= 0 {
+		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

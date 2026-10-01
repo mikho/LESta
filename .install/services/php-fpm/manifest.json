@@ -1,0 +1,27 @@
+{
+  "schema_version": "1",
+  "id": "php-fpm",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "node.health.v1"],
+  "provides": ["web.php-fpm.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [],
+  "ownership": {
+    "owned_roots": [
+      "/etc/php/8.1/fpm/pool.d",
+      "/etc/php/8.2/fpm/pool.d",
+      "/etc/php/8.3/fpm/pool.d",
+      "/etc/php/8.4/fpm/pool.d",
+      "/run/lesta-php",
+      "/var/lib/lesta/php-fpm",
+      "/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg",
+      "/etc/apt/sources.list.d/ondrej-php.list",
+      "/etc/sudoers.d/lesta-php-fpm",
+      "/etc/tmpfiles.d/lesta-php-fpm.conf"
+    ],
+    "read_only_roots": [],
+    "refused_roots": ["/etc/sudoers"]
+  }
+}

@@ -1,9 +1,12 @@
 <?php
 
 use App\Actions\Provisioning\ResolvesWebCapableNode;
+use App\Enums\PhpVersion;
 use App\Enums\SslMode;
 use App\Enums\WebServer;
 use App\Exceptions\NoWebCapableNodeAvailableException;
+use App\Models\Account;
+use App\Models\AccountNodeIdentity;
 use App\Models\DnsZone;
 use App\Models\IpAllocation;
 use App\Models\Node;
@@ -12,9 +15,11 @@ use App\Models\WebDomain;
 use App\Models\WebDomainAlias;
 
 test('toProvisioningPayload returns exactly the expected keys with no secret-shaped values', function () {
+    $account = Account::factory()->create();
     $node = Node::factory()->create();
     $allocation = IpAllocation::factory()->for($node)->create(['ip_address' => '203.0.113.10']);
     $webDomain = WebDomain::factory()
+        ->for($account)
         ->for($node)
         ->for($allocation)
         ->create(['domain' => 'example.com', 'ssl_mode' => SslMode::Manual]);
@@ -27,11 +32,68 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'aliases' => ['www.example.com'],
         'ip_address' => '203.0.113.10',
         'web_template' => 'default',
+        'account_id' => $account->id,
+        'php_socket' => null,
         'ssl' => ['mode' => 'manual'],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'ssl', 'suspended']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'php_socket', 'ssl', 'suspended']);
 });
+
+test('toProvisioningPayload reports a real php_socket once php_version is set', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => PhpVersion::Php83]);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])
+        ->toBe("/run/lesta-php/8.3/{$webDomain->uuid}.sock");
+});
+
+test('toProvisioningPayload reports a null php_socket when php_version is not set', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => null]);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])->toBeNull();
+});
+
+test('toPhpFpmProvisioningPayload reports the account\'s own real node identity', function () {
+    $account = Account::factory()->create();
+    $node = Node::factory()->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create(['php_version' => PhpVersion::Php82]);
+
+    expect($webDomain->toPhpFpmProvisioningPayload())->toBe([
+        'account_id' => $account->id,
+        'account_username' => 'lesta-t'.$account->id,
+        'php_version' => '8.2',
+        'suspended' => false,
+    ]);
+});
+
+test('toPhpFpmProvisioningPayload accepts an explicit version override for a delete after turning PHP off', function () {
+    $account = Account::factory()->create();
+    $node = Node::factory()->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create(['php_version' => null]);
+
+    expect($webDomain->toPhpFpmProvisioningPayload(PhpVersion::Php81)['php_version'])->toBe('8.1');
+});
+
+test('toPhpFpmProvisioningPayload throws when no version is set and none is passed explicitly', function () {
+    $account = Account::factory()->create();
+    $node = Node::factory()->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create(['php_version' => null]);
+
+    $webDomain->toPhpFpmProvisioningPayload();
+})->throws(RuntimeException::class);
+
+test('toPhpFpmProvisioningPayload throws when no AccountNodeIdentity exists yet', function () {
+    $account = Account::factory()->create();
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create(['php_version' => PhpVersion::Php83]);
+
+    $webDomain->toPhpFpmProvisioningPayload();
+})->throws(RuntimeException::class);
 
 test('toProvisioningPayload omits ssl certificate paths until a certificate has actually been issued', function () {
     $node = Node::factory()->create();

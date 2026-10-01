@@ -5,6 +5,7 @@ use App\Enums\IpAllocationStatus;
 use App\Enums\ProvisioningStatus;
 use App\Enums\WebServer;
 use App\Exceptions\NoIpAllocationAvailableException;
+use App\Exceptions\NoPhpCapableNodeAvailableException;
 use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Models\Account;
@@ -179,6 +180,61 @@ test('creating a web domain with web_server apache fails when the resolved node 
         'web_server' => 'apache',
     ]);
 })->throws(NoWebCapableNodeAvailableException::class);
+
+test('creating a web domain with a php_version also records a web.php-fpm.v1 create operation', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    $webDomain = app(CreateWebDomain::class)->handle($owner, $account, [
+        'domain' => 'example.com',
+        'php_version' => '8.3',
+    ]);
+
+    $operations = ProvisioningOperation::where('provisionable_type', $webDomain->getMorphClass())
+        ->where('provisionable_id', $webDomain->id)
+        ->orderBy('id')
+        ->get();
+
+    expect($operations)->toHaveCount(2)
+        ->and($operations->get(0)->capability)->toBe('web.nginx.v1')
+        ->and($operations->get(1)->capability)->toBe('web.php-fpm.v1')
+        ->and($operations->get(1)->payload['php_version'])->toBe('8.3')
+        ->and($operations->get(1)->payload['account_username'])->toBe('lesta-t'.$account->id);
+});
+
+test('creating a web domain with a php_version fails when the resolved node has no active web.php-fpm.v1 capability', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    app(CreateWebDomain::class)->handle($owner, $account, [
+        'domain' => 'example.com',
+        'php_version' => '8.3',
+    ]);
+})->throws(NoPhpCapableNodeAvailableException::class);
+
+test('creating a web domain with no php_version records no web.php-fpm.v1 operation', function () {
+    $package = Package::factory()->withLimit('web_domains', 5)->create();
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    IpAllocation::factory()->for($node)->create();
+
+    $webDomain = app(CreateWebDomain::class)->handle($owner, $account, ['domain' => 'example.com']);
+
+    expect(ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $webDomain->id)
+        ->exists())->toBeFalse();
+});
 
 test('a dedicated ip allocation for the account is preferred over a shared one', function () {
     $package = Package::factory()->withLimit('web_domains', 5)->create();

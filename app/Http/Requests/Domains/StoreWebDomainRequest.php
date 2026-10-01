@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Domains;
 
+use App\Enums\PhpVersion;
 use App\Models\WebDomain;
 use App\Rules\ValidDomainName;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -36,6 +37,7 @@ class StoreWebDomainRequest extends FormRequest
             'domain' => ['required', 'string', new ValidDomainName, Rule::unique('web_domains', 'domain')],
             'web_template' => ['nullable', 'string', 'max:255'],
             'web_server' => ['nullable', 'string', Rule::in(['nginx', 'apache'])],
+            'php_version' => ['nullable', 'string', Rule::in(array_column(PhpVersion::cases(), 'value'))],
             'ssl_mode' => ['nullable', 'string', Rule::in(['none', 'manual', 'lets_encrypt'])],
             'aliases' => ['array'],
             'aliases.*' => ['string', new ValidDomainName, Rule::unique('web_domain_aliases', 'alias')],

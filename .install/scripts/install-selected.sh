@@ -34,14 +34,14 @@ set -eu
 
 SCRIPT_VERSION="1.0.0"
 
-# The seven services with a real, independently-runnable install.sh
+# The eight services with a real, independently-runnable install.sh
 # (confirmed directly, not assumed: firewall/node-health bootstrap
 # automatically inside every one of these, and acme/statistics have no
 # standalone script at all -- see each service's own README.md, and the
 # Installation Guide's Chapter 3). Order here is canonical iteration order only, not install
 # order: real install order is resolved from each manifest's own
 # depends_on/provides below.
-SERVICES_ALL="nginx apache bind9 mariadb cron mail backups"
+SERVICES_ALL="nginx apache bind9 mariadb cron mail backups php-fpm"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)

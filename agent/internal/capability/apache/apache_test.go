@@ -82,6 +82,8 @@ func apachePayload(domain, ip string, suspended bool) map[string]any {
 		"aliases":      []string{},
 		"ip_address":   ip,
 		"web_template": "default",
+		"account_id":   1,
+		"php_socket":   "",
 		"ssl":          map[string]any{"mode": "off"},
 		"suspended":    suspended,
 	}

@@ -51,8 +51,15 @@ type Payload struct {
 	Aliases     []string `json:"aliases"`
 	IPAddress   string   `json:"ip_address"`
 	WebTemplate string   `json:"web_template"`
-	SSL         SSL      `json:"ssl"`
-	Suspended   bool     `json:"suspended"`
+	// AccountID and PhpSocket are new as of web.php-fpm.v1, mirroring the
+	// nginx capability's own identical fields exactly (see that package's
+	// own Payload doc comment) -- decoded and validated here too since
+	// DisallowUnknownFields() would otherwise reject every real payload
+	// now that WebDomain::toProvisioningPayload() always sends both.
+	AccountID int    `json:"account_id"`
+	PhpSocket string `json:"php_socket"`
+	SSL       SSL    `json:"ssl"`
+	Suspended bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -93,6 +100,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 				Field:   fmt.Sprintf("aliases[%d]", i),
 			}
 		}
+	}
+
+	if p.AccountID <= 0 {
+		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

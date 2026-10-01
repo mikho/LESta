@@ -9,6 +9,7 @@ use App\Concerns\EnforcesPackageQuota;
 use App\Enums\IpAllocationStatus;
 use App\Enums\ProvisioningVerb;
 use App\Exceptions\NoIpAllocationAvailableException;
+use App\Exceptions\NoPhpCapableNodeAvailableException;
 use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\IpAllocation;
@@ -24,7 +25,7 @@ class CreateWebDomain
     use EnforcesPackageQuota;
 
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, ssl_mode?: string, aliases?: array<int, string>}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, php_version?: string|null, ssl_mode?: string, aliases?: array<int, string>}
      */
     public function handle(User $actor, Account $account, array $data): WebDomain
     {
@@ -64,6 +65,7 @@ class CreateWebDomain
                 'domain' => WebDomain::normalizeDomain($data['domain']),
                 'web_template' => $data['web_template'] ?? 'default',
                 'web_server' => $data['web_server'] ?? 'nginx',
+                'php_version' => $data['php_version'] ?? null,
                 'ssl_mode' => $data['ssl_mode'] ?? 'none',
                 'desired_state_version' => 1,
             ]);
@@ -92,6 +94,32 @@ class CreateWebDomain
                     $capability,
                     ProvisioningVerb::Create,
                     $webDomain->toProvisioningPayload($capability),
+                    $correlationId,
+                    1,
+                );
+            }
+
+            // web.php-fpm.v1 is additive alongside whichever web-server capability(s) just
+            // recorded above, never a replacement for one -- a domain always needs a real web
+            // server capability to serve it; PHP execution is an extra capability on the same
+            // node, gated on php_version actually being set and that node genuinely having
+            // web.php-fpm.v1 active (never silently skipped, matching every other
+            // NoXCapableNodeAvailableException in this codebase).
+            if ($webDomain->php_version !== null) {
+                $phpCapable = $node->capabilities()
+                    ->where('capability', 'web.php-fpm.v1')
+                    ->whereNull('suspended_at')
+                    ->exists();
+
+                if (! $phpCapable) {
+                    throw new NoPhpCapableNodeAvailableException;
+                }
+
+                app(RecordsProvisioningOperation::class)->record(
+                    $webDomain,
+                    'web.php-fpm.v1',
+                    ProvisioningVerb::Create,
+                    $webDomain->toPhpFpmProvisioningPayload(),
                     $correlationId,
                     1,
                 );

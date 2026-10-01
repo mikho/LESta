@@ -3,6 +3,7 @@
 use App\Actions\Domains\DeleteWebDomain;
 use App\Enums\ProvisioningVerb;
 use App\Enums\WebServer;
+use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Node;
@@ -66,6 +67,25 @@ test('deleting a web domain configured for apache on a both-profile node deletes
     expect($operations)->toHaveCount(2)
         ->and($operations->get(0)->capability)->toBe('web.apache.v1')
         ->and($operations->get(1)->capability)->toBe('web.nginx.v1');
+});
+
+test('deleting a php-enabled web domain also records a web.php-fpm.v1 delete operation', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['php_version' => '8.3']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+    $id = $webDomain->id;
+
+    app(DeleteWebDomain::class)->handle($owner, $webDomain);
+
+    $operation = ProvisioningOperation::where('capability', 'web.php-fpm.v1')
+        ->where('provisionable_id', $id)
+        ->where('operation', ProvisioningVerb::Delete)
+        ->first();
+
+    expect($operation)->not->toBeNull()
+        ->and($operation->payload['php_version'])->toBe('8.3');
 });
 
 test('a non-owner member cannot delete a web domain', function () {

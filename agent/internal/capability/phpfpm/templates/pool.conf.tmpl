@@ -1,0 +1,22 @@
+; Managed by LESta's own web.php-fpm.v1 capability. Do not edit by hand --
+; a future create/update for this resource will overwrite it unconditionally.
+[{{.ResourceID}}]
+user = {{.AccountUsername}}
+group = {{.AccountUsername}}
+listen = {{.SocketPath}}
+listen.owner = {{.AccountUsername}}
+listen.group = www-data
+listen.mode = 0660
+
+pm = dynamic
+pm.max_children = 5
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+
+; Defense in depth, never the primary boundary -- the primary boundary is
+; this pool's own dedicated OS uid/gid above, per Web Application Hosting
+; Threat Model and Isolation Design.md's own Boundary 3.
+php_admin_value[disable_functions] = exec,shell_exec,system,popen,proc_open,pcntl_exec,pcntl_fork,pcntl_signal
+php_admin_value[open_basedir] = {{.Docroot}}:/tmp
+php_admin_flag[allow_url_fopen] = off
