@@ -500,9 +500,18 @@ install_php_fpm() {
             || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" "failed to set ownership on ${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d"
         add_change "${WEB_PHP_FPM_CAPABILITY}" ensured "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" "pool.d directory present, mode 0770 root:lesta"
 
-        install -d -m 0770 -o root -g lesta "${PHP_SOCKET_ROOT}/${version}" \
+        # Mode 0771, not 0770: nginx (running as www-data, not a member of
+        # the "lesta" group) must be able to traverse into this directory
+        # to dial a specific, already-known socket path -- confirmed
+        # directly deploying to a real node, where a plain 0770 produced a
+        # real "Permission denied" connecting to the socket despite the
+        # socket file itself being listen.mode 0660 listen.group=www-data.
+        # The world-execute bit grants traversal only, never directory
+        # listing (no world-read), so another tenant's own socket name
+        # under this same version is not enumerable this way.
+        install -d -m 0771 -o root -g lesta "${PHP_SOCKET_ROOT}/${version}" \
             || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${PHP_SOCKET_ROOT}/${version}" "failed to create ${PHP_SOCKET_ROOT}/${version}"
-        add_change "${WEB_PHP_FPM_CAPABILITY}" ensured "${PHP_SOCKET_ROOT}/${version}" "socket directory present, mode 0770 root:lesta"
+        add_change "${WEB_PHP_FPM_CAPABILITY}" ensured "${PHP_SOCKET_ROOT}/${version}" "socket directory present, mode 0771 root:lesta"
 
         systemctl enable --now "php${version}-fpm" || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now php${version}-fpm failed"
         add_change "${WEB_PHP_FPM_CAPABILITY}" enabled "" "systemctl enable --now php${version}-fpm succeeded"
@@ -514,10 +523,10 @@ install_php_fpm() {
     # under /etc or /var/lib. A systemd-tmpfiles rule, not a one-time
     # `install -d`, is what makes this durable across reboots.
     cat > /etc/tmpfiles.d/lesta-php-fpm.conf <<TMPFILES
-d ${PHP_SOCKET_ROOT} 0770 root lesta -
+d ${PHP_SOCKET_ROOT} 0771 root lesta -
 TMPFILES
     for version in ${PHP_VERSIONS}; do
-        printf 'd %s/%s 0770 root lesta -\n' "${PHP_SOCKET_ROOT}" "${version}" >> /etc/tmpfiles.d/lesta-php-fpm.conf
+        printf 'd %s/%s 0771 root lesta -\n' "${PHP_SOCKET_ROOT}" "${version}" >> /etc/tmpfiles.d/lesta-php-fpm.conf
     done
     systemd-tmpfiles --create /etc/tmpfiles.d/lesta-php-fpm.conf >/dev/null 2>&1 || true
     add_change "${WEB_PHP_FPM_CAPABILITY}" installed /etc/tmpfiles.d/lesta-php-fpm.conf "systemd-tmpfiles rule written so ${PHP_SOCKET_ROOT} survives a reboot (/run is tmpfs)"
