@@ -352,11 +352,25 @@ bootstrap_base() {
 # piped into a shell.
 # Idempotent: a second apply verifies the existing keyring/sources file
 # rather than re-downloading them.
+# Some base images (this project's own included) already ship the same
+# PPA pre-trusted under a different file, in deb822 .sources format with
+# an inline-armored Signed-By -- a second, differently-formatted entry
+# for the identical PPA URL makes apt fail outright with a Signed-By
+# conflict. Detect that case first and reuse the image's own entry
+# instead of writing a conflicting duplicate.
 ensure_ondrej_php_repo() {
-    local out codename
+    local out codename foreign_source
 
     if [ -f "${PHP_PPA_KEYRING}" ] && [ -f "${PHP_PPA_SOURCES_LIST}" ]; then
         add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${PHP_PPA_SOURCES_LIST}" "ondrej/php PPA already pinned from a prior apply"
+
+        return 0
+    fi
+
+    foreign_source=$(grep -rl 'ppa\.launchpadcontent\.net/ondrej/php' /etc/apt/sources.list.d/ 2>/dev/null | head -1 || true)
+
+    if [ -n "${foreign_source}" ]; then
+        add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${foreign_source}" "ondrej/php PPA already pinned by the base image under a different file; reusing it instead of writing a conflicting duplicate"
 
         return 0
     fi
