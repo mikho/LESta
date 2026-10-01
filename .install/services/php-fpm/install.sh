@@ -322,6 +322,23 @@ bootstrap_base() {
         add_change base.os.v1 verified /etc/passwd "system user lesta-agent already exists"
     fi
 
+    # lesta-agent's own primary group is the shared "lesta" group (every
+    # other capability's own LiveDir permission model depends on that),
+    # not a same-named private group the way a real per-account identity
+    # gets one from a bare `useradd <username>` (no --gid, relying on
+    # Debian/Ubuntu's own USERGROUPS_ENAB default). The php-fpm self-test
+    # below renders a pool with user=group=lesta-agent, exactly mirroring
+    # a real account identity's own pool, so it needs a group literally
+    # named "lesta-agent" to exist even though the user's primary group
+    # stays "lesta".
+    if ! getent group lesta-agent >/dev/null 2>&1; then
+        groupadd --system lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" groupadd_failed /etc/group "failed to create group lesta-agent"
+        usermod -a -G lesta-agent lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed /etc/group "failed to add lesta-agent to its own same-named group"
+        add_change base.os.v1 created /etc/group "created group lesta-agent (self-test-only stand-in for a real account identity's own same-named group)"
+    else
+        add_change base.os.v1 verified /etc/group "group lesta-agent already exists"
+    fi
+
     install -d -m 0750 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
     install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
