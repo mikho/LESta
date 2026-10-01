@@ -66,6 +66,13 @@ type vhostData struct {
 	// template for every domain).
 	Docroot   string
 	PhpSocket string
+	// FastcgiParamsPath backs php.conf.tmpl's own `include` directive as an
+	// absolute path, deliberately never a bare relative `fastcgi_params`:
+	// nginx resolves a relative include against its own compiled-in
+	// --prefix, not against -c's own directory, so validate.go's synthetic
+	// scratch-directory config (a different -c entirely) fails to find it
+	// unless the path is absolute.
+	FastcgiParamsPath string
 	// Marker is a known string embedded in the rendered default vhost's body,
 	// so a health check can assert that *this* resource answered, not just
 	// that some nginx vhost is alive. It is deliberately a function of
