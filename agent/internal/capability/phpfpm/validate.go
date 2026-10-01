@@ -94,6 +94,32 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 		}
 	}
 
+	// php-fpm -t refuses to validate a config whose include glob matches
+	// zero pools ("No pool defined"), which real deletes hit whenever the
+	// resource being removed is the last live pool for that version. A
+	// syntax-only placeholder pool, never written to the real poolDir,
+	// keeps the synthetic config non-empty without affecting the verdict
+	// on the candidate itself.
+	if len(existing) == 0 && candidatePath == "" {
+		placeholder, err := renderPool(poolData{
+			ResourceID:      "lesta-validate-placeholder",
+			AccountUsername: "lesta-agent",
+			SocketPath:      filepath.Join(tmpDir, "placeholder.sock"),
+			Docroot:         tmpDir,
+		})
+		if err != nil {
+			cleanup()
+
+			return "", nil, fmt.Errorf("rendering placeholder pool: %w", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(fragDir, "lesta-validate-placeholder.conf"), placeholder, 0o644); err != nil {
+			cleanup()
+
+			return "", nil, fmt.Errorf("writing placeholder pool: %w", err)
+		}
+	}
+
 	fpmConfigPath := c.cfg.fpmConfigPath(version)
 
 	baseConf, err := os.ReadFile(fpmConfigPath)
