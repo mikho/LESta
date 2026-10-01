@@ -874,6 +874,9 @@ run_node_health_selftest() {
         "$(json_kv_raw "aliases" "[]")" \
         "$(json_kv_str "ip_address" "127.0.0.1")" \
         "$(json_kv_str "web_template" "default")" \
+        "$(json_kv_raw "account_id" "1")" \
+        "$(json_kv_str "account_username" "")" \
+        "$(json_kv_str "php_socket" "")" \
         "$(json_kv_raw "ssl" "${ssl_obj}")" \
         "$(json_kv_raw "suspended" "false")")
 
