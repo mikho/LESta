@@ -174,15 +174,19 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 
 	var healthErr error
 
-	if !payload.Suspended && payload.WebTemplate == "apache-proxy" {
-		// nginx's own health check can only prove nginx itself accepted and
-		// is running the new proxy config: this operation and Apache's own
-		// matching create/update against its own loopback resource are
-		// dispatched independently with no ordering guarantee, so asserting
-		// real proxied content here would make this health check flaky
-		// against a backend that may not exist yet. Apache's own
-		// capability, applying to itself, still does its own full
-		// marker-checked health check against its own loopback port.
+	if !payload.Suspended && (payload.WebTemplate == "apache-proxy" || payload.PhpSocket != "") {
+		// Same reasoning as apache-proxy, just one layer further down the
+		// stack: nginx's own health check can only prove nginx itself
+		// accepted and is running the new vhost config, never that real
+		// content exists behind it. For apache-proxy, the backend is a
+		// separately-dispatched Apache operation with no ordering
+		// guarantee; for php.conf.tmpl, the "backend" is the account's own
+		// docroot, genuinely empty until a tenant uploads something over
+		// SFTP, and php-fpm's own matching create for this same domain is
+		// also dispatched independently with no ordering guarantee either.
+		// Asserting a marker string in the real response body would make
+		// this health check depend on content this capability does not
+		// control the existence of.
 		healthErr = c.waitHealthyGeneric(ctx, payload.IPAddress, c.cfg.Port)
 	} else {
 		expectedMarker := vhostData{ResourceID: op.ResourceID}.marker()

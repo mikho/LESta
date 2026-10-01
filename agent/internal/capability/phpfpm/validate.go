@@ -34,9 +34,21 @@ func (c *PhpFpmCapability) validateCandidate(ctx context.Context, version, resou
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		message := strings.TrimSpace(string(out))
+		if message == "" {
+			// php-fpm -t produced no stdout/stderr at all before failing --
+			// most likely the context deadline was reached before the
+			// command could even start or run to completion (e.g. a slow
+			// operation dispatched earlier in the same batch consumed this
+			// one's own remaining time budget), not a genuine config
+			// rejection. Falling through to an empty message would make
+			// this indistinguishable from a real syntax error.
+			message = fmt.Sprintf("%s produced no output: %v", phpFpmBinary(version), err)
+		}
+
 		return &ValidationError{
 			Code:    "php_fpm_config_invalid",
-			Message: strings.TrimSpace(string(out)),
+			Message: message,
 		}
 	}
 
