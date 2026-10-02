@@ -570,10 +570,10 @@ bootstrap_base() {
         add_change base.os.v1 verified /etc/passwd "system user lesta-agent already exists"
     fi
 
-    install -d -m 0750 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
+    install -d -m 0751 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
     install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
-    add_change base.os.v1 ensured /etc/lesta "directory present, mode 0750 root:lesta"
+    add_change base.os.v1 ensured /etc/lesta "directory present, mode 0751 root:lesta"
     add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
     add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0750 root:lesta"
 

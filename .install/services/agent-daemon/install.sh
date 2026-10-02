@@ -366,10 +366,10 @@ bootstrap_base() {
         add_change base.os.v1 verified /etc/passwd "system user lesta-agent already exists"
     fi
 
-    install -d -m 0750 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
+    install -d -m 0751 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
     install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
-    add_change base.os.v1 ensured /etc/lesta "directory present, mode 0750 root:lesta"
+    add_change base.os.v1 ensured /etc/lesta "directory present, mode 0751 root:lesta"
     add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
     add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0750 root:lesta"
 
@@ -530,9 +530,23 @@ bootstrap_sftp_prerequisite() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_LESTA_LIVE_DIR}" "failed to create ${SFTP_LESTA_LIVE_DIR}"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_LESTA_LIVE_DIR}" "per-account sshd Match-block directory present, mode 0770 root:lesta"
 
-    install -d -m 0770 -o root -g lesta "${SFTP_AUTHORIZED_KEYS_DIR}" \
+    # 0771, not 0770, and deliberately different from SFTP_LESTA_LIVE_DIR
+    # just above: sshd reads *.conf Match-block fragments via `Include`
+    # during initial config parsing, always as root, so that directory's
+    # own group-write bit is the only thing that ever mattered there. A
+    # per-account AuthorizedKeysFile is different: sshd's own monitor
+    # process temporarily drops privileges to the *connecting* account's
+    # own uid/gid before opening it (auth2-pubkey.c's own
+    # temporarily_use_uid/restore_uid pair, confirmed directly against a
+    # real node via `sshd -d -d -d`), a deliberate symlink-attack safety
+    # measure that applies to this centralized path exactly as it would a
+    # real ~/.ssh/authorized_keys -- so every connecting account, not just
+    # root, needs to traverse into this directory. The added world-execute
+    # bit grants traversal only, never directory listing (no world-read),
+    # so one account's own username stays unenumerable via this path.
+    install -d -m 0771 -o root -g lesta "${SFTP_AUTHORIZED_KEYS_DIR}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_AUTHORIZED_KEYS_DIR}" "failed to create ${SFTP_AUTHORIZED_KEYS_DIR}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_AUTHORIZED_KEYS_DIR}" "centralized authorized_keys directory present, mode 0770 root:lesta"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_AUTHORIZED_KEYS_DIR}" "centralized authorized_keys directory present, mode 0771 root:lesta"
 
     # 0755, not the account subdirectory's own tighter 0750 (see
     # ensureChrootTree's own doc comment in the Go capability): this exact

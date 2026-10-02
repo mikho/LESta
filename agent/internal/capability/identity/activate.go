@@ -92,11 +92,20 @@ func (c *IdentityCapability) writeAuthorizedKeys(username string, content []byte
 		return fmt.Errorf("closing staged authorized_keys file for %s: %w", username, err)
 	}
 
-	// 0600: sshd itself requires an authorized_keys file (or, here, the
-	// centralized AuthorizedKeysFile target) not be group/world-writable
-	// under StrictModes, and this data has no legitimate reader besides
-	// sshd and root regardless.
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
+	// 0644, not 0600: sshd's own monitor process opens each
+	// AuthorizedKeysFile candidate after temporarily dropping privileges
+	// to the *connecting* user (auth2-pubkey.c's own
+	// temporarily_use_uid/restore_uid pair, confirmed directly against a
+	// real node via `sshd -d -d -d`) -- a deliberate symlink-attack
+	// safety measure, not a bug, and it applies to this centralized path
+	// exactly as it would to a real ~/.ssh/authorized_keys. A 0600 file
+	// owned by lesta-agent is therefore unreadable by the very account
+	// it authenticates, regardless of root's own unrelated ability to
+	// read it. The content itself is a public key, never secret, so
+	// world-readable is the correct permission, not a weakened one:
+	// sshd still requires it not be group/world-*writable*, which this
+	// still satisfies.
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		_ = os.Remove(tmpPath)
 
 		return fmt.Errorf("setting permissions on staged authorized_keys file for %s: %w", username, err)
