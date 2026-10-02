@@ -66,11 +66,22 @@ release_read_digest() {
 
 # release_write <release_id> <manifest_digest>
 # Written only after every apply phase has succeeded.
+#
+# dir is /etc/lesta for every leaf service (RELEASE_PATH is always
+# <service>-release directly under it), so this -m 0751, not 0750, must
+# stay in lockstep with every install.sh's own bootstrap_base -- found the
+# hard way deploying web.php-fpm.v1's own agent-daemon/install.sh fix for
+# a real SFTP login bug: every successful apply calls release_write AFTER
+# bootstrap_base already set /etc/lesta to 0751 (every connecting tenant
+# account needs to traverse into it to reach its own centralized
+# authorized_keys file), and this generic `install -d` on an
+# already-existing directory re-chmods it regardless, silently reverting
+# that fix on every single subsequent apply of ANY service.
 release_write() {
     local release_id="$1" digest="$2" dir
 
     dir=$(dirname "${RELEASE_PATH}")
-    install -d -m 0750 -o root -g lesta "${dir}"
+    install -d -m 0751 -o root -g lesta "${dir}"
 
     printf '{"release":"%s","manifest_digest":"%s","installed_at":"%s"}\n' \
         "${release_id}" "${digest}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${RELEASE_PATH}"
