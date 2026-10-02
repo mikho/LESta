@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mikho/LESta/agent/internal/capability/identity"
@@ -68,28 +69,41 @@ func TestSudoBinaryRoutesUseraddAndUserdelCorrectly(t *testing.T) {
 }
 
 // newAgentBinaryStub writes a tiny script standing in for the real
-// lesta-agent binary's own "identity-ensure-chroot-tree" CLI mode:
-// ensureChrootTreePrivileged invokes it as "<sudo stub> <this stub>
-// identity-ensure-chroot-tree <username>", so this stub's own job is to
-// perform the same real mkdir/chmod/chown sequence ensureChrootTree itself
-// does (chroot.go), against accountsRoot passed in directly rather than
-// read from a Config this shell script has no access to. Proves
-// ensureChrootTreePrivileged's own argv shape and end-to-end effect
-// (real ownership, not just "some command ran") without needing a second
-// real Go binary built for this one test.
-func newAgentBinaryStub(t *testing.T, accountsRoot string) string {
+// lesta-agent binary's own "identity-ensure-chroot-tree" and
+// "identity-write-authorized-keys" CLI modes: ensureChrootTreePrivileged/
+// writeAuthorizedKeysPrivileged invoke it as "<sudo stub> <this stub>
+// <subcommand> <username>" (the latter piping content over stdin), so this
+// stub's own job is to perform the same real mkdir/chmod/chown and
+// write/chown/chmod sequences ensureChrootTree/writeAuthorizedKeys
+// themselves do (chroot.go/activate.go), against accountsRoot/
+// authorizedKeysDir passed in directly rather than read from a Config this
+// shell script has no access to. Proves both privileged wrappers' own argv
+// shape and end-to-end effect (real ownership, not just "some command
+// ran") without needing a second real Go binary built for this one test.
+func newAgentBinaryStub(t *testing.T, accountsRoot, authorizedKeysDir string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "agent-stub.sh")
 	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" != "identity-ensure-chroot-tree" ]; then
+case "$1" in
+identity-ensure-chroot-tree)
+    username="$2"
+    root=%q/"$username"
+    mkdir -p "$root" && chmod 0755 "$root" && chown root:root "$root" || exit 1
+    mkdir -p "$root/public" && chmod 0750 "$root/public" && chown "$username:$username" "$root/public" || exit 1
+    ;;
+identity-write-authorized-keys)
+    username="$2"
+    dest=%q/"$username"
+    tmp="$dest.stub-staging"
+    cat > "$tmp" || exit 1
+    chown root:root "$tmp" && chmod 0644 "$tmp" && mv "$tmp" "$dest" || exit 1
+    ;;
+*)
     exit 1
-fi
-username="$2"
-root=%q/"$username"
-mkdir -p "$root" && chmod 0755 "$root" && chown root:root "$root" || exit 1
-mkdir -p "$root/public" && chmod 0750 "$root/public" && chown "$username:$username" "$root/public" || exit 1
-`, accountsRoot)
+    ;;
+esac
+`, accountsRoot, authorizedKeysDir)
 
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("writing agent-binary stub: %v", err)
@@ -117,7 +131,7 @@ func TestSudoBinaryRoutesChrootTreeCreationCorrectly(t *testing.T) {
 	sshd := newDisposableSshd(t)
 	cfg := sshd.Config
 	cfg.SudoBinary = newSudoStub(t)
-	cfg.AgentBinaryPath = newAgentBinaryStub(t, cfg.AccountsRoot)
+	cfg.AgentBinaryPath = newAgentBinaryStub(t, cfg.AccountsRoot, cfg.AuthorizedKeysDir)
 	capability := identity.New(cfg)
 	ctx := context.Background()
 
@@ -138,5 +152,51 @@ func TestSudoBinaryRoutesChrootTreeCreationCorrectly(t *testing.T) {
 
 	if info.Mode().Perm() != 0o750 {
 		t.Fatalf("expected the public dir's own mode to be 0750, got %o", info.Mode().Perm())
+	}
+}
+
+// TestSudoBinaryRoutesAuthorizedKeysWriteCorrectly proves
+// writeAuthorizedKeysPrivileged's own wrapping shape: content piped over
+// stdin, not argv, reaching the real file with the exact ownership/mode
+// writeAuthorizedKeys itself would set (root:root 0644 -- see its own doc
+// comment for why: sshd's own secure_path() check requires both root
+// ownership and no group/other write bit on this path, which the real
+// unprivileged lesta-agent-daemon can never satisfy writing directly).
+func TestSudoBinaryRoutesAuthorizedKeysWriteCorrectly(t *testing.T) {
+	requireRootAndUseradd(t)
+	requireRealSshd(t)
+
+	sshd := newDisposableSshd(t)
+	cfg := sshd.Config
+	cfg.SudoBinary = newSudoStub(t)
+	cfg.AgentBinaryPath = newAgentBinaryStub(t, cfg.AccountsRoot, cfg.AuthorizedKeysDir)
+	capability := identity.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	username := "lestakeys" + newTestUUID()[:8]
+	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtwD2qnFPvtF/VPln8VOdBVqoPaj9I6J9J5lvBAPw32 test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(),
+		map[string]any{"username": username, "ssh_public_key": publicKey}))
+	requireStatus(t, "create with sudo-stub-routed authorized_keys write", created, err, protocol.StatusApplied)
+	t.Cleanup(func() { _ = exec.Command("userdel", username).Run() })
+
+	keyFile := filepath.Join(cfg.AuthorizedKeysDir, username)
+
+	content, err := os.ReadFile(keyFile)
+	if err != nil {
+		t.Fatalf("expected a real authorized_keys file to exist after a sudo-stub-routed write: %v", err)
+	}
+	if !strings.Contains(string(content), publicKey) {
+		t.Fatalf("authorized_keys content = %q, want it to contain %q", content, publicKey)
+	}
+
+	info, err := os.Stat(keyFile)
+	if err != nil {
+		t.Fatalf("stat authorized_keys file: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("expected the authorized_keys file's own mode to be 0644, got %o", info.Mode().Perm())
 	}
 }

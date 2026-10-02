@@ -70,10 +70,26 @@ func (c *IdentityCapability) removeLive(resourceID string) error {
 // may be empty (renderAuthorizedKeys's own "no key on file" case) --  an
 // empty file is written just the same, never skipped, so a key rotation
 // that removes a key is real and immediate, not left stale.
-func (c *IdentityCapability) writeAuthorizedKeys(username string, content []byte) error {
-	dest := c.authorizedKeysPath(username)
+//
+// A package-level function, not a method, and always run as real root (see
+// writeAuthorizedKeysPrivileged): sshd's own secure_path() safety check
+// (confirmed directly against a real node via `sshd -d -d -d`, which logged
+// "Authentication refused: bad ownership or modes") independently requires
+// every AuthorizedKeysFile candidate, and every directory component up to
+// it, be owned by root (or the connecting user) and have no group/other
+// write bit at all -- so AuthorizedKeysDir itself (agent-daemon/install.sh)
+// is root:root with no group access, meaning the real unprivileged
+// lesta-agent-daemon could never write here directly even before
+// considering file ownership. chown to root:root plus 0644 (world-readable,
+// since the content is a public key, never secret, but not group/other
+// writable) is what makes both of sshd's own checks pass at once: the
+// earlier, narrower fix (0644 alone, owned by lesta-agent) satisfied only
+// the privilege-drop-before-open mechanism, not this separate, stricter
+// structural check.
+func writeAuthorizedKeys(cfg Config, username string, content []byte) error {
+	dest := filepath.Join(cfg.AuthorizedKeysDir, username)
 
-	tmp, err := os.CreateTemp(c.cfg.AuthorizedKeysDir, "."+username+".authorized_keys.staging-*")
+	tmp, err := os.CreateTemp(cfg.AuthorizedKeysDir, "."+username+".authorized_keys.staging-*")
 	if err != nil {
 		return fmt.Errorf("creating staged authorized_keys file for %s: %w", username, err)
 	}
@@ -92,19 +108,12 @@ func (c *IdentityCapability) writeAuthorizedKeys(username string, content []byte
 		return fmt.Errorf("closing staged authorized_keys file for %s: %w", username, err)
 	}
 
-	// 0644, not 0600: sshd's own monitor process opens each
-	// AuthorizedKeysFile candidate after temporarily dropping privileges
-	// to the *connecting* user (auth2-pubkey.c's own
-	// temporarily_use_uid/restore_uid pair, confirmed directly against a
-	// real node via `sshd -d -d -d`) -- a deliberate symlink-attack
-	// safety measure, not a bug, and it applies to this centralized path
-	// exactly as it would to a real ~/.ssh/authorized_keys. A 0600 file
-	// owned by lesta-agent is therefore unreadable by the very account
-	// it authenticates, regardless of root's own unrelated ability to
-	// read it. The content itself is a public key, never secret, so
-	// world-readable is the correct permission, not a weakened one:
-	// sshd still requires it not be group/world-*writable*, which this
-	// still satisfies.
+	if err := os.Chown(tmpPath, 0, 0); err != nil {
+		_ = os.Remove(tmpPath)
+
+		return fmt.Errorf("setting ownership on staged authorized_keys file for %s: %w", username, err)
+	}
+
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		_ = os.Remove(tmpPath)
 

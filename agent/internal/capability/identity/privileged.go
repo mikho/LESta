@@ -3,6 +3,7 @@ package identity
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -58,6 +59,58 @@ func EnsureChrootTree(cfg Config, username string) int {
 
 	if err := ensureChrootTree(cfg, username); err != nil {
 		fmt.Fprintln(os.Stderr, "identity-ensure-chroot-tree:", err)
+
+		return 1
+	}
+
+	return 0
+}
+
+// writeAuthorizedKeysPrivileged runs writeAuthorizedKeys directly
+// (cfg.SudoBinary empty) or, in production, via this same binary's own
+// "identity-write-authorized-keys" CLI mode under sudo, content piped over
+// stdin (never argv -- key material can be long and sshd's own supported
+// key types are not shell-safe to assume): mirrors
+// cron's own installSidecar/"cron-install-sidecar" pair exactly, for the
+// identical reason -- see writeAuthorizedKeys's own doc comment for why
+// AuthorizedKeysDir itself grants the real unprivileged lesta-agent-daemon
+// no write access at all.
+func writeAuthorizedKeysPrivileged(cfg Config, username string, content []byte) error {
+	if cfg.SudoBinary == "" || cfg.AgentBinaryPath == "" {
+		return writeAuthorizedKeys(cfg, username, content)
+	}
+
+	cmd := exec.Command(cfg.SudoBinary, cfg.AgentBinaryPath, "identity-write-authorized-keys", username) //nolint:gosec // fixed binary, argv-validated username, no shell
+	cmd.Stdin = bytes.NewReader(content)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("writing authorized_keys for %s via sudo: %w: %s", username, err, bytes.TrimSpace(out))
+	}
+
+	return nil
+}
+
+// WriteAuthorizedKeys is this CLI mode's own entry point (see
+// cmd/lesta-agent/main.go's own "identity-write-authorized-keys" dispatch),
+// invoked only via the narrowly-scoped sudoers rule
+// agent-daemon/install.sh writes. Returns a process exit code, matching
+// EnsureChrootTree's own shape.
+func WriteAuthorizedKeys(cfg Config, username string, r io.Reader) int {
+	if !cliUsernamePattern.MatchString(username) {
+		fmt.Fprintf(os.Stderr, "identity-write-authorized-keys: %q is not a valid username\n", username)
+
+		return 1
+	}
+
+	content, err := io.ReadAll(r)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "identity-write-authorized-keys: reading content from stdin:", err)
+
+		return 1
+	}
+
+	if err := writeAuthorizedKeys(cfg, username, content); err != nil {
+		fmt.Fprintln(os.Stderr, "identity-write-authorized-keys:", err)
 
 		return 1
 	}

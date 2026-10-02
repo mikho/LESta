@@ -176,7 +176,7 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if err := c.writeAuthorizedKeys(payload.Username, renderAuthorizedKeys(payload.SshPublicKey)); err != nil {
+	if err := writeAuthorizedKeysPrivileged(c.cfg, payload.Username, renderAuthorizedKeys(payload.SshPublicKey)); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -234,7 +234,7 @@ func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.Operat
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if err := c.writeAuthorizedKeys(payload.Username, []byte{}); err != nil {
+	if err := writeAuthorizedKeysPrivileged(c.cfg, payload.Username, []byte{}); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -376,7 +376,7 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 		authKeysContent = renderAuthorizedKeys(prevPayload.SshPublicKey)
 	}
 
-	if err := c.writeAuthorizedKeys(currentPayloadUsername(op, prevPayload, prevDeleted), authKeysContent); err != nil {
+	if err := writeAuthorizedKeysPrivileged(c.cfg, currentPayloadUsername(op, prevPayload, prevDeleted), authKeysContent); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 

@@ -134,6 +134,18 @@ func main() {
 		os.Exit(identity.EnsureChrootTree(identityProductionConfig(), os.Args[2]))
 	}
 
+	// "identity-write-authorized-keys" mirrors "identity-ensure-chroot-tree"
+	// exactly, for a second real root-only action system.account-identity.v1
+	// needs: sshd's own secure_path() safety check requires the centralized
+	// authorized_keys directory (and every file in it) be root-owned with
+	// no group/other write bit at all, which the real unprivileged
+	// lesta-agent-daemon can never satisfy writing directly (found directly
+	// deploying to a real node -- see identity.writeAuthorizedKeys's own
+	// doc comment). Content is read from stdin, never argv.
+	if len(os.Args) >= 3 && os.Args[1] == "identity-write-authorized-keys" {
+		os.Exit(identity.WriteAuthorizedKeys(identityProductionConfig(), os.Args[2], os.Stdin))
+	}
+
 	// "nginx-ensure-docroot" mirrors "identity-ensure-chroot-tree" exactly,
 	// one layer further down the same chroot tree: creating a PHP-enabled
 	// domain's own per-domain docroot directory, owned by that account's
