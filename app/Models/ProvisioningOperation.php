@@ -78,4 +78,30 @@ class ProvisioningOperation extends Model
     {
         return $this->morphTo();
     }
+
+    /**
+     * Shape this row as the wire OperationEnvelope a node's agent daemon expects, matching
+     * docs/protocol/operation-envelope.schema.json exactly. Shared by AgentHeartbeatController's
+     * own general pending-operations list and AgentFileOperationController's own dedicated
+     * files.manager.v1 fast-lane poll -- both present the identical wire shape, just filtered to
+     * a different query.
+     *
+     * @return array<string, mixed>
+     */
+    public function toEnvelopeArray(): array
+    {
+        return [
+            'protocol_version' => $this->protocol_version,
+            'capability' => $this->capability,
+            'operation' => $this->operation->value,
+            'resource_id' => $this->resource_id,
+            'desired_state_version' => $this->desired_state_version,
+            'idempotency_key' => $this->idempotency_key,
+            'correlation_id' => $this->correlation_id,
+            'deadline' => $this->deadline?->toIso8601String(),
+            'issued_at' => $this->issued_at->toIso8601String(),
+            'request_digest' => $this->request_digest,
+            'payload' => $this->payload,
+        ];
+    }
 }

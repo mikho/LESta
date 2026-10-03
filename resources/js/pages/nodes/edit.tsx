@@ -43,6 +43,7 @@ const capabilityOptions = [
     'mail.smtp-imap.v1',
     'backup.encrypted-artifacts.v1',
     'metrics.usage.v1',
+    'files.manager.v1',
 ] as const;
 
 const capabilityDisplayStatusBadgeClasses: Record<string, string> = {

@@ -85,7 +85,7 @@ class AgentHeartbeatController extends Controller
             ->oldest('dispatched_at')
             ->limit(10)
             ->get()
-            ->map(fn (ProvisioningOperation $operation): array => $this->presentAsEnvelope($operation))
+            ->map(fn (ProvisioningOperation $operation): array => $operation->toEnvelopeArray())
             ->all();
 
         return response()->json([
@@ -93,28 +93,5 @@ class AgentHeartbeatController extends Controller
             'next_heartbeat_seconds' => 60,
             'pending_operations' => $pendingOperations,
         ]);
-    }
-
-    /**
-     * Shape a ProvisioningOperation as the wire OperationEnvelope its owning node's agent
-     * daemon expects, matching docs/protocol/operation-envelope.schema.json exactly.
-     *
-     * @return array<string, mixed>
-     */
-    private function presentAsEnvelope(ProvisioningOperation $operation): array
-    {
-        return [
-            'protocol_version' => $operation->protocol_version,
-            'capability' => $operation->capability,
-            'operation' => $operation->operation->value,
-            'resource_id' => $operation->resource_id,
-            'desired_state_version' => $operation->desired_state_version,
-            'idempotency_key' => $operation->idempotency_key,
-            'correlation_id' => $operation->correlation_id,
-            'deadline' => $operation->deadline?->toIso8601String(),
-            'issued_at' => $operation->issued_at->toIso8601String(),
-            'request_digest' => $operation->request_digest,
-            'payload' => $operation->payload,
-        ];
     }
 }

@@ -74,4 +74,13 @@ type Config struct {
 	// presence (os.Stat on the directory), never to invoke that
 	// capability's own Apply/Observe.
 	CapabilityStateRoots map[string]string
+	// FileOpsPollInterval is how long the dedicated files.manager.v1 fast
+	// lane (fileops.go) sleeps between polls of
+	// <ControlPlaneURL>/agent/v1/file-operations/poll -- a second,
+	// independent loop from the general heartbeat one above, started as
+	// its own goroutine by Run, since an interactive file browser cannot
+	// wait on HeartbeatInterval's own tens-of-seconds cadence. Unlike
+	// HeartbeatInterval, never adjusted at runtime by a server response;
+	// zero or negative falls back to a hardcoded 2 seconds.
+	FileOpsPollInterval time.Duration
 }

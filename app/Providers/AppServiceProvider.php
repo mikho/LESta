@@ -88,6 +88,15 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->ip());
         });
 
+        // files.manager.v1's own dedicated fast-lane poll, hit every 1-2 seconds per node (see
+        // agent/internal/daemon's own fileops.go), not once a minute like the general 'agent'
+        // bucket above -- a separate, deliberately more generous limit so this lane never
+        // competes with or gets throttled by the general heartbeat traffic sharing the same
+        // bearer token.
+        RateLimiter::for('agent-files', function (Request $request) {
+            return Limit::perMinute(600)->by($request->bearerToken() ?? $request->ip());
+        });
+
         RateLimiter::for('reset-password', function (Request $request) {
             return Limit::perMinute(3)->by($request->ip());
         });

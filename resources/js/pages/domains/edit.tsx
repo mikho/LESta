@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -37,10 +37,17 @@ export default function Edit({
             <Head title={`Edit ${webDomain.domain}`} />
 
             <div className="mx-auto w-full max-w-2xl space-y-8 p-4">
-                <Heading
-                    title="Edit domain"
-                    description="Update this domain's configuration"
-                />
+                <div className="flex items-start justify-between">
+                    <Heading
+                        title="Edit domain"
+                        description="Update this domain's configuration"
+                    />
+                    <Button variant="outline" size="sm" asChild>
+                        <Link href={`/domains/${webDomain.uuid}/files`}>
+                            Files
+                        </Link>
+                    </Button>
+                </div>
 
                 <Form
                     {...WebDomainController.update.form(webDomain)}

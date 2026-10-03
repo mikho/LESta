@@ -24,6 +24,13 @@ func Run(cfg Config) int {
 	client := &http.Client{Timeout: 30 * time.Second}
 	b := newBackoff()
 
+	// The files.manager.v1 fast lane runs as its own independent
+	// goroutine, on its own much tighter poll interval, for as long as
+	// this process lives -- see fileops.go's own doc comment for why a
+	// second, faster delivery path exists alongside the heartbeat loop
+	// below rather than folding into it.
+	go runFileOpsLane(client, cfg, credential)
+
 	for {
 		interval := cfg.HeartbeatInterval
 

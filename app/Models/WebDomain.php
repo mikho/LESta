@@ -279,4 +279,19 @@ class WebDomain extends Model
             'suspended' => $this->isSuspended(),
         ];
     }
+
+    /**
+     * Shapes the desired-state payload sent to files.manager.v1: account_username (the exact
+     * identity the real file write lands owned by, the same one SFTP and web.php-fpm.v1 already
+     * use) merged with whichever fields this one operation actually needs (path, new_path,
+     * content_base64, is_directory, recursive) -- callers (App\Actions\Files\*) supply those,
+     * since they differ per verb and this method has no verb concept of its own.
+     *
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    public function toFilesManagerProvisioningPayload(array $fields): array
+    {
+        return array_merge(['account_username' => $this->resolveAccountUsername()], $fields);
+    }
 }

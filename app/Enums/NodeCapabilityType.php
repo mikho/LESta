@@ -11,6 +11,11 @@ namespace App\Enums;
  * validate admin-entered capability strings; a NodeCapability row itself still stores the
  * capability as a plain string column, matching the Go side's own literal values.
  *
+ * filesManagerCapability ('files.manager.v1') joins this list too: a real, independently
+ * declarable capability (gated by a NodeCapability row like every other), even though it is
+ * dispatched over its own dedicated fast lane (agent/v1/file-operations/*) rather than the
+ * general heartbeat.
+ *
  * Deliberately excludes two real capability strings that also exist in main.go:
  * systemAccountIdentityCapability ('system.account-identity.v1') is dispatched automatically by
  * App\Actions\Cron\EnsuresAccountNodeIdentity the first time an account gets a cron job on a
@@ -33,6 +38,7 @@ enum NodeCapabilityType: string
     case MailSmtpImap = 'mail.smtp-imap.v1';
     case BackupEncryptedArtifacts = 'backup.encrypted-artifacts.v1';
     case MetricsUsage = 'metrics.usage.v1';
+    case FilesManager = 'files.manager.v1';
 
     /**
      * Whether this capability has a real, singular, node-wide "installed or not" concept an

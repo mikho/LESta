@@ -276,7 +276,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place (a no-op if node-health already installed it)"
     add_change "${AGENT_DAEMON_CAPABILITY}" would_enroll "/etc/lesta/agent/node-credential" "this node would exchange its enrollment token for a long-lived node credential against ${CONTROL_PLANE_URL}/agent/v1/enroll, unless a credential is already present"
-    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, and ${SYSTEMCTL_BINARY_PATH} reload ssh as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, ${SYSTEMCTL_BINARY_PATH} reload ssh, and ${AGENT_BINARY_DEST} files-manager-apply as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -609,8 +609,17 @@ bootstrap_sftp_prerequisite() {
     # lesta-agent-daemon could never satisfy writing directly -- routed
     # through this same binary's own "identity-write-authorized-keys" CLI
     # mode (privileged.go) the same way identity-ensure-chroot-tree is.
+    #
+    # files-manager-apply grants a seventh action: files.manager.v1's own
+    # create/update/delete verbs must land on disk owned by the tenant's own
+    # lesta-t{account_id} uid/gid, identical ownership to the SFTP path, but
+    # the unprivileged lesta-agent-daemon cannot chown to an arbitrary
+    # tenant uid it doesn't itself run as -- routed through this same
+    # binary's own "files-manager-apply" CLI mode (privileged.go) the same
+    # way the identity-* actions above are, with the request JSON piped over
+    # stdin rather than argv, since it can carry arbitrary file content.
     cat > "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${AGENT_BINARY_DEST} identity-write-authorized-keys *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh
+lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${AGENT_BINARY_DEST} identity-write-authorized-keys *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh, ${AGENT_BINARY_DEST} files-manager-apply *
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
@@ -624,7 +633,7 @@ SUDOERSEOF
     # /etc/sudoers.d parsing only ever sees the final name.
     mv "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "failed to activate ${SUDOERS_LESTA_AGENT_DAEMON_PATH}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, and ${SYSTEMCTL_BINARY_PATH} reload ssh as root, nothing else"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${USERADD_BINARY_PATH}, ${USERDEL_BINARY_PATH}, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, ${SYSTEMCTL_BINARY_PATH} reload ssh, and ${AGENT_BINARY_DEST} files-manager-apply as root, nothing else"
 
     if [ -f "${SFTP_LESTA_CONF_PATH}" ] && grep -qF "${SFTP_LESTA_LIVE_DIR}" "${SFTP_LESTA_CONF_PATH}"; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified "${SFTP_LESTA_CONF_PATH}" "already present from a prior apply"

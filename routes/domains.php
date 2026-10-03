@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Domains\FileManagerController;
 use App\Http\Controllers\Domains\WebDomainController;
 use Illuminate\Support\Facades\Route;
 
@@ -13,4 +14,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('domains/{webDomain}', [WebDomainController::class, 'destroy'])->name('domains.destroy');
     Route::post('domains/{webDomain}/suspend', [WebDomainController::class, 'suspend'])->name('domains.suspend');
     Route::post('domains/{webDomain}/unsuspend', [WebDomainController::class, 'unsuspend'])->name('domains.unsuspend');
+
+    // The browser file manager: a single stateful page (files.index), never the usual
+    // index/create/edit three-page pattern -- the rest of these are plain JSON endpoints that
+    // page's own React code polls/calls directly, never an Inertia::render response, since every
+    // operation here is dispatched then completed asynchronously (see
+    // App\Actions\Files\* and files.manager.v1's own dedicated fast lane).
+    Route::get('domains/{webDomain}/files', [FileManagerController::class, 'index'])->name('domains.files.index');
+    Route::post('domains/{webDomain}/files/observe', [FileManagerController::class, 'observe'])->name('domains.files.observe');
+    Route::post('domains/{webDomain}/files', [FileManagerController::class, 'store'])->name('domains.files.store');
+    Route::put('domains/{webDomain}/files', [FileManagerController::class, 'update'])->name('domains.files.update');
+    Route::delete('domains/{webDomain}/files', [FileManagerController::class, 'destroy'])->name('domains.files.destroy');
+    Route::get('domains/{webDomain}/files/operations/{operation}', [FileManagerController::class, 'operationStatus'])->name('domains.files.operation-status');
 });

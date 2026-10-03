@@ -31,6 +31,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/backup"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
 	"github.com/mikho/LESta/agent/internal/capability/cron"
+	"github.com/mikho/LESta/agent/internal/capability/files"
 	"github.com/mikho/LESta/agent/internal/capability/identity"
 	"github.com/mikho/LESta/agent/internal/capability/mail"
 	"github.com/mikho/LESta/agent/internal/capability/mariadb"
@@ -60,6 +61,7 @@ const (
 	mailSmtpImapCapability             = "mail.smtp-imap.v1"
 	backupEncryptedArtifactsCapability = "backup.encrypted-artifacts.v1"
 	metricsUsageCapability             = "metrics.usage.v1"
+	filesManagerCapability             = "files.manager.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -156,6 +158,17 @@ func main() {
 		os.Exit(nginx.EnsureDocroot(nginxProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
+	// "files-manager-apply" is files.manager.v1's own one real root-only
+	// action: creating a new file/directory in a tenant's own docroot
+	// requires a real chown to that account's own uid/gid, the same real
+	// constraint identity-ensure-chroot-tree/nginx-ensure-docroot already
+	// have. The whole request (verb, path, content) is one JSON object on
+	// stdin, never argv -- content can be arbitrarily large and paths are
+	// tenant-supplied.
+	if len(os.Args) >= 2 && os.Args[1] == "files-manager-apply" {
+		os.Exit(files.Apply(filesManagerProductionConfig(), os.Stdin, os.Stdout))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
@@ -224,8 +237,10 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 		capability = backup.New(backupProductionConfig())
 	case metricsUsageCapability:
 		capability = metrics.New(metricsProductionConfig())
+	case filesManagerCapability:
+		capability = files.New(filesManagerProductionConfig())
 	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, webPhpFpmCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability, metricsUsageCapability)
+		return protocol.ResultEnvelope{}, fmt.Errorf("unsupported capability %q; this build only implements %q, %q, %q, %q, %q, %q, %q, %q, %q, %q, %q, and %q", op.Capability, webNginxCapability, dnsBind9Capability, webApacheCapability, webPhpFpmCapability, tlsAcmeCapability, databaseTenantCapability, schedulerCronCapability, systemAccountIdentityCapability, mailSmtpImapCapability, backupEncryptedArtifactsCapability, metricsUsageCapability, filesManagerCapability)
 	}
 
 	result, err := capability.Apply(ctx, op)
@@ -480,6 +495,20 @@ func phpFpmProductionConfig() phpfpm.Config {
 		// binary, scoped by .install/services/php-fpm/install.sh's own
 		// sudoers rule.
 		SudoBinary: "sudo",
+	}
+}
+
+// filesManagerProductionConfig points at the real, fixed AccountsRoot every
+// per-domain docroot nests under, mirroring identityProductionConfig's own
+// AccountsRoot exactly. AgentBinaryPath/SudoBinary route every real
+// filesystem mutation through this same binary's own
+// "files-manager-apply" CLI mode as root, scoped by
+// .install/services/agent-daemon/install.sh's own sudoers rule.
+func filesManagerProductionConfig() files.Config {
+	return files.Config{
+		AccountsRoot:    "/var/lib/lesta/web/accounts",
+		SudoBinary:      "sudo",
+		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
 	}
 }
 
@@ -809,10 +838,17 @@ func daemonProductionConfig() daemon.Config {
 		CredentialPath:    credentialPath,
 		ConfigPath:        configPath,
 		HeartbeatInterval: time.Duration(heartbeatSeconds) * time.Second,
-		ProtocolVersion:   protocolVersion,
-		AgentVersion:      agentVersion,
-		Dispatch:          dispatchOperation,
-		CronStateRoot:     "/var/lib/lesta/cron",
+		// FileOpsPollInterval: 2 seconds, a fixed production value never
+		// read from daemon-config.json (unlike HeartbeatInterval, this
+		// lane is never adjusted by a server response) -- tight enough
+		// for an interactive file browser to feel responsive, loose
+		// enough not to meaningfully compete with the general heartbeat
+		// loop's own traffic.
+		FileOpsPollInterval: 2 * time.Second,
+		ProtocolVersion:     protocolVersion,
+		AgentVersion:        agentVersion,
+		Dispatch:            dispatchOperation,
+		CronStateRoot:       "/var/lib/lesta/cron",
 		// /var/lib/lesta/agent itself is 0750 root:lesta; the daemon's own
 		// lesta-agent identity is only ever a group member there, never the
 		// owner, so its own writable watermark file must live in the nested
