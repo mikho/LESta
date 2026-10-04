@@ -125,30 +125,44 @@ function lesta_adminer_redeem_token(string $token): array
     return $credentials;
 }
 
-class LestaAutoLogin extends Adminer
-{
-    /** Never require Adminer's own CSRF token for the one synthetic,
-     * externally-initiated $_POST["auth"] submission this bootstrap makes.
-     * Every other request (real Adminer-rendered forms, real navigation)
-     * still goes through Adminer's own normal token handling untouched --
-     * this hook only ever affects the login-submission check itself.
-     */
-    function verifyLoginToken(): bool
-    {
-        return false;
-    }
-
-    /** Never offer Adminer's own persistent "remember me" login cookie for
-     * a one-time-minted credential set.
-     */
-    function permanentLogin(bool $create = false): string
-    {
-        return '';
-    }
-}
-
 function adminer_object()
 {
+    // Declared *inside* this function, not at this file's own top level:
+    // a class declaration nested in a function body is only compiled/bound
+    // the first time that function actually runs (documented PHP behavior
+    // for conditional/deferred class declarations), which is exactly what
+    // this needs -- adminer_object() is only ever called from adminer.php's
+    // own trailing bootstrap line, by which point adminer.php has already
+    // defined its own base Adminer class earlier in the very same
+    // require'd file. Declaring this class at the top level instead (tried
+    // first, failed on a real node: "Class Adminer\Adminer not found")
+    // fails immediately at parse time, since this file's own top-level
+    // code runs before adminer.php is ever require'd on the line below.
+    if (!class_exists(LestaAutoLogin::class, false)) {
+        class LestaAutoLogin extends Adminer
+        {
+            /** Never require Adminer's own CSRF token for the one synthetic,
+             * externally-initiated $_POST["auth"] submission this bootstrap
+             * makes. Every other request (real Adminer-rendered forms, real
+             * navigation) still goes through Adminer's own normal token
+             * handling untouched -- this hook only ever affects the
+             * login-submission check itself.
+             */
+            function verifyLoginToken(): bool
+            {
+                return false;
+            }
+
+            /** Never offer Adminer's own persistent "remember me" login
+             * cookie for a one-time-minted credential set.
+             */
+            function permanentLogin(bool $create = false): string
+            {
+                return '';
+            }
+        }
+    }
+
     $token = $_GET['token'] ?? '';
 
     if ($token !== '') {
