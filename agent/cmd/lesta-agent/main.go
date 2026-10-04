@@ -811,13 +811,20 @@ func identityProductionConfig() identity.Config {
 // per-deployment, per-node values with no single correct compiled-in
 // default.
 //
-// CapabilityStateRoots's eight literal values must stay in lockstep with
+// CapabilityStateRoots's ten literal values must stay in lockstep with
 // nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
-// acmeProductionConfig's/mariadbProductionConfig's/cronProductionConfig's/
-// mailProductionConfig's own StateRoot fields and backupProductionConfig's
-// own ArtifactsRoot field above; this function never invokes those
-// capabilities, it only os.Stats their fixed StateRoot to report presence.
-// metricsUsageCapability and systemAccountIdentityCapability are
+// phpfpmProductionConfig's/acmeProductionConfig's/mariadbProductionConfig's/
+// cronProductionConfig's/mailProductionConfig's own StateRoot fields,
+// backupProductionConfig's own ArtifactsRoot field above, and
+// filesManagerProductionConfig's own StateRoot field (files.manager.v1 has
+// no config to generate, so /var/lib/lesta/files-manager exists purely as
+// a presence marker, created by agent-daemon/install.sh's own apply step
+// rather than a dedicated leaf-service installer -- found missing from
+// this map entirely during a real node's first files.manager.v1 deploy,
+// the exact same class of gap webPhpFpmCapability was already silently
+// carrying since web.php-fpm.v1 shipped); this function never invokes
+// those capabilities, it only os.Stats their fixed StateRoot to report
+// presence. metricsUsageCapability and systemAccountIdentityCapability are
 // deliberately absent: neither has a singular, node-wide "installed" state
 // root at all (metrics has no standalone install.sh, built entirely into
 // nginx/apache/mariadb's own installers; identity is created lazily per
@@ -859,11 +866,13 @@ func daemonProductionConfig() daemon.Config {
 			webNginxCapability:                 "/var/lib/lesta/nginx",
 			dnsBind9Capability:                 "/var/lib/lesta/bind",
 			webApacheCapability:                "/var/lib/lesta/apache",
+			webPhpFpmCapability:                "/var/lib/lesta/php-fpm",
 			tlsAcmeCapability:                  "/var/lib/lesta/acme",
 			databaseTenantCapability:           "/var/lib/lesta/mariadb/tenant-agent-state",
 			schedulerCronCapability:            "/var/lib/lesta/cron",
 			mailSmtpImapCapability:             "/var/lib/lesta/mail",
 			backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
+			filesManagerCapability:             "/var/lib/lesta/files-manager",
 		},
 	}
 }

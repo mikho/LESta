@@ -107,19 +107,26 @@ func writeFile(t *testing.T, path, content string) {
 // (confirmed against mailProductionConfig's own StateRoot and
 // backupProductionConfig's own ArtifactsRoot above) but were missing from
 // CapabilityStateRoots for a while, meaning Laravel's own NodeCapability
-// status could never be heartbeat-confirmed for either. metrics and
-// identity are deliberately absent (see this map's own doc comment) and
-// must stay that way.
+// status could never be heartbeat-confirmed for either. This test's own
+// "want" map itself then carried the identical gap for web.php-fpm.v1 (its
+// own StateRoot field existed, was simply never added here either) and was
+// never updated when files.manager.v1 was added -- both found only once a
+// real node declared each capability and its status stayed stuck at
+// NotInstalled despite a healthy heartbeat. metrics and identity are
+// deliberately absent (see this map's own doc comment) and must stay that
+// way.
 func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 	want := map[string]string{
 		webNginxCapability:                 "/var/lib/lesta/nginx",
 		dnsBind9Capability:                 "/var/lib/lesta/bind",
 		webApacheCapability:                "/var/lib/lesta/apache",
+		webPhpFpmCapability:                "/var/lib/lesta/php-fpm",
 		tlsAcmeCapability:                  "/var/lib/lesta/acme",
 		databaseTenantCapability:           "/var/lib/lesta/mariadb/tenant-agent-state",
 		schedulerCronCapability:            "/var/lib/lesta/cron",
 		mailSmtpImapCapability:             "/var/lib/lesta/mail",
 		backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
+		filesManagerCapability:             "/var/lib/lesta/files-manager",
 	}
 
 	got := daemonProductionConfig().CapabilityStateRoots

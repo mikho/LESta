@@ -460,6 +460,20 @@ bootstrap_agent_daemon() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/identity "failed to create /var/lib/lesta/identity"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/identity "system.account-identity.v1's own generation-history bookkeeping directory present, mode 0750 lesta-agent:lesta"
 
+    # files.manager.v1's own StateRoot (filesManagerProductionConfig,
+    # cmd/lesta-agent/main.go): the exact same gap as daemon-state/
+    # statistics/offsets/identity above -- this capability has no config to
+    # generate and so no natural "installed" marker of its own, but it
+    # still needs a presence directory for presentCapabilities (heartbeat.go)
+    # to os.Stat, the only mechanism that ever flips a declared NodeCapability
+    # row from NotInstalled to Running. Created here for the same reason as
+    # the three directories just above: this installer already runs
+    # unconditionally on every node, regardless of which capabilities are
+    # chosen.
+    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/files-manager \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/files-manager "failed to create /var/lib/lesta/files-manager"
+    add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/files-manager "files.manager.v1's own presence directory present, mode 0750 lesta-agent:lesta"
+
     if [ -s /etc/lesta/agent/node-credential ]; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified /etc/lesta/agent/node-credential "already enrolled by a prior apply"
     else
