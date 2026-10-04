@@ -632,8 +632,16 @@ bootstrap_sftp_prerequisite() {
     # binary's own "files-manager-apply" CLI mode (privileged.go) the same
     # way the identity-* actions above are, with the request JSON piped over
     # stdin rather than argv, since it can carry arbitrary file content.
+    # Deliberately no trailing " *" here, unlike identity-ensure-chroot-tree/
+    # identity-write-authorized-keys above: this subcommand is always
+    # invoked with zero further argv tokens (files.Config.command(), agent
+    # side), and found the hard way against a real node that sudo's own
+    # command-args glob requires a literal space before "*" to match
+    # against -- a trailing " *" never matches a bare, argument-less
+    # invocation, so lesta-agent was silently falling through to
+    # password-required and every real file-manager operation failed.
     cat > "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${AGENT_BINARY_DEST} identity-write-authorized-keys *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh, ${AGENT_BINARY_DEST} files-manager-apply *
+lesta-agent ALL=(root) NOPASSWD: ${USERADD_BINARY_PATH} *, ${USERDEL_BINARY_PATH} *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${AGENT_BINARY_DEST} identity-write-authorized-keys *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh, ${AGENT_BINARY_DEST} files-manager-apply
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
