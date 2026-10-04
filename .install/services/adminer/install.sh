@@ -512,7 +512,20 @@ pm.max_children = 3
 ; and every tenant's own files on this node.
 php_admin_value[open_basedir] = ${DEPLOY_DIR}:/tmp
 php_admin_value[disable_functions] = exec,shell_exec,system,popen,proc_open,pcntl_exec,pcntl_fork,pcntl_signal
-php_admin_flag[allow_url_fopen] = off
+
+; Deliberately ON, unlike a tenant's own pool: adminer-lesta-login.php's
+; own credential handoff (lesta_adminer_redeem_token()) makes exactly one
+; outbound HTTPS call to this node's own known, fixed control plane URL via
+; file_get_contents() -- the only outbound network capability this pool
+; ever needs, and a narrow, justified exception to the tenant-pool default
+; precisely because that default (preventing arbitrary tenant PHP from
+; reaching arbitrary internal/external URLs, a real SSRF boundary) does not
+; apply here: this pool never runs tenant-authored code at all. Found the
+; hard way on a real node: file_get_contents() over https:// silently
+; returns false with allow_url_fopen off, surfacing only as "could not
+; reach the control plane" with no further detail by design (see that
+; function's own doc comment on why it never reveals more).
+php_admin_flag[allow_url_fopen] = on
 POOLCONF
     mv -f "${ADMINER_POOL_CONF}.tmp" "${ADMINER_POOL_CONF}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${ADMINER_POOL_CONF}" "failed to activate ${ADMINER_POOL_CONF}"
