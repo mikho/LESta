@@ -12,6 +12,16 @@
  * (adminer/include/adminer.inc.php, adminer/include/auth.inc.php), not
  * assumed from memory.
  *
+ * Deliberately declares NO `namespace Adminer;` for this file (tried first,
+ * failed on a real node: adminer_object() was simply never called at all,
+ * the native unauthenticated login form always rendered). adminer.php's own
+ * bootstrap line checks `function_exists('adminer_object')` -- a bare
+ * string, which PHP never resolves against the caller's own namespace, so
+ * it only ever matches a truly global `adminer_object`, never
+ * `Adminer\adminer_object`. This file must stay in the global namespace;
+ * every reference to Adminer's own namespaced `Adminer` class below is
+ * fully qualified (`\Adminer\Adminer`) instead.
+ *
  * Design, verified against the real source rather than guessed:
  *
  * - A tenant reaches this file via /__lesta-adminer__?token=... (see
@@ -30,8 +40,8 @@
  *   real, keyed correctly, and issues its own redirect to a clean
  *   (tokenless) URL -- the same UX a human typing credentials into the
  *   native form gets, never a second, parallel auth mechanism.
- * - That simulated submission has no real CSRF token, so Adminer\Plugin's
- *   own verifyLoginToken() hook (explicitly documented: "a form on another
+ * - That simulated submission has no real CSRF token, so Adminer's own
+ *   verifyLoginToken() hook (explicitly documented: "a form on another
  *   website doesn't have it") is overridden to skip the check, only for
  *   this one synthetic submission.
  * - Only present when $_GET["token"] is actually set: every subsequent
@@ -45,8 +55,6 @@
  *   me" cookie: these are one-time-minted credentials for a single
  *   session, not something that should survive as a reusable cookie.
  */
-
-namespace Adminer;
 
 /**
  * Reads the control plane's own base URL, written once by
@@ -133,13 +141,14 @@ function adminer_object()
     // for conditional/deferred class declarations), which is exactly what
     // this needs -- adminer_object() is only ever called from adminer.php's
     // own trailing bootstrap line, by which point adminer.php has already
-    // defined its own base Adminer class earlier in the very same
-    // require'd file. Declaring this class at the top level instead (tried
-    // first, failed on a real node: "Class Adminer\Adminer not found")
-    // fails immediately at parse time, since this file's own top-level
-    // code runs before adminer.php is ever require'd on the line below.
-    if (!class_exists(LestaAutoLogin::class, false)) {
-        class LestaAutoLogin extends Adminer
+    // defined its own base Adminer\Adminer class earlier in the very same
+    // require'd file. Declaring this class at this file's own top level
+    // instead (tried first, failed on a real node: "Class Adminer\Adminer
+    // not found") fails immediately at parse time, since this file's own
+    // top-level code runs before adminer.php is ever require'd on the line
+    // below.
+    if (!class_exists('LestaAutoLogin', false)) {
+        class LestaAutoLogin extends \Adminer\Adminer
         {
             /** Never require Adminer's own CSRF token for the one synthetic,
              * externally-initiated $_POST["auth"] submission this bootstrap
@@ -165,11 +174,8 @@ function adminer_object()
 
     $token = $_GET['token'] ?? '';
 
-    file_put_contents('/tmp/adminer-debug.log', date('c') . ' GET=' . json_encode($_GET) . ' token=' . var_export($token, true) . PHP_EOL, FILE_APPEND);
-
     if ($token !== '') {
         $credentials = lesta_adminer_redeem_token($token);
-        file_put_contents('/tmp/adminer-debug.log', date('c') . ' credentials=' . json_encode($credentials) . PHP_EOL, FILE_APPEND);
 
         $server = $credentials['host'] . ':' . $credentials['port'];
 
