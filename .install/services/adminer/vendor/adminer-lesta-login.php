@@ -187,6 +187,29 @@ function adminer_object()
     if ($token !== '') {
         $credentials = lesta_adminer_redeem_token($token);
 
+        // Adminer's own auth.inc.php, once it processes $_POST["auth"]
+        // below, redirects to a clean URL it builds itself via
+        // remove_from_uri()/relative_uri() -- both read $_SERVER
+        // ["REQUEST_URI"] directly, never $_GET, and only ever strip a
+        // fixed set of params Adminer itself knows about (driver/username/
+        // session name/etc), never this file's own "token". Left alone,
+        // the already-consumed token rides along into that redirect
+        // target, and this file tries to redeem it a second time on the
+        // very next request -- which correctly fails (single-use) and
+        // dies. Stripping it from $_SERVER["REQUEST_URI"]/["QUERY_STRING"]
+        // here, before adminer.php ever computes that redirect, is what
+        // actually prevents it from ever being carried forward. Found the
+        // hard way on a real node: FINAL_URL after following the redirect
+        // still carried the spent token, producing a second, spurious
+        // "could not reach the control plane" failure.
+        $_SERVER['REQUEST_URI'] = preg_replace('~([?&])token=[^&]*&?~', '$1', $_SERVER['REQUEST_URI']);
+        $_SERVER['REQUEST_URI'] = rtrim($_SERVER['REQUEST_URI'], '?&');
+        if (isset($_SERVER['QUERY_STRING'])) {
+            $_SERVER['QUERY_STRING'] = preg_replace('~(^|&)token=[^&]*&?~', '$1', $_SERVER['QUERY_STRING']);
+            $_SERVER['QUERY_STRING'] = trim($_SERVER['QUERY_STRING'], '&');
+        }
+        unset($_GET['token']);
+
         $server = $credentials['host'] . ':' . $credentials['port'];
 
         // Mirrors auth.inc.php's own real native-form-submission shape
