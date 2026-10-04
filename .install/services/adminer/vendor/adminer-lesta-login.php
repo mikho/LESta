@@ -165,8 +165,11 @@ function adminer_object()
 
     $token = $_GET['token'] ?? '';
 
+    file_put_contents('/tmp/adminer-debug.log', date('c') . ' GET=' . json_encode($_GET) . ' token=' . var_export($token, true) . PHP_EOL, FILE_APPEND);
+
     if ($token !== '') {
         $credentials = lesta_adminer_redeem_token($token);
+        file_put_contents('/tmp/adminer-debug.log', date('c') . ' credentials=' . json_encode($credentials) . PHP_EOL, FILE_APPEND);
 
         $server = $credentials['host'] . ':' . $credentials['port'];
 
