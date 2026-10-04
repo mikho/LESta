@@ -7,6 +7,6 @@
   "provides": ["tools.adminer.v1"],
   "packages": [],
   "ports": [],
-  "artifacts": [{"name": "adminer.php", "version": "6.1.1", "source": "https://github.com/vrana/adminer/releases/download/v6.1.1/adminer-6.1.1-mysql-en.php", "sha256": "cd5d65d3e85c9e1233126625232150e2de405f3d56c76fdc171f4133a401e8d2", "signature": "vendored:verified-against-upstream-release"}, {"name": "adminer-lesta-login.php", "version": "1.1.0", "source": "repo:.install/services/adminer/vendor/adminer-lesta-login.php", "sha256": "57fcb249effe464199f38443654da1a2a002aeff4c2d2261527ec161d6c0a062", "signature": "first-party-build:install-vendor"}],
+  "artifacts": [{"name": "adminer.php", "version": "6.1.1", "source": "https://github.com/vrana/adminer/releases/download/v6.1.1/adminer-6.1.1-mysql-en.php", "sha256": "cd5d65d3e85c9e1233126625232150e2de405f3d56c76fdc171f4133a401e8d2", "signature": "vendored:verified-against-upstream-release"}, {"name": "adminer-lesta-login.php", "version": "1.1.1", "source": "repo:.install/services/adminer/vendor/adminer-lesta-login.php", "sha256": "421fc9d6c72c028aca1a0290c28c8b026f03a077451be46bc98224a52eb4ebe7", "signature": "first-party-build:install-vendor"}],
   "ownership": {"owned_roots": ["/etc/php/8.3/fpm/pool.d/lesta-adminer.conf", "/var/www/lesta-adminer", "/var/lib/lesta/adminer", "/run/lesta-adminer", "/etc/tmpfiles.d/lesta-adminer.conf"], "read_only_roots": ["/etc/lesta/agent/daemon-config.json"], "refused_roots": ["/etc/sudoers"]}
 }

@@ -156,8 +156,18 @@ function adminer_object()
              * navigation) still goes through Adminer's own normal token
              * handling untouched -- this hook only ever affects the
              * login-submission check itself.
+             *
+             * No type hints on either override below, matching the real
+             * vendored 6.1.1 single-file build's own untyped parent
+             * signatures exactly (the raw GitHub source repo's typed
+             * signatures, e.g. `function permanentLogin(bool $create =
+             * false): string`, are NOT what the compiled single-file
+             * release actually ships -- confirmed directly after a real
+             * "Declaration ... must be compatible with ..." fatal on a real
+             * node, since PHP's LSP rules reject a stricter override
+             * signature than an untyped parent allows).
              */
-            function verifyLoginToken(): bool
+            function verifyLoginToken()
             {
                 return false;
             }
@@ -165,7 +175,7 @@ function adminer_object()
             /** Never offer Adminer's own persistent "remember me" login
              * cookie for a one-time-minted credential set.
              */
-            function permanentLogin(bool $create = false): string
+            function permanentLogin($create = false)
             {
                 return '';
             }
