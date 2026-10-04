@@ -12,4 +12,5 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('tenant-databases/{tenantDatabase}/suspend', [TenantDatabaseController::class, 'suspend'])->name('tenant-databases.suspend');
     Route::post('tenant-databases/{tenantDatabase}/unsuspend', [TenantDatabaseController::class, 'unsuspend'])->name('tenant-databases.unsuspend');
     Route::post('tenant-databases/{tenantDatabase}/rotate-password', [TenantDatabaseController::class, 'rotatePassword'])->name('tenant-databases.rotate-password');
+    Route::post('tenant-databases/{tenantDatabase}/open-adminer', [TenantDatabaseController::class, 'openAdminer'])->name('tenant-databases.open-adminer');
 });

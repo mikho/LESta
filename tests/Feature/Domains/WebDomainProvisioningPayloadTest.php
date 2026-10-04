@@ -11,6 +11,7 @@ use App\Models\DnsZone;
 use App\Models\IpAllocation;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 use App\Models\WebDomainAlias;
 
@@ -36,10 +37,11 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'account_id' => $account->id,
         'account_username' => 'lesta-t'.$account->id,
         'php_socket' => null,
+        'adminer_socket' => null,
         'ssl' => ['mode' => 'manual'],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'ssl', 'suspended']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'ssl', 'suspended']);
 });
 
 test('toProvisioningPayload reports a real php_socket once php_version is set', function () {
@@ -57,6 +59,58 @@ test('toProvisioningPayload reports a null php_socket when php_version is not se
     AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports the fixed adminer_socket once every eligibility condition is met', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'php_version' => PhpVersion::Php83,
+        'certificate_issued_at' => now(),
+    ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
+    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])
+        ->toBe('/run/lesta-adminer/adminer.sock');
+});
+
+test('toProvisioningPayload reports a null adminer_socket for web.apache.v1 regardless of eligibility', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'web_server' => WebServer::Apache,
+        'php_version' => PhpVersion::Php83,
+        'certificate_issued_at' => now(),
+    ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
+    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
+
+    expect($webDomain->toProvisioningPayload('web.apache.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null adminer_socket when the node has no tools.adminer.v1 capability', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'php_version' => PhpVersion::Php83,
+        'certificate_issued_at' => now(),
+    ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null adminer_socket when the account has no tenant database on this node', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create([
+        'php_version' => PhpVersion::Php83,
+        'certificate_issued_at' => now(),
+    ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
 });
 
 test('toPhpFpmProvisioningPayload reports the account\'s own real node identity', function () {

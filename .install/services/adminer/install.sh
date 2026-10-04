@@ -401,7 +401,7 @@ deploy_one_vendored_file() {
 
     cp "${src}" "${dest}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" copy_failed "${dest}" "failed to copy ${artifact_name} into place"
     chmod 0640 "${dest}.tmp"
-    chown root:lesta-adminer "${dest}.tmp" || true
+    chown root:lesta-adminer "${dest}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${dest}" "failed to chown ${artifact_name} to root:lesta-adminer"
     mv -f "${dest}.tmp" "${dest}" || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${dest}" "failed to activate ${dest}"
     add_change "${ADMINER_CAPABILITY}" installed "${dest}" "${artifact_name} copied from the repo-vendored source, sha256 verified against the manifest (${expected_sha256}), mode 0640 root:lesta-adminer"
 }
@@ -431,7 +431,8 @@ write_control_plane_url_file() {
 
     printf '%s\n' "${control_plane_url}" > "${CONTROL_PLANE_URL_FILE}.tmp"
     chmod 0644 "${CONTROL_PLANE_URL_FILE}.tmp"
-    chown root:lesta-adminer "${CONTROL_PLANE_URL_FILE}.tmp" || true
+    chown root:lesta-adminer "${CONTROL_PLANE_URL_FILE}.tmp" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${CONTROL_PLANE_URL_FILE}" "failed to chown control-plane-url.txt to root:lesta-adminer"
     mv -f "${CONTROL_PLANE_URL_FILE}.tmp" "${CONTROL_PLANE_URL_FILE}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${CONTROL_PLANE_URL_FILE}" "failed to activate ${CONTROL_PLANE_URL_FILE}"
     add_change "${ADMINER_CAPABILITY}" installed "${CONTROL_PLANE_URL_FILE}" "control plane base URL (${control_plane_url}) parsed from ${DAEMON_CONFIG_PATH} and written here, mode 0644 root:lesta-adminer"

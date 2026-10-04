@@ -11,16 +11,21 @@ use Illuminate\Http\Request;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
-        api: __DIR__.'/../routes/agent.php',
+        // Both files define their own full prefix (agent.php's "agent/v1",
+        // internal-adminer.php's "internal/adminer-credentials") and are
+        // registered identically: Laravel's own stateless "api" middleware
+        // group (no EncryptCookies/StartSession/CSRF), never Sanctum's
+        // stateful guard, and no leading "api" segment (apiPrefix: '' below)
+        // -- every client (the Go daemon, .install/lib/enrollment.sh, and
+        // now .install/services/adminer/vendor/adminer-lesta-login.php) posts
+        // to "<control_plane_url>/<its own prefix>/...", never
+        // "/api/...".
+        api: [
+            __DIR__.'/../routes/agent.php',
+            __DIR__.'/../routes/internal-adminer.php',
+        ],
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
-        // No leading "api" segment: routes/agent.php already defines its own
-        // "agent/v1" prefix, and every network client (the Go daemon,
-        // .install/lib/enrollment.sh) posts to "<control_plane_url>/agent/v1/...",
-        // never "/api/agent/v1/...". Registering it via the api: parameter
-        // (rather than requiring it from web.php) is what actually matters here:
-        // it uses Laravel's own stateless "api" middleware group (no
-        // EncryptCookies/StartSession/CSRF), never Sanctum's stateful guard.
         apiPrefix: '',
     )
     ->withMiddleware(function (Middleware $middleware): void {

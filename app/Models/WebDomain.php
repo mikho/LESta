@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
+use App\Enums\NodeCapabilityType;
 use App\Enums\PhpVersion;
 use App\Enums\SslMode;
 use App\Enums\SuspensionSource;
@@ -181,7 +182,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, adminer_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -206,9 +207,76 @@ class WebDomain extends Model
             'account_id' => $this->account_id,
             'account_username' => $this->resolveAccountUsername(),
             'php_socket' => $this->phpSocketPath(),
+            'adminer_socket' => $this->resolveAdminerSocket($capability),
             'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
         ];
+    }
+
+    /**
+     * The fixed, node-wide tools.adminer.v1 pool socket (see
+     * agent/internal/capability/nginx/payload.go's own AdminerSocket doc
+     * comment), or null when this domain should render no
+     * /__lesta-adminer__ location at all. Non-null only when every one of
+     * the following is true:
+     *
+     *   - $capability is web.nginx.v1 specifically (Apache never renders
+     *     this location; "both" profile domains reach it through nginx,
+     *     the same way every other public listener decision in this
+     *     payload already works);
+     *   - this domain has a php_version set AND a certificate already
+     *     issued (Adminer rides this domain's own existing HTTPS listener,
+     *     never a new one of its own, and never an HTTP-only vhost);
+     *   - the owning node has a non-suspended NodeCapability row for
+     *     tools.adminer.v1 (an admin must have actually declared the node
+     *     capable, exactly like every other capability gate in this
+     *     codebase);
+     *   - the account has at least one non-suspended TenantDatabase on
+     *     this same node (no database to administer, no reason to expose
+     *     the location at all).
+     *
+     * Only (re)computed on this WebDomain's own next create/update: this is
+     * an accepted, documented v1 limitation, not a bug to fix here.
+     * Enabling tools.adminer.v1 on a node, or adding a tenant's first
+     * TenantDatabase, does not retroactively touch any already-existing
+     * domain's rendered vhost -- that domain's own next create/update
+     * (e.g. a php_version change, a certificate renewal that re-dispatches
+     * web.nginx.v1) is what picks up the new eligibility, the same way
+     * every other field in this payload is only ever recomputed when this
+     * domain's own provisioning operation is re-recorded, never pushed out
+     * proactively by some other model's own change.
+     */
+    private function resolveAdminerSocket(string $capability): ?string
+    {
+        if ($capability !== 'web.nginx.v1') {
+            return null;
+        }
+
+        if ($this->php_version === null || $this->certificate_issued_at === null) {
+            return null;
+        }
+
+        $nodeHasAdminer = NodeCapability::query()
+            ->where('node_id', $this->node_id)
+            ->where('capability', NodeCapabilityType::Adminer->value)
+            ->whereNull('suspended_at')
+            ->exists();
+
+        if (! $nodeHasAdminer) {
+            return null;
+        }
+
+        $accountHasTenantDatabase = TenantDatabase::query()
+            ->where('account_id', $this->account_id)
+            ->where('node_id', $this->node_id)
+            ->whereNull('suspended_at')
+            ->exists();
+
+        if (! $accountHasTenantDatabase) {
+            return null;
+        }
+
+        return '/run/lesta-adminer/adminer.sock';
     }
 
     /**

@@ -16,6 +16,16 @@ namespace App\Enums;
  * dispatched over its own dedicated fast lane (agent/v1/file-operations/*) rather than the
  * general heartbeat.
  *
+ * adminerCapability ('tools.adminer.v1') joins this list too: a real, independently declarable
+ * capability (gated by a NodeCapability row like every other, and checked by WebDomain's own
+ * resolveAdminerSocket() before any vhost ever renders the /__lesta-adminer__ location), even
+ * though -- like MetricsUsage, but for a different reason -- it has no Go capability dispatch
+ * case at all (see main.go's own adminerCapability doc comment): its own
+ * .install/services/adminer/install.sh IS the entire install step, never something dispatched
+ * via OperationEnvelope. Unlike MetricsUsage it does have a real, singular, node-wide "installed
+ * or not" concept an agent heartbeat can confirm (a pure presence marker at
+ * /var/lib/lesta/adminer), so supportsStatusTracking() below still returns true for it.
+ *
  * Deliberately excludes two real capability strings that also exist in main.go:
  * systemAccountIdentityCapability ('system.account-identity.v1') is dispatched automatically by
  * App\Actions\Cron\EnsuresAccountNodeIdentity the first time an account gets a cron job on a
@@ -39,6 +49,7 @@ enum NodeCapabilityType: string
     case BackupEncryptedArtifacts = 'backup.encrypted-artifacts.v1';
     case MetricsUsage = 'metrics.usage.v1';
     case FilesManager = 'files.manager.v1';
+    case Adminer = 'tools.adminer.v1';
 
     /**
      * Whether this capability has a real, singular, node-wide "installed or not" concept an

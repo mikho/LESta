@@ -15,8 +15,10 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { apiPost } from '@/lib/api';
 import tenantDatabases from '@/routes/tenant-databases';
 import type { TenantDatabase } from '@/types';
+import type { AdminerSessionResponse } from '@/types/tenant-databases';
 
 /**
  * The one-time password banner: rendered only for the single page load that immediately
@@ -69,10 +71,75 @@ function GeneratedPasswordBanner({
     );
 }
 
-export default function Edit({
+/**
+ * Opens Adminer for this tenant database, navigating away from this app's own origin entirely.
+ * TenantDatabaseController::openAdminer() is a plain JSON endpoint, not an Inertia visit (its
+ * redirect target, the tenant's own domain, is outside this app's own Inertia protocol -- see
+ * that controller method's own doc comment), so this uses the same `apiPost` helper the file
+ * manager's own dispatch endpoints already use, then does a real, full-page navigation with the
+ * URL it returns, rather than anything Inertia's router could follow.
+ */
+function OpenAdminerCard({
     tenantDatabase,
+    hasEligibleAdminerDomain,
 }: {
     tenantDatabase: TenantDatabase;
+    hasEligibleAdminerDomain: boolean;
+}) {
+    const [opening, setOpening] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const openAdminer = async () => {
+        setOpening(true);
+        setError(null);
+
+        try {
+            const { url } = await apiPost<AdminerSessionResponse>(
+                TenantDatabaseController.openAdminer(tenantDatabase).url,
+            );
+            window.location.href = url;
+        } catch {
+            setError('Could not prepare an Adminer session. Try again.');
+            setOpening(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4 rounded-lg border p-4">
+            <Heading
+                variant="small"
+                title="Open Adminer"
+                description={
+                    hasEligibleAdminerDomain
+                        ? 'Opens a one-time, auto-logged-in Adminer session for this database on one of your own domains.'
+                        : "Requires a domain on this database's own node with PHP enabled and a certificate issued."
+                }
+            />
+
+            {error && (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                    {error}
+                </p>
+            )}
+
+            <Button
+                variant="outline"
+                disabled={!hasEligibleAdminerDomain || opening}
+                onClick={openAdminer}
+                data-test="open-adminer-button"
+            >
+                {opening ? 'Preparing…' : 'Open Adminer'}
+            </Button>
+        </div>
+    );
+}
+
+export default function Edit({
+    tenantDatabase,
+    hasEligibleAdminerDomain,
+}: {
+    tenantDatabase: TenantDatabase;
+    hasEligibleAdminerDomain: boolean;
 }) {
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -132,6 +199,11 @@ export default function Edit({
                         </div>
                     </dl>
                 </div>
+
+                <OpenAdminerCard
+                    tenantDatabase={tenantDatabase}
+                    hasEligibleAdminerDomain={hasEligibleAdminerDomain}
+                />
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

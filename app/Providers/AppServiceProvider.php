@@ -100,6 +100,14 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('reset-password', function (Request $request) {
             return Limit::perMinute(3)->by($request->ip());
         });
+
+        // tools.adminer.v1's own token-redemption endpoint: a public-shaped URL
+        // (.install/services/adminer/vendor/adminer-lesta-login.php calls it with no credential
+        // of its own beyond the single-use token itself), so this is keyed by IP, not a bearer
+        // token like 'agent'/'agent-files' above.
+        RateLimiter::for('adminer-credentials', function (Request $request) {
+            return Limit::perMinute(30)->by($request->ip());
+        });
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\TenantDatabases;
 
 use App\Actions\TenantDatabases\CreateTenantDatabase;
 use App\Actions\TenantDatabases\DeleteTenantDatabase;
+use App\Actions\TenantDatabases\PrepareAdminerSession;
 use App\Actions\TenantDatabases\RotateTenantDatabasePassword;
 use App\Actions\TenantDatabases\SuspendTenantDatabase;
 use App\Actions\TenantDatabases\UnsuspendTenantDatabase;
@@ -12,6 +13,8 @@ use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\TenantDatabases\StoreTenantDatabaseRequest;
 use App\Models\TenantDatabase;
+use App\Models\WebDomain;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -108,6 +111,7 @@ class TenantDatabaseController extends Controller
 
         return Inertia::render('tenant-databases/edit', [
             'tenantDatabase' => $this->presentForEdit($tenantDatabase),
+            'hasEligibleAdminerDomain' => $this->hasEligibleAdminerDomain($tenantDatabase),
         ]);
     }
 
@@ -123,6 +127,22 @@ class TenantDatabaseController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Tenant database password rotated.')]);
 
         return to_route('tenant-databases.edit', $tenantDatabase);
+    }
+
+    /**
+     * Prepare a one-time Adminer session for this tenant database and hand back the redirect
+     * URL. A plain JSON endpoint, not an Inertia visit or a server-side redirect() response:
+     * the destination is the tenant's own domain, an origin entirely outside this app's own
+     * Inertia protocol, so the front end does a real `window.location.href` navigation with the
+     * URL this returns -- the same "plain-JSON endpoint, not an Inertia-shaped response"
+     * precedent resources/js/lib/api.ts already documents for the file manager's own
+     * dispatch/poll endpoints.
+     */
+    public function openAdminer(Request $request, TenantDatabase $tenantDatabase): JsonResponse
+    {
+        $url = app(PrepareAdminerSession::class)->handle($request->user(), $tenantDatabase);
+
+        return response()->json(['url' => $url]);
     }
 
     /**
@@ -198,6 +218,22 @@ class TenantDatabaseController extends Controller
             'suspension_source' => $tenantDatabase->suspension_source?->value,
             'provisioning_status' => $tenantDatabase->latestProvisioningOperation?->status->value,
         ];
+    }
+
+    /**
+     * Whether PrepareAdminerSession would find an eligible WebDomain for this tenant database
+     * (same account, same node, php_version set, certificate issued) -- mirrors that action's
+     * own resolution query exactly, so the "Open Adminer" button can be disabled up front rather
+     * than only failing after a click.
+     */
+    private function hasEligibleAdminerDomain(TenantDatabase $tenantDatabase): bool
+    {
+        return WebDomain::query()
+            ->where('account_id', $tenantDatabase->account_id)
+            ->where('node_id', $tenantDatabase->node_id)
+            ->whereNotNull('php_version')
+            ->whereNotNull('certificate_issued_at')
+            ->exists();
     }
 
     /**
