@@ -324,7 +324,14 @@ run_preflight() {
 
     log_info "platform ok: ubuntu ${os_version_id} ${arch} kernel=$(uname -r)"
 
-    for dir in /etc /var/lib /var/www /run; do
+    # Deliberately excludes /run: it's tmpfs, sized as a fraction of RAM
+    # rather than real disk, and this capability only ever needs a few KB
+    # there for one unix socket -- php-fpm/install.sh's own capacity loop
+    # (which also creates /run/lesta-php) excludes it for the identical
+    # reason. Checking it against the same "need 1 GiB free" threshold
+    # real disk-backed directories use would fail on every real node
+    # (confirmed directly: a real lesta-cp-01 /run is a 392M tmpfs).
+    for dir in /etc /var/lib /var/www; do
         preflight_check_capacity "${dir}" || failed=1
     done
 
