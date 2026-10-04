@@ -66,6 +66,13 @@ type vhostData struct {
 	// template for every domain).
 	Docroot   string
 	PhpSocket string
+	// AdminerSocket backs php.conf.tmpl's own /__lesta-adminer__ location
+	// block (see Payload.AdminerSocket's own doc comment). Non-empty value
+	// is the only signal: unlike PhpSocket/CertificatePath, it never
+	// participates in renderVhost's own template-file selection -- Adminer
+	// only ever appears inside the PHP template, riding on whichever
+	// server block(s) PhpSocket/CertificatePath already selected.
+	AdminerSocket string
 	// FastcgiParamsPath backs php.conf.tmpl's own `include` directive as an
 	// absolute path, deliberately never a bare relative `fastcgi_params`:
 	// nginx resolves a relative include against its own compiled-in
@@ -106,12 +113,15 @@ func (d vhostData) marker() string {
 // default.conf.tmpl, so every domain that never opts into PHP keeps
 // rendering byte-identical output to before this capability existed, and
 // every existing marker-based health check stays meaningful unchanged;
-// falling back to default_ssl.conf.tmpl when a certificate path is present
-// (SSL is not yet wired into php.conf.tmpl this pass -- a PHP-enabled
-// domain with a certificate issued still renders HTTP-only, a disclosed,
-// narrower gap than SSL's own existing HTTP-only-until-issued design),
+// falling back to default_ssl.conf.tmpl when a certificate path is present,
 // and to the marker-only default content-rendering template for everything
-// else. All selectors are pure functions of the payload, never of the
+// else. php.conf.tmpl itself is SSL-aware (as of tools.adminer.v1, which
+// needs a PHP-enabled domain's own existing certificate to ride on): when
+// CertificatePath is also present, it renders a second HTTPS server block
+// alongside the original HTTP one, serving the identical PHP content on
+// both -- no forced HTTP->HTTPS redirect, matching default_ssl.conf.tmpl's
+// own disclosed "no forced redirect this phase" behavior exactly, not a new
+// divergent policy. All selectors are pure functions of the payload, never of the
 // requested operation's name, so create/update/suspend/unsuspend can all
 // funnel through the identical rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {

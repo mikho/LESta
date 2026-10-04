@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strings"
 )
 
 // hostnamePattern matches a dot-separated ASCII hostname: labels of alphanumerics
@@ -76,8 +77,19 @@ type Payload struct {
 	AccountID       int    `json:"account_id"`
 	AccountUsername string `json:"account_username"`
 	PhpSocket       string `json:"php_socket"`
-	SSL             SSL    `json:"ssl"`
-	Suspended       bool   `json:"suspended"`
+	// AdminerSocket, when non-empty, is tools.adminer.v1's own fixed,
+	// node-wide PHP-FPM pool socket -- never this domain's own PhpSocket,
+	// and never scoped per-resource the way PhpSocket is. It is an
+	// agent-trusted literal computed Laravel-side
+	// (WebDomain::toProvisioningPayload), not tenant input, so it is only
+	// ever validated as empty-or-absolute here, never parsed for meaning.
+	// Selects the /__lesta-adminer__ location block in php.conf.tmpl (see
+	// template.go); has no effect on any other template, since Adminer
+	// only ever rides on a domain that is also PHP-enabled (see
+	// renderVhost's own doc comment).
+	AdminerSocket string `json:"adminer_socket"`
+	SSL           SSL    `json:"ssl"`
+	Suspended     bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -126,6 +138,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.PhpSocket != "" && !docrootUsernamePattern.MatchString(p.AccountUsername) {
 		return Payload{}, &ValidationError{Code: "invalid_account_username", Message: "account_username is required and must be a valid system username when php_socket is set", Field: "account_username"}
+	}
+
+	if p.AdminerSocket != "" && !strings.HasPrefix(p.AdminerSocket, "/") {
+		return Payload{}, &ValidationError{Code: "invalid_adminer_socket", Message: "adminer_socket must be an absolute path when set", Field: "adminer_socket"}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

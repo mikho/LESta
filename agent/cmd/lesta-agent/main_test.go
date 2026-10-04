@@ -127,6 +127,7 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 		mailSmtpImapCapability:             "/var/lib/lesta/mail",
 		backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
 		filesManagerCapability:             "/var/lib/lesta/files-manager",
+		adminerCapability:                  "/var/lib/lesta/adminer",
 	}
 
 	got := daemonProductionConfig().CapabilityStateRoots

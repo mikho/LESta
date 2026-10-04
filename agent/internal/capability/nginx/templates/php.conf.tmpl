@@ -22,8 +22,54 @@ server {
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include {{.FastcgiParamsPath}};
     }
-
+{{if .AdminerSocket}}
+    location = /__lesta-adminer__ {
+        fastcgi_pass unix:{{.AdminerSocket}};
+        fastcgi_index adminer.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer.php;
+        include {{.FastcgiParamsPath}};
+    }
+{{end}}
     location ~ /\.ht {
         deny all;
     }
 }
+{{if .CertificatePath}}
+server {
+    listen {{.IPAddress}}:{{.SSLPort}} ssl;
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+    access_log {{.AccessLogPath}};
+
+    ssl_certificate {{.CertificatePath}};
+    ssl_certificate_key {{.PrivateKeyPath}};
+
+    root {{.Docroot}};
+    index index.php index.html index.htm;
+
+    location /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:{{.PhpSocket}};
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include {{.FastcgiParamsPath}};
+    }
+{{if .AdminerSocket}}
+    location = /__lesta-adminer__ {
+        fastcgi_pass unix:{{.AdminerSocket}};
+        fastcgi_index adminer.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer.php;
+        include {{.FastcgiParamsPath}};
+    }
+{{end}}
+    location ~ /\.ht {
+        deny all;
+    }
+}
+{{end}}

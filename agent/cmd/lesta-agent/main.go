@@ -62,6 +62,14 @@ const (
 	backupEncryptedArtifactsCapability = "backup.encrypted-artifacts.v1"
 	metricsUsageCapability             = "metrics.usage.v1"
 	filesManagerCapability             = "files.manager.v1"
+	// adminerCapability has no Go capability dispatch case at all, the same
+	// reasoning as nginx/php-fpm/mariadb's own OS-level package installs:
+	// .install/services/adminer/install.sh IS the install step (vendoring
+	// adminer.php plus a first-party login plugin, a dedicated system user,
+	// and a dedicated node-wide PHP-FPM pool), never something dispatched
+	// via OperationEnvelope. Named here only so CapabilityStateRoots below
+	// never inlines a bare string literal, matching every other capability.
+	adminerCapability = "tools.adminer.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -811,7 +819,7 @@ func identityProductionConfig() identity.Config {
 // per-deployment, per-node values with no single correct compiled-in
 // default.
 //
-// CapabilityStateRoots's ten literal values must stay in lockstep with
+// CapabilityStateRoots's eleven literal values must stay in lockstep with
 // nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
 // phpfpmProductionConfig's/acmeProductionConfig's/mariadbProductionConfig's/
 // cronProductionConfig's/mailProductionConfig's own StateRoot fields,
@@ -822,9 +830,15 @@ func identityProductionConfig() identity.Config {
 // rather than a dedicated leaf-service installer -- found missing from
 // this map entirely during a real node's first files.manager.v1 deploy,
 // the exact same class of gap webPhpFpmCapability was already silently
-// carrying since web.php-fpm.v1 shipped); this function never invokes
-// those capabilities, it only os.Stats their fixed StateRoot to report
-// presence. metricsUsageCapability and systemAccountIdentityCapability are
+// carrying since web.php-fpm.v1 shipped). adminerCapability carries the
+// identical "no config to generate" shape: /var/lib/lesta/adminer exists
+// purely as a presence marker too, created by its own dedicated
+// .install/services/adminer/install.sh (unlike files.manager.v1, Adminer
+// does have a leaf-service installer of its own, since it vendors real
+// artifacts and owns a dedicated system user/pool nothing else shares).
+// This function never invokes those capabilities, it only os.Stats their
+// fixed StateRoot to report presence. metricsUsageCapability and
+// systemAccountIdentityCapability are
 // deliberately absent: neither has a singular, node-wide "installed" state
 // root at all (metrics has no standalone install.sh, built entirely into
 // nginx/apache/mariadb's own installers; identity is created lazily per
@@ -873,6 +887,7 @@ func daemonProductionConfig() daemon.Config {
 			mailSmtpImapCapability:             "/var/lib/lesta/mail",
 			backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
 			filesManagerCapability:             "/var/lib/lesta/files-manager",
+			adminerCapability:                  "/var/lib/lesta/adminer",
 		},
 	}
 }

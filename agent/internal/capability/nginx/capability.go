@@ -140,6 +140,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		AccessLogPath:     filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"),
 		Docroot:           filepath.Join(c.cfg.AccountsRoot, payload.AccountUsername, "domains", op.ResourceID, "public"),
 		PhpSocket:         payload.PhpSocket,
+		AdminerSocket:     payload.AdminerSocket,
 		FastcgiParamsPath: filepath.Join(filepath.Dir(c.cfg.NginxConfPath), "fastcgi_params"),
 	}, payload.Suspended)
 	if err != nil {

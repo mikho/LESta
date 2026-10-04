@@ -345,6 +345,280 @@ func TestParsePayloadAcceptsPhpSocketWithAccountUsername(t *testing.T) {
 	}
 }
 
+func TestParsePayloadRejectsRelativeAdminerSocket(t *testing.T) {
+	payload := nginxPayloadWithTemplate("adminer.example.test", "127.0.0.1", "default", false)
+	payload["adminer_socket"] = "run/lesta-adminer/adminer.sock"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	_, err = nginx.ParsePayload(raw)
+
+	var verr *nginx.ValidationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected a *nginx.ValidationError, got %v", err)
+	}
+	if verr.Code != "invalid_adminer_socket" {
+		t.Fatalf("expected code invalid_adminer_socket, got %q", verr.Code)
+	}
+}
+
+func TestParsePayloadAcceptsAbsoluteAdminerSocket(t *testing.T) {
+	payload := nginxPayloadWithTemplate("adminer.example.test", "127.0.0.1", "default", false)
+	payload["adminer_socket"] = "/run/lesta-adminer/adminer.sock"
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	if _, err := nginx.ParsePayload(raw); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestParsePayloadAcceptsEmptyAdminerSocket(t *testing.T) {
+	payload := nginxPayloadWithTemplate("no-adminer.example.test", "127.0.0.1", "default", false)
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshaling payload: %v", err)
+	}
+
+	parsed, err := nginx.ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if parsed.AdminerSocket != "" {
+		t.Fatalf("expected AdminerSocket to default to empty, got %q", parsed.AdminerSocket)
+	}
+}
+
+// requireRootAndPhpPayload skips unless running as root: any payload setting
+// php_socket triggers ensureDocrootPrivileged's own real os.Chown to an
+// arbitrary uid/gid (see docroot_test.go's identical gate), which every test
+// in this file that creates a PHP-enabled vhost -- including the two
+// PHP+SSL/Adminer tests below -- transitively depends on.
+func requireRootAndPhpPayload(t *testing.T) {
+	t.Helper()
+
+	if os.Geteuid() != 0 {
+		t.Skip("not running as root; skipping the real PHP-enabled vhost contract test")
+	}
+}
+
+// phpPayload builds a create payload with php_socket/account_username set,
+// the minimum needed to select php.conf.tmpl (see renderVhost). phpSocket is
+// never actually dialed by these tests: each one places a real static file
+// directly in the docroot and requests it via the "/" location's own
+// try_files, which resolves to the real file before nginx ever needs to
+// reach PHP-FPM at all -- proving the vhost's own structure (both server
+// blocks, the right docroot, the right location blocks) without needing a
+// real php-fpm process in this package's own disposable test harness.
+func phpPayload(domain, ip, accountUsername string) map[string]any {
+	p := nginxPayloadWithTemplate(domain, ip, "default", false)
+	p["php_socket"] = "/run/lesta-php/8.3/unused-in-this-test.sock"
+	p["account_username"] = accountUsername
+
+	return p
+}
+
+// TestPhpTemplateServesOverBothHttpAndHttpsWhenCertificatePresent proves the
+// PHP+SSL fix this phase adds: a PHP-enabled domain with a certificate now
+// serves real content on both its HTTP and HTTPS listeners, not HTTP-only --
+// the gap tools.adminer.v1 forced a decision on (Adminer rides on a tenant
+// domain's own existing certificate, which only works if php.conf.tmpl
+// actually terminates TLS).
+func TestPhpTemplateServesOverBothHttpAndHttpsWhenCertificatePresent(t *testing.T) {
+	requireRealNginx(t)
+	requireRootAndPhpPayload(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.AccountsRoot = t.TempDir()
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "php-ssl.contract.test"
+	accountUsername := "lesta-t-phpssl"
+
+	certPath, keyPath, pool := selfSignedTestCertificate(t, t.TempDir(), domain)
+
+	payload := phpPayload(domain, "127.0.0.1", accountUsername)
+	payload["ssl"] = map[string]any{
+		"mode":             "lets_encrypt",
+		"certificate_path": certPath,
+		"private_key_path": keyPath,
+	}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	docroot := filepath.Join(cfg.AccountsRoot, accountUsername, "domains", resourceID, "public")
+	staticContent := "PHP-SSL-STATIC-MARKER " + resourceID
+
+	if err := os.WriteFile(filepath.Join(docroot, "index.html"), []byte(staticContent), 0o644); err != nil {
+		t.Fatalf("writing static file into real docroot: %v", err)
+	}
+
+	httpBody := getVhost(t, d.Port, domain)
+	if !strings.Contains(httpBody, staticContent) {
+		t.Fatalf("expected plain HTTP to serve the real static file, got: %q", httpBody)
+	}
+	t.Logf("confirmed plain HTTP still serves real content: %q", strings.TrimSpace(httpBody))
+
+	httpsClient := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: domain},
+		},
+	}
+
+	httpsURL := fmt.Sprintf("https://127.0.0.1:%d/", cfg.SSLPort)
+
+	req, err := http.NewRequest(http.MethodGet, httpsURL, nil)
+	if err != nil {
+		t.Fatalf("building HTTPS request: %v", err)
+	}
+	req.Host = domain
+
+	var (
+		httpsBody []byte
+		lastErr   error
+	)
+
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		resp, err := httpsClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(50 * time.Millisecond)
+
+			continue
+		}
+
+		httpsBody, err = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatalf("reading HTTPS response body: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 from %s, got %d: %s", httpsURL, resp.StatusCode, httpsBody)
+		}
+
+		break
+	}
+
+	if len(httpsBody) == 0 {
+		t.Fatalf("never got a real HTTPS response from %s: %v", httpsURL, lastErr)
+	}
+	if !strings.Contains(string(httpsBody), staticContent) {
+		t.Fatalf("expected the real HTTPS response to serve the identical static content, got: %q", string(httpsBody))
+	}
+	t.Logf("confirmed a real HTTPS request against a PHP-enabled vhost serves real content too: %q", strings.TrimSpace(string(httpsBody)))
+}
+
+// TestPhpTemplateRendersAdminerLocationOnlyWhenSocketSet proves
+// AdminerSocket's own conditional location block: present and pointing at
+// the right fixed script path when set, entirely absent from the rendered
+// config when empty (every existing PHP-enabled domain today has
+// AdminerSocket == "", so this also guards against the new block leaking
+// into output that previously never carried one).
+func TestPhpTemplateRendersAdminerLocationOnlyWhenSocketSet(t *testing.T) {
+	requireRealNginx(t)
+	requireRootAndPhpPayload(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.AccountsRoot = t.TempDir()
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	withoutAdminer := newTestUUID()
+	domainWithout := "no-adminer.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, withoutAdminer, newTestUUID(), 1, phpPayload(domainWithout, "127.0.0.1", "lesta-t-noadminer")))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create (no adminer): status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	withoutConf, err := os.ReadFile(filepath.Join(cfg.LiveDir, withoutAdminer+".conf"))
+	if err != nil {
+		t.Fatalf("reading live conf (no adminer): %v", err)
+	}
+	if strings.Contains(string(withoutConf), "__lesta-adminer__") {
+		t.Fatalf("expected no Adminer location when adminer_socket is unset, got:\n%s", withoutConf)
+	}
+
+	withAdminer := newTestUUID()
+	domainWith := "with-adminer.contract.test"
+
+	payload := phpPayload(domainWith, "127.0.0.1", "lesta-t-withadminer")
+	payload["adminer_socket"] = "/run/lesta-adminer/adminer.sock"
+
+	created, err = capability.Apply(ctx, newOp(protocol.OperationCreate, withAdminer, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create (with adminer): status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	withConf, err := os.ReadFile(filepath.Join(cfg.LiveDir, withAdminer+".conf"))
+	if err != nil {
+		t.Fatalf("reading live conf (with adminer): %v", err)
+	}
+	if !strings.Contains(string(withConf), "location = /__lesta-adminer__") {
+		t.Fatalf("expected the Adminer location block when adminer_socket is set, got:\n%s", withConf)
+	}
+	if !strings.Contains(string(withConf), "fastcgi_pass unix:/run/lesta-adminer/adminer.sock") {
+		t.Fatalf("expected the Adminer location to proxy to the configured socket, got:\n%s", withConf)
+	}
+	t.Logf("confirmed the Adminer location block is present only when adminer_socket is set")
+}
+
+// TestPhpTemplateSuspendedNeverExposesAdminerOrSsl proves suspended still
+// wins over everything else for a PHP-enabled domain too, even with both
+// AdminerSocket and a certificate present: a suspended resource must serve
+// nginx's ordinary suspended page directly, never the real PHP vhost (and
+// therefore never the Adminer location either).
+func TestPhpTemplateSuspendedNeverExposesAdminerOrSsl(t *testing.T) {
+	requireRealNginx(t)
+	requireRootAndPhpPayload(t)
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.AccountsRoot = t.TempDir()
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "suspended-php-adminer.contract.test"
+
+	certPath, keyPath, _ := selfSignedTestCertificate(t, t.TempDir(), domain)
+
+	payload := phpPayload(domain, "127.0.0.1", "lesta-t-suspended")
+	payload["adminer_socket"] = "/run/lesta-adminer/adminer.sock"
+	payload["ssl"] = map[string]any{
+		"mode":             "lets_encrypt",
+		"certificate_path": certPath,
+		"private_key_path": keyPath,
+	}
+	payload["suspended"] = true
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	body := getVhost(t, d.Port, domain)
+	if !strings.Contains(body, "LESTA-SUSPENDED-MARKER") {
+		t.Fatalf("expected a suspended PHP+Adminer+SSL resource to serve the ordinary suspended page, got: %q", body)
+	}
+	t.Logf("confirmed suspended still wins over PHP+Adminer+SSL: %q", strings.TrimSpace(body))
+}
+
 // TestApacheProxyTemplateProxiesToBackend proves apache_proxy.conf.tmpl
 // actually works as a reverse proxy against a real backend: a plain
 // httptest.Server stands in for Apache here (this file's own suite has no
