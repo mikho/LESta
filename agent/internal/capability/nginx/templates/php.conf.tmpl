@@ -26,7 +26,7 @@ server {
     location = /__lesta-adminer__ {
         fastcgi_pass unix:{{.AdminerSocket}};
         fastcgi_index adminer.php;
-        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer-lesta-login.php;
         include {{.FastcgiParamsPath}};
     }
 {{end}}
@@ -64,7 +64,7 @@ server {
     location = /__lesta-adminer__ {
         fastcgi_pass unix:{{.AdminerSocket}};
         fastcgi_index adminer.php;
-        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer-lesta-login.php;
         include {{.FastcgiParamsPath}};
     }
 {{end}}

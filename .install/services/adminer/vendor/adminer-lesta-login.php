@@ -1,12 +1,16 @@
 <?php
 /**
- * LESta's own Adminer auto-login bootstrap. Must be required BEFORE
- * adminer.php itself (see adminer.php's own trailing
+ * LESta's own Adminer auto-login bootstrap. This file is the real served
+ * entry point (nginx's own /__lesta-adminer__ location points its
+ * SCRIPT_FILENAME directly here, never at adminer.php): it defines
+ * adminer_object() first, then requires adminer.php itself at the bottom of
+ * this file, so adminer.php's own trailing
  * `Adminer::$instance=(function_exists('adminer_object')?adminer_object():...)`
- * bootstrap line) -- this is Adminer's own documented, fully supported
- * single-file customization mechanism, confirmed directly against the real
- * vendored 6.1.1 source (adminer/include/adminer.inc.php,
- * adminer/include/auth.inc.php), not assumed from memory.
+ * bootstrap line finds it already defined -- this is Adminer's own
+ * documented, fully supported single-file customization mechanism,
+ * confirmed directly against the real vendored 6.1.1 source
+ * (adminer/include/adminer.inc.php, adminer/include/auth.inc.php), not
+ * assumed from memory.
  *
  * Design, verified against the real source rather than guessed:
  *
@@ -170,3 +174,13 @@ function adminer_object()
 
     return new LestaAutoLogin();
 }
+
+// This file IS the real served entry point (nginx's own SCRIPT_FILENAME
+// points here, never directly at adminer.php -- see
+// agent/internal/capability/nginx/templates/php.conf.tmpl's own
+// /__lesta-adminer__ location block): adminer.php's own bootstrap only ever
+// checks function_exists('adminer_object') at the exact moment it reaches
+// its own trailing `Adminer::$instance = (...)` line, so adminer_object()
+// above must already be defined before adminer.php is ever included, not
+// merely present somewhere on disk.
+require __DIR__ . '/adminer.php';
