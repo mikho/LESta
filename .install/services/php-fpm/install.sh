@@ -472,7 +472,11 @@ default_pool_in_use() {
 
     for dir in /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/apache2/sites-enabled; do
         [ -d "${dir}" ] || continue
-        if grep -rqsF "${socket}" "${dir}"; then
+        # -R, not -r: sites-enabled/ is symlinks into sites-available/ on
+        # every Debian/Ubuntu install, and -r never follows a symlink it
+        # finds during recursion (confirmed on lesta-cp-01: -r missed the
+        # control plane's own vhost entirely).
+        if grep -RqsF "${socket}" "${dir}"; then
             return 0
         fi
     done
