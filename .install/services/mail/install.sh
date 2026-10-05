@@ -771,6 +771,12 @@ service lmtp {
 }
 
 service auth {
+  # Dovecot drops supplementary groups when a service drops privileges, so
+  # the dovecot user's own lesta group membership (granted below) alone
+  # never reaches this process; extra_groups is Dovecot's own documented
+  # per-service setting for exactly this. Needed to read DovecotPasswdPath
+  # under /etc/dovecot/lesta.d (root:lesta 0770).
+  extra_groups = lesta
   unix_listener auth-client {
     mode = 0660
     user = Debian-exim
@@ -1112,8 +1118,9 @@ install_mail() {
     # "missing +x perm: /etc/dovecot/lesta.d, we're not in group lesta" --
     # found on lesta-cp-01's first real mail install. Invisible to CI: its
     # self-test only renders the passwd file, never authenticates against it.
-    # Must run before dovecot's own restart below, so its auth process picks
-    # the new group up.
+    # Group membership alone isn't enough (Dovecot drops supplementary groups
+    # per service); lesta.conf's own `service auth { extra_groups = lesta }`
+    # is what actually reaches the auth process.
     usermod -aG lesta dovecot || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta dovecot failed"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "dovecot added to the lesta group, so Dovecot's own auth process can read its own passwd-file under /etc/dovecot/lesta.d"
 
