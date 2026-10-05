@@ -618,7 +618,7 @@ primary_hostname = ${MAIL_HOSTNAME}
 qualify_domain = ${MAIL_HOSTNAME}
 never_users = root
 
-daemon_smtp_ports = 25 : 587
+daemon_smtp_ports = 25 : 465 : 587
 tls_on_connect_ports = 465
 local_interfaces = <; 0.0.0.0
 
@@ -1184,8 +1184,15 @@ SUDOERSEOF
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable exim4 + systemctl restart exim4 succeeded"
 
-    mail_health_probe 25 || mail_fail_health "${EXIT_HEALTH_FAILURE}" exim_health_check_failed "" "exim4 did not answer a TCP health probe on 127.0.0.1:25 after restart"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:25 succeeded"
+    # Every port this capability's own manifest declares is probed, not just
+    # 25: Exim only opens a port listed in daemon_smtp_ports, and
+    # tls_on_connect_ports merely marks which of those use implicit TLS. A
+    # 465 missing from daemon_smtp_ports went unnoticed until this
+    # installer's first real run on lesta-cp-01, since only 25 was probed.
+    for exim_port in 25 465 587; do
+        mail_health_probe "${exim_port}" || mail_fail_health "${EXIT_HEALTH_FAILURE}" exim_health_check_failed "" "exim4 did not answer a TCP health probe on 127.0.0.1:${exim_port} after restart"
+    done
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probes against 127.0.0.1:25, :465 and :587 succeeded"
 
     # lesta.conf (Dovecot) was already written above, before the dovecot
     # packages were installed (see this function's own comment on why).
