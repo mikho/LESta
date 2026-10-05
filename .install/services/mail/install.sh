@@ -1105,6 +1105,18 @@ install_mail() {
     usermod -aG lesta Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta Debian-exim failed"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the lesta group, so Exim can read its own lookup data and DKIM private keys"
 
+    # The identical grant for Dovecot's own auth process (user dovecot):
+    # DovecotPasswdPath lives under /etc/dovecot/lesta.d, root:lesta 0770 so
+    # the unprivileged lesta-agent can write it. Without this, every IMAP
+    # login and every LMTP delivery fails at the passdb/userdb lookup with
+    # "missing +x perm: /etc/dovecot/lesta.d, we're not in group lesta" --
+    # found on lesta-cp-01's first real mail install. Invisible to CI: its
+    # self-test only renders the passwd file, never authenticates against it.
+    # Must run before dovecot's own restart below, so its auth process picks
+    # the new group up.
+    usermod -aG lesta dovecot || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta dovecot failed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "dovecot added to the lesta group, so Dovecot's own auth process can read its own passwd-file under /etc/dovecot/lesta.d"
+
     # Debian-exim also needs real access to clamd's own Unix socket
     # (CLAMD_SOCKET) to actually connect for av_scanner scanning: ClamAV's
     # own Debian packaging creates that socket group-owned by clamav, not
