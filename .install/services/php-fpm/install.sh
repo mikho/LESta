@@ -456,10 +456,39 @@ SOURCES
 # rendered vhost ever points at). Renamed rather than deleted, so a
 # package reinstall/upgrade re-creating it is harmless and this step stays
 # trivially reversible.
+#
+# Never disabled when an operator-managed vhost (anything under
+# sites-enabled/conf.d, never LESta's own lesta.d) points at that pool's own
+# socket: the Installation Guide's own single-node topology runs the
+# control-plane app itself on exactly this stock pool, so disabling it
+# unconditionally took the control plane down on lesta-cp-01's next php-fpm
+# restart (latent for over a week, since a rename alone never touches the
+# already-running process).
+default_pool_in_use() {
+    local pool="$1" socket dir
+
+    socket=$(sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*\(\/[^[:space:]]*\).*/\1/p' "${pool}" | head -1)
+    [ -n "${socket}" ] || return 1
+
+    for dir in /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/apache2/sites-enabled; do
+        [ -d "${dir}" ] || continue
+        if grep -rqsF "${socket}" "${dir}"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 disable_default_pool() {
     local version="$1" default_pool
 
     default_pool="${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d/www.conf"
+
+    if [ -f "${default_pool}" ] && default_pool_in_use "${default_pool}"; then
+        add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${default_pool}" "php${version}-fpm's own default www pool left enabled: an operator-managed vhost (e.g. the control-plane app itself on a single-node install) points at its socket"
+        return 0
+    fi
 
     if [ -f "${default_pool}" ]; then
         mv -f "${default_pool}" "${default_pool}.disabled-by-lesta"
