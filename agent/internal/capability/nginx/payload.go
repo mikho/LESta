@@ -88,6 +88,13 @@ type Payload struct {
 	// only ever rides on a domain that is also PHP-enabled (see
 	// renderVhost's own doc comment).
 	AdminerSocket string `json:"adminer_socket"`
+	// WebmailSocket, when non-empty, is mail.webmail.v1's own fixed,
+	// node-wide Roundcube PHP-FPM pool socket. Laravel sets it only on the
+	// one WebDomain whose name is this node's own mail hostname (see
+	// WebDomain::resolveWebmailSocket), and only once that domain has a
+	// certificate. Selects webmail.conf.tmpl, which serves Roundcube at "/"
+	// instead of the domain's own content.
+	WebmailSocket string `json:"webmail_socket"`
 	SSL           SSL    `json:"ssl"`
 	Suspended     bool   `json:"suspended"`
 }
@@ -138,6 +145,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.PhpSocket != "" && !docrootUsernamePattern.MatchString(p.AccountUsername) {
 		return Payload{}, &ValidationError{Code: "invalid_account_username", Message: "account_username is required and must be a valid system username when php_socket is set", Field: "account_username"}
+	}
+
+	if p.WebmailSocket != "" && !strings.HasPrefix(p.WebmailSocket, "/") {
+		return Payload{}, &ValidationError{Code: "invalid_webmail_socket", Message: "webmail_socket must be an absolute path when set", Field: "webmail_socket"}
 	}
 
 	if p.AdminerSocket != "" && !strings.HasPrefix(p.AdminerSocket, "/") {

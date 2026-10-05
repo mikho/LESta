@@ -70,6 +70,10 @@ const (
 	// via OperationEnvelope. Named here only so CapabilityStateRoots below
 	// never inlines a bare string literal, matching every other capability.
 	adminerCapability = "tools.adminer.v1"
+	// webmailCapability has no Go dispatch case either, for the identical
+	// reason as adminerCapability: .install/services/webmail/install.sh is
+	// the whole install step (vendored Roundcube plus a dedicated pool).
+	webmailCapability = "mail.webmail.v1"
 
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
@@ -819,7 +823,7 @@ func identityProductionConfig() identity.Config {
 // per-deployment, per-node values with no single correct compiled-in
 // default.
 //
-// CapabilityStateRoots's eleven literal values must stay in lockstep with
+// CapabilityStateRoots's twelve literal values must stay in lockstep with
 // nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
 // phpfpmProductionConfig's/acmeProductionConfig's/mariadbProductionConfig's/
 // cronProductionConfig's/mailProductionConfig's own StateRoot fields,
@@ -836,6 +840,8 @@ func identityProductionConfig() identity.Config {
 // .install/services/adminer/install.sh (unlike files.manager.v1, Adminer
 // does have a leaf-service installer of its own, since it vendors real
 // artifacts and owns a dedicated system user/pool nothing else shares).
+// webmailCapability (/var/lib/lesta/webmail) is the same shape, created by
+// .install/services/webmail/install.sh.
 // This function never invokes those capabilities, it only os.Stats their
 // fixed StateRoot to report presence. metricsUsageCapability and
 // systemAccountIdentityCapability are
@@ -888,6 +894,7 @@ func daemonProductionConfig() daemon.Config {
 			backupEncryptedArtifactsCapability: "/var/lib/lesta/backups",
 			filesManagerCapability:             "/var/lib/lesta/files-manager",
 			adminerCapability:                  "/var/lib/lesta/adminer",
+			webmailCapability:                  "/var/lib/lesta/webmail",
 		},
 	}
 }

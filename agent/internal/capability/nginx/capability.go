@@ -141,6 +141,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		Docroot:           filepath.Join(c.cfg.AccountsRoot, payload.AccountUsername, "domains", op.ResourceID, "public"),
 		PhpSocket:         payload.PhpSocket,
 		AdminerSocket:     payload.AdminerSocket,
+		WebmailSocket:     payload.WebmailSocket,
 		FastcgiParamsPath: filepath.Join(filepath.Dir(c.cfg.NginxConfPath), "fastcgi_params"),
 	}, payload.Suspended)
 	if err != nil {
@@ -181,7 +182,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 
 	var healthErr error
 
-	if !payload.Suspended && (payload.WebTemplate == "apache-proxy" || payload.PhpSocket != "") {
+	if servesNoMarker(payload) {
 		// Same reasoning as apache-proxy, just one layer further down the
 		// stack: nginx's own health check can only prove nginx itself
 		// accepted and is running the new vhost config, never that real
@@ -403,7 +404,7 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 		}
 
 		healthErr = c.waitHealthyGeneric(ctx, origPayload.IPAddress, c.cfg.Port)
-	case !prevPayload.Suspended && prevPayload.WebTemplate == "apache-proxy":
+	case servesNoMarker(prevPayload):
 		// Same reasoning as applyGeneration's own apache-proxy branch: this
 		// rollback can only prove nginx itself is healthy again, never that
 		// the separately-dispatched Apache backend is reachable.
@@ -500,4 +501,23 @@ func (c *NginxCapability) currentObservedVersionOrZero(resourceID string) int {
 	}
 
 	return manifest.DesiredStateVersion
+}
+
+// servesNoMarker reports whether the template payload selects ever answers
+// "/" with something other than this resource's own marker, so a health
+// check can only prove nginx itself accepted and is running the vhost (a
+// plain TCP probe), never assert content in a response body. apache-proxy
+// and php.conf.tmpl hand "/" to a backend this capability doesn't control
+// (see applyGeneration's own comment); webmail.conf.tmpl hands it to
+// Roundcube's own pool, and its HTTP listener answers with a 301 to HTTPS,
+// which a body-asserting probe would follow off-box entirely. Shared by
+// applyGeneration and the rollback path, which previously only knew about
+// apache-proxy -- a rollback to a prior PHP-enabled generation would have
+// waited for a marker php.conf.tmpl never serves.
+func servesNoMarker(p Payload) bool {
+	if p.Suspended {
+		return false
+	}
+
+	return p.WebTemplate == "apache-proxy" || p.PhpSocket != "" || (p.WebmailSocket != "" && p.SSL.CertificatePath != "")
 }

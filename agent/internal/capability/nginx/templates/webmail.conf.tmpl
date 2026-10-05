@@ -1,0 +1,51 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}} (webmail: this node's own mail hostname)
+server {
+    listen {{.IPAddress}}:{{.Port}};
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+    access_log {{.AccessLogPath}};
+
+    location /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen {{.IPAddress}}:{{.SSLPort}} ssl;
+    server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
+    access_log {{.AccessLogPath}};
+
+    ssl_certificate {{.CertificatePath}};
+    ssl_certificate_key {{.PrivateKeyPath}};
+
+    root /var/www/lesta-webmail/public_html;
+    index index.php;
+    client_max_body_size 25m;
+
+    # ^~, not a plain prefix: the `~ /\.` deny below is a regex location,
+    # and nginx checks regex locations after the longest plain prefix match,
+    # so without ^~ it would win and break ACME renewal for this domain.
+    location ^~ /.well-known/acme-challenge/ {
+        alias {{.AcmeChallengeDir}}/;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_pass unix:{{.WebmailSocket}};
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include {{.FastcgiParamsPath}};
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}

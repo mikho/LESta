@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -73,6 +73,9 @@ type vhostData struct {
 	// only ever appears inside the PHP template, riding on whichever
 	// server block(s) PhpSocket/CertificatePath already selected.
 	AdminerSocket string
+	// WebmailSocket, non-empty together with a certificate, selects
+	// webmail.conf.tmpl (see renderVhost).
+	WebmailSocket string
 	// FastcgiParamsPath backs php.conf.tmpl's own `include` directive as an
 	// absolute path, deliberately never a bare relative `fastcgi_params`:
 	// nginx resolves a relative include against its own compiled-in
@@ -133,6 +136,13 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	case suspended:
 		name = "suspended.conf.tmpl"
 		data.SuspendedPage = string(suspendedHTML)
+	case data.WebmailSocket != "" && data.CertificatePath != "":
+		// Webmail is checked before apache-proxy/php: this one domain is
+		// the node's own mail hostname, serving Roundcube instead of any
+		// content of its own. It requires a certificate (webmail carries
+		// login passwords, and this template forces HTTP to HTTPS); without
+		// one, the domain falls through to its ordinary template.
+		name = "webmail.conf.tmpl"
 	case data.WebTemplate == "apache-proxy":
 		name = "apache_proxy.conf.tmpl"
 	case data.PhpSocket != "":

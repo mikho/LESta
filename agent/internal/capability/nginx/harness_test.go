@@ -80,6 +80,14 @@ http {
 		t.Fatalf("writing disposable nginx.conf: %v", err)
 	}
 
+	// Every FastCGI-rendering template includes <dir of NginxConfPath>/
+	// fastcgi_params by absolute path (see vhostData.FastcgiParamsPath). A
+	// real node has the distro's own; this disposable instance needs one
+	// too, or `nginx -t` rejects any such template before a test can run.
+	if err := os.WriteFile(filepath.Join(prefix, "fastcgi_params"), []byte("fastcgi_param QUERY_STRING $query_string;\n"), 0o644); err != nil {
+		t.Fatalf("writing disposable fastcgi_params: %v", err)
+	}
+
 	d := &disposableNginx{
 		Prefix:  prefix,
 		Port:    port,
