@@ -1177,8 +1177,21 @@ install_mail() {
     install -d -m 0770 -o root -g lesta "${DKIM_KEY_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0770 root:lesta"
 
-    install -d -m 0770 -o root -g lesta "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 0770 root:lesta"
+    # root:vmail 2770, not root:lesta 0770: Dovecot's LMTP delivery runs as
+    # vmail and must read each domain's own sieve scripts (rendered by the
+    # unprivileged lesta-agent), or every delivery defers with "Temporarily
+    # unable to access necessary Sieve scripts" -- found on lesta-cp-01's
+    # first real mail install. A world-traversable 0771 would have worked
+    # too, but would let any local user read any tenant's forwarding and
+    # autoreply rules by guessing paths. Instead lesta-agent joins group
+    # vmail (which grants it nothing else: VMAIL_HOME is vmail:vmail 0700,
+    # no group bits), and setgid makes every per-domain subdirectory the
+    # agent creates inherit group vmail.
+    usermod -aG vmail lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG vmail lesta-agent failed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "lesta-agent added to the vmail group, so it can write sieve scripts vmail itself can read"
+    install -d -m 2770 -o root -g vmail "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
+    chgrp -R vmail "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" chgrp_failed "${SIEVE_DIR}" "failed to set group vmail under ${SIEVE_DIR}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 2770 root:vmail"
 
     # --- sudoers: systemctl reload exim4/dovecot -----------------------------
     #
