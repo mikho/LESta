@@ -41,7 +41,7 @@ SCRIPT_VERSION="1.0.0"
 # Installation Guide's Chapter 3). Order here is canonical iteration order only, not install
 # order: real install order is resolved from each manifest's own
 # depends_on/provides below.
-SERVICES_ALL="nginx apache bind9 mariadb cron mail backups php-fpm adminer"
+SERVICES_ALL="nginx apache bind9 mariadb cron mail backups php-fpm adminer webmail"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
@@ -117,8 +117,9 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
                                 selected (required in that case).
   --web-profile <profile>      Forwarded to apache/install.sh when apache is
                                 selected standalone.
-  --mail-hostname <fqdn>       Forwarded to mail/install.sh when mail is
-                                selected (required in that case).
+  --mail-hostname <fqdn>       Forwarded to mail/install.sh and
+                                webmail/install.sh when either is selected
+                                (required in that case).
   --offline-bundle <svc>=<path>
                                 Forwards --offline-bundle <path> to that one
                                 service's own install.sh. Repeatable (one
@@ -275,6 +276,10 @@ validate_args() {
     if service_is_selected mail && [ -z "${MAIL_HOSTNAME}" ]; then
         fail_invocation "--mail-hostname is required when mail is selected"
     fi
+
+    if service_is_selected webmail && [ -z "${MAIL_HOSTNAME}" ]; then
+        fail_invocation "--mail-hostname is required when webmail is selected"
+    fi
 }
 
 # --- manifest-graph helpers --------------------------------------------
@@ -426,6 +431,10 @@ service_args() {
                 printf '%s\n' --offline-bundle
                 printf '%s\n' "${OFFLINE_BUNDLE_MAIL}"
             fi
+            ;;
+        webmail)
+            printf '%s\n' --mail-hostname
+            printf '%s\n' "${MAIL_HOSTNAME}"
             ;;
         backups) ;;
     esac

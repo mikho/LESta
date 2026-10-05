@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Concerns\Suspendable;
 use App\Contracts\ProviderAdminManaged;
+use App\Enums\NodeCapabilityType;
 use App\Enums\NodeEnrollmentStatus;
 use App\Enums\SuspensionSource;
 use Database\Factories\NodeFactory;
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string $uuid
  * @property string $name
  * @property string $hostname
+ * @property string|null $mail_hostname
  * @property bool $backups_scheduled
  * @property string|null $enrollment_token_hash
  * @property Carbon|null $enrollment_token_expires_at
@@ -31,7 +33,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['uuid', 'name', 'hostname'])]
+#[Fillable(['uuid', 'name', 'hostname', 'mail_hostname'])]
 class Node extends Model implements ProviderAdminManaged
 {
     /** @use HasFactory<NodeFactory> */
@@ -138,6 +140,24 @@ class Node extends Model implements ProviderAdminManaged
         ])->save();
 
         return $credential;
+    }
+
+    /**
+     * Whether mail.webmail.v1 can be opened on this node at all: a mail hostname is recorded
+     * (webmail is served at https://<mail_hostname>/ only) and an admin has declared a
+     * non-suspended mail.webmail.v1 capability. Per-domain conditions (the certificate, the
+     * domain actually being the mail hostname) are WebDomain::resolveWebmailSocket()'s own.
+     */
+    public function hasWebmailAvailable(): bool
+    {
+        if ($this->mail_hostname === null || $this->mail_hostname === '') {
+            return false;
+        }
+
+        return $this->capabilities()
+            ->where('capability', NodeCapabilityType::Webmail->value)
+            ->whereNull('suspended_at')
+            ->exists();
     }
 
     /**

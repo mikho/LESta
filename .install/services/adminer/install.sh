@@ -23,11 +23,12 @@
 #
 # Reuses php-fpm's own already-installed PHP 8.3 package (Ubuntu 24.04's
 # own native version, always present per php-fpm/install.sh's own
-# PHP_VERSIONS list) rather than installing anything new: this installer
-# only ever adds one more pool.d fragment under the php-fpm capability's
-# own owned_roots, plus a dedicated system user/group, a vendored-file
-# deployment directory, and a fixed node-wide socket -- never a tenant's
-# own per-domain pool.
+# PHP_VERSIONS list). The one package it adds is php8.3-mysql (mysqli, which
+# Adminer's MySQL driver needs and php-fpm never installs); otherwise this
+# installer only ever adds one more pool.d fragment under the php-fpm
+# capability's own owned_roots, plus a dedicated system user/group, a
+# vendored-file deployment directory, and a fixed node-wide socket -- never
+# a tenant's own per-domain pool.
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -42,6 +43,11 @@ ADMINER_CAPABILITY="tools.adminer.v1"
 # package -- is always installed on any node that already has
 # web.php-fpm.v1 bootstrapped).
 ADMINER_PHP_VERSION="8.3"
+
+# Adminer's own MySQL driver needs mysqli, which php-fpm/install.sh never
+# installs. It only ever worked on lesta-cp-01 because something else had
+# already installed php8.3-mysql there.
+ADMINER_PHP_PACKAGES="php${ADMINER_PHP_VERSION}-mysql"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/../.." && pwd)
@@ -224,12 +230,32 @@ emit_version_and_exit() {
     emit_result_and_exit ok "${EXIT_OK}"
 }
 
+# missing_php_packages -> every package in ADMINER_PHP_PACKAGES not yet
+# installed, space-separated (empty when all are present).
+missing_php_packages() {
+    local pkg missing=""
+
+    for pkg in ${ADMINER_PHP_PACKAGES}; do
+        if ! dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q '^install ok installed$'; then
+            missing="${missing} ${pkg}"
+        fi
+    done
+
+    printf '%s' "${missing# }"
+}
+
 emit_dry_run_result_and_exit() {
-    local install_state
+    local install_state missing
     install_state=$(preflight_classify_install_state)
+    missing=$(missing_php_packages)
 
     add_change base.os.v1 would_ensure /etc/lesta "install-state classification: ${install_state}"
     add_change "${ADMINER_CAPABILITY}" would_ensure /etc/passwd "a dedicated system user+group lesta-adminer would be created (--system --no-create-home, no login shell)"
+    if [ -n "${missing}" ]; then
+        add_change "${ADMINER_CAPABILITY}" would_install "" "apt-get install -y ${missing} (Adminer's own mysqli requirement)"
+    else
+        add_change "${ADMINER_CAPABILITY}" would_verify "" "${ADMINER_PHP_PACKAGES} already installed; no apt-get run"
+    fi
     add_change "${ADMINER_CAPABILITY}" would_install "${DEPLOY_DIR}" "${DEPLOY_DIR} would be created (root:lesta-adminer, mode 0750); adminer.php and adminer-lesta-login.php would be checksum-verified against the manifest and copied in, mode 0640 root:lesta-adminer"
     add_change "${ADMINER_CAPABILITY}" would_write "${CONTROL_PLANE_URL_FILE}" "the control plane base URL would be parsed from ${DAEMON_CONFIG_PATH}'s own control_plane_url field and written here, mode 0644 root:lesta-adminer"
     add_change "${ADMINER_CAPABILITY}" would_install "${ADMINER_POOL_CONF}" "a dedicated static PHP ${ADMINER_PHP_VERSION}-FPM pool (pm.max_children=3) would be written, listening on ${ADMINER_SOCKET_PATH}, open_basedir restricted to ${DEPLOY_DIR}:/tmp; php${ADMINER_PHP_VERSION}-fpm would be reloaded"
@@ -385,7 +411,41 @@ bootstrap_adminer_identity() {
     log_info "bootstrap_adminer_identity complete"
 }
 
-# --- phase 2: deploy_adminer_files ---------------------------------------
+# --- phase 2: install_php_extensions -------------------------------------
+
+# Only touches apt at all when something is actually missing, so a re-apply
+# on an already-converged node is a pure no-op. Same invocation and error
+# reporting shape as php-fpm/install.sh's own install_php_fpm.
+install_php_extensions() {
+    local missing out
+
+    missing=$(missing_php_packages)
+
+    if [ -z "${missing}" ]; then
+        add_change "${ADMINER_CAPABILITY}" verified "" "${ADMINER_PHP_PACKAGES} already installed"
+        checkpoint_write install_php_extensions "${MANIFEST_DIGEST}"
+        return 0
+    fi
+
+    log_info "install_php_extensions: installing ${missing}"
+
+    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get update 2>&1); then
+        add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+
+    # shellcheck disable=SC2086
+    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get install -y ${missing} 2>&1); then
+        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+    add_change "${ADMINER_CAPABILITY}" installed "" "apt-get install -y ${missing} succeeded"
+
+    checkpoint_write install_php_extensions "${MANIFEST_DIGEST}"
+    log_info "install_php_extensions complete"
+}
+
+# --- phase 3: deploy_adminer_files ---------------------------------------
 
 deploy_one_vendored_file() {
     local src="$1" dest="$2" artifact_name="$3" expected_sha256 actual_sha256
@@ -462,7 +522,7 @@ deploy_adminer_files() {
     log_info "deploy_adminer_files complete"
 }
 
-# --- phase 3: install_adminer_pool ---------------------------------------
+# --- phase 4: install_adminer_pool ---------------------------------------
 
 # Disable_functions list copied verbatim from
 # agent/internal/capability/phpfpm/templates/pool.conf.tmpl's own tenant
@@ -543,7 +603,7 @@ POOLCONF
     log_info "install_adminer_pool complete"
 }
 
-# --- phase 4: run_adminer_selftest ---------------------------------------
+# --- phase 5: run_adminer_selftest ---------------------------------------
 
 # This capability is a single, static, always-on, node-wide pool, never a
 # per-resource lifecycle the way nginx/php-fpm's own pools are (there is
@@ -568,7 +628,7 @@ run_adminer_selftest() {
     log_info "run_adminer_selftest: ${ADMINER_SOCKET_PATH} is live"
 }
 
-# --- phase 5: bootstrap_state_root ---------------------------------------
+# --- phase 6: bootstrap_state_root ---------------------------------------
 
 # /var/lib/lesta/adminer is a pure presence marker (the same mechanism
 # agent/cmd/lesta-agent/main.go's own CapabilityStateRoots map uses to ever
@@ -622,6 +682,7 @@ main() {
     log_info "preflight passed; beginning apply mutations"
 
     bootstrap_adminer_identity
+    install_php_extensions
     deploy_adminer_files
     install_adminer_pool
     run_adminer_selftest

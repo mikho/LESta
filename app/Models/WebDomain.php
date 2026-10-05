@@ -182,7 +182,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, adminer_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -208,6 +208,7 @@ class WebDomain extends Model
             'account_username' => $this->resolveAccountUsername(),
             'php_socket' => $this->phpSocketPath(),
             'adminer_socket' => $this->resolveAdminerSocket($capability),
+            'webmail_socket' => $this->resolveWebmailSocket($capability),
             'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
         ];
@@ -277,6 +278,45 @@ class WebDomain extends Model
         }
 
         return '/run/lesta-adminer/adminer.sock';
+    }
+
+    /**
+     * The fixed, node-wide mail.webmail.v1 pool socket (see
+     * agent/internal/capability/nginx/payload.go's own WebmailSocket doc comment), or null when
+     * this domain renders its ordinary template. Non-null selects webmail.conf.tmpl, which serves
+     * Roundcube at "/" instead of any content of this domain's own. Non-null only when every one
+     * of the following is true:
+     *
+     *   - $capability is web.nginx.v1 specifically (webmail is only ever rendered by nginx);
+     *   - this domain IS its node's own mail_hostname (webmail lives at
+     *     https://<mail_hostname>/, the same hostname Dovecot's and Exim's certificate names);
+     *   - a certificate is already issued (the webmail template forces HTTP to HTTPS, since it
+     *     carries login passwords);
+     *   - the owning node has a non-suspended NodeCapability row for mail.webmail.v1.
+     *
+     * Only (re)computed on this WebDomain's own next create/update, the same accepted v1
+     * limitation resolveAdminerSocket() documents: setting a node's mail_hostname or declaring
+     * mail.webmail.v1 on it does not retroactively touch the mail hostname domain's already
+     * rendered vhost. That domain's own next create/update (e.g. a certificate renewal that
+     * re-dispatches web.nginx.v1) is what picks up the new eligibility.
+     */
+    private function resolveWebmailSocket(string $capability): ?string
+    {
+        if ($capability !== 'web.nginx.v1' || $this->certificate_issued_at === null) {
+            return null;
+        }
+
+        $node = $this->node;
+
+        if ($node === null || $node->mail_hostname === null || $this->domain !== $node->mail_hostname) {
+            return null;
+        }
+
+        if (! $node->hasWebmailAvailable()) {
+            return null;
+        }
+
+        return '/run/lesta-webmail/webmail.sock';
     }
 
     /**

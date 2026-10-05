@@ -38,10 +38,11 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'account_username' => 'lesta-t'.$account->id,
         'php_socket' => null,
         'adminer_socket' => null,
+        'webmail_socket' => null,
         'ssl' => ['mode' => 'manual'],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'ssl', 'suspended']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'webmail_socket', 'ssl', 'suspended']);
 });
 
 test('toProvisioningPayload reports a real php_socket once php_version is set', function () {
@@ -111,6 +112,65 @@ test('toProvisioningPayload reports a null adminer_socket when the account has n
     NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
+});
+
+/**
+ * The node's own mail hostname domain with every webmail eligibility condition met unless
+ * overridden: domain === node.mail_hostname, a certificate issued, and a non-suspended
+ * mail.webmail.v1 capability.
+ */
+function webmailEligibleDomain(array $domainAttributes = [], bool $withCapability = true): WebDomain
+{
+    $node = Node::factory()->create(['mail_hostname' => 'mail.example.test']);
+    $webDomain = WebDomain::factory()->for($node)->create(array_merge([
+        'domain' => 'mail.example.test',
+        'certificate_issued_at' => now(),
+    ], $domainAttributes));
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+
+    if ($withCapability) {
+        NodeCapability::factory()->for($node)->create(['capability' => 'mail.webmail.v1']);
+    }
+
+    return $webDomain;
+}
+
+test('toProvisioningPayload reports the fixed webmail_socket for the node\'s own mail hostname once every condition is met', function () {
+    expect(webmailEligibleDomain()->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
+        ->toBe('/run/lesta-webmail/webmail.sock');
+});
+
+test('toProvisioningPayload reports a null webmail_socket for a domain that is not the node\'s mail hostname', function () {
+    expect(webmailEligibleDomain(['domain' => 'www.example.test'])->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
+        ->toBeNull();
+});
+
+test('toProvisioningPayload reports a null webmail_socket until a certificate is issued', function () {
+    expect(webmailEligibleDomain(['certificate_issued_at' => null])->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
+        ->toBeNull();
+});
+
+test('toProvisioningPayload reports a null webmail_socket when the node has no mail.webmail.v1 capability', function () {
+    expect(webmailEligibleDomain([], withCapability: false)->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
+        ->toBeNull();
+});
+
+test('toProvisioningPayload reports a null webmail_socket when the node\'s webmail capability is suspended', function () {
+    $webDomain = webmailEligibleDomain([], withCapability: false);
+    NodeCapability::factory()->for($webDomain->node)->suspended()->create(['capability' => 'mail.webmail.v1']);
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null webmail_socket when the node has no mail hostname', function () {
+    $webDomain = webmailEligibleDomain();
+    $webDomain->node->forceFill(['mail_hostname' => null])->save();
+
+    expect($webDomain->refresh()->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null webmail_socket for web.apache.v1 regardless of eligibility', function () {
+    expect(webmailEligibleDomain()->toProvisioningPayload('web.apache.v1')['webmail_socket'])->toBeNull();
 });
 
 test('toPhpFpmProvisioningPayload reports the account\'s own real node identity', function () {

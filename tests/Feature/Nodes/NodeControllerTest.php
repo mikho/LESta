@@ -72,6 +72,38 @@ test('a provider admin can edit a node', function () {
     expect($node->refresh()->name)->toBe('renamed');
 });
 
+test('a provider admin can set and clear a node\'s mail hostname', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create();
+
+    $this->actingAs($admin)
+        ->put(route('nodes.update', $node), ['name' => $node->name, 'hostname' => $node->hostname, 'mail_hostname' => 'mail.example.net'])
+        ->assertRedirect(route('nodes.edit', $node));
+
+    expect($node->refresh()->mail_hostname)->toBe('mail.example.net');
+
+    $this->actingAs($admin)
+        ->get(route('nodes.edit', $node))
+        ->assertInertia(fn (Assert $page) => $page->where('node.mail_hostname', 'mail.example.net'));
+
+    $this->actingAs($admin)
+        ->put(route('nodes.update', $node), ['name' => $node->name, 'hostname' => $node->hostname, 'mail_hostname' => ''])
+        ->assertRedirect(route('nodes.edit', $node));
+
+    expect($node->refresh()->mail_hostname)->toBeNull();
+});
+
+test('a node\'s mail hostname must be a valid hostname', function () {
+    $admin = actingAsProviderAdmin();
+    $node = Node::factory()->create();
+
+    $this->actingAs($admin)
+        ->put(route('nodes.update', $node), ['name' => $node->name, 'hostname' => $node->hostname, 'mail_hostname' => 'not a hostname'])
+        ->assertSessionHasErrors('mail_hostname');
+
+    expect($node->refresh()->mail_hostname)->toBeNull();
+});
+
 test('a provider admin can grant and revoke node admin access from the edit page', function () {
     $admin = actingAsProviderAdmin();
     $node = Node::factory()->create();

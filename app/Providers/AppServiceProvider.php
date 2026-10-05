@@ -108,6 +108,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('adminer-credentials', function (Request $request) {
             return Limit::perMinute(30)->by($request->ip());
         });
+
+        // mail.webmail.v1's own token-redemption endpoint, keyed by IP for the same reason as
+        // 'adminer-credentials' above (called by .install/services/webmail/vendor/lesta_autologin/
+        // lesta_autologin.php with nothing but the single-use token itself).
+        RateLimiter::for('webmail-credentials', function (Request $request) {
+            return Limit::perMinute(30)->by($request->ip());
+        });
     }
 
     /**

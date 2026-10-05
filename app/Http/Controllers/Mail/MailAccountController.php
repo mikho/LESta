@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Mail;
 
 use App\Actions\Mail\CreateMailAccount;
 use App\Actions\Mail\DeleteMailAccount;
+use App\Actions\Mail\PrepareWebmailSession;
 use App\Actions\Mail\RotateMailAccountPassword;
 use App\Actions\Mail\SuspendMailAccount;
 use App\Actions\Mail\UnsuspendMailAccount;
@@ -14,6 +15,7 @@ use App\Http\Requests\Mail\StoreMailAccountRequest;
 use App\Http\Requests\Mail\UpdateMailAccountRequest;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -110,5 +112,20 @@ class MailAccountController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Mail account password rotated.')]);
 
         return to_route('mail.edit', $mailDomain);
+    }
+
+    /**
+     * Prepare a one-time, auto-logged-in webmail session for the given mailbox. A plain JSON
+     * endpoint, not an Inertia visit, for the same reason as TenantDatabaseController::openAdminer():
+     * the redirect target (the node's own mail hostname) is outside this app's own Inertia
+     * protocol, so the front end navigates there itself with the URL this returns.
+     */
+    public function openWebmail(Request $request, MailDomain $mailDomain, MailAccount $mailAccount): JsonResponse
+    {
+        abort_unless($mailAccount->mail_domain_id === $mailDomain->id, 404);
+
+        $url = app(PrepareWebmailSession::class)->handle($request->user(), $mailAccount);
+
+        return response()->json(['url' => $url]);
     }
 }

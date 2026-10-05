@@ -44,6 +44,7 @@ const capabilityOptions = [
     'backup.encrypted-artifacts.v1',
     'metrics.usage.v1',
     'files.manager.v1',
+    'mail.webmail.v1',
 ] as const;
 
 const capabilityDisplayStatusBadgeClasses: Record<string, string> = {
@@ -599,6 +600,28 @@ export default function Edit({
                                 />
 
                                 <InputError message={errors.hostname} />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="mail_hostname">
+                                    Mail hostname
+                                </Label>
+
+                                <Input
+                                    id="mail_hostname"
+                                    name="mail_hostname"
+                                    placeholder="mail.example.com"
+                                    defaultValue={node.mail_hostname ?? ''}
+                                />
+
+                                <p className="text-sm text-muted-foreground">
+                                    The hostname this node's mail stack was
+                                    installed with (--mail-hostname). Webmail is
+                                    served at this hostname. Leave empty if this
+                                    node has no mail service.
+                                </p>
+
+                                <InputError message={errors.mail_hostname} />
                             </div>
 
                             <div className="flex items-center gap-4">

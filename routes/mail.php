@@ -20,4 +20,5 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('mail/{mailDomain}/accounts/{mailAccount}/suspend', [MailAccountController::class, 'suspend'])->name('mail.accounts.suspend');
     Route::post('mail/{mailDomain}/accounts/{mailAccount}/unsuspend', [MailAccountController::class, 'unsuspend'])->name('mail.accounts.unsuspend');
     Route::post('mail/{mailDomain}/accounts/{mailAccount}/rotate-password', [MailAccountController::class, 'rotatePassword'])->name('mail.accounts.rotate-password');
+    Route::post('mail/{mailDomain}/accounts/{mailAccount}/open-webmail', [MailAccountController::class, 'openWebmail'])->name('mail.accounts.open-webmail');
 });

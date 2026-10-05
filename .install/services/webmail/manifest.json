@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "id": "webmail",
+  "version": "1.0.0",
+  "supported_ubuntu": ["24.04", "26.04"],
+  "depends_on": ["base.os.v1", "node.health.v1", "mail.smtp-imap.v1", "web.php-fpm.v1", "web.nginx.v1"],
+  "provides": ["mail.webmail.v1"],
+  "packages": [],
+  "ports": [],
+  "artifacts": [{"name": "roundcubemail-1.7.4-complete.tar.gz", "version": "1.7.4", "source": "https://github.com/roundcube/roundcubemail/releases/download/1.7.4/roundcubemail-1.7.4-complete.tar.gz", "sha256": "2c6c878f0093f1bf7fb6086781d2dd9269d652c016b86939c157c5f1729139a2", "signature": "vendored:gpg-verified-against-roundcube-release-key-41C4F7D5"}, {"name": "lesta_autologin.php", "version": "1.0.0", "source": "repo:.install/services/webmail/vendor/lesta_autologin/lesta_autologin.php", "sha256": "23bb24267630051d84b220146705afc06028b64b5e96c6ce3b3af2ea983381e3", "signature": "first-party-build:install-vendor"}],
+  "ownership": {"owned_roots": ["/etc/php/8.3/fpm/pool.d/lesta-webmail.conf", "/var/www/lesta-webmail", "/var/lib/lesta/webmail", "/run/lesta-webmail", "/etc/tmpfiles.d/lesta-webmail.conf"], "read_only_roots": ["/etc/lesta/agent/daemon-config.json", "/var/lib/lesta/acme/certs"], "refused_roots": ["/etc/sudoers"]}
+}

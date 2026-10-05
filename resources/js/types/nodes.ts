@@ -44,6 +44,7 @@ export type Node = {
     uuid: string;
     name: string;
     hostname: string;
+    mail_hostname?: string | null;
     enrollment_status: NodeEnrollmentStatus;
     protocol_version?: string | null;
     agent_version?: string | null;

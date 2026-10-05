@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 class UpdateNode
 {
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{name?: string, hostname?: string}
+     * @param  array<string, mixed>  $data  Expected shape: array{name?: string, hostname?: string, mail_hostname?: string|null}
      */
     public function handle(User $actor, Node $node, array $data): void
     {
@@ -22,6 +22,7 @@ class UpdateNode
             $node->fill([
                 'name' => $data['name'] ?? $node->name,
                 'hostname' => $data['hostname'] ?? $node->hostname,
+                'mail_hostname' => array_key_exists('mail_hostname', $data) ? $data['mail_hostname'] : $node->mail_hostname,
             ])->save();
 
             AuditEvent::create([

@@ -1,0 +1,18 @@
+# Webmail
+
+Roundcube webmail for a node's own mailboxes (`mail.webmail.v1`), Tier 1 item #3 of the end-user feature parity survey.
+
+Vendors the real upstream Roundcube 1.7.4 "complete" tarball (GPG-verified against the Roundcube release key when it was vendored) plus a first-party auto-login plugin (`lesta_autologin`), both checksum-verified against `manifest.json` before activation. The tarball is only re-extracted when the deployed version recorded in `/var/lib/lesta/webmail/deployed-version` differs, so a re-apply is a no-op. Version updates ship the same way as Adminer's: bump the pinned version and sha256 here, commit, re-run `install.sh --apply` per node; `bin/initdb.sh --update` then applies any schema upgrade.
+
+Usage: `install.sh --apply --yes --mail-hostname <fqdn>`, with the same hostname `mail/install.sh` was applied with. Preflight requires `php8.3-fpm`, `nginx`, `dovecot-imapd` and `exim4-daemon-heavy` to be installed, the node to be enrolled (`/etc/lesta/agent/daemon-config.json`), and a certificate at `/var/lib/lesta/acme/certs/<fqdn>/{fullchain,privkey}.pem`. It installs Roundcube's own PHP requirements (`php8.3-intl`, `php8.3-sqlite3`, `php8.3-mbstring`, `php8.3-xml`, `php8.3-zip`, plus `php8.3-cli` for `bin/initdb.sh`) only when missing.
+
+Runs behind its own dedicated, static, node-wide PHP-FPM pool (`lesta-webmail` identity, `open_basedir` scoped to `/var/www/lesta-webmail`, `/var/lib/lesta/webmail` and `/tmp`). nginx reaches it only through the node's own mail hostname domain: `web.nginx.v1`'s `WebmailSocket` field selects `webmail.conf.tmpl`, which serves Roundcube at `/` over HTTPS only. Laravel sets that field only when the domain equals the node's `mail_hostname`, its certificate is issued, and the node has a non-suspended `mail.webmail.v1` capability.
+
+Roundcube always logs in to this node's own Dovecot (`ssl://<fqdn>:993`) and sends through its own Exim (`tls://<fqdn>:587`), verifying both against the mail hostname's certificate, so `<fqdn>` must resolve to this node from the node itself. There is no server picker. Two login paths:
+
+- Panel SSO: "Open webmail" on a mailbox mints a 60-second, single-use token (`App\Actions\Mail\PrepareWebmailSession`) and sends the browser to `https://<fqdn>/?_lesta_token=...`. The plugin redeems it over one HTTPS call to the control plane's `/internal/webmail-credentials/{token}` endpoint, which returns the full address and password. The control plane URL comes from `daemon-config.json`, written to `plugins/lesta_autologin/control-plane-url.txt`.
+- Roundcube's own native login form, for mailbox owners who aren't panel users.
+
+Permissions: everything under `/var/www/lesta-webmail` is `root:lesta-webmail` (dirs 0750, files 0640), so the pool can read but never rewrite Roundcube or its config. Only `temp/` and `logs/` are owned by `lesta-webmail`. Roundcube 1.7 serves every asset through `public_html/static.php` (run by the pool), so nginx (`www-data`) never reads skins or plugins directly: `/var/www/lesta-webmail` is 0751 and only `public_html/` is world-readable. `config/` (which holds `des_key`) is never readable by `www-data`. `/var/lib/lesta/webmail` is `root:lesta-webmail` 1770 (SQLite needs to create its WAL files next to `roundcube.db`), and the sticky bit keeps the root-only `des_key` (0600, generated once per node and reused on every apply) from being replaced by the pool. Roundcube's web installer is removed after extraction.
+
+There is no Go dispatch package for this capability: this installer's `--apply` is the entire install step, and the agent reports it as present through `/var/lib/lesta/webmail`.

@@ -269,6 +269,7 @@ class NodeController extends Controller
             'uuid' => $node->uuid,
             'name' => $node->name,
             'hostname' => $node->hostname,
+            'mail_hostname' => $node->mail_hostname,
             'enrollment_status' => $node->enrollment_status->value,
             'protocol_version' => $node->protocol_version,
             'agent_version' => $node->agent_version,

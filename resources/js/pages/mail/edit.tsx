@@ -18,8 +18,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { apiPost } from '@/lib/api';
 import mail from '@/routes/mail';
 import type { MailAccount, MailDomain } from '@/types';
+import type { WebmailSessionResponse } from '@/types/mail';
 
 function PasswordRevealDialog() {
     const [password, setPassword] = useState<string | null>(null);
@@ -382,6 +384,64 @@ function RotatePasswordDialog({
     );
 }
 
+/**
+ * Opens webmail for this mailbox, navigating away from this app's own origin entirely.
+ * MailAccountController::openWebmail() is a plain JSON endpoint, not an Inertia visit (its
+ * redirect target, the node's own mail hostname, is outside this app's own Inertia protocol), so
+ * this uses `apiPost` and then a real, full-page navigation, the same as the Open Adminer card.
+ */
+function OpenWebmailButton({
+    mailDomain,
+    account,
+    webmailAvailable,
+}: {
+    mailDomain: MailDomain;
+    account: MailAccount;
+    webmailAvailable: boolean;
+}) {
+    const [opening, setOpening] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const openWebmail = async () => {
+        setOpening(true);
+        setError(null);
+
+        try {
+            const { url } = await apiPost<WebmailSessionResponse>(
+                MailAccountController.openWebmail([mailDomain, account]).url,
+            );
+            window.location.href = url;
+        } catch {
+            setError('Could not prepare a webmail session. Try again.');
+            setOpening(false);
+        }
+    };
+
+    return (
+        <>
+            <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                    !webmailAvailable ||
+                    account.suspended_at !== null ||
+                    opening
+                }
+                onClick={openWebmail}
+                data-test="open-webmail-button"
+            >
+                {opening ? 'Preparing…' : 'Open webmail'}
+            </Button>
+
+            {error && (
+                <span className="text-xs text-red-600 dark:text-red-400">
+                    {error}
+                </span>
+            )}
+        </>
+    );
+}
+
 function ToggleSuspendMailAccountDialog({
     mailDomain,
     account,
@@ -473,7 +533,13 @@ function ToggleSuspendMailAccountDialog({
     );
 }
 
-export default function Edit({ mailDomain }: { mailDomain: MailDomain }) {
+export default function Edit({
+    mailDomain,
+    webmailAvailable,
+}: {
+    mailDomain: MailDomain;
+    webmailAvailable: boolean;
+}) {
     const accounts = mailDomain.accounts ?? [];
     const [dkimEnabled, setDkimEnabled] = useState(mailDomain.dkim_enabled);
 
@@ -584,6 +650,14 @@ export default function Edit({ mailDomain }: { mailDomain: MailDomain }) {
                         <AddMailAccountDialog mailDomain={mailDomain} />
                     </div>
 
+                    {!webmailAvailable && (
+                        <p className="text-sm text-muted-foreground">
+                            Webmail is not available for this domain yet: its
+                            node needs a mail hostname and the mail.webmail.v1
+                            capability.
+                        </p>
+                    )}
+
                     <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
                         <table className="w-full text-left text-sm">
                             <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
@@ -653,6 +727,14 @@ export default function Edit({ mailDomain }: { mailDomain: MailDomain }) {
                                         </td>
                                         <td className="px-4 py-2">
                                             <div className="flex flex-wrap items-center gap-2">
+                                                <OpenWebmailButton
+                                                    mailDomain={mailDomain}
+                                                    account={account}
+                                                    webmailAvailable={
+                                                        webmailAvailable
+                                                    }
+                                                />
+
                                                 <EditMailAccountDialog
                                                     mailDomain={mailDomain}
                                                     account={account}

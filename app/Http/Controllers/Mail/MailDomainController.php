@@ -106,6 +106,7 @@ class MailDomainController extends Controller
 
         return Inertia::render('mail/edit', [
             'mailDomain' => $this->presentForEdit($mailDomain),
+            'webmailAvailable' => $mailDomain->node->hasWebmailAvailable(),
         ]);
     }
 

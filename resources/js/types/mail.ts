@@ -27,3 +27,12 @@ export type MailDomain = {
     accounts_count?: number;
     accounts?: MailAccount[];
 };
+
+/**
+ * The response shape of MailAccountController::openWebmail(), a plain JSON endpoint (never an
+ * Inertia visit): the destination is the node's own mail hostname, an origin entirely outside
+ * this app's own Inertia protocol.
+ */
+export type WebmailSessionResponse = {
+    url: string;
+};

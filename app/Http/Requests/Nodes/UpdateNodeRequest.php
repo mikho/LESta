@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Nodes;
 
 use App\Models\Node;
+use App\Rules\ValidDomainName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -22,6 +23,7 @@ class UpdateNodeRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255', Rule::unique('nodes', 'name')->ignore($node->id)],
             'hostname' => ['required', 'string', 'max:255', Rule::unique('nodes', 'hostname')->ignore($node->id)],
+            'mail_hostname' => ['nullable', 'string', 'max:253', new ValidDomainName],
         ];
     }
 }
