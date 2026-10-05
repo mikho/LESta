@@ -651,6 +651,13 @@ func mailProductionConfig() mail.Config {
 		EximBinary:         "exim",
 		EximPIDFile:        "/var/run/exim4/exim.pid",
 		EximListenPort:     25,
+		// Both reloads need root (the pid file sits in a Debian-exim-only
+		// directory, and an unprivileged process can't signal a root-owned
+		// Exim anyway), so the real unprivileged daemon routes them through
+		// exactly the two commands .install/services/mail/install.sh's own
+		// /etc/sudoers.d/lesta-mail grants.
+		EximReloadCommand:    []string{"sudo", "/usr/bin/systemctl", "reload", "exim4"},
+		DovecotReloadCommand: []string{"sudo", "/usr/bin/systemctl", "reload", "dovecot"},
 
 		DovecotConfPath:   "/etc/dovecot/lesta.conf",
 		DovecotPasswdPath: "/etc/dovecot/lesta.d/passwd",

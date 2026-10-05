@@ -91,6 +91,7 @@ set -eu
 SCRIPT_VERSION="1.0.0"
 RELEASE_ID="2026.09.13"
 MAIL_SMTP_IMAP_CAPABILITY="mail.smtp-imap.v1"
+SUDOERS_LESTA_MAIL_PATH="/etc/sudoers.d/lesta-mail"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/../.." && pwd)
@@ -1150,6 +1151,31 @@ install_mail() {
 
     install -d -m 0770 -o root -g lesta "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 0770 root:lesta"
+
+    # --- sudoers: systemctl reload exim4/dovecot -----------------------------
+    #
+    # The real lesta-agent-daemon runs unprivileged, and both reloads need
+    # root: Exim's own pid file (/var/run/exim4/exim.pid) sits in a
+    # Debian-exim-only directory, and even with the pid an unprivileged
+    # process can't signal a root-owned Exim. Found on lesta-cp-01, this
+    # installer's first real (non-CI) run: the self-test's create failed with
+    # "reading exim pid file ...: permission denied", since every self-test
+    # runs as lesta-agent (Phase 60). mailProductionConfig routes both
+    # reloads through exactly these two commands, nothing else.
+    cat > "${SUDOERS_LESTA_MAIL_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload exim4, /usr/bin/systemctl reload dovecot
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_MAIL_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_MAIL_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_MAIL_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_MAIL_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_MAIL_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_MAIL_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    mv "${SUDOERS_LESTA_MAIL_PATH}.tmp" "${SUDOERS_LESTA_MAIL_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_MAIL_PATH}" "failed to activate ${SUDOERS_LESTA_MAIL_PATH}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${SUDOERS_LESTA_MAIL_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload exim4 and systemctl reload dovecot as root, nothing else"
 
     systemctl enable exim4 || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable exim4 failed"
 
