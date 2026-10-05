@@ -1158,8 +1158,17 @@ install_mail() {
     # capability's own LiveDir/StateRoot this phase. DKIM private keys
     # stay individually 0600 regardless (that file-level mode is
     # unaffected by the directory's own mode).
-    install -d -m 0770 -o root -g lesta "${MAIL_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${MAIL_STATE_ROOT}" "state root present, mode 0770 root:lesta"
+    # 0771, not 0770: Dovecot's own mail processes run as vmail, which must
+    # traverse this directory to reach VMAIL_HOME (vmail:vmail 0700) beneath
+    # it, and is deliberately never a lesta group member. The world +x bit
+    # grants traversal only, never listing, the same pattern /var/lib/lesta
+    # itself already uses (0751); everything else in here (dkim/, sieve/)
+    # stays 0770 and unreachable to vmail. Found on lesta-cp-01's first real
+    # mail install: every IMAP session and LMTP delivery failed with
+    # "missing +x perm: /var/lib/lesta/mail" once authentication itself was
+    # fixed.
+    install -d -m 0771 -o root -g lesta "${MAIL_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${MAIL_STATE_ROOT}" "state root present, mode 0771 root:lesta (traverse-only for vmail)"
 
     install -d -m 0770 -o root -g lesta "${EXIM_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_LIVE_DIR}" "failed to create ${EXIM_LIVE_DIR}"
     install -d -m 0770 -o root -g lesta "${EXIM_DATA_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
