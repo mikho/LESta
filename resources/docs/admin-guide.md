@@ -76,7 +76,7 @@ A reseller is not a separate object — it's an ordinary account that other acco
 
 From an account's own page (`/accounts/{account}`), under **Reseller**:
 
-- **Assign**: start typing the target account's name or ID and pick it from the suggestions to make *this* account manage that one. Nesting is one level only — a reseller-managed account cannot itself become a reseller, and an existing reseller cannot become someone else's managed account.
+- **Assign**: start typing the target account's name or ID and pick it from the suggestions to make _this_ account manage that one. Nesting is one level only — a reseller-managed account cannot itself become a reseller, and an existing reseller cannot become someone else's managed account.
 - **Unassign**: removes the relationship.
 
 **Gap (disclosed, deliberately deferred):** a reseller cannot create new accounts themselves yet — only assign existing ones. This was an explicit scoping decision, not an oversight, but it means "reseller" today only means "manages accounts an admin already created and handed over."

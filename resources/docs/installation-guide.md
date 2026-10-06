@@ -45,18 +45,18 @@ Do this in the LESta admin app first, before touching the server:
 
 1. **Register the node**: `Nodes → Add node` (see the Admin Guide, Chapter 5) — just a name and hostname, no server contact happens yet.
 2. **Issue an enrollment token**, either from the node's own edit page (**Issue enrollment token** button) or from the command line:
-   ```
-   php artisan lesta:nodes:issue-enrollment-token <node_uuid>
-   ```
-   Both produce the exact same one-time, 30-minute token. The raw token is shown/printed exactly once; issue a new one if it's lost.
+    ```
+    php artisan lesta:nodes:issue-enrollment-token <node_uuid>
+    ```
+    Both produce the exact same one-time, 30-minute token. The raw token is shown/printed exactly once; issue a new one if it's lost.
 3. **On the node**, run the agent daemon installer with that token:
-   ```
-   .install/services/agent-daemon/install.sh --apply --yes \
-       --node-uuid <node_uuid> \
-       --enrollment-token <token> \
-       --control-plane-url https://your-lesta-domain.example
-   ```
-   This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness and capabilities back to LESta from here on.
+    ```
+    .install/services/agent-daemon/install.sh --apply --yes \
+        --node-uuid <node_uuid> \
+        --enrollment-token <token> \
+        --control-plane-url https://your-lesta-domain.example
+    ```
+    This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness and capabilities back to LESta from here on.
 
 This step alone doesn't give the node any real capability yet — it just makes the node exist and check in. Everything below adds an actual service.
 
@@ -64,23 +64,23 @@ This step alone doesn't give the node any real capability yet — it just makes 
 
 ## Chapter 4: The real installers, and the order they actually need to run in
 
-| Service | Installs | Depends on |
-|---|---|---|
-| `firewall` | baseline nftables policy | base only — **runs automatically**, embedded in every other installer below, never invoked by hand |
-| `node-health` | agent registration/heartbeat plumbing | base only — **also automatic**, embedded the same way |
-| `nginx` | nginx web server | firewall, node-health |
-| `apache` | Apache web server | firewall, node-health |
-| `bind9` | BIND9 DNS server | firewall, node-health |
-| `mariadb` | **both** the tenant database instance (port 3307) and this app's own control-plane database instance (port 3306) | node-health, firewall |
-| `cron` | account-scoped scheduled jobs | node-health |
-| `acme` | TLS certificates | nginx and/or apache — **no standalone install script**; this is a Laravel-side queued job (`App\Jobs\IssueAcmeCertificate`), not something you run on the node at all. It works automatically once a web server is present. |
-| `mail` | Exim + Dovecot mailboxes | **bind9, nginx, and acme, all already healthy** |
-| `backups` | encrypted whole-node snapshots | node-health only (deliberately minimal — it backs up whatever else happens to be present) |
-| `statistics` | usage/metrics collection | nginx and/or apache, mail, node-health, the tenant database — **no standalone install script either**; real support (access-log directives, a stats database account) is built into nginx/apache's and mariadb's own installers. Only the last step, declaring `metrics.usage.v1` in the admin UI (Admin Guide, Chapter 5), is separate. |
+| Service       | Installs                                                                                                         | Depends on                                                                                                                                                                                                                                                                                                                               |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `firewall`    | baseline nftables policy                                                                                         | base only — **runs automatically**, embedded in every other installer below, never invoked by hand                                                                                                                                                                                                                                       |
+| `node-health` | agent registration/heartbeat plumbing                                                                            | base only — **also automatic**, embedded the same way                                                                                                                                                                                                                                                                                    |
+| `nginx`       | nginx web server                                                                                                 | firewall, node-health                                                                                                                                                                                                                                                                                                                    |
+| `apache`      | Apache web server                                                                                                | firewall, node-health                                                                                                                                                                                                                                                                                                                    |
+| `bind9`       | BIND9 DNS server                                                                                                 | firewall, node-health                                                                                                                                                                                                                                                                                                                    |
+| `mariadb`     | **both** the tenant database instance (port 3307) and this app's own control-plane database instance (port 3306) | node-health, firewall                                                                                                                                                                                                                                                                                                                    |
+| `cron`        | account-scoped scheduled jobs                                                                                    | node-health                                                                                                                                                                                                                                                                                                                              |
+| `acme`        | TLS certificates                                                                                                 | nginx and/or apache — **no standalone install script**; this is a Laravel-side queued job (`App\Jobs\IssueAcmeCertificate`), not something you run on the node at all. It works automatically once a web server is present.                                                                                                              |
+| `mail`        | Exim + Dovecot mailboxes                                                                                         | **bind9, nginx, and acme, all already healthy**                                                                                                                                                                                                                                                                                          |
+| `backups`     | encrypted whole-node snapshots                                                                                   | node-health only (deliberately minimal — it backs up whatever else happens to be present)                                                                                                                                                                                                                                                |
+| `statistics`  | usage/metrics collection                                                                                         | nginx and/or apache, mail, node-health, the tenant database — **no standalone install script either**; real support (access-log directives, a stats database account) is built into nginx/apache's and mariadb's own installers. Only the last step, declaring `metrics.usage.v1` in the admin UI (Admin Guide, Chapter 5), is separate. |
 
 **Firewall and node-health never need to be run by hand at all** — every real installer below bootstraps both automatically and idempotently the first time it runs on a fresh node. The genuinely operator-run installers are: `nginx` and/or `apache`, `bind9`, `mariadb`, `cron`, `mail`, `backups`. `acme` and `statistics` are side effects of the others plus one admin-UI step, not their own install run.
 
-**The dependency order that actually matters, if you want everything**: web server(s) first (nginx and/or apache) → DNS (bind9) → mail last of all, since mail alone needs bind9, a web server, *and* a real ACME certificate all already working before it will even start. Databases (mariadb) and cron have no ordering relationship with the others and can go any time after the first web/DNS install has bootstrapped firewall+node-health. Backups can go literally any time.
+**The dependency order that actually matters, if you want everything**: web server(s) first (nginx and/or apache) → DNS (bind9) → mail last of all, since mail alone needs bind9, a web server, _and_ a real ACME certificate all already working before it will even start. Databases (mariadb) and cron have no ordering relationship with the others and can go any time after the first web/DNS install has bootstrapped firewall+node-health. Backups can go literally any time.
 
 Every installer shares the same invocation shape:
 
@@ -133,7 +133,7 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 
 > **This is a destructive operation. Read this whole chapter before using it.**
 
-`install-selected.sh` also takes `--prune`, alongside the same `--services` selection: instead of only adding what you name, it reconciles the node down to *exactly* that selection plus a fixed protected baseline, removing everything else present.
+`install-selected.sh` also takes `--prune`, alongside the same `--services` selection: instead of only adding what you name, it reconciles the node down to _exactly_ that selection plus a fixed protected baseline, removing everything else present.
 
 **This reaches further than LESta's own footprint, by design.** `--prune` doesn't just remove LESta services you no longer want — it also removes unrelated OS packages that aren't part of a small, fixed protected list (`.install/base/protected-packages.txt`): SSH, `sudo`, the package manager and its trust chain, `systemd`, core networking, the firewall/intrusion-prevention baseline, unattended security updates, and the running kernel/bootloader are the only things it will never touch, regardless of what you select. Everything else non-protected and not required by your current `--services` selection is a real removal candidate.
 
@@ -160,11 +160,11 @@ sudo .install/scripts/install-selected.sh --prune --apply --yes --services nginx
 
 nginx, bind9, and apache each refuse to write to their own distribution's main config file (`/etc/nginx/nginx.conf`, `/etc/bind/named.conf`, `/etc/apache2/apache2.conf`) — this is deliberate, not a bug: a silent edit to an operator-owned file is exactly what the installer contract forbids. Before running any of these three with `--apply` (directly or via `install-selected.sh`), you must add one line to that file, either by hand or via `--prepare-config --yes` (a separate, explicit, idempotent mode that does only this one edit and nothing else):
 
-| Service | File | Line to add |
-|---|---|---|
-| nginx | `/etc/nginx/nginx.conf`, inside the `http {}` block | `include /etc/nginx/lesta.d/*.conf;` |
-| bind9 | `/etc/bind/named.conf` itself — **never** `named.conf.local` | `include "/etc/bind/lesta.d/*.conf";` |
-| apache | `/etc/apache2/apache2.conf` | `IncludeOptional /etc/apache2/lesta.d/*.conf` |
+| Service | File                                                         | Line to add                                   |
+| ------- | ------------------------------------------------------------ | --------------------------------------------- |
+| nginx   | `/etc/nginx/nginx.conf`, inside the `http {}` block          | `include /etc/nginx/lesta.d/*.conf;`          |
+| bind9   | `/etc/bind/named.conf` itself — **never** `named.conf.local` | `include "/etc/bind/lesta.d/*.conf";`         |
+| apache  | `/etc/apache2/apache2.conf`                                  | `IncludeOptional /etc/apache2/lesta.d/*.conf` |
 
 Missing this line fails preflight with exit code `12` and a message naming the exact fix — it will not fail silently or partway through.
 
@@ -176,16 +176,16 @@ Missing this line fails preflight with exit code `12` and a message naming the e
 
 Running `install.sh --apply` on the node (directly, or via `install-selected.sh`) does **not** by itself make LESta aware the capability exists — declare it in the admin app (`Nodes → [your node] → Capabilities`, Admin Guide Chapter 5), matching exactly what you just installed:
 
-| You ran | Declare this capability |
-|---|---|
-| `nginx/install.sh` | `web.nginx.v1` |
-| `apache/install.sh` (standalone or via nginx's `both`) | `web.apache.v1` |
-| `bind9/install.sh` | `dns.bind9.v1` |
-| `mariadb/install.sh` | `database.tenant.v1` (the control-plane instance is this application's own database — it never gets declared as a tenant-facing `NodeCapability` at all) |
-| `cron/install.sh` | `scheduler.account-cron.v1` |
-| `mail/install.sh` | `mail.smtp-imap.v1` |
-| `backups/install.sh` | `backup.encrypted-artifacts.v1` |
-| (nginx/apache + mariadb already installed) | `metrics.usage.v1`, once you're ready to start collecting usage |
+| You ran                                                | Declare this capability                                                                                                                                  |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nginx/install.sh`                                     | `web.nginx.v1`                                                                                                                                           |
+| `apache/install.sh` (standalone or via nginx's `both`) | `web.apache.v1`                                                                                                                                          |
+| `bind9/install.sh`                                     | `dns.bind9.v1`                                                                                                                                           |
+| `mariadb/install.sh`                                   | `database.tenant.v1` (the control-plane instance is this application's own database — it never gets declared as a tenant-facing `NodeCapability` at all) |
+| `cron/install.sh`                                      | `scheduler.account-cron.v1`                                                                                                                              |
+| `mail/install.sh`                                      | `mail.smtp-imap.v1`                                                                                                                                      |
+| `backups/install.sh`                                   | `backup.encrypted-artifacts.v1`                                                                                                                          |
+| (nginx/apache + mariadb already installed)             | `metrics.usage.v1`, once you're ready to start collecting usage                                                                                          |
 
 A capability's status only shows **Running** once the agent has actually reported it back to the control plane through a real heartbeat (Admin Guide, Chapter 5) — declaring it here is necessary but not sufficient by itself; the agent's own confirmation is what actually flips it. After a `--prune` removal, the reverse applies: reset the capability back to Not installed in the admin app yourself.
 

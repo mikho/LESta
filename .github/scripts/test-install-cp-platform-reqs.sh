@@ -17,7 +17,10 @@
 set -eu
 
 REPO=$(pwd)
-[ -f "${REPO}/install-cp.sh" ] && [ -f "${REPO}/composer.lock" ] || { echo "run from the repository root" >&2; exit 2; }
+if [ ! -f "${REPO}/install-cp.sh" ] || [ ! -f "${REPO}/composer.lock" ]; then
+    echo "run from the repository root" >&2
+    exit 2
+fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "${WORK}" 2>/dev/null || true' EXIT

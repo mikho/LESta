@@ -56,6 +56,14 @@ type Config struct {
 	// means invoke directly, matching this package's own disposable
 	// test harness.
 	SudoBinary string
+	// ReloadCommand, when non-empty, fully overrides reload's `systemctl
+	// reload php<version>-fpm` (run as given, never through SudoBinary).
+	// Production leaves it empty; the disposable test harness signals its
+	// own php-fpm master instead, which no systemd unit manages.
+	ReloadCommand []string
+	// IsActiveCommand, when non-empty, fully overrides the generic
+	// `systemctl is-active` liveness probe the same way.
+	IsActiveCommand []string
 }
 
 // phpFpmBinary resolves the real per-version php-fpm binary name (Ubuntu/

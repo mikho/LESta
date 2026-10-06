@@ -222,6 +222,13 @@ jobs:
         working-directory: agent
         run: sudo env "PATH=$PATH" go test -count=1 ./internal/capability/identity/... -v
 
+      - name: Test php-fpm's real disposable-pool round trip as root
+        # The runner image ships php-fpm, and every pool names a real
+        # user/group (resolved even when unprivileged), so the suite creates
+        # a disposable user and skips unless root, like identity above.
+        working-directory: agent
+        run: sudo env "PATH=$PATH:/usr/sbin" go test -count=1 ./internal/capability/phpfpm/... -v
+
   installer:
     runs-on: ubuntu-latest
 

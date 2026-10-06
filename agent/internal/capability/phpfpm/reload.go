@@ -16,6 +16,9 @@ func (c *PhpFpmCapability) reload(ctx context.Context, version string) error {
 	unit := "php" + version + "-fpm"
 
 	cmd := c.cfg.command(ctx, "systemctl", "reload", unit)
+	if len(c.cfg.ReloadCommand) > 0 {
+		cmd = exec.CommandContext(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
+	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -55,6 +58,9 @@ func (c *PhpFpmCapability) waitHealthyGeneric(ctx context.Context, version strin
 
 	return pollUntil(ctx, func() error {
 		cmd := exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit)
+		if len(c.cfg.IsActiveCommand) > 0 {
+			cmd = exec.CommandContext(ctx, c.cfg.IsActiveCommand[0], c.cfg.IsActiveCommand[1:]...)
+		}
 
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("%s is not active: %w", unit, err)

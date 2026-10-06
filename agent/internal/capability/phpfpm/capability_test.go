@@ -44,10 +44,10 @@ func newOp(operation protocol.Operation, resourceID string, desiredStateVersion 
 	}
 }
 
-func fpmPayload(accountID int, version string) map[string]any {
+func fpmPayload(accountID int, username, version string) map[string]any {
 	return map[string]any{
 		"account_id":       accountID,
-		"account_username": "lesta-t" + fmt.Sprint(accountID),
+		"account_username": username,
 		"php_version":      version,
 		"suspended":        false,
 	}
@@ -91,7 +91,7 @@ func TestCreateThenDeleteRoundTripAgainstARealDisposablePhpFpm(t *testing.T) {
 		t.Fatalf("creating real docroot: %v", err)
 	}
 
-	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, 1, fpmPayload(accountID, version)))
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, 1, fpmPayload(accountID, d.Username, version)))
 	requireApplied(t, "create", created, err)
 
 	socketPath := cfg.socketPath(version, resourceID)
@@ -104,15 +104,21 @@ func TestCreateThenDeleteRoundTripAgainstARealDisposablePhpFpm(t *testing.T) {
 		t.Fatalf("expected a real pool fragment to exist at %s: %v", poolFile, err)
 	}
 
-	deleted, err := capability.Apply(ctx, newOp(protocol.OperationDelete, resourceID, 1, fpmPayload(accountID, version)))
+	deleted, err := capability.Apply(ctx, newOp(protocol.OperationDelete, resourceID, 1, fpmPayload(accountID, d.Username, version)))
 	requireApplied(t, "delete", deleted, err)
 
 	if _, err := os.Stat(poolFile); !os.IsNotExist(err) {
 		t.Fatalf("expected the pool fragment to be removed after delete, stat error: %v", err)
 	}
 
-	if err := dialUnixSocket(socketPath); err == nil {
-		t.Fatal("expected the pool socket to no longer accept connections after delete")
+	// A php-fpm reload is SIGUSR2 (the real unit's own ExecReload too),
+	// which returns before the master has dropped the deleted pool.
+	deadline := time.Now().Add(5 * time.Second)
+	for dialUnixSocket(socketPath) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("expected the pool socket to no longer accept connections after delete")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -131,7 +137,7 @@ func TestObserveDetectsRealDriftInTheLivePoolDirectory(t *testing.T) {
 	resourceID := newTestUUID(t)
 	accountID := 1
 
-	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, 1, fpmPayload(accountID, version)))
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, 1, fpmPayload(accountID, d.Username, version)))
 	requireApplied(t, "create", created, err)
 
 	poolFile := filepath.Join(cfg.poolDir(version), resourceID+".conf")
@@ -139,7 +145,7 @@ func TestObserveDetectsRealDriftInTheLivePoolDirectory(t *testing.T) {
 		t.Fatalf("tampering with the live pool fragment: %v", err)
 	}
 
-	observed, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, 1, fpmPayload(accountID, version)))
+	observed, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, 1, fpmPayload(accountID, d.Username, version)))
 	if err != nil {
 		t.Fatalf("observe: unexpected error: %v", err)
 	}

@@ -10,7 +10,7 @@ This guide is for a hosting customer — someone with a real account on LESta, e
 
 - **Log in** at the site's login page with the email and password your administrator gave you (or the password you set via the emailed link).
 - **Dashboard** (the page you land on after logging in) shows a quick overview of your account: how many web domains, DNS zones, mail domains, mailboxes, databases, and cron jobs you have, each linking straight to that section. If your account is suspended, that's shown here too.
-- If you belong to more than one account, **My account** in the sidebar (`/accounts/mine`) lists all of them; each row links to that account's own page. The dashboard itself only ever shows your *first* account if you have several — there is no account switcher yet, so if you manage more than one, use "My account" to get to the others.
+- If you belong to more than one account, **My account** in the sidebar (`/accounts/mine`) lists all of them; each row links to that account's own page. The dashboard itself only ever shows your _first_ account if you have several — there is no account switcher yet, so if you manage more than one, use "My account" to get to the others.
 
 ---
 
@@ -54,7 +54,7 @@ Click through from "My account," or from the dashboard, to reach your account's 
 
 - **Add domain**: the domain name, a **catch-all email** (optional — where mail to unrecognized addresses at this domain goes), and three toggles: scan incoming mail for viruses, scan for spam (both on by default), and sign outgoing mail with DKIM (off by default — turning it on starts real key generation, and the key rotates automatically on a schedule you don't need to manage).
 - Inside a domain's edit page, **Add mailbox**: a name (the part before the `@`), optional quota in MB, optional forwarding address, a "forward only, don't keep a copy" toggle, and an autoreply toggle with its own message.
-  - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **Rotate password** on that mailbox to get a new one.
+    - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **Rotate password** on that mailbox to get a new one.
 - Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page.
 - The domain itself can be suspended/unsuspended (stops/resumes all mail for every mailbox on it) or deleted (removes it and every mailbox in it).
 
