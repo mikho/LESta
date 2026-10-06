@@ -317,9 +317,11 @@ capability_provider() {
     return 0
 }
 
-# resolve_order -> prints SELECTED in real dependency order, one per line, or
-# fails closed (exit 12) naming exactly which selected service is missing
-# exactly which other selectable service, before any mutation. A dependency
+# resolve_order -> sets ORDER to SELECTED in real dependency order, one per
+# line, or fails closed (exit 12) naming every selectable service each
+# selected service is missing, before any mutation. It sets ORDER rather than
+# printing it: inside ORDER=$(...) its fail-closed result JSON would be
+# captured instead of emitted, and the exit silent. A dependency
 # is also considered satisfied when its own provider is already really
 # installed on this node (uninstall_service_present, lib/uninstall.sh --
 # the same real dpkg/systemd/directory presence check --prune already
@@ -328,7 +330,7 @@ capability_provider() {
 # node only needs --services mail, not --services nginx,bind9,mail again.
 resolve_order() {
     local remaining="${SELECTED}" ordered="" progressed svc dep provider missing_lines=""
-    local ok first_missing new_remaining r
+    local ok missing new_remaining r line
 
     while [ -n "$(printf '%s' "${remaining}" | tr -d '[:space:]')" ]; do
         progressed=0
@@ -336,7 +338,7 @@ resolve_order() {
 
         for svc in ${remaining}; do
             ok=1
-            first_missing=""
+            missing=""
 
             for dep in $(manifest_extract_array "$(svc_manifest "${svc}")" depends_on); do
                 provider=$(capability_provider "${dep}")
@@ -350,8 +352,7 @@ resolve_order() {
                 uninstall_service_present "${provider}" && continue
 
                 ok=0
-                first_missing="${dep} (select ${provider}, or install it separately first)"
-                break
+                missing="${missing:+${missing}, }${dep} (select ${provider}, or install it separately first)"
             done
 
             if [ "${ok}" -eq 1 ]; then
@@ -363,23 +364,27 @@ resolve_order() {
                     done
                 )
             else
-                missing_lines=$(append_line "${missing_lines}" "${svc} needs ${first_missing}")
+                missing_lines=$(append_line "${missing_lines}" "${svc} needs ${missing}")
             fi
         done
 
         remaining="${new_remaining}"
 
         if [ "${progressed}" -eq 0 ]; then
-            printf '%s\n' "${missing_lines}" | while IFS= read -r line; do
+            # A here-document, not a pipe: add_error must run in this shell,
+            # or every error it records is lost with the pipeline's subshell.
+            while IFS= read -r line; do
                 [ -n "${line}" ] && add_error missing_dependency "${line}" ""
-            done
+            done <<MISSINGEOF
+${missing_lines}
+MISSINGEOF
             emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
         fi
 
         missing_lines=""
     done
 
-    printf '%s\n' "${ordered}" | tr -s ' ' '\n' | sed '/^$/d'
+    ORDER=$(printf '%s\n' "${ordered}" | tr -s ' ' '\n' | sed '/^$/d')
 }
 
 # --- per-service invocation --------------------------------------------
@@ -564,9 +569,9 @@ emit_result_and_exit() {
     changes_json=$(json_array_from_lines "${CHANGES}")
     errors_json=$(json_array_from_lines "${ERRORS}")
 
-    services_json=$(json_array_from_lines "$(printf '%s\n' "${SELECTED}" | tr -s ' ' '\n' | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; done)")
-    order_json=$(json_array_from_lines "$(printf '%s\n' "${ORDER}" | tr -s ' ' '\n' | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; done)")
-    confirm_json=$(json_array_from_lines "$(printf '%s\n' "${CONFIRM_DATA_LOSS}" | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; done)")
+    services_json=$(json_array_from_lines "$(printf '%s\n' "${SELECTED}" | tr -s ' ' '\n' | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; printf '\n'; done)")
+    order_json=$(json_array_from_lines "$(printf '%s\n' "${ORDER}" | tr -s ' ' '\n' | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; printf '\n'; done)")
+    confirm_json=$(json_array_from_lines "$(printf '%s\n' "${CONFIRM_DATA_LOSS}" | sed '/^$/d' | while IFS= read -r s; do json_str "${s}"; printf '\n'; done)")
 
     result=$(json_join_object \
         "$(json_kv_str "schema_version" "1")" \
@@ -634,7 +639,7 @@ main() {
 
     run_preflight
 
-    ORDER=$(resolve_order)
+    resolve_order
 
     if [ "${MODE}" = "apply" ]; then
         # log_init group-owns its log by lesta, which on a fresh node no
