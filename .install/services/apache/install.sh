@@ -936,7 +936,8 @@ write_web_profile() {
 # applied, then deleted, leaving no residue. The payload shape is identical
 # to nginx/install.sh's own self-test payload (apache.Payload mirrors
 # nginx.Payload exactly): {domain, aliases: [], ip_address, web_template:
-# "default", ssl: {mode: "off"}, suspended: false}.
+# "default", account_id: 1, account_username: "", php_socket: "",
+# ssl: {mode: "off"}, suspended: false}.
 run_node_health_selftest() {
     local resource_id create_idem create_corr delete_idem delete_corr
     local ssl_obj payload envelope agent_out agent_status status_line
@@ -953,6 +954,9 @@ run_node_health_selftest() {
         "$(json_kv_raw "aliases" "[]")" \
         "$(json_kv_str "ip_address" "127.0.0.1")" \
         "$(json_kv_str "web_template" "default")" \
+        "$(json_kv_raw "account_id" "1")" \
+        "$(json_kv_str "account_username" "")" \
+        "$(json_kv_str "php_socket" "")" \
         "$(json_kv_raw "ssl" "${ssl_obj}")" \
         "$(json_kv_raw "suspended" "false")")
 

@@ -58,8 +58,15 @@ type Payload struct {
 	// now that WebDomain::toProvisioningPayload() always sends both.
 	AccountID int    `json:"account_id"`
 	PhpSocket string `json:"php_socket"`
-	SSL       SSL    `json:"ssl"`
-	Suspended bool   `json:"suspended"`
+	// AccountUsername, AdminerSocket and WebmailSocket are decoded for the
+	// same reason (toProvisioningPayload() sends them to both web
+	// capabilities) but unused here: this capability still serves only its
+	// own health-marker content.
+	AccountUsername string `json:"account_username"`
+	AdminerSocket   string `json:"adminer_socket"`
+	WebmailSocket   string `json:"webmail_socket"`
+	SSL             SSL    `json:"ssl"`
+	Suspended       bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
