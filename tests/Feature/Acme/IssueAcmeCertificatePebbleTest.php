@@ -5,6 +5,7 @@ use App\Contracts\Provisioner;
 use App\Enums\ProvisioningStatus;
 use App\Enums\SslMode;
 use App\Jobs\IssueAcmeCertificate;
+use App\Models\AccountNodeIdentity;
 use App\Models\DnsRecord;
 use App\Models\DnsZone;
 use App\Models\IpAllocation;
@@ -520,6 +521,7 @@ test('IssueAcmeCertificate dispatches the update to web.apache.v1 when apache is
             'ssl_mode' => SslMode::LetsEncrypt,
             'certificate_issued_at' => null,
         ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     (new IssueAcmeCertificate($webDomain))->handle(
         app(EnsuresAcmeAccountExists::class),

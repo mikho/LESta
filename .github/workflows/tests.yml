@@ -700,7 +700,10 @@ jobs:
 
           def invoke_agent(env):
               out = subprocess.run(
-                  [AGENT_BINARY], input=json.dumps(env), capture_output=True, text=True, timeout=30
+                  # As lesta-agent, like the real daemon: run as root, the agent
+                  # rewrites mail's credentials archive root-owned 0600 and the
+                  # next real (lesta-agent) apply can no longer read it.
+                  ["sudo", "-u", "lesta-agent", "--", AGENT_BINARY], input=json.dumps(env), capture_output=True, text=True, timeout=30
               )
               if out.returncode != 0:
                   sys.exit(f"agent exited {out.returncode}: {out.stdout} {out.stderr}")
