@@ -156,6 +156,25 @@ test('the edit page backfills a missing account node identity and reports its sf
     expect(AccountNodeIdentity::query()->where('account_id', $account->id)->where('node_id', $node->id)->exists())->toBeTrue();
 });
 
+test('the edit page reports the certificate status and its last error', function () {
+    [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->for($node)->create([
+        'certificate_issued_at' => now(),
+        'certificate_expires_at' => now()->addDays(90),
+        'last_certificate_error' => 'Certificate issued, but the web server could not be updated to use it: boom',
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('domains.edit', $webDomain))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('domains/edit')
+            ->where('webDomain.certificate_issued_at', $webDomain->certificate_issued_at->toIso8601String())
+            ->where('webDomain.certificate_expires_at', $webDomain->certificate_expires_at->toIso8601String())
+            ->where('webDomain.last_certificate_error', 'Certificate issued, but the web server could not be updated to use it: boom')
+        );
+});
+
 test('an owner can set their own account\'s ssh public key for a web domain\'s node', function () {
     [$account, $owner, $node] = actingAsOwnerWithWebCapableAccount();
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();

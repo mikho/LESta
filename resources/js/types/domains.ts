@@ -25,6 +25,9 @@ export type WebDomain = {
     web_server: WebServer;
     php_version: PhpVersion | null;
     ssl_mode: SslMode;
+    certificate_issued_at: string | null;
+    certificate_expires_at: string | null;
+    last_certificate_error: string | null;
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     provisioning_status: ProvisioningStatus | null;

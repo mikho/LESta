@@ -420,6 +420,7 @@ test('IssueAcmeCertificate completes the full real HTTP-01 happy path against a 
             'ssl_mode' => SslMode::LetsEncrypt,
             'certificate_issued_at' => null,
         ]);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     (new IssueAcmeCertificate($webDomain))->handle(
         app(EnsuresAcmeAccountExists::class),

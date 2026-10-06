@@ -200,6 +200,26 @@ export default function Edit({
                                 </Select>
 
                                 <InputError message={errors.ssl_mode} />
+
+                                {webDomain.ssl_mode === 'lets_encrypt' && (
+                                    <p
+                                        className="text-sm text-muted-foreground"
+                                        data-test="certificate-status"
+                                    >
+                                        {webDomain.certificate_issued_at
+                                            ? `Certificate issued ${new Date(webDomain.certificate_issued_at).toLocaleDateString()}${webDomain.certificate_expires_at ? `, expires ${new Date(webDomain.certificate_expires_at).toLocaleDateString()}` : ''}.`
+                                            : 'Certificate not issued yet.'}
+                                    </p>
+                                )}
+
+                                {webDomain.last_certificate_error && (
+                                    <p
+                                        className="text-sm text-red-600 dark:text-red-400"
+                                        data-test="certificate-error"
+                                    >
+                                        {webDomain.last_certificate_error}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-4">

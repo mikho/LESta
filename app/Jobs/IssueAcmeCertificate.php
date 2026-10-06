@@ -11,9 +11,7 @@ use AcmePhp\Ssl\CertificateResponse;
 use AcmePhp\Ssl\DistinguishedName;
 use AcmePhp\Ssl\Generator\KeyPairGenerator;
 use App\Actions\Acme\EnsuresAcmeAccountExists;
-use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesDnsCapableNode;
-use App\Actions\Provisioning\ResolvesWebCapableNode;
 use App\Contracts\Provisioner;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
@@ -140,15 +138,18 @@ class IssueAcmeCertificate implements ShouldQueue
             ])->save();
 
             // Deliberately its own try/catch, never allowed to fall through
-            // to the outer catch: the certificate is already successfully
-            // issued and installed by this point, so a failure only telling
-            // nginx about it (e.g. the node's own web capability was
-            // suspended between the original vhost create and this
-            // issuance) must never retroactively overwrite that real
-            // success as last_certificate_error.
+            // to the outer catch's plain error: the certificate is already
+            // issued and installed by this point. Telling the web server is
+            // its own retried job (see UpdateWebCapabilityCertificate), which
+            // records an "issued, but not served" error if it never succeeds;
+            // the same error is recorded here if it can't even be dispatched.
             try {
-                $this->dispatchWebCapabilityUpdateIfPresent($webDomain);
+                UpdateWebCapabilityCertificate::dispatch($webDomain);
             } catch (Throwable $webCapabilityDispatchError) {
+                $webDomain->forceFill([
+                    'last_certificate_error' => Str::limit(UpdateWebCapabilityCertificate::ERROR_PREFIX.$webCapabilityDispatchError->getMessage(), 500, ''),
+                ])->save();
+
                 report($webCapabilityDispatchError);
             }
         } catch (Throwable $e) {
@@ -318,39 +319,6 @@ class IssueAcmeCertificate implements ShouldQueue
         if (! $this->isSuccessResult($result)) {
             throw new \RuntimeException('Failed to install the issued certificate via tls.acme.v1: '.$this->describeErrors($result));
         }
-    }
-
-    /**
-     * Once a certificate is installed, this domain's own resolved PUBLIC
-     * web capability needs to be told about it so it actually terminates
-     * HTTPS -- web.nginx.v1 when the node has it active (nginx always
-     * fronts the public listener, per ResolvesWebCapableNode's own
-     * nginx-over-apache precedence), otherwise web.apache.v1. Both
-     * capabilities now render an HTTPS vhost template once
-     * WebDomain::toProvisioningPayload() populates
-     * ssl.certificate_path/private_key_path for them, so neither is
-     * special-cased here: the same resolution TriggersAcmeCertificateIssuance
-     * itself performs (see its own doc comment) is simply repeated fresh.
-     *
-     * Unlike the ACME protocol steps above, there is no reason to bypass the
-     * queue here: the public capability picking up the new certificate
-     * isn't part of the CA's own synchronous validation path, so this
-     * reuses the same queued RecordsProvisioningOperation::record() path
-     * every other web_domain desired-state change already goes through.
-     */
-    private function dispatchWebCapabilityUpdateIfPresent(WebDomain $webDomain): void
-    {
-        $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
-        $publicCapability = in_array('web.nginx.v1', $capabilities, true) ? 'web.nginx.v1' : 'web.apache.v1';
-
-        app(RecordsProvisioningOperation::class)->record(
-            $webDomain,
-            $publicCapability,
-            ProvisioningVerb::Update,
-            $webDomain->toProvisioningPayload($publicCapability),
-            (string) Str::uuid(),
-            $webDomain->desired_state_version,
-        );
     }
 
     private function certificateExpiry(Certificate $certificate): Carbon
