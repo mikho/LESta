@@ -133,11 +133,11 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 
 > **This is a destructive operation. Read this whole chapter before using it.**
 
-`install-selected.sh` also takes `--prune`, alongside the same `--services` selection: instead of only adding what you name, it reconciles the node down to _exactly_ that selection plus a fixed protected baseline, removing everything else present.
+`install-selected.sh` also takes `--prune`, alongside the same `--services` selection: instead of only adding what you name, it also removes every LESta service present on the node that you didn't select, including its units, its own packages, its firewall ports and its files.
 
-**This reaches further than LESta's own footprint, by design.** `--prune` doesn't just remove LESta services you no longer want — it also removes unrelated OS packages that aren't part of a small, fixed protected list (`.install/base/protected-packages.txt`): SSH, `sudo`, the package manager and its trust chain, `systemd`, core networking, the firewall/intrusion-prevention baseline, unattended security updates, and the running kernel/bootloader are the only things it will never touch, regardless of what you select. Everything else non-protected and not required by your current `--services` selection is a real removal candidate.
+**It only ever removes LESta services.** OS packages that no LESta service owns (your shell, editors, monitoring agents, anything you installed yourself) are never touched, whatever you select.
 
-**Always run `--prune --dry-run` first.** It performs zero mutation and lists every real removal candidate by name — which services would be dropped, which packages would be purged, and which dropped services would need the confirmation below.
+**Always run `--prune --dry-run` first.** It performs zero mutation and lists by name which services would be dropped, and which of them would need the confirmation below.
 
 **A service holding real data gets one extra, explicit gate — not a refusal.** `mariadb` (its tenant instance), `mail` (real received mail), and `backups` (the backup artifacts themselves) can hold genuinely irreplaceable data. If dropping one of these from your selection would remove it, `--prune --apply` alone is not enough: you must also pass `--confirm-data-loss <service>`, once per such service. Miss one and the whole run fails closed before touching anything, naming exactly which service needs it.
 

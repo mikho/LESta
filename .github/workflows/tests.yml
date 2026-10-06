@@ -2990,14 +2990,12 @@ jobs:
       # circumstance), so they must survive and mariadb.service must still
       # be active throughout, even though the tenant capability is gone.
       #
-      # The broader-OS-trim half of --prune (removing non-LESta packages
-      # too, the operator's own explicit choice -- see
-      # .install/INSTALLER-CONTRACT.md's own "Prune" section) is exercised
-      # for real in Scenario 31 as well, not mocked: a deliberately
-      # installed, wholly unrelated canary package must be gone afterward,
-      # proving the sweep reaches beyond LESta's own footprint exactly as
-      # designed, while openssh-server, sudo, and the running kernel package
-      # (protected-packages.txt) must all still be present.
+      # --prune only ever removes LESta services: a deliberately installed,
+      # wholly unrelated canary package must survive even a confirmed prune,
+      # along with openssh-server, sudo and the running kernel. (An earlier
+      # "broader OS trim" purged every package outside a fixed allowlist,
+      # which on a real server meant the shell, coreutils, cloud-init and
+      # firmware; see .install/INSTALLER-CONTRACT.md's own "Prune" section.)
 
       - name: "Scenario 30 setup: reset to bare again, then install nginx, bind9, and mariadb together via install-selected.sh"
         run: |
@@ -3036,7 +3034,7 @@ jobs:
           [ -d /var/lib/lesta/mariadb/tenant ] || { echo "expected the mariadb tenant data root to still be present (nothing confirmed, nothing should have moved)" >&2; exit 1; }
           dpkg -l cowsay 2>/dev/null | grep -q '^ii' || { echo "expected the canary package to still be present (the fail-closed prune must not purge anything)" >&2; exit 1; }
 
-      - name: "Scenario 31: --prune --confirm-data-loss mariadb must remove bind9 and the mariadb tenant instance, quarantine its data, purge the canary, and leave the control-plane instance and protected baseline untouched"
+      - name: "Scenario 31: --prune --confirm-data-loss mariadb must remove bind9 and the mariadb tenant instance, quarantine its data, and leave the control-plane instance and every non-LESta package (the canary included) untouched"
         run: |
           set +e
           result=$(sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx --web-server nginx --prune --confirm-data-loss mariadb 2>/tmp/scenario31-stderr.log)
@@ -3071,8 +3069,8 @@ jobs:
           sudo systemctl is-active mariadb
           [ -d /var/lib/lesta/mariadb/control-plane ] || { echo "expected the control-plane data root to be untouched" >&2; exit 1; }
 
-          # Broader OS trim: the canary is gone, the protected baseline survives.
-          dpkg -l cowsay 2>/dev/null | grep -q '^ii' && { echo "expected the unrelated canary package to have been purged by the broader OS trim" >&2; exit 1; }
+          # Never beyond LESta's own footprint: the canary and the OS survive.
+          dpkg -l cowsay 2>/dev/null | grep -q '^ii' || { echo "expected the unrelated canary package to survive: --prune must never purge non-LESta packages" >&2; exit 1; }
           dpkg-query -W -f '${Status}' openssh-server | grep -q ' installed$'
           dpkg-query -W -f '${Status}' sudo | grep -q ' installed$'
           dpkg -l 'linux-image-*' | grep -q '^ii' || { echo "expected the running kernel package to still be present" >&2; exit 1; }

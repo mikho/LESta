@@ -99,11 +99,10 @@ Upgrades use side-by-side generations. The prior healthy generation remains avai
 
 ## Prune
 
-`--prune`, given the same `--services` selection, reconciles the node down to exactly that selection plus a fixed protected baseline (`.install/base/protected-packages.txt`), removing everything else present — including, by design, non-LESta OS packages, not only LESta's own footprint. This is the first uninstall capability in this project; see `.install/lib/uninstall.sh`.
+`--prune`, given the same `--services` selection, removes every LESta service present on the node but not selected: its units, its own packages, its firewall ports and its owned roots. It never touches OS packages no LESta service owns. An earlier "broader OS trim" purged everything outside a fixed allowlist, which on a real server meant the shell, coreutils, cloud-init and firmware; it was removed. This is the first uninstall capability in this project; see `.install/lib/uninstall.sh`.
 
 - Never implicit: a separate, named, off-by-default flag. Plain `--apply` never prunes.
-- Always dry-runnable first (`--prune --dry-run`), with zero mutation, listing every real removal candidate by name.
-- The protected baseline is unconditional and cannot be overridden by any flag: SSH, `sudo`, the package manager and its trust chain, `systemd`, core networking, the firewall/intrusion-prevention baseline, unattended security updates, and the running kernel/bootloader are never removed.
+- Always dry-runnable first (`--prune --dry-run`), with zero mutation, listing every service it would remove by name.
 - A service holding real, non-reconstructible tenant state (`mariadb`'s tenant instance, `mail`'s received mail, `backups`' own artifacts) that would be removed requires one additional, explicit `--confirm-data-loss <service>` flag per such service. Missing one fails closed before any mutation. Even when confirmed, that service's real data is quarantined (moved to `/var/lib/lesta/<service>/removed-<UTC-timestamp>/`) rather than deleted outright, matching how every other destructive-looking operation in this codebase already behaves (generation-based rollback, backup retention).
 - `mariadb`'s own control-plane database instance (this application's own database, never a `NodeCapability`) is never a removal candidate under any circumstance, regardless of selection.
 - A successful `--prune` does not itself revoke the corresponding `NodeCapability` row in LESta (no node-side script has a path back to Laravel's own database, by the same boundary stated above); the operator still removes it by hand from the admin app.

@@ -20,8 +20,7 @@
 # closure is computed dynamically via apt-cache depends --recurse instead,
 # never from this field). The small, explicit tables below are this file's
 # own single source of truth instead, deliberately kept in one place and
-# reviewable, mirroring protected-packages.txt's own reviewability rather
-# than being buried in per-service logic.
+# reviewable rather than buried in per-service logic.
 #
 # "Stateful" here means: this service's own real data cannot be
 # reconstructed from Laravel's own control-plane database the way every
@@ -128,28 +127,6 @@ uninstall_service_owned_roots() {
     done
 }
 
-# uninstall_is_protected_package <name> -> exit 0 (true) if <name> is listed
-# in protected-packages.txt, exact or by its own trailing "*" prefix match.
-uninstall_is_protected_package() {
-    local name="$1" protected_file="$2" line
-
-    while IFS= read -r line; do
-        case "${line}" in
-            "" | "#"*) continue ;;
-            *"*")
-                case "${name}" in
-                    "${line%\*}"*) return 0 ;;
-                esac
-                ;;
-            *)
-                [ "${name}" = "${line}" ] && return 0
-                ;;
-        esac
-    done < "${protected_file}"
-
-    return 1
-}
-
 # uninstall_service_present <service_id> -> exit 0 (true) if this service
 # looks currently installed on this node: any of its own real packages is
 # installed (dpkg-query), or, for the two services with no package of their
@@ -178,29 +155,6 @@ uninstall_service_present() {
     [ -n "${data_root}" ] && [ -e "${data_root}" ] && return 0
 
     return 1
-}
-
-# uninstall_compute_candidates <protected_file> <space-separated selected
-# service ids> -> every currently-installed package that is neither
-# protected nor required by a selected service, one per line. Pure
-# read-only enumeration: no mutation, safe to call in --dry-run.
-uninstall_compute_candidates() {
-    local protected_file="$1" selected="$2" svc keep_packages="" pkg
-
-    for svc in ${selected}; do
-        keep_packages="${keep_packages} $(uninstall_service_packages "${svc}" | tr '\n' ' ')"
-    done
-
-    dpkg-query -W -f '${Package}\n' 2>/dev/null | while IFS= read -r pkg; do
-        [ -n "${pkg}" ] || continue
-        uninstall_is_protected_package "${pkg}" "${protected_file}" && continue
-
-        case " ${keep_packages} " in
-            *" ${pkg} "*) continue ;;
-        esac
-
-        printf '%s\n' "${pkg}"
-    done
 }
 
 # uninstall_remove_service <manifest> <service_id> <data_root_quarantined:

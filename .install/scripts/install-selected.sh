@@ -16,14 +16,14 @@
 # the Installation Guide's own Chapter 3 (resources/docs/installation-guide.md,
 # served at /docs in the running application).
 #
-# Also carries --prune: given the same selection, reconciles the node down
-# to exactly that selection plus a fixed protected OS baseline, removing
-# anything else present -- extended, on the operator's own explicit choice
-# (this is the first uninstall capability this project has ever had; see
-# .install/lib/uninstall.sh's own top comment), to a broader OS trim, not
-# just LESta's own footprint, and allowed to proceed even when a service
-# being dropped holds real tenant data, gated by one extra
-# --confirm-data-loss flag per such service rather than a hard refusal.
+# Also carries --prune: given the same selection, removes every LESta
+# service present on the node but not selected (see .install/lib/
+# uninstall.sh's own top comment), and is allowed to proceed even when a
+# service being dropped holds real tenant data, gated by one extra
+# --confirm-data-loss flag per such service rather than a hard refusal. It
+# never touches OS packages no LESta service owns: an earlier "broader OS
+# trim" purged everything outside a fixed allowlist, which on a real server
+# meant the shell, coreutils, cloud-init and firmware, and was removed.
 # INSTALLER-CONTRACT.md's own "Uninstall and destructive migration are
 # separate operator workflows and are never implied by --apply" is honored
 # by --prune being a separate, named, off-by-default flag: plain --apply
@@ -62,7 +62,6 @@ INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)
 . "${INSTALL_ROOT}/lib/uninstall.sh"
 
 BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
-PROTECTED_PACKAGES_FILE="${INSTALL_ROOT}/base/protected-packages.txt"
 
 # --- globals (all pre-declared for `set -u` safety) -------------------------
 
@@ -129,11 +128,11 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
                                 this is scoped per service rather than a
                                 single shared path). <svc> is one of
                                 nginx,apache,bind9,mariadb,cron,mail.
-  --prune                      Reconcile the node down to exactly --services
-                                plus the fixed protected baseline
-                                (base/protected-packages.txt), removing
-                                everything else present, including non-LESta
-                                OS packages. Valid with both --dry-run (report
+  --prune                      Remove every LESta service present on this
+                                node but not in --services (its units,
+                                packages, firewall ports and owned roots).
+                                Never touches OS packages no LESta service
+                                owns. Valid with both --dry-run (report
                                 only) and --apply (acts). Never implied by
                                 plain --apply.
   --confirm-data-loss <svc>    Required once per stateful service (mariadb,
@@ -495,7 +494,7 @@ dropped_services() {
 }
 
 run_prune() {
-    local dropped svc pkgs candidates dest detail unconfirmed=""
+    local dropped svc dest detail unconfirmed=""
 
     dropped=$(dropped_services)
 
@@ -504,8 +503,6 @@ run_prune() {
             confirmed_data_loss_for "${svc}" || unconfirmed=$(append_line "${unconfirmed}" "${svc}")
         fi
     done
-
-    candidates=$(uninstall_compute_candidates "${PROTECTED_PACKAGES_FILE}" "${SELECTED}")
 
     if [ "${MODE}" = "dry-run" ]; then
         for svc in ${dropped}; do
@@ -516,15 +513,9 @@ run_prune() {
             add_change prune would_remove_service "${svc}" "${detail}"
         done
 
-        # Here-documents, not pipes, throughout: add_change/add_error must
-        # run in this shell, or what they record is lost with the subshell.
-        while IFS= read -r svc; do
-            [ -n "${svc}" ] && add_change prune would_purge_package "${svc}" "installed, not protected, not required by any selected service"
-        done <<CANDIDATESEOF
-${candidates}
-CANDIDATESEOF
-
         if [ -n "${unconfirmed}" ]; then
+            # Here-documents, not pipes: add_error must run in this shell, or
+            # every error it records is lost with the pipeline's subshell.
             while IFS= read -r svc; do
                 [ -n "${svc}" ] && add_error missing_confirm_data_loss "${svc} holds real data and would be removed; pass --confirm-data-loss ${svc} to actually apply this" ""
             done <<UNCONFIRMEDEOF
@@ -560,13 +551,6 @@ UNCONFIRMEDEOF
             add_change prune removed_service "${svc}" "stopped/disabled and packages purged; no real data root to quarantine"
         fi
     done
-
-    pkgs=$(uninstall_compute_candidates "${PROTECTED_PACKAGES_FILE}" "${SELECTED}")
-    if [ -n "${pkgs}" ]; then
-        # shellcheck disable=SC2046
-        apt-get purge -y $(printf '%s' "${pkgs}" | tr '\n' ' ') >/dev/null 2>&1 || true
-        add_change prune purged_os_packages "" "$(printf '%s' "${pkgs}" | tr '\n' ' ')"
-    fi
 }
 
 # --- result emission ---------------------------------------------------
