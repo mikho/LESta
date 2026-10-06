@@ -32,7 +32,6 @@ class StoreMailDomainRequest extends FormRequest
             'antivirus_enabled' => ['nullable', 'boolean'],
             'antispam_enabled' => ['nullable', 'boolean'],
             'dkim_enabled' => ['nullable', 'boolean'],
-            'catchall_email' => ['nullable', 'email', 'max:255'],
         ];
     }
 }

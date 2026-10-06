@@ -19,7 +19,7 @@ class CreateMailDomain
     use EnforcesPackageQuota;
 
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, antivirus_enabled?: bool, antispam_enabled?: bool, dkim_enabled?: bool, catchall_email?: string|null}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, antivirus_enabled?: bool, antispam_enabled?: bool, dkim_enabled?: bool}
      */
     public function handle(User $actor, Account $account, array $data): MailDomain
     {
@@ -41,7 +41,6 @@ class CreateMailDomain
                 'dkim_enabled' => $dkimEnabled,
                 'dkim_selector' => 'lesta1',
                 'dkim_selector_activated_at' => $dkimEnabled ? now() : null,
-                'catchall_email' => $data['catchall_email'] ?? null,
                 'desired_state_version' => 1,
             ]);
 

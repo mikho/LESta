@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Account;
+use App\Models\MailAccount;
 use App\Models\MailDomain;
 use App\Models\Membership;
 use App\Models\Node;
@@ -99,7 +100,8 @@ test('a non-owner member is forbidden from the create page', function () {
 
 test('updating a mail domain redirects back to the edit page', function () {
     [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
-    $mailDomain = MailDomain::factory()->for($account)->for($node)->create();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['domain' => 'example.com']);
+    MailAccount::factory()->for($mailDomain)->create(['local_part' => 'catchall']);
 
     $this->actingAs($owner)
         ->put(route('mail.update', $mailDomain), ['catchall_email' => 'catchall@example.com'])
@@ -107,6 +109,18 @@ test('updating a mail domain redirects back to the edit page', function () {
 
     expect($mailDomain->refresh()->catchall_email)->toBe('catchall@example.com');
 });
+
+test('a catch-all must be an existing mailbox on the same domain', function (string $catchall) {
+    [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['domain' => 'example.com']);
+    MailAccount::factory()->for($mailDomain)->create(['local_part' => 'real']);
+
+    $this->actingAs($owner)
+        ->put(route('mail.update', $mailDomain), ['catchall_email' => $catchall])
+        ->assertSessionHasErrors('catchall_email');
+
+    expect($mailDomain->refresh()->catchall_email)->toBeNull();
+})->with(['external address' => 'someone@gmail.com', 'unknown local part' => 'ghost@example.com']);
 
 test('suspending a mail domain redirects back', function () {
     [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();

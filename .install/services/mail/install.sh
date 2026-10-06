@@ -658,6 +658,14 @@ acl_check_rcpt:
   accept  domains = +local_domains
           condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
 
+  warn    domains = +local_domains
+          condition = \${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/catchall.list}{yes}{no}}
+          set acl_m_av = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antivirus.list}{1}{0}}}{1}{1}{\$acl_m_av}}
+          set acl_m_spam = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antispam.list}{1}{0}}}{1}{1}{\$acl_m_spam}}
+
+  accept  domains = +local_domains
+          condition = \${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/catchall.list}{yes}{no}}
+
   deny    domains = +local_domains
           message = "no such mailbox"
 
@@ -694,6 +702,11 @@ lesta_virtual_router:
   domains = +local_domains
   condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
   transport = lesta_lmtp_delivery
+
+lesta_catchall_router:
+  driver = redirect
+  domains = +local_domains
+  data = \${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/catchall.list}}
 
 lesta_dnslookup_router:
   driver = dnslookup

@@ -564,7 +564,7 @@ export default function Edit({
                         <>
                             <div className="grid gap-2">
                                 <Label htmlFor="catchall_email">
-                                    Catch-all email
+                                    Catch-all mailbox
                                 </Label>
 
                                 <Input
@@ -575,6 +575,12 @@ export default function Edit({
                                         mailDomain.catchall_email ?? undefined
                                     }
                                 />
+
+                                <p className="text-sm text-muted-foreground">
+                                    An existing mailbox on this domain that
+                                    receives mail sent to any address without
+                                    its own mailbox. Leave empty to reject it.
+                                </p>
 
                                 <InputError message={errors.catchall_email} />
                             </div>

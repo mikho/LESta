@@ -39,21 +39,6 @@ export default function Create() {
                                 <InputError message={errors.domain} />
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="catchall_email">
-                                    Catch-all email
-                                </Label>
-
-                                <Input
-                                    id="catchall_email"
-                                    name="catchall_email"
-                                    type="email"
-                                    placeholder="Optional"
-                                />
-
-                                <InputError message={errors.catchall_email} />
-                            </div>
-
                             <div className="flex items-center space-x-3">
                                 <Checkbox
                                     id="antivirus_enabled"

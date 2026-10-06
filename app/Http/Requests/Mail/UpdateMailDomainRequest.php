@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Mail;
 
+use App\Models\MailDomain;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -23,7 +25,29 @@ class UpdateMailDomainRequest extends FormRequest
             'antivirus_enabled' => ['nullable', 'boolean'],
             'antispam_enabled' => ['nullable', 'boolean'],
             'dkim_enabled' => ['nullable', 'boolean'],
-            'catchall_email' => ['nullable', 'email', 'max:255'],
+            'catchall_email' => ['nullable', 'email', 'max:255', $this->catchallIsMailboxOnThisDomain()],
         ];
+    }
+
+    /**
+     * A catch-all may only point at an existing mailbox on this same domain: delivering to an
+     * external address would turn every guessed local part into relayed mail under this server's
+     * own reputation.
+     */
+    private function catchallIsMailboxOnThisDomain(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            /** @var MailDomain $mailDomain */
+            $mailDomain = $this->route('mailDomain');
+
+            [$localPart, $domain] = array_pad(explode('@', strtolower((string) $value), 2), 2, '');
+
+            $isMailboxOnThisDomain = $domain === $mailDomain->domain
+                && $mailDomain->accounts()->where('local_part', $localPart)->exists();
+
+            if (! $isMailboxOnThisDomain) {
+                $fail('The catch-all must be an existing mailbox on this domain.');
+            }
+        };
     }
 }

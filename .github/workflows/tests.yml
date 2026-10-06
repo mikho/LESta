@@ -747,6 +747,7 @@ jobs:
               "antivirus_enabled": True,
               "antispam_enabled": True,
               "dkim_enabled": False,
+              "catchall_email": f"{LOCAL_PART}@{DOMAIN}",
               "accounts": [
                   {
                       "local_part": LOCAL_PART,
@@ -785,6 +786,28 @@ jobs:
               if not clean_reply.startswith("250"):
                   sys.exit(f"expected a genuinely clean message to still be accepted, got: {clean_reply}")
               print(f"a genuinely clean message was still accepted, proving the ACL doesn't just reject everything: {clean_reply.strip()}")
+
+              # Catch-all: a recipient with no mailbox of its own is accepted and routed to
+              # the catch-all mailbox, and is still scanned like any other recipient.
+              route = subprocess.run(
+                  ["sudo", "exim4", "-bt", f"nobody-here@{DOMAIN}"], capture_output=True, text=True, timeout=30
+              ).stdout
+              if f"-> {LOCAL_PART}@{DOMAIN}" not in route or "router = lesta_virtual_router" not in route:
+                  sys.exit(f"expected an unknown address to route to the catch-all mailbox, got: {route}")
+              print("an address with no mailbox of its own routes to the catch-all mailbox")
+
+              catchall_clean = smtp_transaction(
+                  "nobody-here", DOMAIN, "Subject: catch-all clean\r\n\r\nHello, this is a real, harmless message."
+              )
+              if not catchall_clean.startswith("250"):
+                  sys.exit(f"expected a clean message to an unknown address to be accepted by the catch-all, got: {catchall_clean}")
+
+              catchall_eicar = smtp_transaction(
+                  "nobody-here", DOMAIN, f"Subject: catch-all eicar\r\n\r\n{EICAR}"
+              )
+              if not catchall_eicar.startswith(("5", "4")):
+                  sys.exit(f"expected EICAR sent to the catch-all to still be rejected by clamd, got: {catchall_eicar}")
+              print("catch-all recipients are accepted when clean and still scanned for viruses")
           finally:
               deleted = invoke_agent(envelope("delete", resource_id, 2, create_payload))
               if deleted.get("status") != "applied":

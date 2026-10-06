@@ -142,7 +142,7 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 			dkimSelectorsList.WriteString(lsearchLine(d.Domain, d.DkimActiveSelector))
 		}
 
-		if d.CatchallEmail != nil {
+		if d.CatchallEmail != nil && catchallTargetsActiveMailbox(d) {
 			catchallList.WriteString(lsearchLine(d.Domain, *d.CatchallEmail))
 		}
 
@@ -183,4 +183,20 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 		catchall:      catchallList.String(),
 		dovecotPasswd: passwdFile.String(),
 	}, nil
+}
+
+// catchallTargetsActiveMailbox reports whether d's catch-all names an active
+// (non-suspended) mailbox on d's own domain. Laravel validates the same rule
+// on write, but a mailbox deleted or suspended afterwards must silently stop
+// being a catch-all rather than redirect mail to an external or dead address.
+func catchallTargetsActiveMailbox(d Payload) bool {
+	target := strings.ToLower(*d.CatchallEmail)
+
+	for _, a := range d.Accounts {
+		if !a.Suspended && target == strings.ToLower(a.LocalPart+"@"+d.Domain) {
+			return true
+		}
+	}
+
+	return false
 }
