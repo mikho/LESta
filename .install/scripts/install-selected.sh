@@ -516,14 +516,20 @@ run_prune() {
             add_change prune would_remove_service "${svc}" "${detail}"
         done
 
-        printf '%s\n' "${candidates}" | while IFS= read -r svc; do
+        # Here-documents, not pipes, throughout: add_change/add_error must
+        # run in this shell, or what they record is lost with the subshell.
+        while IFS= read -r svc; do
             [ -n "${svc}" ] && add_change prune would_purge_package "${svc}" "installed, not protected, not required by any selected service"
-        done
+        done <<CANDIDATESEOF
+${candidates}
+CANDIDATESEOF
 
         if [ -n "${unconfirmed}" ]; then
-            printf '%s\n' "${unconfirmed}" | while IFS= read -r svc; do
+            while IFS= read -r svc; do
                 [ -n "${svc}" ] && add_error missing_confirm_data_loss "${svc} holds real data and would be removed; pass --confirm-data-loss ${svc} to actually apply this" ""
-            done
+            done <<UNCONFIRMEDEOF
+${unconfirmed}
+UNCONFIRMEDEOF
         fi
 
         return 0
@@ -532,9 +538,11 @@ run_prune() {
     # --apply: fail closed before any mutation if any stateful dropped
     # service still lacks its own explicit confirmation.
     if [ -n "${unconfirmed}" ]; then
-        printf '%s\n' "${unconfirmed}" | while IFS= read -r svc; do
+        while IFS= read -r svc; do
             [ -n "${svc}" ] && add_error missing_confirm_data_loss "${svc} holds real data and would be removed by --prune; pass --confirm-data-loss ${svc} to proceed" ""
-        done
+        done <<UNCONFIRMEDEOF
+${unconfirmed}
+UNCONFIRMEDEOF
         emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
     fi
 
