@@ -476,6 +476,14 @@ func apacheProductionConfig() apache.Config {
 		// (AH00072, address already in use). Exactly the command
 		// /etc/sudoers.d/lesta-apache allows.
 		ReloadCommand: []string{"sudo", "/usr/bin/systemctl", "reload", "apache2"},
+		// A PHP domain's docroot, created exactly as nginx creates it
+		// (the same "nginx-ensure-docroot" sudo mode, which
+		// /etc/sudoers.d/lesta-apache also allows): both web servers serve
+		// the same AccountsRoot/<user>/domains/<id>/public.
+		AccountsRoot: nginxProductionConfig().AccountsRoot,
+		EnsureDocroot: func(username, resourceID string) error {
+			return nginx.EnsureDocrootPrivileged(nginxProductionConfig(), username, resourceID)
+		},
 		Env: []string{
 			"APACHE_RUN_USER=www-data",
 			"APACHE_RUN_GROUP=www-data",

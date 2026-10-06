@@ -11,6 +11,7 @@ use App\Enums\SuspensionSource;
 use App\Enums\WebServer;
 use Database\Factories\WebDomainFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -212,6 +213,31 @@ class WebDomain extends Model
             'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
         ];
+    }
+
+    /**
+     * Domains through which Adminer can be opened for a tenant database: the same account and
+     * node, PHP enabled, a certificate issued, and the node running nginx, the only web server
+     * that renders the /__lesta-adminer__ handoff (see resolveAdminerSocket). Shared by
+     * PrepareAdminerSession and the "Open Adminer" button so the two can never disagree.
+     *
+     * @param  Builder<WebDomain>  $query
+     * @return Builder<WebDomain>
+     */
+    public function scopeAdminerEligibleFor(Builder $query, TenantDatabase $tenantDatabase): Builder
+    {
+        return $query
+            ->where('account_id', $tenantDatabase->account_id)
+            ->where('node_id', $tenantDatabase->node_id)
+            ->whereNotNull('php_version')
+            ->whereNotNull('certificate_issued_at')
+            ->whereExists(function ($subQuery) use ($tenantDatabase): void {
+                $subQuery->selectRaw('1')
+                    ->from('node_capabilities')
+                    ->where('node_id', $tenantDatabase->node_id)
+                    ->where('capability', 'web.nginx.v1')
+                    ->whereNull('suspended_at');
+            });
     }
 
     /**

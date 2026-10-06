@@ -221,19 +221,13 @@ class TenantDatabaseController extends Controller
     }
 
     /**
-     * Whether PrepareAdminerSession would find an eligible WebDomain for this tenant database
-     * (same account, same node, php_version set, certificate issued) -- mirrors that action's
-     * own resolution query exactly, so the "Open Adminer" button can be disabled up front rather
-     * than only failing after a click.
+     * Whether PrepareAdminerSession would find an eligible WebDomain for this tenant database --
+     * the same WebDomain::adminerEligibleFor() scope that action uses, so the "Open Adminer"
+     * button can be disabled up front rather than only failing after a click.
      */
     private function hasEligibleAdminerDomain(TenantDatabase $tenantDatabase): bool
     {
-        return WebDomain::query()
-            ->where('account_id', $tenantDatabase->account_id)
-            ->where('node_id', $tenantDatabase->node_id)
-            ->whereNotNull('php_version')
-            ->whereNotNull('certificate_issued_at')
-            ->exists();
+        return WebDomain::query()->adminerEligibleFor($tenantDatabase)->exists();
     }
 
     /**

@@ -482,8 +482,15 @@ func newDisposableApache(t *testing.T, binary string) *disposableApache {
 	// precedent this relies on).
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_ssl.c", "ssl_module", filepath.Join(moduleDir, "mod_ssl.so")))
 	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_socache_shmcb.c", "socache_shmcb_module", filepath.Join(moduleDir, "mod_socache_shmcb.so")))
+	// proxy, proxy_fcgi and rewrite: ensureModulesFragment loads these too
+	// (for php.conf.tmpl), so they need the same preloading.
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_proxy.c", "proxy_module", filepath.Join(moduleDir, "mod_proxy.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_proxy_fcgi.c", "proxy_fcgi_module", filepath.Join(moduleDir, "mod_proxy_fcgi.so")))
+	confBuilder.WriteString(loadModuleLineIfNeeded(compiledIn, "mod_rewrite.c", "rewrite_module", filepath.Join(moduleDir, "mod_rewrite.so")))
 	fmt.Fprintf(&confBuilder, "TypesConfig %s\n", mimeTypesPath)
 	fmt.Fprintf(&confBuilder, "PidFile %s\n", pidPath)
+	// mod_proxy creates its mutex here, as Ubuntu's own apache2.conf sets.
+	fmt.Fprintf(&confBuilder, "DefaultRuntimeDir %s\n", filepath.Dir(pidPath))
 	fmt.Fprintf(&confBuilder, "Listen 127.0.0.1:%d\n", port)
 	fmt.Fprintf(&confBuilder, "ErrorLog %s\n", errorLogPath)
 	fmt.Fprintf(&confBuilder, "DocumentRoot %s\n", htdocsDir)

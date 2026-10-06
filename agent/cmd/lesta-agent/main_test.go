@@ -104,6 +104,19 @@ func TestApacheProductionConfigReloadsThroughSudo(t *testing.T) {
 	}
 }
 
+// TestApacheProductionConfigServesTheSameDocrootsAsNginx pins apache's PHP
+// docroot root to nginx's, and that it can create one.
+func TestApacheProductionConfigServesTheSameDocrootsAsNginx(t *testing.T) {
+	cfg := apacheProductionConfig()
+
+	if cfg.AccountsRoot != nginxProductionConfig().AccountsRoot || cfg.AccountsRoot == "" {
+		t.Errorf("AccountsRoot = %q, want nginx's %q", cfg.AccountsRoot, nginxProductionConfig().AccountsRoot)
+	}
+	if cfg.EnsureDocroot == nil {
+		t.Error("EnsureDocroot is nil; a PHP domain's docroot would never be created")
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 

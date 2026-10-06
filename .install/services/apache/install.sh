@@ -872,9 +872,11 @@ LOGROTATE
     # root-owned apache2 master; an unprivileged `apache2 -k graceful` then
     # assumes apache isn't running and fails starting a second instance
     # (AH00072). apacheProductionConfig routes reloads through exactly this
-    # command, nothing else.
+    # command. A PHP domain's docroot sits under its account's root-owned
+    # chroot directory, so it is created through the agent's own
+    # nginx-ensure-docroot mode, exactly as nginx/install.sh allows it.
     cat > "${SUDOERS_LESTA_APACHE_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload apache2
+lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload apache2, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
 SUDOERSEOF
     chmod 0440 "${SUDOERS_LESTA_APACHE_PATH}.tmp"
     chown root:root "${SUDOERS_LESTA_APACHE_PATH}.tmp"
@@ -886,7 +888,7 @@ SUDOERSEOF
 
     mv "${SUDOERS_LESTA_APACHE_PATH}.tmp" "${SUDOERS_LESTA_APACHE_PATH}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_APACHE_PATH}" "failed to activate ${SUDOERS_LESTA_APACHE_PATH}"
-    add_change web.apache.v1 installed "${SUDOERS_LESTA_APACHE_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload apache2 as root, nothing else"
+    add_change web.apache.v1 installed "${SUDOERS_LESTA_APACHE_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload apache2 and the agent's own nginx-ensure-docroot mode as root, nothing else"
 
     systemctl enable apache2 || apache_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
 

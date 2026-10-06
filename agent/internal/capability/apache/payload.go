@@ -17,6 +17,10 @@ import (
 // import" precedent bind9 already established for its own copy.
 // WebDomain::normalizeDomain already lower-cases and IDN-converts on the Laravel
 // side, so this only needs to validate the canonical ASCII form it is handed.
+// usernamePattern mirrors identity/payload.go's own usernamePattern: it is
+// joined into a filesystem path (the docroot) once php_socket is set.
+var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+
 var hostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 // supportedWebTemplate is the single built-in template this phase supports.
@@ -58,10 +62,11 @@ type Payload struct {
 	// now that WebDomain::toProvisioningPayload() always sends both.
 	AccountID int    `json:"account_id"`
 	PhpSocket string `json:"php_socket"`
-	// AccountUsername, AdminerSocket and WebmailSocket are decoded for the
-	// same reason (toProvisioningPayload() sends them to both web
-	// capabilities) but unused here: this capability still serves only its
-	// own health-marker content.
+	// AccountUsername names a PHP domain's docroot (php.conf.tmpl). Adminer
+	// and webmail are nginx-only (webmail lives on the node's own mail
+	// hostname, and an apache-served domain has no /__lesta-adminer__
+	// handoff yet), so those two are decoded, since toProvisioningPayload()
+	// sends them to both web capabilities, but unused here.
 	AccountUsername string `json:"account_username"`
 	AdminerSocket   string `json:"adminer_socket"`
 	WebmailSocket   string `json:"webmail_socket"`
@@ -111,6 +116,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.AccountID <= 0 {
 		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
+	}
+
+	if p.PhpSocket != "" && (p.PhpSocket[0] != '/' || !usernamePattern.MatchString(p.AccountUsername)) {
+		return Payload{}, &ValidationError{Code: "invalid_php_socket", Message: "php_socket must be an absolute path, with a valid account_username, when set", Field: "php_socket"}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

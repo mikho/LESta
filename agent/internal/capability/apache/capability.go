@@ -105,6 +105,11 @@ func (c *ApacheCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 // vhostDataFor builds the substitution set for generation n of resourceID from
 // an already-validated payload.
 func (c *ApacheCapability) vhostDataFor(resourceID string, payload Payload, n int) vhostData {
+	var docroot string
+	if payload.PhpSocket != "" {
+		docroot = filepath.Join(c.cfg.AccountsRoot, payload.AccountUsername, "domains", resourceID, "public")
+	}
+
 	return vhostData{
 		ResourceID:       resourceID,
 		Domain:           payload.Domain,
@@ -117,7 +122,17 @@ func (c *ApacheCapability) vhostDataFor(resourceID string, payload Payload, n in
 		PrivateKeyPath:   payload.SSL.PrivateKeyPath,
 		SSLPort:          c.cfg.SSLPort,
 		AccessLogPath:    filepath.Join(c.cfg.LogDir, resourceID+".access.log"),
+		Docroot:          docroot,
+		PhpSocket:        payload.PhpSocket,
 	}
+}
+
+// servesNoMarker reports whether payload renders a vhost serving the
+// domain's own real content (php.conf.tmpl) rather than this capability's
+// own marker page, so a health check can only probe that apache answers on
+// the port, the same split nginx's own servesNoMarker makes.
+func servesNoMarker(p Payload) bool {
+	return !p.Suspended && p.PhpSocket != ""
 }
 
 // expectedMarkerFor reports the marker a health check should look for in
@@ -160,6 +175,12 @@ func (c *ApacheCapability) applyGeneration(ctx context.Context, op protocol.Oper
 	n, err := c.store.NextGeneration(op.ResourceID)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
+	}
+
+	if payload.PhpSocket != "" && c.cfg.EnsureDocroot != nil {
+		if err := c.cfg.EnsureDocroot(payload.AccountUsername, op.ResourceID); err != nil {
+			return protocol.ResultEnvelope{}, err
+		}
 	}
 
 	data := c.vhostDataFor(op.ResourceID, payload, n)
@@ -215,9 +236,14 @@ func (c *ApacheCapability) applyGeneration(ctx context.Context, op protocol.Oper
 		return c.recoverFromFailure(ctx, op, requirePrior, "reload_failed", reloadErr.Error())
 	}
 
-	expectedMarker := expectedMarkerFor(op.ResourceID, payload.Suspended)
+	var healthErr error
+	if servesNoMarker(payload) {
+		healthErr = c.waitHealthyGeneric(ctx, payload.IPAddress, c.cfg.Port)
+	} else {
+		healthErr = c.waitHealthy(ctx, payload.IPAddress, c.cfg.Port, payload.Domain, expectedMarkerFor(op.ResourceID, payload.Suspended))
+	}
 
-	if healthErr := c.waitHealthy(ctx, payload.IPAddress, c.cfg.Port, payload.Domain, expectedMarker); healthErr != nil {
+	if healthErr != nil {
 		return c.recoverFromFailure(ctx, op, requirePrior, "health_check_failed", healthErr.Error())
 	}
 
@@ -450,6 +476,8 @@ func (c *ApacheCapability) recoverFromFailure(ctx context.Context, op protocol.O
 		}
 
 		healthErr = c.waitHealthyGeneric(ctx, origPayload.IPAddress, c.cfg.Port)
+	} else if servesNoMarker(prevPayload) {
+		healthErr = c.waitHealthyGeneric(ctx, prevPayload.IPAddress, c.cfg.Port)
 	} else {
 		expectedMarker := expectedMarkerFor(op.ResourceID, prevPayload.Suspended)
 

@@ -69,6 +69,13 @@ func ensureDocroot(cfg Config, username, resourceID string) error {
 	return nil
 }
 
+// EnsureDocrootPrivileged exposes ensureDocrootPrivileged to web.apache.v1,
+// which serves the very same per-domain docroot when apache is the domain's
+// web server.
+func EnsureDocrootPrivileged(cfg Config, username, resourceID string) error {
+	return ensureDocrootPrivileged(cfg, username, resourceID)
+}
+
 // ensureDocrootPrivileged runs ensureDocroot directly (cfg.SudoBinary
 // empty) or, in production, via this same binary's own
 // "nginx-ensure-docroot" CLI mode under sudo: the intermediate

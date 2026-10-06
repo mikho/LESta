@@ -5,11 +5,13 @@ use App\Models\AdminerAccessToken;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\Node;
+use App\Models\NodeCapability;
 use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 
 test('an owner can prepare an adminer session when an eligible domain exists', function () {
     $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $tenantDatabase = TenantDatabase::factory()->for($node)->create();
     $webDomain = WebDomain::factory()
         ->for($tenantDatabase->account)
@@ -32,6 +34,23 @@ test('an owner can prepare an adminer session when an eligible domain exists', f
 
     expect(AdminerAccessToken::where('token_hash', hash('sha256', $token))->where('tenant_database_id', $tenantDatabase->id)->exists())->toBeTrue()
         ->and(AuditEvent::where('action', 'tenant_database.adminer_session_prepared')->where('auditable_id', $tenantDatabase->id)->exists())->toBeTrue();
+});
+
+test('a domain on a node without nginx is never offered for adminer, since only nginx serves its handoff', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.apache.v1']);
+    $tenantDatabase = TenantDatabase::factory()->for($node)->create();
+    WebDomain::factory()->for($tenantDatabase->account)->for($node)->create([
+        'php_version' => PhpVersion::Php83,
+        'certificate_issued_at' => now(),
+        'web_server' => 'apache',
+    ]);
+    $owner = Membership::factory()->for($tenantDatabase->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->postJson(route('tenant-databases.open-adminer', $tenantDatabase))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('tenant_database');
 });
 
 test('a non-member is forbidden from preparing an adminer session', function () {

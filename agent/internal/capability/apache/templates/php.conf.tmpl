@@ -1,0 +1,45 @@
+# Managed by LESta. Do not edit by hand.
+# resource={{.ResourceID}} (PHP)
+<VirtualHost {{.IPAddress}}:{{.Port}}>
+    ServerName {{.Domain}}
+{{if .Aliases}}    ServerAlias{{range .Aliases}} {{.}}{{end}}
+{{end}}    CustomLog "{{.AccessLogPath}}" combined
+    Alias /.well-known/acme-challenge/ "{{.AcmeChallengeDir}}/"
+    <Directory "{{.AcmeChallengeDir}}">
+        Require all granted
+    </Directory>
+    DocumentRoot "{{.Docroot}}"
+    <Directory "{{.Docroot}}">
+        Require all granted
+        Options SymLinksIfOwnerMatch
+        AllowOverride All
+        DirectoryIndex index.php index.html index.htm
+    </Directory>
+    <FilesMatch "\.php$">
+        SetHandler "proxy:unix:{{.PhpSocket}}|fcgi://localhost"
+    </FilesMatch>
+</VirtualHost>
+{{if and .CertificatePath .SSLPort}}
+<VirtualHost {{.IPAddress}}:{{.SSLPort}}>
+    ServerName {{.Domain}}
+{{if .Aliases}}    ServerAlias{{range .Aliases}} {{.}}{{end}}
+{{end}}    CustomLog "{{.AccessLogPath}}" combined
+    SSLEngine on
+    SSLCertificateFile "{{.CertificatePath}}"
+    SSLCertificateKeyFile "{{.PrivateKeyPath}}"
+    Alias /.well-known/acme-challenge/ "{{.AcmeChallengeDir}}/"
+    <Directory "{{.AcmeChallengeDir}}">
+        Require all granted
+    </Directory>
+    DocumentRoot "{{.Docroot}}"
+    <Directory "{{.Docroot}}">
+        Require all granted
+        Options SymLinksIfOwnerMatch
+        AllowOverride All
+        DirectoryIndex index.php index.html index.htm
+    </Directory>
+    <FilesMatch "\.php$">
+        SetHandler "proxy:unix:{{.PhpSocket}}|fcgi://localhost"
+    </FilesMatch>
+</VirtualHost>
+{{end}}

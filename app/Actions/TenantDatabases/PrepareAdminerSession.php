@@ -33,16 +33,11 @@ class PrepareAdminerSession
             ]);
         }
 
-        $webDomain = WebDomain::query()
-            ->where('account_id', $tenantDatabase->account_id)
-            ->where('node_id', $tenantDatabase->node_id)
-            ->whereNotNull('php_version')
-            ->whereNotNull('certificate_issued_at')
-            ->first();
+        $webDomain = WebDomain::query()->adminerEligibleFor($tenantDatabase)->first();
 
         if ($webDomain === null) {
             throw ValidationException::withMessages([
-                'tenant_database' => 'No eligible domain (PHP enabled, certificate issued) exists on this database\'s own node to open Adminer through.',
+                'tenant_database' => 'No eligible domain (PHP enabled, certificate issued, served by nginx) exists on this database\'s own node to open Adminer through.',
             ]);
         }
 

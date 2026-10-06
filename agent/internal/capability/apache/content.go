@@ -75,6 +75,14 @@ const asisModulePath = "/usr/lib/apache2/modules/mod_asis.so"
 const sslModulePath = "/usr/lib/apache2/modules/mod_ssl.so"
 const socacheShmcbModulePath = "/usr/lib/apache2/modules/mod_socache_shmcb.so"
 
+// proxyModulePath, proxyFcgiModulePath and rewriteModulePath ship in the
+// same apache2-bin package. php.conf.tmpl hands .php to a domain's own
+// php-fpm socket through mod_proxy_fcgi, and mod_rewrite is what the
+// .htaccess files PHP applications ship (AllowOverride All) rely on.
+const proxyModulePath = "/usr/lib/apache2/modules/mod_proxy.so"
+const proxyFcgiModulePath = "/usr/lib/apache2/modules/mod_proxy_fcgi.so"
+const rewriteModulePath = "/usr/lib/apache2/modules/mod_rewrite.so"
+
 // ensureModulesFragment writes LiveDir/00-lesta-modules.conf, unconditionally,
 // on every applyGeneration call. It is idempotent: the content never varies for
 // a fixed sslPort, so a same-content overwrite is a no-op as far as apache2 and
@@ -108,7 +116,10 @@ func ensureModulesFragment(liveDir string, sslPort int) error {
 	content := "# Managed by LESta. Do not edit by hand.\n" +
 		"LoadModule asis_module " + asisModulePath + "\n" +
 		"LoadModule ssl_module " + sslModulePath + "\n" +
-		"LoadModule socache_shmcb_module " + socacheShmcbModulePath + "\n"
+		"LoadModule socache_shmcb_module " + socacheShmcbModulePath + "\n" +
+		"LoadModule proxy_module " + proxyModulePath + "\n" +
+		"LoadModule proxy_fcgi_module " + proxyFcgiModulePath + "\n" +
+		"LoadModule rewrite_module " + rewriteModulePath + "\n"
 
 	if sslPort != 0 {
 		content += fmt.Sprintf("Listen %d\n", sslPort)

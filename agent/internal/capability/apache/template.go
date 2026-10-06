@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/default_ssl.conf.tmpl templates/default.asis.tmpl templates/suspended.asis.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/default.asis.tmpl templates/suspended.asis.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -68,6 +68,10 @@ type vhostData struct {
 	// SuspendedPage is suspendedHTML's content, substituted in only when
 	// rendering the suspended content template.
 	SuspendedPage string
+	// Docroot and PhpSocket select php.conf.tmpl: the domain's own real
+	// docroot, with .php handed to its own web.php-fpm.v1 pool socket.
+	Docroot   string
+	PhpSocket string
 }
 
 func (d vhostData) marker() string {
@@ -118,6 +122,9 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	switch {
 	case suspended:
 		name = "suspended.conf.tmpl"
+	case data.PhpSocket != "":
+		// SSL-aware itself, like nginx's own php.conf.tmpl.
+		name = "php.conf.tmpl"
 	case data.CertificatePath != "":
 		name = "default_ssl.conf.tmpl"
 	}

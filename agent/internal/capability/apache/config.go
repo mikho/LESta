@@ -76,6 +76,16 @@ type Config struct {
 	// keep working for a suspended or freshly-created domain the same way
 	// nginx's own templates already do.
 	AcmeChallengeDir string
+	// AccountsRoot is system.account-identity.v1's own accounts root, the
+	// same one nginx.Config.AccountsRoot names: a PHP domain's docroot is
+	// AccountsRoot/<account_username>/domains/<resource_id>/public.
+	// Production: /var/lib/lesta/web/accounts.
+	AccountsRoot string
+	// EnsureDocroot creates a PHP domain's docroot, owned by its account,
+	// if missing. It needs root (the account's own chroot directory is
+	// root-owned), so production wires it to nginx's own sudo-backed
+	// helper; nil skips the step, as the disposable test harness does.
+	EnsureDocroot func(username, resourceID string) error
 }
 
 func (c Config) apacheBinary() string {
