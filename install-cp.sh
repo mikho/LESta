@@ -118,17 +118,21 @@ require_command() {
     }
 }
 
-require_php_version() {
-    php_version=$(php -r 'echo PHP_VERSION;')
-    php_major=$(printf '%s' "${php_version}" | cut -d. -f1)
-    php_minor=$(printf '%s' "${php_version}" | cut -d. -f2)
+# require_platform_reqs: checks the committed composer.lock against this
+# machine's real PHP version and extensions, before anything is written.
+# A major/minor PHP check was not enough: composer.json says ^8.4, but 20
+# locked symfony/* packages require >=8.4.1, so PHP 8.4.0 passed that check
+# and only failed later, at `composer install`, after configure_env_file had
+# already rewritten .env. `check-platform-reqs --lock` checks the exact
+# locked requirements (extensions included), and Composer deliberately
+# ignores config.platform for it, so a platform override can't mask a real
+# mismatch. Needs Composer 2.3+ for --lock; an older Composer fails this
+# check too, which is the right outcome.
+require_platform_reqs() {
+    [ -f "composer.lock" ] || fail_invocation "composer.lock not found -- this checkout is incomplete"
 
-    # composer.json's own real constraint ("php": "^8.4") -- checked here,
-    # not assumed. composer.lock's locked symfony/lcobucci versions already
-    # require PHP >=8.4.1 for a production (--no-dev) install, so ^8.4 is
-    # the actual floor, not just what CI happens to run.
-    if [ "${php_major}" -lt 8 ] || { [ "${php_major}" -eq 8 ] && [ "${php_minor}" -lt 4 ]; }; then
-        printf 'install-cp.sh: PHP %s found, but composer.json requires ^8.4.\n' "${php_version}" >&2
+    if ! composer check-platform-reqs --lock --no-dev >&2; then
+        printf 'install-cp.sh: this machine does not meet the committed composer.lock requirements (see the failed lines above). Nothing was changed.\n' >&2
         exit "${EXIT_UNSUPPORTED_PLATFORM}"
     fi
 }
@@ -137,9 +141,9 @@ preflight() {
     require_checkout
     require_command php
     require_command composer
+    require_platform_reqs
     require_command node
     require_command npm
-    require_php_version
 }
 
 # ask <prompt> <default> -> prints the answer (default kept on Enter, or

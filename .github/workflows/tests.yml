@@ -251,7 +251,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 install.sh install-cp.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 install.sh install-cp.sh .github/scripts/test-install-cp-platform-reqs.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
 
       - name: Root install.sh -- argument validation (help/version/dry-run/invalid invocation)
         run: |
@@ -307,6 +307,14 @@ jobs:
             echo "expected install-cp.sh to refuse a directory with no artisan/composer.json" >&2
             exit 1
           fi
+
+      - name: Root install-cp.sh -- platform preflight against real PHP runtimes
+        run: |
+          # Real php:<version>-cli images: an incompatible runtime (PHP 8.3,
+          # and PHP 8.4.1 missing a locked extension) must exit 11 with .env
+          # untouched, and the supported minimum (8.4.1) must install the
+          # committed composer.lock as-is.
+          .github/scripts/test-install-cp-platform-reqs.sh
 
       - name: Prepare the runner as a bare nginx-profile node
         run: |
