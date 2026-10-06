@@ -637,6 +637,10 @@ main() {
     ORDER=$(resolve_order)
 
     if [ "${MODE}" = "apply" ]; then
+        # log_init group-owns its log by lesta, which on a fresh node no
+        # leaf installer has created yet; the same idempotent step every
+        # leaf's own ensure_lesta_group runs.
+        getent group lesta >/dev/null 2>&1 || groupadd --system lesta
         log_init
     fi
     log_info "install-selected: run_id=${RUN_ID} mode=${MODE} services=${SELECTED} order=$(printf '%s' "${ORDER}" | tr '\n' ' ') prune=${PRUNE}"
