@@ -136,7 +136,7 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
                                 only) and --apply (acts). Never implied by
                                 plain --apply.
   --confirm-data-loss <svc>    Required once per stateful service (mariadb,
-                                mail, backups) that --prune --apply would
+                                mail, backups, webmail) that --prune --apply would
                                 remove, i.e. one that is currently present but
                                 not in --services. Repeatable. Missing one
                                 fails closed before any mutation.
@@ -494,7 +494,7 @@ dropped_services() {
 }
 
 run_prune() {
-    local dropped svc dest detail unconfirmed=""
+    local dropped svc dest detail data_root unconfirmed=""
 
     dropped=$(dropped_services)
 
@@ -540,7 +540,16 @@ UNCONFIRMEDEOF
     for svc in ${dropped}; do
         dest=""
         if uninstall_service_is_stateful "${svc}"; then
-            dest=$(uninstall_quarantine_data_root "${svc}") || dest=""
+            data_root=$(uninstall_service_data_root "${svc}")
+            if [ -n "${data_root}" ] && [ -e "${data_root}" ]; then
+                # Real data that could not be moved aside must never fall
+                # through to removal, which deletes an unquarantined data
+                # root: stop here, leaving this service fully in place.
+                if ! dest=$(uninstall_quarantine_data_root "${svc}"); then
+                    add_error quarantine_failed "${svc}'s data root ${data_root} could not be quarantined; ${svc} was left fully in place and nothing after it was pruned" "${data_root}"
+                    emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+                fi
+            fi
         fi
 
         uninstall_remove_service "$(svc_manifest "${svc}")" "${svc}" "$([ -n "${dest}" ] && printf 1 || printf 0)"

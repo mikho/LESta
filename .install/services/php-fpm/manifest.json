@@ -9,18 +9,7 @@
   "ports": [],
   "artifacts": [],
   "ownership": {
-    "owned_roots": [
-      "/etc/php/8.1/fpm/pool.d",
-      "/etc/php/8.2/fpm/pool.d",
-      "/etc/php/8.3/fpm/pool.d",
-      "/etc/php/8.4/fpm/pool.d",
-      "/run/lesta-php",
-      "/var/lib/lesta/php-fpm",
-      "/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg",
-      "/etc/apt/sources.list.d/ondrej-php.list",
-      "/etc/sudoers.d/lesta-php-fpm",
-      "/etc/tmpfiles.d/lesta-php-fpm.conf"
-    ],
+    "owned_roots": ["/etc/php/8.1/fpm/pool.d", "/etc/php/8.2/fpm/pool.d", "/etc/php/8.3/fpm/pool.d", "/etc/php/8.4/fpm/pool.d", "/run/lesta-php", "/var/lib/lesta/php-fpm", "/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg", "/etc/apt/sources.list.d/ondrej-php.list", "/etc/sudoers.d/lesta-php-fpm", "/etc/tmpfiles.d/lesta-php-fpm.conf"],
     "read_only_roots": [],
     "refused_roots": ["/etc/sudoers"]
   }

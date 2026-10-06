@@ -57,7 +57,11 @@ uninstall_service_packages() {
             printf '%s\n' dovecot-lmtpd
             printf '%s\n' dovecot-sieve
             ;;
-        backups | mariadb) return 0 ;;
+        # php-fpm, adminer and webmail never purge a package: php<v>-fpm
+        # may also run the control-plane app's own default www pool on a
+        # single-node install, and the PHP extensions adminer/webmail add
+        # are shared with every tenant's own PHP pool.
+        backups | mariadb | php-fpm | adminer | webmail) return 0 ;;
         *) return 0 ;;
     esac
 }
@@ -88,7 +92,8 @@ uninstall_service_units() {
 # whose own real data cannot be reconstructed from Laravel's own database.
 uninstall_service_is_stateful() {
     case "$1" in
-        mariadb | mail | backups) return 0 ;;
+        # webmail: roundcube.db holds users' own contacts and settings.
+        mariadb | mail | backups | webmail) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -102,6 +107,7 @@ uninstall_service_data_root() {
         mariadb) printf '%s\n' /var/lib/lesta/mariadb/tenant ;;
         mail) printf '%s\n' /var/lib/lesta/mail ;;
         backups) printf '%s\n' /var/lib/lesta/backups ;;
+        webmail) printf '%s\n' /var/lib/lesta/webmail ;;
         *) return 0 ;;
     esac
 }
@@ -120,6 +126,16 @@ uninstall_service_owned_roots() {
         if [ "${service_id}" = "mariadb" ]; then
             case "${path}" in
                 *control-plane*) continue ;;
+            esac
+        fi
+
+        # php-fpm: never a whole pool.d (it may hold the control-plane app's
+        # own pool, and adminer/webmail's), and never the ondrej/php apt
+        # source the control-plane app may also install from. Its own
+        # per-domain pools are removed by uninstall_remove_php_fpm_pools.
+        if [ "${service_id}" = "php-fpm" ]; then
+            case "${path}" in
+                */fpm/pool.d | *ondrej-php*) continue ;;
             esac
         fi
 
@@ -148,6 +164,14 @@ uninstall_service_present() {
             ;;
         backups)
             [ -d /var/lib/lesta/backups ] && return 0
+            ;;
+        # Their own state roots, never a package: php-fpm's packages can be
+        # present for the control-plane app alone.
+        php-fpm)
+            [ -d /var/lib/lesta/php-fpm ] && return 0
+            ;;
+        adminer)
+            [ -d /var/lib/lesta/adminer ] && return 0
             ;;
     esac
 
@@ -199,12 +223,46 @@ uninstall_remove_service() {
     if [ -n "${data_root}" ] && [ "${data_root_quarantined}" != "1" ] && [ -e "${data_root}" ]; then
         rm -rf "${data_root}"
     fi
+
+    case "${service_id}" in
+        php-fpm | adminer | webmail)
+            [ "${service_id}" = "php-fpm" ] && uninstall_remove_php_fpm_pools
+            uninstall_reload_php_fpm
+            ;;
+    esac
+}
+
+# uninstall_remove_php_fpm_pools -> removes web.php-fpm.v1's own per-domain
+# pool fragments (<resource_id>.conf, a UUID) from every version's pool.d,
+# leaving anything else there (the default www pool, adminer's and
+# webmail's own pools) untouched.
+uninstall_remove_php_fpm_pools() {
+    local pool
+
+    for pool in /etc/php/*/fpm/pool.d/????????-????-????-????-????????????.conf; do
+        [ -f "${pool}" ] || continue
+        rm -f "${pool}"
+    done
+}
+
+# uninstall_reload_php_fpm -> reloads every php-fpm version that is running,
+# so a removed pool's workers and socket go away. Never stops or disables
+# one: the control-plane app may be running on it.
+uninstall_reload_php_fpm() {
+    local unit
+
+    for unit in $(systemctl list-units --type=service --state=active --plain --no-legend 'php*-fpm.service' 2>/dev/null | awk '{print $1}'); do
+        systemctl reload "${unit}" >/dev/null 2>&1 || true
+    done
 }
 
 # uninstall_quarantine_data_root <service_id> -> moves a stateful service's
-# own real data root to /var/lib/lesta/<service>/removed-<UTC timestamp>/
+# own real data root to its sibling <data root>-removed-<UTC timestamp>
 # rather than deleting it, and prints the destination path (empty, and a
-# non-zero exit, if there was nothing to quarantine). Must be called before
+# non-zero exit, if there was nothing to quarantine or the move failed). A
+# sibling, never a path inside the data root: mail's, backups' and webmail's
+# data roots are their whole /var/lib/lesta/<service>, and mv refuses to move
+# a directory into itself, which once made this fail for all three. Must be called before
 # uninstall_remove_service so that function's own owned-roots cleanup never
 # races the move.
 uninstall_quarantine_data_root() {
@@ -214,8 +272,7 @@ uninstall_quarantine_data_root() {
     [ -n "${data_root}" ] || return 1
     [ -e "${data_root}" ] || return 1
 
-    dest="/var/lib/lesta/${service_id}/removed-$(date -u +%Y%m%dT%H%M%SZ)"
-    mkdir -p "$(dirname "${dest}")"
+    dest="${data_root}-removed-$(date -u +%Y%m%dT%H%M%SZ)"
     mv "${data_root}" "${dest}" || return 1
 
     printf '%s\n' "${dest}"

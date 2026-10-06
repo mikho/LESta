@@ -229,6 +229,12 @@ jobs:
         working-directory: agent
         run: sudo env "PATH=$PATH:/usr/sbin" go test -count=1 ./internal/capability/phpfpm/... -v
 
+      - name: Test the file manager's real ownership round trip as root
+        # Two of its tests create real files as a real system user and
+        # skip unless root, like identity and php-fpm above.
+        working-directory: agent
+        run: sudo env "PATH=$PATH:/usr/sbin" go test -count=1 ./internal/capability/files/... -v
+
   installer:
     runs-on: ubuntu-latest
 
@@ -3060,8 +3066,8 @@ jobs:
           # NEVER purged (shared with the control-plane instance).
           sudo systemctl is-active 'mariadb@tenant' 2>/dev/null && { echo "expected mariadb@tenant.service to be inactive" >&2; exit 1; }
           [ -d /var/lib/lesta/mariadb/tenant ] && { echo "expected the tenant data root to have been moved (quarantined), not left in place" >&2; exit 1; }
-          quarantine_count=$(find /var/lib/lesta/mariadb -maxdepth 1 -name 'removed-*' -type d | wc -l)
-          [ "${quarantine_count}" -ge 1 ] || { echo "expected at least one /var/lib/lesta/mariadb/removed-* quarantine directory" >&2; exit 1; }
+          quarantine_count=$(find /var/lib/lesta/mariadb -maxdepth 1 -name 'tenant-removed-*' -type d | wc -l)
+          [ "${quarantine_count}" -ge 1 ] || { echo "expected at least one /var/lib/lesta/mariadb/tenant-removed-* quarantine directory" >&2; exit 1; }
 
           # mariadb control-plane instance: never touched.
           dpkg-query -W -f '${Status}' mariadb-server | grep -q ' installed$' \
@@ -3080,4 +3086,4 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
 
       - name: "Scenario 31 cleanup: remove the mariadb tenant quarantine directory"
-        run: sudo rm -rf /var/lib/lesta/mariadb/removed-*
+        run: sudo rm -rf /var/lib/lesta/mariadb/tenant-removed-*
