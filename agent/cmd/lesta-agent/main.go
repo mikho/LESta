@@ -470,6 +470,12 @@ func apacheProductionConfig() apache.Config {
 		// that field's doc comment): a dedicated LESta-owned directory,
 		// never Apache's own combined access.log.
 		LogDir: "/var/log/lesta/apache",
+		// The daemon runs as lesta-agent, which cannot signal the root-owned
+		// apache2 master: an unprivileged `apache2 -k graceful` concludes
+		// apache isn't running and tries to start a second instance
+		// (AH00072, address already in use). Exactly the command
+		// /etc/sudoers.d/lesta-apache allows.
+		ReloadCommand: []string{"sudo", "/usr/bin/systemctl", "reload", "apache2"},
 		Env: []string{
 			"APACHE_RUN_USER=www-data",
 			"APACHE_RUN_GROUP=www-data",

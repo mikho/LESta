@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -91,6 +92,16 @@ func TestApacheProductionConfigPortSelection(t *testing.T) {
 			t.Errorf("port for a missing profile file = %d, want 80", got)
 		}
 	})
+}
+
+// TestApacheProductionConfigReloadsThroughSudo pins the reload command to
+// the exact line .install/services/apache/install.sh writes into
+// /etc/sudoers.d/lesta-apache; any drift makes every real reload fail.
+func TestApacheProductionConfigReloadsThroughSudo(t *testing.T) {
+	want := []string{"sudo", "/usr/bin/systemctl", "reload", "apache2"}
+	if got := apacheProductionConfig().ReloadCommand; !slices.Equal(got, want) {
+		t.Errorf("ReloadCommand = %q, want %q", got, want)
+	}
 }
 
 func writeFile(t *testing.T, path, content string) {

@@ -143,6 +143,7 @@ ASIS_MODULE_PATH="/usr/lib/apache2/modules/mod_asis.so"
 # trimmed line ("apache" or "both"), the mechanism apacheProductionConfig()
 # reads at process start to pick Apache's own rendered-vhost listen port.
 WEB_PROFILE_PATH="/etc/lesta/web-profile"
+SUDOERS_LESTA_APACHE_PATH="/etc/sudoers.d/lesta-apache"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # nginx's and bind9's own (see their own top comments for the rationale).
@@ -864,6 +865,28 @@ LOGROTATE
         apache_fail_health "${EXIT_HEALTH_FAILURE}" apache_test_failed "${APACHE_CONF_PATH}" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change web.apache.v1 validated "" "apache2ctl configtest passed"
+
+    # --- sudoers: systemctl reload apache2 -----------------------------------
+    #
+    # The real lesta-agent-daemon runs unprivileged and cannot signal the
+    # root-owned apache2 master; an unprivileged `apache2 -k graceful` then
+    # assumes apache isn't running and fails starting a second instance
+    # (AH00072). apacheProductionConfig routes reloads through exactly this
+    # command, nothing else.
+    cat > "${SUDOERS_LESTA_APACHE_PATH}.tmp" <<SUDOERSEOF
+lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload apache2
+SUDOERSEOF
+    chmod 0440 "${SUDOERS_LESTA_APACHE_PATH}.tmp"
+    chown root:root "${SUDOERS_LESTA_APACHE_PATH}.tmp"
+
+    if ! visudo -c -f "${SUDOERS_LESTA_APACHE_PATH}.tmp" >/dev/null 2>&1; then
+        rm -f "${SUDOERS_LESTA_APACHE_PATH}.tmp"
+        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_APACHE_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_APACHE_PATH}; the candidate file was removed, the real one was never touched"
+    fi
+
+    mv "${SUDOERS_LESTA_APACHE_PATH}.tmp" "${SUDOERS_LESTA_APACHE_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_APACHE_PATH}" "failed to activate ${SUDOERS_LESTA_APACHE_PATH}"
+    add_change web.apache.v1 installed "${SUDOERS_LESTA_APACHE_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload apache2 as root, nothing else"
 
     systemctl enable apache2 || apache_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
 

@@ -145,6 +145,7 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 # places these literals may ever appear; keep them in lockstep.
 TENANT_PORT=3307
 TENANT_DATADIR="/var/lib/lesta/mariadb/tenant"
+TENANT_AGENT_STATE_DIR="/var/lib/lesta/mariadb/tenant-agent-state"
 TENANT_SOCKET="/run/mysqld/mysqld.tenant.sock"
 TENANT_PIDFILE="/run/mysqld/mysqld.tenant.pid"
 TENANT_LOGFILE="/var/log/mysql/mariadb-tenant.log"
@@ -826,7 +827,7 @@ install_mariadb_control_plane() {
     # CONTROL_PLANE_DATADIR/tenant's own directories below, unaffected by
     # this. The real running lesta-agent-daemon (group lesta, not mysql)
     # needs to traverse this exact directory to reach its own sibling
-    # database.tenant.v1 state root (tenant-agent-state, root:root 0755) --
+    # database.tenant.v1 state root (tenant-agent-state, root:lesta 2770) --
     # confirmed empirically that a 0750 mysql:mysql parent silently blocked
     # that traversal, so the capability was structurally installed and
     # healthy but could never be reported Running by a real heartbeat.
@@ -978,6 +979,12 @@ install_mariadb_tenant() {
     # installer never runs mariadb-install-db itself.
     install -d -m 0750 -o mysql -g mysql "${TENANT_DATADIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${TENANT_DATADIR}" "failed to create ${TENANT_DATADIR}"
     add_change database.tenant.v1 ensured "${TENANT_DATADIR}" "tenant datadir present, empty, mode 0750 mysql:mysql (mariadb-install-db populates it automatically on first start)"
+
+    # The agent (lesta-agent, group lesta) keeps database.tenant.v1's own
+    # generation state here and cannot create it itself: the parent is
+    # mysql:mysql 0755. Same root:lesta setgid shape as the lab node's.
+    install -d -m 2770 -o root -g lesta "${TENANT_AGENT_STATE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${TENANT_AGENT_STATE_DIR}" "failed to create ${TENANT_AGENT_STATE_DIR}"
+    add_change database.tenant.v1 ensured "${TENANT_AGENT_STATE_DIR}" "agent state root present, mode 2770 root:lesta"
 
     # --- [mysqld.tenant] config fragment: every instance-distinguishing key
     # explicitly set (see this file's own top comment for why omitting any
