@@ -2938,9 +2938,12 @@ jobs:
       #
       # mail's own manifest depends_on dns.bind9.v1, web.nginx.v1, and
       # tls.acme.v1 (plus the always-bootstrapped firewall/node-health).
-      # Selecting mail alone leaves the first two unsatisfiable by anything
-      # else in the selection, so install-selected.sh's own resolve_order
-      # must fail closed before invoking mail/install.sh at all -- this is
+      # Selecting mail alone leaves bind9 unsatisfiable by anything else in
+      # the selection, so install-selected.sh's own resolve_order must fail
+      # closed before invoking mail/install.sh at all. nginx is NOT missing:
+      # Scenario 28 left it really installed on this runner, and a provider
+      # that is already installed satisfies the dependency -- so naming it
+      # would be wrong, and asserting it is absent proves that. This is
       # the ORCHESTRATOR's own dependency-graph check, distinct from any
       # leaf installer's own preflight. tls.acme.v1 is deliberately NOT
       # named in the failure: no selectable service provides a certificate
@@ -2966,7 +2969,7 @@ jobs:
           printf '%s' "${result}" | grep -q 'dns.bind9.v1' \
             || { echo "expected the result body to name the missing dns.bind9.v1 prerequisite" >&2; exit 1; }
           printf '%s' "${result}" | grep -q 'web.nginx.v1' \
-            || { echo "expected the result body to name the missing web.nginx.v1 prerequisite" >&2; exit 1; }
+            && { echo "web.nginx.v1 is already installed on this runner (Scenario 28) and must not be named as missing" >&2; exit 1; }
           printf '%s' "${result}" | grep -q 'tls.acme.v1' \
             && { echo "tls.acme.v1 is not provided by any selectable service and must not be named as something to additionally select" >&2; exit 1; }
           dpkg -l exim4-daemon-heavy 2>/dev/null | grep -q '^ii' \
