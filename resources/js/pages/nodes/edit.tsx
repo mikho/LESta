@@ -44,6 +44,7 @@ const capabilityOptions = [
     'backup.encrypted-artifacts.v1',
     'metrics.usage.v1',
     'files.manager.v1',
+    'tools.adminer.v1',
     'mail.webmail.v1',
 ] as const;
 

@@ -99,7 +99,8 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
   --version                    Print this script's own version and exit.
   --services <a,b,c>            Required with --dry-run/--apply. Comma-
                                 separated, from: nginx,apache,bind9,mariadb,
-                                cron,mail,backups. (agent-daemon is a separate,
+                                cron,mail,backups,php-fpm,adminer,webmail.
+                                (agent-daemon is a separate,
                                 always-manual enrollment step -- see the
                                 Installation Guide's Chapter 2 --
                                 and is never selectable here.) A dependency
