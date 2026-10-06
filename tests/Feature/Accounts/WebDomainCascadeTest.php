@@ -9,6 +9,7 @@ use App\Models\AccountNodeIdentity;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\ProvisioningOperation;
 use App\Models\WebDomain;
 
 test('account suspend cascades to active web domains and unsuspend reactivates only cascade-sourced ones', function () {
@@ -57,7 +58,7 @@ test('deleting an account cascades to delete every owned web domain', function (
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
-    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+    $identity = AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
 
     $first = WebDomain::factory()->for($account)->for($node)->create();
     $second = WebDomain::factory()->suspended()->for($account)->for($node)->create();
@@ -66,5 +67,7 @@ test('deleting an account cascades to delete every owned web domain', function (
 
     expect(WebDomain::find($first->id))->toBeNull()
         ->and(WebDomain::find($second->id))->toBeNull()
-        ->and(Account::find($account->id))->toBeNull();
+        ->and(Account::find($account->id))->toBeNull()
+        ->and(AccountNodeIdentity::where('account_id', $account->id)->exists())->toBeFalse()
+        ->and(ProvisioningOperation::where('provisionable_type', $identity->getMorphClass())->where('provisionable_id', $identity->id)->where('capability', 'system.account-identity.v1')->where('operation', 'delete')->exists())->toBeTrue();
 });

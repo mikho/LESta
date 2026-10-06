@@ -3,6 +3,7 @@
 use App\Actions\Accounts\SuspendAccount;
 use App\Enums\RoleScope;
 use App\Models\Account;
+use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\CronJob;
 use App\Models\Membership;
@@ -45,6 +46,7 @@ test('a provider admin with accounts.suspend can suspend an account directly, ca
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $account = Account::factory()->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();
     $admin = Membership::factory()->providerAdmin()->create()->user;
 

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Nodes\ResyncNode;
+use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\CronJob;
 use App\Models\DnsZone;
@@ -18,6 +19,7 @@ test('resync dispatches a real update for a web domain, a dns zone, and a cron j
     NodeCapability::factory()->for($node)->create(['capability' => 'scheduler.account-cron.v1']);
 
     $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
     $dnsZone = DnsZone::factory()->for($node)->create();
     $cronJob = CronJob::factory()->for($node)->create();
 

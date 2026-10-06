@@ -2,6 +2,7 @@
 
 use App\Actions\Accounts\DeleteAccount;
 use App\Models\Account;
+use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\CronJob;
 use App\Models\Membership;
@@ -25,6 +26,7 @@ test('a provider admin with accounts.delete can delete an account directly, casc
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
     $account = Account::factory()->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
     $webDomain = WebDomain::factory()->for($account)->for($node)->create();
     $admin = Membership::factory()->providerAdmin()->create()->user;
     $accountId = $account->id;
