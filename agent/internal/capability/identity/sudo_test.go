@@ -47,7 +47,7 @@ func TestSudoBinaryRoutesUseraddAndUserdelCorrectly(t *testing.T) {
 	requireRealSshd(t)
 
 	sshd := newDisposableSshd(t)
-	cfg := sshd.Config
+	cfg := sshd.reloadConfig()
 	cfg.SudoBinary = newSudoStub(t)
 	capability := identity.New(cfg)
 	ctx := context.Background()
@@ -129,7 +129,7 @@ func TestSudoBinaryRoutesChrootTreeCreationCorrectly(t *testing.T) {
 	requireRealSshd(t)
 
 	sshd := newDisposableSshd(t)
-	cfg := sshd.Config
+	cfg := sshd.reloadConfig()
 	cfg.SudoBinary = newSudoStub(t)
 	cfg.AgentBinaryPath = newAgentBinaryStub(t, cfg.AccountsRoot, cfg.AuthorizedKeysDir)
 	capability := identity.New(cfg)
@@ -167,7 +167,7 @@ func TestSudoBinaryRoutesAuthorizedKeysWriteCorrectly(t *testing.T) {
 	requireRealSshd(t)
 
 	sshd := newDisposableSshd(t)
-	cfg := sshd.Config
+	cfg := sshd.reloadConfig()
 	cfg.SudoBinary = newSudoStub(t)
 	cfg.AgentBinaryPath = newAgentBinaryStub(t, cfg.AccountsRoot, cfg.AuthorizedKeysDir)
 	capability := identity.New(cfg)

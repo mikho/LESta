@@ -161,8 +161,9 @@ func TestCreateAndDeleteRoundTripAgainstARealSystemUser(t *testing.T) {
 	capability := identity.New(sshd.reloadConfig())
 	resourceID := newTestUUID()
 	username := "lestatest" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+	createKey := newTestUUID()
 
-	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
+	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, createKey,
 		map[string]any{"username": username}))
 	requireStatus(t, "create", created, err, protocol.StatusApplied)
 
@@ -174,7 +175,9 @@ func TestCreateAndDeleteRoundTripAgainstARealSystemUser(t *testing.T) {
 		t.Fatalf("create did not set up the real chroot tree: %v", err)
 	}
 
-	createdAgain, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
+	// A replay of the same operation (same idempotency key); a create with a
+	// new key would be resource_already_exists, as in every capability.
+	createdAgain, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, createKey,
 		map[string]any{"username": username}))
 	requireStatus(t, "create again (idempotent)", createdAgain, err, protocol.StatusAlreadyApplied)
 
@@ -283,7 +286,9 @@ func TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot(t *te
 
 	localDownload := filepath.Join(keyDir, "download.txt")
 
-	batch := fmt.Sprintf("put %s roundtrip.txt\nget roundtrip.txt %s\nget %s escaped.txt\n", localUpload, localDownload, outsideMarkerPath)
+	escapedDownload := filepath.Join(keyDir, "escaped.txt")
+
+	batch := fmt.Sprintf("put %s roundtrip.txt\nget roundtrip.txt %s\nget %s %s\n", localUpload, localDownload, outsideMarkerPath, escapedDownload)
 	batchPath := filepath.Join(keyDir, "batch.txt")
 	if err := os.WriteFile(batchPath, []byte(batch), 0o644); err != nil {
 		t.Fatalf("writing the sftp batch file: %v", err)
@@ -311,8 +316,10 @@ func TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot(t *te
 	if sftpErr == nil {
 		t.Fatalf("sftp batch exited 0; expected the chroot-escape get to fail. Full output:\n%s", out)
 	}
-	if !strings.Contains(string(out), "No such file") {
-		t.Fatalf("sftp batch failed, but not with the expected chroot-escape signature (\"No such file\"); it may have failed for an unrelated reason. Full output:\n%s", out)
+	// Checked by its effect, not sftp's wording: OpenSSH 9.6's client only
+	// prints "No such file" for a failed get in verbose mode.
+	if _, err := os.Stat(escapedDownload); !os.IsNotExist(err) {
+		t.Fatalf("the chroot-escape get wrote %s (stat error: %v); the session could read outside its chroot. Full output:\n%s", escapedDownload, err, out)
 	}
 
 	downloaded, err := os.ReadFile(localDownload)

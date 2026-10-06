@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -50,9 +51,30 @@ func newDisposableSshd(t *testing.T) *disposableSshd {
 	t.Helper()
 
 	root := t.TempDir()
+	// sshd reads AuthorizedKeysFile as the logging-in user, who must be able
+	// to traverse down to it; t.TempDir() and its parent are created 0700.
+	for _, dir := range []string{root, filepath.Dir(root)} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatalf("chmod %s: %v", dir, err)
+		}
+	}
 	sftpConfigDir := filepath.Join(root, "lesta.d")
 	authorizedKeysDir := filepath.Join(root, "authorized_keys")
+	// sshd requires every ChrootDirectory component to be root-owned and not
+	// group/world-writable, which rules out anything under /tmp (1777), so a
+	// root run uses /var/lib like production (/var/lib/lesta/web/accounts).
 	accountsRoot := filepath.Join(root, "accounts")
+	if os.Geteuid() == 0 {
+		accountsBase, err := os.MkdirTemp("/var/lib", "lesta-identity-test-")
+		if err != nil {
+			t.Fatalf("creating accounts root: %v", err)
+		}
+		if err := os.Chmod(accountsBase, 0o755); err != nil {
+			t.Fatalf("chmod %s: %v", accountsBase, err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(accountsBase) })
+		accountsRoot = filepath.Join(accountsBase, "accounts")
+	}
 	stateRoot := filepath.Join(root, "state")
 
 	for _, dir := range []string{sftpConfigDir, authorizedKeysDir, accountsRoot, stateRoot} {
@@ -76,7 +98,7 @@ func newDisposableSshd(t *testing.T) *disposableSshd {
 ListenAddress 127.0.0.1
 HostKey %s
 PidFile %s
-UsePAM no
+UsePAM yes
 StrictModes no
 PasswordAuthentication no
 PermitRootLogin no
@@ -133,6 +155,15 @@ func (d *disposableSshd) start(t *testing.T) {
 	sshdPath, err := exec.LookPath("sshd")
 	if err != nil {
 		t.Fatalf("resolving sshd's own absolute path: %v", err)
+	}
+
+	// sshd refuses to start without its privilege separation directory,
+	// which openssh-server's own unit creates (RuntimeDirectory=sshd) and a
+	// CI runner never starts.
+	if runtime.GOOS == "linux" && os.Geteuid() == 0 {
+		if err := os.MkdirAll("/run/sshd", 0o755); err != nil {
+			t.Fatalf("creating /run/sshd: %v", err)
+		}
 	}
 
 	cmd := exec.Command(sshdPath, "-f", d.Config.SshdConfigPath)
