@@ -790,6 +790,36 @@ mariadb_health_probe() {
     return 1
 }
 
+# mariadb_remove_default_open_access removes what a fresh MariaDB instance ships
+# with that every account on it could use: the stock `test` database, the
+# PUBLIC role's (and anonymous users') grants on `test` and `test\_%`, and the
+# anonymous users themselves (the same set mysql_secure_installation removes).
+# Without this, any tenant's database user -- and so Adminer, which logs in as
+# that user -- sees and can use a database that belongs to nobody. Idempotent:
+# every statement is a no-op once the defaults are gone.
+mariadb_remove_default_open_access() {
+    local socket="$1" instance="$2" out anonymous_host
+
+    if ! out=$(mariadb --socket="${socket}" -u root 2>&1 <<'HARDENSQL'
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db IN ('test', 'test\\_%');
+FLUSH PRIVILEGES;
+HARDENSQL
+    ); then
+        add_error mariadb_default_access_removal_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${socket}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+
+    for anonymous_host in $(mariadb --socket="${socket}" -u root -N -B -e "SELECT Host FROM mysql.user WHERE User = ''" 2>/dev/null); do
+        if ! out=$(mariadb --socket="${socket}" -u root -e "DROP USER ''@'${anonymous_host}'" 2>&1); then
+            add_error mariadb_default_access_removal_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${socket}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+    done
+
+    add_change "${instance}" installed "" "default test database, its PUBLIC grants and the anonymous users removed from the instance on ${socket}"
+}
+
 # install_mariadb_control_plane relocates the default mariadb.service
 # instance (almost certainly already auto-started by the package's own
 # postinst against the stock /var/lib/mysql datadir) onto this project's own
@@ -929,6 +959,8 @@ CONF
     # very next statement always re-grants the same fixed privilege set
     # regardless, so REPLACE-then-regrant is safe here exactly as it is for
     # the tenant admin account.
+    mariadb_remove_default_open_access "${CONTROL_PLANE_SOCKET}" database.control-plane.v1
+
     app_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
 
     if ! out=$(mariadb --socket="${CONTROL_PLANE_SOCKET}" -u root <<APPSQL 2>&1
@@ -1051,6 +1083,8 @@ CONF
 
     mariadb_health_probe "${TENANT_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
     add_change database.tenant.v1 healthy "" "a real SELECT 1 round-trip over ${TENANT_SOCKET} succeeded"
+
+    mariadb_remove_default_open_access "${TENANT_SOCKET}" database.tenant.v1
 
     # --- dedicated admin account + --defaults-extra-file -------------------
     #

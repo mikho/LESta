@@ -537,6 +537,19 @@ jobs:
       - name: Re-apply mariadb (idempotent rerun must still succeed)
         run: sudo sh .install/services/mariadb/install.sh --apply --yes
 
+      - name: Neither MariaDB instance keeps the stock test database or anonymous users
+        run: |
+          for socket in /run/mysqld/mysqld.tenant.sock /run/mysqld/mysqld.sock; do
+            if sudo mariadb --socket="${socket}" -u root -N -B -e 'SHOW DATABASES' | grep -qx test; then
+              echo "the stock test database still exists on ${socket}" >&2
+              exit 1
+            fi
+            anonymous=$(sudo mariadb --socket="${socket}" -u root -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User = ''")
+            [ "${anonymous}" = "0" ] || { echo "anonymous users still exist on ${socket}" >&2; exit 1; }
+            open_grants=$(sudo mariadb --socket="${socket}" -u root -N -B -e "SELECT COUNT(*) FROM mysql.db WHERE Db IN ('test', 'test\\_%')")
+            [ "${open_grants}" = "0" ] || { echo "grants on test databases still exist on ${socket}" >&2; exit 1; }
+          done
+
       - name: Dry-run cron against a real Ubuntu host (must mutate nothing)
         run: sudo sh .install/services/cron/install.sh --dry-run
 
