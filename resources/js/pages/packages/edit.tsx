@@ -41,7 +41,7 @@ function LimitRow({ pkg, limit }: { pkg: Package; limit: PackageLimitRow }) {
                         Blocked (not configured)
                     </span>
                 ) : limit.limit_value === null ? (
-                    <span className="text-green-600 dark:text-green-400">
+                    <span className="text-green-700 dark:text-green-400">
                         Unlimited
                     </span>
                 ) : (

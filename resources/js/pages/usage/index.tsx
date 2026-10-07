@@ -121,8 +121,10 @@ export default function Index({
                 description="Every customer's resource usage by node and account: disk now, and requests and data sent over the last 30 days."
                 indexUrl={usage.index.url()}
                 listing={customers}
-                emptyMessage="No usage has been collected for these filters yet."
+                emptyMessage="No usage has been collected yet."
+                emptyFilteredMessage="No usage matches these filters."
                 accountFilterParam="search"
+                showStatusFilter={false}
                 columns={[
                     {
                         header: 'Disk now',
@@ -139,7 +141,14 @@ export default function Index({
                     {
                         header: 'Last collected',
                         cell: (item) =>
-                            new Date(item.last_collected_at).toLocaleString(),
+                            new Date(item.last_collected_at).toLocaleString(
+                                undefined,
+                                {
+                                    dateStyle: 'medium',
+                                    timeStyle: 'short',
+                                    timeZoneName: 'short',
+                                },
+                            ),
                     },
                     {
                         header: 'Details',

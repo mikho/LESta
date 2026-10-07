@@ -51,6 +51,8 @@ test('a provider admin sees every account\'s usage grouped by node, linking to e
             ->where('customers.groups.1.node.name', 'beta')
             ->where('customers.groups.1.accounts.0.items.0.disk_bytes', 900)
             ->where('customers.groups.1.accounts.0.items.0.request_count', null)
+            ->where('customers.groups.0.totals.accounts', 1)
+            ->where('customers.summary', ['resources' => null, 'accounts' => 2, 'nodes' => 2])
         );
 });
 

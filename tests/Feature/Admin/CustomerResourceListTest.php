@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\ProvisioningStatus;
 use App\Models\Account;
 use App\Models\CronJob;
 use App\Models\DnsZone;
 use App\Models\MailDomain;
 use App\Models\Membership;
 use App\Models\Node;
+use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -106,4 +108,46 @@ test('the customer view is read-only: a provider admin still cannot create a res
     $admin = Membership::factory()->providerAdmin()->create()->user;
 
     $this->actingAs($admin)->get(route('domains.create'))->assertRedirect(route('domains.index'));
+});
+
+test('each node group carries its own totals, and the summary covers the whole filtered list', function (string $route, string $component, string $model) {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    seedCustomerResources($model);
+
+    $this->actingAs($admin)
+        ->get(route($route))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('customers.groups.0.totals', ['resources' => 1, 'accounts' => 1])
+            ->where('customers.groups.1.totals', ['resources' => 2, 'accounts' => 2])
+            ->where('customers.summary.resources', 3)
+            ->where('customers.summary.accounts', 2)
+            ->where('customers.summary.nodes', fn ($nodes) => $nodes >= 2)
+        );
+})->with('customer resource pages');
+
+test('the problems filter keeps suspended resources and resources whose latest operation failed', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create(['name' => 'alpha']);
+    $account = Account::factory()->create();
+
+    $healthy = WebDomain::factory()->for($account)->for($node)->create(['domain' => 'healthy.example']);
+    $suspended = WebDomain::factory()->for($account)->for($node)->suspended()->create(['domain' => 'suspended.example']);
+    $failed = WebDomain::factory()->for($account)->for($node)->create(['domain' => 'failed.example']);
+    $recovered = WebDomain::factory()->for($account)->for($node)->create(['domain' => 'recovered.example']);
+
+    $operation = fn (WebDomain $domain, ProvisioningStatus $status) => ProvisioningOperation::factory()
+        ->create(['provisionable_type' => $domain->getMorphClass(), 'provisionable_id' => $domain->id, 'resource_id' => $domain->uuid, 'status' => $status]);
+
+    $operation($healthy, ProvisioningStatus::Applied);
+    $operation($failed, ProvisioningStatus::Failed);
+    $operation($recovered, ProvisioningStatus::Failed);
+    $operation($recovered, ProvisioningStatus::Applied);
+
+    $this->actingAs($admin)
+        ->get(route('domains.index', ['status' => 'problems', 'node' => 'alpha']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('customers.filters.status', 'problems')
+            ->where('customers.pagination.total', 2)
+            ->where('customers.groups.0.accounts.0.items', fn ($items) => collect($items)->pluck('domain')->sort()->values()->all() === ['failed.example', 'suspended.example'])
+        );
 });

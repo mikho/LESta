@@ -324,8 +324,9 @@ jobs:
       - name: Root install-cp.sh -- platform preflight against real PHP runtimes
         run: |
           # Real php:<version>-cli images: an incompatible runtime (PHP 8.3,
-          # and PHP 8.4.1 missing a locked extension) must exit 11 with .env
-          # untouched, and the supported minimum (8.4.1) must install the
+          # PHP 8.4.1 missing a locked extension, and PHP 8.4.1 with Composer
+          # 2.2, which predates check-platform-reqs --lock) must exit 11 with
+          # .env untouched, and the supported minimum (8.4.1) must install the
           # committed composer.lock as-is.
           .github/scripts/test-install-cp-platform-reqs.sh
 

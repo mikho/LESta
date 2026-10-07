@@ -174,14 +174,14 @@ class UsageSnapshotController extends Controller
      * and bytes sent are per-collection-cycle increments, so they are summed over the last 30
      * days. Each row links to that account's own full usage page.
      *
-     * @return array{groups: list<array{node: array{uuid: string, name: string}, accounts: list<array{account: array{public_id: string, name: string}, items: list<array<string, mixed>>}>}>, nodes: list<string>, filters: array{node: string, account: string}, pagination: array{current_page: int, last_page: int, prev_page_url: string|null, next_page_url: string|null, total: int}}
+     * @return array{groups: list<array{node: array{uuid: string, name: string}, totals: array{resources: int, accounts: int}, accounts: list<array{account: array{public_id: string, name: string}, items: list<array<string, mixed>>}>}>, nodes: list<string>, summary: array{resources: int|null, accounts: int, nodes: int}, filters: array{node: string, account: string, status: string}, pagination: array{current_page: int, last_page: int, prev_page_url: string|null, next_page_url: string|null, total: int}}
      */
     private function customerUsage(Request $request): array
     {
         $node = trim((string) $request->string('node'));
         $search = trim((string) $request->string('search'));
 
-        $paginator = UsageSnapshot::query()
+        $filtered = UsageSnapshot::query()
             ->join('nodes', 'nodes.id', '=', 'usage_snapshots.node_id')
             ->join('accounts', 'accounts.id', '=', 'usage_snapshots.account_id')
             ->where('usage_snapshots.collected_at', '>=', now()->subDays(30))
@@ -189,7 +189,9 @@ class UsageSnapshotController extends Controller
             ->when($search !== '', fn (Builder $q) => $q->where(fn (Builder $w) => $w
                 ->where('accounts.name', 'like', '%'.$search.'%')
                 ->orWhere('accounts.public_id', 'like', '%'.$search.'%')
-                ->orWhere('accounts.contact_email', 'like', '%'.$search.'%')))
+                ->orWhere('accounts.contact_email', 'like', '%'.$search.'%')));
+
+        $paginator = (clone $filtered)
             ->groupBy('usage_snapshots.node_id', 'usage_snapshots.account_id', 'nodes.uuid', 'nodes.name', 'accounts.public_id', 'accounts.name')
             ->select([
                 'usage_snapshots.node_id',
@@ -206,6 +208,12 @@ class UsageSnapshotController extends Controller
             ->withQueryString();
 
         $rows = collect($paginator->items());
+
+        $pairs = (clone $filtered)->toBase()
+            ->select('usage_snapshots.node_id', 'usage_snapshots.account_id')
+            ->distinct()
+            ->get();
+        $accountsPerNode = $pairs->groupBy('node_id')->map->count();
 
         $disk = UsageSnapshot::query()
             ->whereNotExists(fn ($q) => $q->selectRaw('1')
@@ -227,6 +235,7 @@ class UsageSnapshotController extends Controller
             ->groupBy('node_id')
             ->map(fn ($nodeRows): array => [
                 'node' => ['uuid' => $nodeRows->first()->node_uuid, 'name' => $nodeRows->first()->node_name],
+                'totals' => ['resources' => $accountsPerNode->get($nodeRows->first()->node_id, 0), 'accounts' => $accountsPerNode->get($nodeRows->first()->node_id, 0)],
                 'accounts' => $nodeRows->map(fn ($row): array => [
                     'account' => ['public_id' => $row->account_public_id, 'name' => $row->account_name],
                     'items' => [[
@@ -245,7 +254,12 @@ class UsageSnapshotController extends Controller
         return [
             'groups' => $groups,
             'nodes' => Node::query()->orderBy('name')->pluck('name')->all(),
-            'filters' => ['node' => $node, 'account' => $search],
+            'summary' => [
+                'resources' => null,
+                'accounts' => $pairs->pluck('account_id')->unique()->count(),
+                'nodes' => $pairs->pluck('node_id')->unique()->count(),
+            ],
+            'filters' => ['node' => $node, 'account' => $search, 'status' => ''],
             'pagination' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),

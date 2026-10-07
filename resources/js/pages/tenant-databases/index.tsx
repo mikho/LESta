@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
 import {
     CustomerResourceIndex,
-    ProvisioningBadge as CustomerProvisioningBadge,
     SuspensionCell,
 } from '@/components/customer-resource-index';
 import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
+import { ProvisioningBadge } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -31,39 +31,6 @@ type PaginatedTenantDatabases = {
     next_page_url: string | null;
     total: number;
 };
-
-const provisioningBadgeClasses: Record<string, string> = {
-    pending:
-        'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
-    dispatched:
-        'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    already_applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    degraded:
-        'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-    unknown:
-        'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400',
-};
-
-function ProvisioningBadge({
-    status,
-}: {
-    status: TenantDatabase['provisioning_status'];
-}) {
-    const key = status ?? 'unknown';
-
-    return (
-        <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${provisioningBadgeClasses[key]}`}
-        >
-            {status ? status.replace('_', ' ') : 'no operation yet'}
-        </span>
-    );
-}
 
 export default function Index({
     customers,
@@ -102,7 +69,9 @@ export default function Index({
                 description="Every customer's databases, grouped by node and account"
                 indexUrl={tenantDatabases.index.url()}
                 listing={customers}
-                emptyMessage="No databases match."
+                emptyMessage="No customer has a database yet."
+                resourceNoun={{ one: 'database', other: 'databases' }}
+                emptyFilteredMessage="No databases match these filters."
                 columns={[
                     {
                         header: 'Label',
@@ -123,7 +92,7 @@ export default function Index({
                     {
                         header: 'Provisioning',
                         cell: (item) => (
-                            <CustomerProvisioningBadge
+                            <ProvisioningBadge
                                 status={item.provisioning_status}
                             />
                         ),
@@ -220,7 +189,7 @@ export default function Index({
                                                     Suspended
                                                 </span>
                                             ) : (
-                                                <span className="text-green-600 dark:text-green-400">
+                                                <span className="text-green-700 dark:text-green-400">
                                                     Active
                                                 </span>
                                             )}

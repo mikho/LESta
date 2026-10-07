@@ -62,7 +62,7 @@ export default function Mine({
                                                 Suspended
                                             </span>
                                         ) : (
-                                            <span className="text-green-600 dark:text-green-400">
+                                            <span className="text-green-700 dark:text-green-400">
                                                 Active
                                             </span>
                                         )}
