@@ -1,4 +1,4 @@
-import { Form, usePage } from '@inertiajs/react';
+import { Form, router, usePage } from '@inertiajs/react';
 import ImpersonationController from '@/actions/App/Http/Controllers/Support/ImpersonationController';
 import { Button } from '@/components/ui/button';
 
@@ -26,7 +26,10 @@ export function ImpersonationBanner() {
                 in as {auth.impersonating.admin_name}.
             </span>
 
-            <Form {...ImpersonationController.destroy.form()}>
+            <Form
+                {...ImpersonationController.destroy.form()}
+                onSuccess={() => router.flushAll()}
+            >
                 {({ processing }) => (
                     <Button
                         type="submit"

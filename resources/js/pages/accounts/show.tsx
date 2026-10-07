@@ -1,4 +1,4 @@
-import { Form, Head, Link, usePage } from '@inertiajs/react';
+import { Form, Head, Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import MembershipController from '@/actions/App/Http/Controllers/Memberships/MembershipController';
@@ -69,6 +69,9 @@ function ImpersonateMemberDialog({
                 <Form
                     {...ImpersonationController.store.form(membership)}
                     options={{ preserveScroll: true }}
+                    // The sidebar prefetches pages while still the admin; those cached copies carry
+                    // the admin's menu and no impersonation banner, so drop them on the identity swap.
+                    onSuccess={() => router.flushAll()}
                 >
                     {({ processing, errors }) => (
                         <>
