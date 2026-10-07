@@ -27,6 +27,12 @@ class InviteMember
     {
         Gate::forUser($actor)->authorize('create', [Membership::class, $account]);
 
+        if ($account->is_platform) {
+            throw ValidationException::withMessages([
+                'account' => 'The platform account has no members.',
+            ]);
+        }
+
         if (! in_array($roleName, ['owner', 'member'], true)) {
             throw ValidationException::withMessages([
                 'role' => 'Not a recognized account role.',

@@ -74,7 +74,7 @@ function GeneratedPasswordBanner({
 /**
  * Opens Adminer for this tenant database in a new tab, leaving this page as it is.
  * TenantDatabaseController::openAdminer() is a plain JSON endpoint, not an Inertia visit (its
- * redirect target, the tenant's own domain, is outside this app's own Inertia protocol -- see
+ * redirect target, the node's own address, is outside this app's own Inertia protocol -- see
  * that controller method's own doc comment), so this uses the same `apiPost` helper the file
  * manager's own dispatch endpoints already use, then points the new tab at the URL it returns,
  * rather than anything Inertia's router could follow. The tab is opened synchronously in the
@@ -84,10 +84,10 @@ function GeneratedPasswordBanner({
  */
 function OpenAdminerCard({
     tenantDatabase,
-    hasEligibleAdminerDomain,
+    adminerAvailable,
 }: {
     tenantDatabase: TenantDatabase;
-    hasEligibleAdminerDomain: boolean;
+    adminerAvailable: boolean;
 }) {
     const [opening, setOpening] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -123,9 +123,9 @@ function OpenAdminerCard({
                 variant="small"
                 title="Open Adminer"
                 description={
-                    hasEligibleAdminerDomain
-                        ? 'Opens a one-time, auto-logged-in Adminer session for this database on one of your own domains.'
-                        : "Requires a domain on this database's own node with PHP enabled and a certificate issued."
+                    adminerAvailable
+                        ? "Opens a one-time, auto-logged-in Adminer session for this database on this database's node."
+                        : "Adminer is not available on this database's node yet. Ask your provider to enable it."
                 }
             />
 
@@ -137,7 +137,7 @@ function OpenAdminerCard({
 
             <Button
                 variant="outline"
-                disabled={!hasEligibleAdminerDomain || opening}
+                disabled={!adminerAvailable || opening}
                 onClick={openAdminer}
                 data-test="open-adminer-button"
             >
@@ -149,10 +149,10 @@ function OpenAdminerCard({
 
 export default function Edit({
     tenantDatabase,
-    hasEligibleAdminerDomain,
+    adminerAvailable,
 }: {
     tenantDatabase: TenantDatabase;
-    hasEligibleAdminerDomain: boolean;
+    adminerAvailable: boolean;
 }) {
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -215,7 +215,7 @@ export default function Edit({
 
                 <OpenAdminerCard
                     tenantDatabase={tenantDatabase}
-                    hasEligibleAdminerDomain={hasEligibleAdminerDomain}
+                    adminerAvailable={adminerAvailable}
                 />
 
                 <div className="space-y-4 rounded-lg border p-4">

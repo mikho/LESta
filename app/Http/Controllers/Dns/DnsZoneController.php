@@ -41,6 +41,7 @@ class DnsZoneController extends Controller
                     DnsZone::query()->withCount('records')->with(['latestProvisioningOperation']),
                     fn (DnsZone $item): array => $this->presentForIndex($item),
                     'domain',
+                    ['domain' => 'dns_zones.domain', 'records' => 'records_count', 'ttl' => 'dns_zones.ttl'],
                 ),
             ]);
         }

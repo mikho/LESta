@@ -50,12 +50,12 @@ test('a provider admin sees every customer resource grouped by node, then accoun
             ->component($component)
             ->has('customers.groups', 2)
             ->where('customers.groups.0.node.name', 'alpha')
-            ->has('customers.groups.0.accounts', 1)
-            ->where('customers.groups.0.accounts.0.account.name', 'Acme Corp')
+            ->has('customers.groups.0.rows', 1)
+            ->where('customers.groups.0.rows.0.account.name', 'Acme Corp')
             ->where('customers.groups.1.node.name', 'beta')
-            ->has('customers.groups.1.accounts', 2)
-            ->where('customers.groups.1.accounts.0.account.name', 'Acme Corp')
-            ->where('customers.groups.1.accounts.1.account.name', 'Globex')
+            ->has('customers.groups.1.rows', 2)
+            ->where('customers.groups.1.rows.0.account.name', 'Acme Corp')
+            ->where('customers.groups.1.rows.1.account.name', 'Globex')
             ->where('customers.nodes', fn ($nodes) => collect($nodes)->contains('alpha') && collect($nodes)->contains('beta'))
             ->where('customers.pagination.total', 3)
         );
@@ -85,7 +85,7 @@ test('the account filter matches account name, public id or contact email', func
             ->get(route($route, ['account' => $term]))
             ->assertInertia(fn (Assert $page) => $page
                 ->has('customers.groups', 1)
-                ->where('customers.groups.0.accounts.0.account.name', 'Globex')
+                ->where('customers.groups.0.rows.0.account.name', 'Globex')
                 ->where('customers.pagination.total', 1)
             );
     }
@@ -148,6 +148,71 @@ test('the problems filter keeps suspended resources and resources whose latest o
         ->assertInertia(fn (Assert $page) => $page
             ->where('customers.filters.status', 'problems')
             ->where('customers.pagination.total', 2)
-            ->where('customers.groups.0.accounts.0.items', fn ($items) => collect($items)->pluck('domain')->sort()->values()->all() === ['failed.example', 'suspended.example'])
+            ->where('customers.groups.0.rows', fn ($rows) => collect($rows)->pluck('item.domain')->sort()->values()->all() === ['failed.example', 'suspended.example'])
         );
+});
+
+test('rows are one ordered list per node and can be sorted within each node', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create(['name' => 'alpha']);
+    $account = Account::factory()->create(['name' => 'Acme']);
+
+    foreach (['b.example', 'c.example', 'a.example'] as $domain) {
+        WebDomain::factory()->for($account)->for($node)->create(['domain' => $domain]);
+    }
+
+    $domains = fn (string $sort) => $this->actingAs($admin)
+        ->get(route('domains.index', ['sort' => $sort]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('customers.filters.sort', $sort)
+            ->where('customers.groups.0.rows', fn ($rows) => collect($rows)->pluck('item.domain')->all() === ($sort === 'domain' ? ['a.example', 'b.example', 'c.example'] : ['c.example', 'b.example', 'a.example'])));
+
+    $domains('domain');
+    $domains('-domain');
+});
+
+test('an unknown sort key is ignored rather than used as SQL', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    seedCustomerResources(WebDomain::class);
+
+    $this->actingAs($admin)
+        ->get(route('domains.index', ['sort' => 'id; drop table users']))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('customers.filters.sort', '')->where('customers.pagination.total', 3));
+});
+
+test('a failed row carries the reason the node reported, and a healthy row carries none', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create(['name' => 'alpha']);
+    $account = Account::factory()->create();
+    $failed = WebDomain::factory()->for($account)->for($node)->create(['domain' => 'failed.example']);
+    $healthy = WebDomain::factory()->for($account)->for($node)->create(['domain' => 'healthy.example']);
+
+    ProvisioningOperation::factory()->create(['provisionable_type' => $failed->getMorphClass(), 'provisionable_id' => $failed->id, 'resource_id' => $failed->uuid, 'status' => ProvisioningStatus::Failed, 'errors' => [['code' => 'nginx_test_failed', 'message' => 'nginx -t rejected the configuration']]]);
+    ProvisioningOperation::factory()->create(['provisionable_type' => $healthy->getMorphClass(), 'provisionable_id' => $healthy->id, 'resource_id' => $healthy->uuid, 'status' => ProvisioningStatus::Applied]);
+
+    $this->actingAs($admin)
+        ->get(route('domains.index'))
+        ->assertInertia(fn (Assert $page) => $page->where('customers.groups.0.rows', function ($rows) {
+            $byDomain = collect($rows)->keyBy('item.domain');
+
+            return $byDomain['failed.example']['item']['provisioning_error'] === 'nginx -t rejected the configuration'
+                && $byDomain['healthy.example']['item']['provisioning_error'] === null;
+        }));
+});
+
+test('on the mail list, a domain with antivirus or antispam switched off counts as a problem', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create(['name' => 'alpha']);
+    $account = Account::factory()->create();
+
+    MailDomain::factory()->for($account)->for($node)->create(['domain' => 'safe.example', 'antivirus_enabled' => true, 'antispam_enabled' => true]);
+    MailDomain::factory()->for($account)->for($node)->create(['domain' => 'no-av.example', 'antivirus_enabled' => false, 'antispam_enabled' => true]);
+    MailDomain::factory()->for($account)->for($node)->create(['domain' => 'no-spam.example', 'antivirus_enabled' => true, 'antispam_enabled' => false]);
+    MailDomain::factory()->for($account)->for($node)->create(['domain' => 'no-dkim.example', 'antivirus_enabled' => true, 'antispam_enabled' => true, 'dkim_enabled' => false]);
+
+    $this->actingAs($admin)
+        ->get(route('mail.index', ['status' => 'problems']))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('customers.groups.0.rows', fn ($rows) => collect($rows)->pluck('item.domain')->sort()->values()->all() === ['no-av.example', 'no-spam.example']));
 });

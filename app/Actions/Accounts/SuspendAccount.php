@@ -19,12 +19,19 @@ use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class SuspendAccount
 {
     public function handle(User $actor, Account $account): void
     {
         Gate::forUser($actor)->authorize('suspend', $account);
+
+        if ($account->is_platform) {
+            throw ValidationException::withMessages([
+                'account' => 'The platform account owns node-level resources and cannot be suspended or deleted.',
+            ]);
+        }
 
         if ($account->isSuspended()) {
             return; // duplicate submission: no second audit row

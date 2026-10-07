@@ -62,115 +62,83 @@ test('toProvisioningPayload reports a null php_socket when php_version is not se
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['php_socket'])->toBeNull();
 });
 
-test('toProvisioningPayload reports the fixed adminer_socket once every eligibility condition is met', function () {
-    $node = Node::factory()->create();
-    $webDomain = WebDomain::factory()->for($node)->create([
-        'php_version' => PhpVersion::Php83,
-        'certificate_issued_at' => now(),
-    ]);
-    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
-    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
-    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
-
-    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])
-        ->toBe('/run/lesta-adminer/adminer.sock');
-});
-
-test('toProvisioningPayload reports a null adminer_socket for web.apache.v1 regardless of eligibility', function () {
-    $node = Node::factory()->create();
-    $webDomain = WebDomain::factory()->for($node)->create([
-        'web_server' => WebServer::Apache,
-        'php_version' => PhpVersion::Php83,
-        'certificate_issued_at' => now(),
-    ]);
-    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
-    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
-    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
-
-    expect($webDomain->toProvisioningPayload('web.apache.v1')['adminer_socket'])->toBeNull();
-});
-
-test('toProvisioningPayload reports a null adminer_socket when the node has no tools.adminer.v1 capability', function () {
-    $node = Node::factory()->create();
-    $webDomain = WebDomain::factory()->for($node)->create([
-        'php_version' => PhpVersion::Php83,
-        'certificate_issued_at' => now(),
-    ]);
-    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
-    TenantDatabase::factory()->for($webDomain->account)->for($node)->create();
-
-    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
-});
-
-test('toProvisioningPayload reports a null adminer_socket when the account has no tenant database on this node', function () {
-    $node = Node::factory()->create();
-    $webDomain = WebDomain::factory()->for($node)->create([
-        'php_version' => PhpVersion::Php83,
-        'certificate_issued_at' => now(),
-    ]);
-    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
-    NodeCapability::factory()->for($node)->create(['capability' => 'tools.adminer.v1']);
-
-    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
-});
-
 /**
- * The node's own mail hostname domain with every webmail eligibility condition met unless
- * overridden: domain === node.mail_hostname, a certificate issued, and a non-suspended
- * mail.webmail.v1 capability.
+ * A web domain for the node's own hostname with every tools-host condition met unless overridden:
+ * nginx rendering, a certificate issued, and the given tool capability non-suspended.
  */
-function webmailEligibleDomain(array $domainAttributes = [], bool $withCapability = true): WebDomain
+function toolsHostDomain(string $capability, array $domainAttributes = [], bool $withCapability = true, string $domain = 'node.example.test'): WebDomain
 {
-    $node = Node::factory()->create(['mail_hostname' => 'mail.example.test']);
+    $node = Node::factory()->create(['hostname' => 'node.example.test']);
     $webDomain = WebDomain::factory()->for($node)->create(array_merge([
-        'domain' => 'mail.example.test',
+        'domain' => $domain,
         'certificate_issued_at' => now(),
     ], $domainAttributes));
     AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
     if ($withCapability) {
-        NodeCapability::factory()->for($node)->create(['capability' => 'mail.webmail.v1']);
+        NodeCapability::factory()->for($node)->create(['capability' => $capability]);
     }
 
     return $webDomain;
 }
 
-test('toProvisioningPayload reports the fixed webmail_socket for the node\'s own mail hostname once every condition is met', function () {
-    expect(webmailEligibleDomain()->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
+test('toProvisioningPayload reports the fixed adminer_socket for the node\'s own hostname once every condition is met', function () {
+    expect(toolsHostDomain('tools.adminer.v1')->toProvisioningPayload('web.nginx.v1')['adminer_socket'])
+        ->toBe('/run/lesta-adminer/adminer.sock');
+});
+
+test('toProvisioningPayload never reports an adminer_socket for a customer\'s own domain', function () {
+    $webDomain = toolsHostDomain('tools.adminer.v1', domain: 'customer.example', domainAttributes: ['php_version' => PhpVersion::Php83]);
+    TenantDatabase::factory()->for($webDomain->account)->for($webDomain->node)->create();
+
+    expect($webDomain->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null adminer_socket for web.apache.v1 regardless of eligibility', function () {
+    expect(toolsHostDomain('tools.adminer.v1', ['web_server' => WebServer::Apache])->toProvisioningPayload('web.apache.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null adminer_socket when the node has no tools.adminer.v1 capability', function () {
+    expect(toolsHostDomain('tools.adminer.v1', withCapability: false)->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports a null adminer_socket until a certificate is issued', function () {
+    expect(toolsHostDomain('tools.adminer.v1', ['certificate_issued_at' => null])->toProvisioningPayload('web.nginx.v1')['adminer_socket'])->toBeNull();
+});
+
+test('toProvisioningPayload reports the fixed webmail_socket for the node\'s own hostname once every condition is met', function () {
+    expect(toolsHostDomain('mail.webmail.v1')->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
         ->toBe('/run/lesta-webmail/webmail.sock');
 });
 
-test('toProvisioningPayload reports a null webmail_socket for a domain that is not the node\'s mail hostname', function () {
-    expect(webmailEligibleDomain(['domain' => 'www.example.test'])->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
-        ->toBeNull();
+test('toProvisioningPayload reports a null webmail_socket for a domain that is not the node\'s own hostname', function () {
+    expect(toolsHostDomain('mail.webmail.v1', domain: 'www.example.test')->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
 });
 
 test('toProvisioningPayload reports a null webmail_socket until a certificate is issued', function () {
-    expect(webmailEligibleDomain(['certificate_issued_at' => null])->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
-        ->toBeNull();
+    expect(toolsHostDomain('mail.webmail.v1', ['certificate_issued_at' => null])->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
 });
 
 test('toProvisioningPayload reports a null webmail_socket when the node has no mail.webmail.v1 capability', function () {
-    expect(webmailEligibleDomain([], withCapability: false)->toProvisioningPayload('web.nginx.v1')['webmail_socket'])
-        ->toBeNull();
+    expect(toolsHostDomain('mail.webmail.v1', withCapability: false)->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
 });
 
 test('toProvisioningPayload reports a null webmail_socket when the node\'s webmail capability is suspended', function () {
-    $webDomain = webmailEligibleDomain([], withCapability: false);
+    $webDomain = toolsHostDomain('mail.webmail.v1', withCapability: false);
     NodeCapability::factory()->for($webDomain->node)->suspended()->create(['capability' => 'mail.webmail.v1']);
 
     expect($webDomain->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
 });
 
-test('toProvisioningPayload reports a null webmail_socket when the node has no mail hostname', function () {
-    $webDomain = webmailEligibleDomain();
+test('toProvisioningPayload still reports the webmail_socket when the node has no mail hostname set', function () {
+    $webDomain = toolsHostDomain('mail.webmail.v1');
     $webDomain->node->forceFill(['mail_hostname' => null])->save();
 
-    expect($webDomain->refresh()->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBeNull();
+    expect($webDomain->refresh()->toProvisioningPayload('web.nginx.v1')['webmail_socket'])->toBe('/run/lesta-webmail/webmail.sock');
 });
 
 test('toProvisioningPayload reports a null webmail_socket for web.apache.v1 regardless of eligibility', function () {
-    expect(webmailEligibleDomain()->toProvisioningPayload('web.apache.v1')['webmail_socket'])->toBeNull();
+    expect(toolsHostDomain('mail.webmail.v1')->toProvisioningPayload('web.apache.v1')['webmail_socket'])->toBeNull();
 });
 
 test('toPhpFpmProvisioningPayload reports the account\'s own real node identity', function () {

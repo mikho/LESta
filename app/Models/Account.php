@@ -19,6 +19,7 @@ use Illuminate\Support\Str;
  * @property string $name
  * @property string|null $contact_email
  * @property int $package_id
+ * @property bool $is_platform
  * @property int|null $reseller_account_id
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
@@ -79,6 +80,7 @@ class Account extends Model
         return [
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,
+            'is_platform' => 'boolean',
         ];
     }
 

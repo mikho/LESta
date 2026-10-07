@@ -8,6 +8,7 @@ colors:
   near-white: "oklch(0.985 0 0)"
   chalk: "oklch(0.97 0 0)"
   hairline: "oklch(0.922 0 0)"
+  control-edge: "oklch(0.64 0 0)"
   focus-ink: "oklch(0.556 0 0)"
   quiet-ink: "oklch(0.556 0 0)"
   alarm-red: "oklch(0.577 0.245 27.325)"
@@ -169,7 +170,8 @@ An achromatic scale with one error hue and a small, fixed set of status hues. No
 - **Paper** (oklch(1 0 0)): page, card and popover surface. Dark mode uses ink here.
 - **Near-white** (oklch(0.985 0 0)): text on graphite, and the sidebar surface in light mode.
 - **Chalk** (oklch(0.97 0 0)): secondary, muted and hover surfaces, and the idle badge fill.
-- **Hairline** (oklch(0.922 0 0)): every border, divider and input stroke.
+- **Hairline** (oklch(0.922 0 0)): every table border and divider.
+- **Control edge** (oklch(0.64 0 0), 3.4:1 on white; oklch(0.52 0 0) in dark mode, 3.6:1): the border of every input, select and outline button, so a control's boundary is findable. Tables and dividers keep the lighter hairline.
 - **Focus ink** (oklch(0.556 0 0)): the focus ring and focus border, solid and never translucent, 4.7:1 on white.
 - **Quiet ink** (oklch(0.556 0 0)): secondary text, descriptions, table headers, placeholders.
 - Dark mode counterparts: surface oklch(0.145 0 0), raised and muted surface oklch(0.269 0 0), border oklch(0.269 0 0), secondary text oklch(0.708 0 0), focus ring oklch(0.708 0 0), 7.9:1 on the page.
@@ -186,6 +188,8 @@ An achromatic scale with one error hue and a small, fixed set of status hues. No
 **The Color Means Something Rule.** A hue appears only to report a state or an error, never to decorate. A screen with nothing wrong and nothing in flight is greyscale.
 
 **The Four Statuses Rule.** Provisioning state is always one of the same badges: grey pending, blue dispatched, green applied, red failed or rejected, amber degraded. A new surface reuses them rather than inventing its own.
+
+**The Quiet When Healthy Rule.** In a list read to find what is wrong (the admin customer lists), a healthy state is plain muted text ("Active", "Applied"), and only an exception earns color or a pill. A customer's own list, read to see that things worked, keeps the green.
 
 ## Typography
 
@@ -241,7 +245,7 @@ Compact and exact.
 - **Focus / Disabled:** the 3px focus ring; disabled is 50% opacity with pointer events off. An invalid state outlines in alarm red.
 
 ### Inputs / Fields
-- **Style:** hairline stroke, transparent fill, 8px radius, 36px high, 12px side padding, control lift.
+- **Style:** control-edge stroke, transparent fill, 8px radius, 36px high, 12px side padding, control lift.
 - **Focus:** the border and a 3px solid ring shift to focus ink.
 - **Error:** the stroke and a soft ring go alarm red, and a message in red text sits beneath the field.
 - **Select and checkbox:** a select matches the input; a checkbox is a 16px, 4px-radius square that fills graphite when checked. Checkboxes always submit an explicit 1 or 0.
@@ -258,7 +262,12 @@ The signature container for every list: a 12px-radius hairline border around a f
 A fully rounded pill, 12px medium text, 2px by 8px padding, one of the five status fills. The label is the status in plain words ("Applied", "In progress", "Failed", "No operation yet"). One shared component renders it everywhere.
 
 ### Customer Resource List
-The provider admin's read-only view. Above the list sit labelled filters (node, account, and a "Show: problems only" select) and a polite status line announcing what the list holds ("5 domains in 2 accounts on 2 nodes", "Updating the list…"). Below, one section per node: a node heading with its muted totals, then a single resource table whose first column is the owning account (a link to the account page; repeated rows repeat the name for assistive technology only). Each table is a named, keyboard-focusable scroll region with a screen-reader caption. Rows carry no create, edit or delete actions, and a line says the view is read-only.
+The provider admin's read-only view. Above the list sit labelled filters (node, account, and a "Show: problems only" select), then one polite status line that announces what the list holds ("5 domains in 2 accounts on 2 nodes. Page 1 of 3", "Updating the list…") and, when nothing matches, says so and names the active filters. Below, one section per node: a node heading with its muted totals (and "n shown on this page" when a node continues onto the next page), then a single resource table.
+- **Account column:** first and sticky, the owning account as a link (its id in muted text beneath, so same-named customers differ), repeated for assistive technology on following rows. Each table is a named, keyboard-focusable scroll region with a screen-reader caption.
+- **Columns:** sortable ones are buttons in the header (ascending, descending, off) with `aria-sort`, and sort within each node. Numeric columns are right-aligned with tabular figures and grouped digits. Times are relative, with the full timestamp on hover.
+- **Status:** quiet text when healthy; a pill for an exception, with the node's reported reason beneath a failed one.
+- **Pagination:** Previous and Next stay the same elements and become inert at the ends, so keyboard focus is never dropped.
+- Rows carry no create, edit or delete actions, and a line says the view is read-only.
 
 ### Navigation
 An inset sidebar (the content sits in a rounded panel beside it) of icon and label items, 14px, with 8px padding and an 8px radius. The active item takes a chalk fill and medium weight. Resource links come first (Dashboard, Domains, DNS, Mail, Databases, Cron jobs, Usage, Documentation), then, for a provider admin, Accounts, Nodes, Backups, Packages and Roles, and My account for anyone who also belongs to an account. A breadcrumb row sits above the page, and an impersonation banner appears above that while acting as another user.
@@ -273,6 +282,7 @@ Confirmations for destructive actions use a centered dialog with a muted descrip
 - **Do** reserve every hue for status or error, and reuse the five provisioning badges exactly.
 - **Do** pair every page title with a one-line description in quiet ink, and render it as the page's h1.
 - **Do** give every filter a visible label, and announce list changes in a polite live region.
+- **Do** keep healthy states quiet in lists read for problems, and show a failure's reason next to it.
 - **Do** show a visible result for every action: a status badge, an inline field error, or a toast.
 - **Do** put structure in hairline borders first, shadows second.
 - **Do** keep forms to a 48rem column and let tables use the full width and scroll sideways before wrapping.

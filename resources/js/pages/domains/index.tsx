@@ -5,10 +5,16 @@ import {
     CustomerResourceIndex,
     SuspensionCell,
 } from '@/components/customer-resource-index';
-import type { CustomerListing } from '@/components/customer-resource-index';
+import type {
+    CustomerItem,
+    CustomerListing,
+} from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
-import { ProvisioningBadge } from '@/components/provisioning-badge';
+import {
+    ProvisioningBadge,
+    QuietProvisioningStatus,
+} from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -48,7 +54,7 @@ export default function Index({
     webDomains,
     search: initialSearch,
 }: {
-    customers?: CustomerListing<WebDomain>;
+    customers?: CustomerListing<CustomerItem<WebDomain>>;
     webDomains: PaginatedWebDomains | null;
     search: string;
 }) {
@@ -86,6 +92,7 @@ export default function Index({
                 columns={[
                     {
                         header: 'Domain',
+                        sortKey: 'domain',
                         cell: (item) => (
                             <span className="font-medium">{item.domain}</span>
                         ),
@@ -117,8 +124,9 @@ export default function Index({
                     {
                         header: 'Provisioning',
                         cell: (item) => (
-                            <ProvisioningBadge
+                            <QuietProvisioningStatus
                                 status={item.provisioning_status}
+                                reason={item.provisioning_error}
                             />
                         ),
                     },

@@ -3,12 +3,19 @@ import { useEffect, useRef, useState } from 'react';
 import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
 import {
     CustomerResourceIndex,
+    formatCount,
     SuspensionCell,
 } from '@/components/customer-resource-index';
-import type { CustomerListing } from '@/components/customer-resource-index';
+import type {
+    CustomerItem,
+    CustomerListing,
+} from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
-import { ProvisioningBadge } from '@/components/provisioning-badge';
+import {
+    ProvisioningBadge,
+    QuietProvisioningStatus,
+} from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -37,7 +44,7 @@ export default function Index({
     dnsZones,
     search: initialSearch,
 }: {
-    customers?: CustomerListing<DnsZone>;
+    customers?: CustomerListing<CustomerItem<DnsZone>>;
     dnsZones: PaginatedDnsZones | null;
     search: string;
 }) {
@@ -75,12 +82,23 @@ export default function Index({
                 columns={[
                     {
                         header: 'Zone',
+                        sortKey: 'domain',
                         cell: (item) => (
                             <span className="font-medium">{item.domain}</span>
                         ),
                     },
-                    { header: 'TTL', cell: (item) => item.ttl },
-                    { header: 'Records', cell: (item) => item.records_count },
+                    {
+                        header: 'TTL',
+                        sortKey: 'ttl',
+                        numeric: true,
+                        cell: (item) => formatCount(item.ttl),
+                    },
+                    {
+                        header: 'Records',
+                        sortKey: 'records',
+                        numeric: true,
+                        cell: (item) => formatCount(item.records_count),
+                    },
                     {
                         header: 'Suspension',
                         cell: (item) => (
@@ -93,8 +111,9 @@ export default function Index({
                     {
                         header: 'Provisioning',
                         cell: (item) => (
-                            <ProvisioningBadge
+                            <QuietProvisioningStatus
                                 status={item.provisioning_status}
+                                reason={item.provisioning_error}
                             />
                         ),
                     },

@@ -15,6 +15,7 @@ use App\Http\Requests\Mail\StoreMailDomainRequest;
 use App\Http\Requests\Mail\UpdateMailDomainRequest;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -41,6 +42,8 @@ class MailDomainController extends Controller
                     MailDomain::query()->withCount('accounts')->with(['latestProvisioningOperation']),
                     fn (MailDomain $item): array => $this->presentForIndex($item),
                     'domain',
+                    ['domain' => 'mail_domains.domain', 'mailboxes' => 'accounts_count'],
+                    fn (Builder $w) => $w->orWhere('mail_domains.antivirus_enabled', false)->orWhere('mail_domains.antispam_enabled', false),
                 ),
             ]);
         }

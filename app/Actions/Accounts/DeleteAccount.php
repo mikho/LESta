@@ -21,12 +21,19 @@ use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class DeleteAccount
 {
     public function handle(User $actor, Account $account): void
     {
         Gate::forUser($actor)->authorize('delete', $account);
+
+        if ($account->is_platform) {
+            throw ValidationException::withMessages([
+                'account' => 'The platform account owns node-level resources and cannot be suspended or deleted.',
+            ]);
+        }
 
         DB::transaction(function () use ($actor, $account): void {
             if ($account->isSuspended()) {

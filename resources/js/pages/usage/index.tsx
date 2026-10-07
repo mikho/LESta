@@ -1,5 +1,9 @@
 import { Head, Link } from '@inertiajs/react';
-import { CustomerResourceIndex } from '@/components/customer-resource-index';
+import {
+    CustomerResourceIndex,
+    formatCount,
+    formatRelative,
+} from '@/components/customer-resource-index';
 import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
@@ -125,42 +129,44 @@ export default function Index({
                 emptyFilteredMessage="No usage matches these filters."
                 accountFilterParam="search"
                 showStatusFilter={false}
+                accountHref={(publicId) =>
+                    usage.index({ query: { account: publicId } })
+                }
                 columns={[
                     {
                         header: 'Disk now',
+                        sortKey: 'disk',
+                        numeric: true,
                         cell: (item) => formatBytes(item.disk_bytes),
                     },
                     {
                         header: 'Requests (30 days)',
-                        cell: (item) => item.request_count ?? '—',
+                        sortKey: 'requests',
+                        numeric: true,
+                        cell: (item) => formatCount(item.request_count),
                     },
                     {
                         header: 'Data sent (30 days)',
+                        sortKey: 'sent',
+                        numeric: true,
                         cell: (item) => formatBytes(item.bytes_sent),
                     },
                     {
                         header: 'Last collected',
-                        cell: (item) =>
-                            new Date(item.last_collected_at).toLocaleString(
-                                undefined,
-                                {
+                        sortKey: 'collected',
+                        cell: (item) => (
+                            <time
+                                dateTime={item.last_collected_at}
+                                title={new Date(
+                                    item.last_collected_at,
+                                ).toLocaleString(undefined, {
                                     dateStyle: 'medium',
                                     timeStyle: 'short',
                                     timeZoneName: 'short',
-                                },
-                            ),
-                    },
-                    {
-                        header: 'Details',
-                        cell: (item) => (
-                            <Link
-                                href={usage.index({
-                                    query: { account: item.account_public_id },
                                 })}
-                                className="underline"
                             >
-                                View usage
-                            </Link>
+                                {formatRelative(item.last_collected_at)}
+                            </time>
                         ),
                     },
                 ]}

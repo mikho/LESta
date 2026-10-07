@@ -600,6 +600,12 @@ export default function Edit({
                                     defaultValue={node.hostname}
                                 />
 
+                                <p className="text-sm text-muted-foreground">
+                                    Webmail and Adminer open at this hostname,
+                                    so it needs a web domain on this node with
+                                    an issued certificate.
+                                </p>
+
                                 <InputError message={errors.hostname} />
                             </div>
 
@@ -617,9 +623,10 @@ export default function Edit({
 
                                 <p className="text-sm text-muted-foreground">
                                     The hostname this node's mail stack was
-                                    installed with (--mail-hostname). Webmail is
-                                    served at this hostname. Leave empty if this
-                                    node has no mail service.
+                                    installed with (--mail-hostname). Leave
+                                    empty if this node has no mail service.
+                                    Webmail and Adminer do not use it: they open
+                                    on the node hostname above.
                                 </p>
 
                                 <InputError message={errors.mail_hostname} />

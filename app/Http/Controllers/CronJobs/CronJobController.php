@@ -41,6 +41,7 @@ class CronJobController extends Controller
                     CronJob::query()->with(['latestProvisioningOperation']),
                     fn (CronJob $item): array => $this->presentForIndex($item),
                     'id',
+                    ['command' => 'cron_jobs.command'],
                 ),
             ]);
         }

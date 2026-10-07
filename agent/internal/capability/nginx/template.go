@@ -66,12 +66,12 @@ type vhostData struct {
 	// template for every domain).
 	Docroot   string
 	PhpSocket string
-	// AdminerSocket backs php.conf.tmpl's own /__lesta-adminer__ location
-	// block (see Payload.AdminerSocket's own doc comment). Non-empty value
-	// is the only signal: unlike PhpSocket/CertificatePath, it never
-	// participates in renderVhost's own template-file selection -- Adminer
-	// only ever appears inside the PHP template, riding on whichever
-	// server block(s) PhpSocket/CertificatePath already selected.
+	// AdminerSocket backs the /__lesta-adminer__ location block (see
+	// Payload.AdminerSocket's own doc comment). Non-empty together with a
+	// certificate, it selects webmail.conf.tmpl (the node tools host); it
+	// also still renders inside php.conf.tmpl for a payload that carries
+	// one, though the control plane now only sends it for the node's own
+	// hostname.
 	AdminerSocket string
 	// WebmailSocket, non-empty together with a certificate, selects
 	// webmail.conf.tmpl (see renderVhost).
@@ -136,12 +136,13 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	case suspended:
 		name = "suspended.conf.tmpl"
 		data.SuspendedPage = string(suspendedHTML)
-	case data.WebmailSocket != "" && data.CertificatePath != "":
-		// Webmail is checked before apache-proxy/php: this one domain is
-		// the node's own mail hostname, serving Roundcube instead of any
-		// content of its own. It requires a certificate (webmail carries
-		// login passwords, and this template forces HTTP to HTTPS); without
-		// one, the domain falls through to its ordinary template.
+	case (data.WebmailSocket != "" || data.AdminerSocket != "") && data.CertificatePath != "":
+		// The node tools host is checked before apache-proxy/php: this one
+		// domain is the node's own hostname, serving Roundcube (webmail) and/or
+		// the Adminer hand-off instead of any content of its own. It requires a
+		// certificate (both carry login credentials, and this template forces
+		// HTTP to HTTPS); without one, the domain falls through to its
+		// ordinary template.
 		name = "webmail.conf.tmpl"
 	case data.WebTemplate == "apache-proxy":
 		name = "apache_proxy.conf.tmpl"

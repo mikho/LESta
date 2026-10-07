@@ -6,18 +6,32 @@ use App\Models\MailDomain;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\WebDomain;
 use App\Models\WebmailAccessToken;
 
 /**
- * A mailbox on a node where webmail is fully available (mail_hostname set, a non-suspended
- * mail.webmail.v1 capability).
+ * Gives a node a web domain for its own hostname, with a certificate unless told otherwise: the
+ * vhost webmail is served from.
+ */
+function webmailToolsDomain(Node $node, bool $certified = true): WebDomain
+{
+    return WebDomain::factory()->for($node)->create([
+        'domain' => $node->hostname,
+        'certificate_issued_at' => $certified ? now() : null,
+    ]);
+}
+
+/**
+ * A mailbox on a node where webmail is fully available (a non-suspended mail.webmail.v1
+ * capability, and a certified web domain for the node's own hostname).
  *
  * @return array{0: MailDomain, 1: MailAccount}
  */
-function webmailReadyMailbox(array $accountAttributes = []): array
+function webmailReadyMailbox(array $accountAttributes = [], string $hostname = 'node.example.test'): array
 {
-    $node = Node::factory()->create(['mail_hostname' => 'mail.example.test']);
+    $node = Node::factory()->create(['hostname' => $hostname]);
     NodeCapability::factory()->for($node)->create(['capability' => 'mail.webmail.v1']);
+    webmailToolsDomain($node);
     $mailDomain = MailDomain::factory()->for($node)->create();
     $mailAccount = MailAccount::factory()->for($mailDomain)->create($accountAttributes);
 
@@ -34,9 +48,9 @@ test('an owner can prepare a webmail session', function () {
 
     $url = $response->json('url');
 
-    expect($url)->toMatch('#^https://mail\.example\.test/\?_lesta_token=[A-Za-z0-9]{64}$#');
+    expect($url)->toMatch('#^https://node\.example\.test/\?_lesta_token=[A-Za-z0-9]{64}$#');
 
-    $token = str_replace('https://mail.example.test/?_lesta_token=', '', $url);
+    $token = str_replace('https://node.example.test/?_lesta_token=', '', $url);
     $record = WebmailAccessToken::where('token_hash', hash('sha256', $token))->sole();
 
     expect($record->mail_account_id)->toBe($mailAccount->id)
@@ -67,7 +81,7 @@ test('a non-owner member is forbidden from preparing a webmail session', functio
 
 test('a mailbox from another mail domain is not found', function () {
     [$mailDomain] = webmailReadyMailbox();
-    [, $otherMailAccount] = webmailReadyMailbox();
+    [, $otherMailAccount] = webmailReadyMailbox(hostname: 'other.example.test');
     $owner = Membership::factory()->for($mailDomain->account)->owner()->create()->user;
 
     $this->actingAs($owner)
@@ -97,9 +111,20 @@ test('a mailbox on a suspended mail domain is rejected', function () {
         ->assertJsonValidationErrors(['mail_account']);
 });
 
-test('a node without a mail hostname is rejected', function () {
+test('webmail opens on the node hostname whatever the mail hostname is, even when unset', function () {
     [$mailDomain, $mailAccount] = webmailReadyMailbox();
-    $mailDomain->node->forceFill(['mail_hostname' => null])->save();
+    $mailDomain->node->forceFill(['mail_hostname' => 'mail.example.test'])->save();
+    $owner = Membership::factory()->for($mailDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->postJson(route('mail.accounts.open-webmail', [$mailDomain, $mailAccount]))
+        ->assertOk()
+        ->assertJsonPath('url', fn (string $url) => str_starts_with($url, 'https://node.example.test/'));
+});
+
+test('a node whose hostname has no certified web domain is rejected', function () {
+    [$mailDomain, $mailAccount] = webmailReadyMailbox();
+    WebDomain::query()->where('domain', 'node.example.test')->update(['certificate_issued_at' => null]);
     $owner = Membership::factory()->for($mailDomain->account)->owner()->create()->user;
 
     $this->actingAs($owner)
@@ -109,7 +134,8 @@ test('a node without a mail hostname is rejected', function () {
 });
 
 test('a node without the webmail capability is rejected', function () {
-    $node = Node::factory()->create(['mail_hostname' => 'mail.example.test']);
+    $node = Node::factory()->create(['hostname' => 'node.example.test']);
+    webmailToolsDomain($node);
     $mailDomain = MailDomain::factory()->for($node)->create();
     $mailAccount = MailAccount::factory()->for($mailDomain)->create();
     $owner = Membership::factory()->for($mailDomain->account)->owner()->create()->user;
@@ -121,7 +147,8 @@ test('a node without the webmail capability is rejected', function () {
 });
 
 test('a node with only a suspended webmail capability is rejected', function () {
-    $node = Node::factory()->create(['mail_hostname' => 'mail.example.test']);
+    $node = Node::factory()->create(['hostname' => 'node.example.test']);
+    webmailToolsDomain($node);
     NodeCapability::factory()->for($node)->suspended()->create(['capability' => 'mail.webmail.v1']);
     $mailDomain = MailDomain::factory()->for($node)->create();
     $mailAccount = MailAccount::factory()->for($mailDomain)->create();
@@ -141,7 +168,7 @@ test('the mail domain edit page reports whether webmail is available', function 
         ->get(route('mail.edit', $mailDomain))
         ->assertInertia(fn ($page) => $page->component('mail/edit')->where('webmailAvailable', true));
 
-    $mailDomain->node->forceFill(['mail_hostname' => null])->save();
+    WebDomain::query()->where('domain', 'node.example.test')->update(['certificate_issued_at' => null]);
 
     $this->actingAs($owner)
         ->get(route('mail.edit', $mailDomain))

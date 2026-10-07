@@ -387,7 +387,7 @@ function RotatePasswordDialog({
 /**
  * Opens webmail for this mailbox in a new tab, leaving this page as it is.
  * MailAccountController::openWebmail() is a plain JSON endpoint, not an Inertia visit (its
- * redirect target, the node's own mail hostname, is outside this app's own Inertia protocol), so
+ * redirect target, the node's own address, is outside this app's own Inertia protocol), so
  * this uses `apiPost` and then points the new tab at the returned URL. The tab is opened
  * synchronously in the click handler, before the request: opened after an `await`, browsers
  * treat it as an unrequested popup and block it. If it is blocked anyway, this falls back to
@@ -671,9 +671,8 @@ export default function Edit({
 
                     {!webmailAvailable && (
                         <p className="text-sm text-muted-foreground">
-                            Webmail is not available for this domain yet: its
-                            node needs a mail hostname and the mail.webmail.v1
-                            capability.
+                            Webmail is not available for this domain yet. Ask
+                            your provider to enable it on this domain's node.
                         </p>
                     )}
 

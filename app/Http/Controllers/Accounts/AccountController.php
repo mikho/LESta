@@ -39,12 +39,14 @@ class AccountController extends Controller
         $search = trim((string) $request->string('search'));
 
         $accounts = Account::query()
+            ->where('is_platform', false)
             ->with('package')
             ->withCount('memberships')
             ->when(
                 $search !== '',
-                fn ($query) => $query->where('name', 'like', '%'.$search.'%')
-                    ->orWhere('contact_email', 'like', '%'.$search.'%')
+                fn ($query) => $query->where(fn ($query) => $query
+                    ->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('contact_email', 'like', '%'.$search.'%'))
             )
             ->orderBy('name')
             ->paginate(15)
@@ -187,6 +189,7 @@ class AccountController extends Controller
 
         $candidates = Account::query()
             ->where('id', '!=', $account->id)
+            ->where('is_platform', false)
             ->whereNull('reseller_account_id')
             ->when(
                 $search !== '',

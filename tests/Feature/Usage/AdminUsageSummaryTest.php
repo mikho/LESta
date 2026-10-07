@@ -43,14 +43,14 @@ test('a provider admin sees every account\'s usage grouped by node, linking to e
             ->component('usage/index')
             ->has('customers.groups', 2)
             ->where('customers.groups.0.node.name', 'alpha')
-            ->where('customers.groups.0.accounts.0.account.name', 'Acme Corp')
-            ->where('customers.groups.0.accounts.0.items.0.account_public_id', $acme->public_id)
-            ->where('customers.groups.0.accounts.0.items.0.disk_bytes', 300)
-            ->where('customers.groups.0.accounts.0.items.0.request_count', 12)
-            ->where('customers.groups.0.accounts.0.items.0.bytes_sent', 30)
+            ->where('customers.groups.0.rows.0.account.name', 'Acme Corp')
+            ->where('customers.groups.0.rows.0.item.account_public_id', $acme->public_id)
+            ->where('customers.groups.0.rows.0.item.disk_bytes', 300)
+            ->where('customers.groups.0.rows.0.item.request_count', 12)
+            ->where('customers.groups.0.rows.0.item.bytes_sent', 30)
             ->where('customers.groups.1.node.name', 'beta')
-            ->where('customers.groups.1.accounts.0.items.0.disk_bytes', 900)
-            ->where('customers.groups.1.accounts.0.items.0.request_count', null)
+            ->where('customers.groups.1.rows.0.item.disk_bytes', 900)
+            ->where('customers.groups.1.rows.0.item.request_count', null)
             ->where('customers.groups.0.totals.accounts', 1)
             ->where('customers.summary', ['resources' => null, 'accounts' => 2, 'nodes' => 2])
         );
@@ -70,7 +70,7 @@ test('the node and account filters narrow the usage list', function () {
         ->get(route('usage.index', ['search' => 'acme']))
         ->assertInertia(fn (Assert $page) => $page
             ->has('customers.groups', 1)
-            ->where('customers.groups.0.accounts.0.account.name', 'Acme Corp'));
+            ->where('customers.groups.0.rows.0.account.name', 'Acme Corp'));
 });
 
 test('an admin still reaches one account\'s detail page with ?account=', function () {
@@ -93,4 +93,21 @@ test('an account owner still sees only their own usage, never the summary', func
     $this->actingAs($owner)
         ->get(route('usage.index'))
         ->assertInertia(fn (Assert $page) => $page->missing('customers')->where('viewingAccount', null)->has('snapshots.data'));
+});
+
+test('usage rows sort within a node by disk, requests or last collection', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create(['name' => 'alpha']);
+
+    foreach ([['Small', 100, 50], ['Big', 900, 5], ['Middle', 500, 20]] as [$name, $disk, $requests]) {
+        $account = Account::factory()->create(['name' => $name]);
+        $mailbox = MailAccount::factory()->for(MailDomain::factory()->for($account)->for($node)->create())->create();
+        UsageSnapshot::factory()->for($account)->for($node)->for($mailbox, 'snapshotable')->create(['disk_bytes' => $disk, 'request_count' => $requests, 'bytes_sent' => 1, 'collected_at' => now()->subDay()]);
+    }
+
+    $names = fn (string $sort) => collect($this->actingAs($admin)->get(route('usage.index', ['sort' => $sort]))->viewData('page')['props']['customers']['groups'][0]['rows'])->pluck('account.name')->all();
+
+    expect($names('-disk'))->toBe(['Big', 'Middle', 'Small'])
+        ->and($names('disk'))->toBe(['Small', 'Middle', 'Big'])
+        ->and($names('-requests'))->toBe(['Small', 'Middle', 'Big']);
 });

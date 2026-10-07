@@ -11,7 +11,6 @@ use App\Enums\SuspensionSource;
 use App\Enums\WebServer;
 use Database\Factories\WebDomainFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -216,133 +215,55 @@ class WebDomain extends Model
     }
 
     /**
-     * Domains through which Adminer can be opened for a tenant database: the same account and
-     * node, PHP enabled, a certificate issued, and the node running nginx, the only web server
-     * that renders the /__lesta-adminer__ handoff (see resolveAdminerSocket). Shared by
-     * PrepareAdminerSession and the "Open Adminer" button so the two can never disagree.
+     * The fixed, node-wide tools.adminer.v1 pool socket, or null. Non-null only for the node's own
+     * hostname (see isNodeToolsHost), never for a customer's domain: Adminer opens on the node's
+     * address at /__lesta-adminer__, so an admin tool is never exposed under a tenant's name. It
+     * additionally requires web.nginx.v1 (the only renderer of the hand-off), an issued
+     * certificate (the hand-off carries a one-time login token), and a non-suspended
+     * tools.adminer.v1 capability on the node.
      *
-     * @param  Builder<WebDomain>  $query
-     * @return Builder<WebDomain>
-     */
-    public function scopeAdminerEligibleFor(Builder $query, TenantDatabase $tenantDatabase): Builder
-    {
-        return $query
-            ->where('account_id', $tenantDatabase->account_id)
-            ->where('node_id', $tenantDatabase->node_id)
-            ->whereNotNull('php_version')
-            ->whereNotNull('certificate_issued_at')
-            ->whereExists(function ($subQuery) use ($tenantDatabase): void {
-                $subQuery->selectRaw('1')
-                    ->from('node_capabilities')
-                    ->where('node_id', $tenantDatabase->node_id)
-                    ->where('capability', 'web.nginx.v1')
-                    ->whereNull('suspended_at');
-            });
-    }
-
-    /**
-     * The fixed, node-wide tools.adminer.v1 pool socket (see
-     * agent/internal/capability/nginx/payload.go's own AdminerSocket doc
-     * comment), or null when this domain should render no
-     * /__lesta-adminer__ location at all. Non-null only when every one of
-     * the following is true:
-     *
-     *   - $capability is web.nginx.v1 specifically (Apache never renders
-     *     this location; "both" profile domains reach it through nginx,
-     *     the same way every other public listener decision in this
-     *     payload already works);
-     *   - this domain has a php_version set AND a certificate already
-     *     issued (Adminer rides this domain's own existing HTTPS listener,
-     *     never a new one of its own, and never an HTTP-only vhost);
-     *   - the owning node has a non-suspended NodeCapability row for
-     *     tools.adminer.v1 (an admin must have actually declared the node
-     *     capable, exactly like every other capability gate in this
-     *     codebase);
-     *   - the account has at least one non-suspended TenantDatabase on
-     *     this same node (no database to administer, no reason to expose
-     *     the location at all).
-     *
-     * Only (re)computed on this WebDomain's own next create/update: this is
-     * an accepted, documented v1 limitation, not a bug to fix here.
-     * Enabling tools.adminer.v1 on a node, or adding a tenant's first
-     * TenantDatabase, does not retroactively touch any already-existing
-     * domain's rendered vhost -- that domain's own next create/update
-     * (e.g. a php_version change, a certificate renewal that re-dispatches
-     * web.nginx.v1) is what picks up the new eligibility, the same way
-     * every other field in this payload is only ever recomputed when this
-     * domain's own provisioning operation is re-recorded, never pushed out
-     * proactively by some other model's own change.
+     * Only (re)computed on this WebDomain's own next create/update: enabling tools.adminer.v1 on
+     * a node does not retroactively re-render an already-rendered vhost; that domain's own next
+     * update (a certificate renewal, say) picks it up.
      */
     private function resolveAdminerSocket(string $capability): ?string
     {
-        if ($capability !== 'web.nginx.v1') {
+        if ($capability !== 'web.nginx.v1' || $this->certificate_issued_at === null || ! $this->isNodeToolsHost()) {
             return null;
         }
 
-        if ($this->php_version === null || $this->certificate_issued_at === null) {
-            return null;
-        }
-
-        $nodeHasAdminer = NodeCapability::query()
-            ->where('node_id', $this->node_id)
-            ->where('capability', NodeCapabilityType::Adminer->value)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if (! $nodeHasAdminer) {
-            return null;
-        }
-
-        $accountHasTenantDatabase = TenantDatabase::query()
-            ->where('account_id', $this->account_id)
-            ->where('node_id', $this->node_id)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if (! $accountHasTenantDatabase) {
-            return null;
-        }
-
-        return '/run/lesta-adminer/adminer.sock';
+        return $this->node->hasCapability(NodeCapabilityType::Adminer) ? '/run/lesta-adminer/adminer.sock' : null;
     }
 
     /**
-     * The fixed, node-wide mail.webmail.v1 pool socket (see
-     * agent/internal/capability/nginx/payload.go's own WebmailSocket doc comment), or null when
-     * this domain renders its ordinary template. Non-null selects webmail.conf.tmpl, which serves
-     * Roundcube at "/" instead of any content of this domain's own. Non-null only when every one
-     * of the following is true:
+     * The fixed, node-wide mail.webmail.v1 pool socket, or null. Non-null only for the node's own
+     * hostname (see isNodeToolsHost), where webmail.conf.tmpl serves Roundcube at "/" instead of
+     * any content of this domain's own. It additionally requires web.nginx.v1 (webmail is only
+     * ever rendered by nginx), an issued certificate (the template forces HTTP to HTTPS, since it
+     * carries login passwords), and a non-suspended mail.webmail.v1 capability on the node.
      *
-     *   - $capability is web.nginx.v1 specifically (webmail is only ever rendered by nginx);
-     *   - this domain IS its node's own mail_hostname (webmail lives at
-     *     https://<mail_hostname>/, the same hostname Dovecot's and Exim's certificate names);
-     *   - a certificate is already issued (the webmail template forces HTTP to HTTPS, since it
-     *     carries login passwords);
-     *   - the owning node has a non-suspended NodeCapability row for mail.webmail.v1.
-     *
-     * Only (re)computed on this WebDomain's own next create/update, the same accepted v1
-     * limitation resolveAdminerSocket() documents: setting a node's mail_hostname or declaring
-     * mail.webmail.v1 on it does not retroactively touch the mail hostname domain's already
-     * rendered vhost. That domain's own next create/update (e.g. a certificate renewal that
-     * re-dispatches web.nginx.v1) is what picks up the new eligibility.
+     * Only (re)computed on this WebDomain's own next create/update, the same accepted limitation
+     * resolveAdminerSocket() documents.
      */
     private function resolveWebmailSocket(string $capability): ?string
     {
-        if ($capability !== 'web.nginx.v1' || $this->certificate_issued_at === null) {
+        if ($capability !== 'web.nginx.v1' || $this->certificate_issued_at === null || ! $this->isNodeToolsHost()) {
             return null;
         }
 
+        return $this->node->hasCapability(NodeCapabilityType::Webmail) ? '/run/lesta-webmail/webmail.sock' : null;
+    }
+
+    /**
+     * Whether this domain is its node's own hostname: the one vhost per node that hosts the
+     * admin-facing tools (webmail and Adminer), so they open on the node's address and never on
+     * a customer's domain.
+     */
+    public function isNodeToolsHost(): bool
+    {
         $node = $this->node;
 
-        if ($node === null || $node->mail_hostname === null || $this->domain !== $node->mail_hostname) {
-            return null;
-        }
-
-        if (! $node->hasWebmailAvailable()) {
-            return null;
-        }
-
-        return '/run/lesta-webmail/webmail.sock';
+        return $node !== null && strtolower($this->domain) === strtolower($node->hostname);
     }
 
     /**

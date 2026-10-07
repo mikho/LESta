@@ -43,6 +43,7 @@ class WebDomainController extends Controller
                     WebDomain::query()->with(['aliases', 'latestProvisioningOperation']),
                     fn (WebDomain $item): array => $this->present($item),
                     'domain',
+                    ['domain' => 'web_domains.domain'],
                 ),
             ]);
         }

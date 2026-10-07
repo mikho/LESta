@@ -143,21 +143,49 @@ class Node extends Model implements ProviderAdminManaged
     }
 
     /**
-     * Whether mail.webmail.v1 can be opened on this node at all: a mail hostname is recorded
-     * (webmail is served at https://<mail_hostname>/ only) and an admin has declared a
-     * non-suspended mail.webmail.v1 capability. Per-domain conditions (the certificate, the
-     * domain actually being the mail hostname) are WebDomain::resolveWebmailSocket()'s own.
+     * Whether this node has a non-suspended capability of the given type declared.
+     */
+    public function hasCapability(NodeCapabilityType $type): bool
+    {
+        return $this->capabilities()
+            ->where('capability', $type->value)
+            ->whereNull('suspended_at')
+            ->exists();
+    }
+
+    /**
+     * The web domain for this node's own hostname, once it has a certificate: the one vhost that
+     * hosts webmail and Adminer, so those tools open on the node's address and never on a
+     * customer's domain. Null until an admin has created that domain and its certificate is issued.
+     */
+    public function toolsWebDomain(): ?WebDomain
+    {
+        return WebDomain::query()
+            ->where('node_id', $this->id)
+            ->where('domain', strtolower($this->hostname))
+            ->whereNotNull('certificate_issued_at')
+            ->first();
+    }
+
+    /**
+     * Whether webmail can be opened on this node: mail.webmail.v1 is declared, and the node's own
+     * hostname has a certified web domain to serve it from (see toolsWebDomain).
      */
     public function hasWebmailAvailable(): bool
     {
-        if ($this->mail_hostname === null || $this->mail_hostname === '') {
-            return false;
-        }
+        return $this->hasCapability(NodeCapabilityType::Webmail) && $this->toolsWebDomain() !== null;
+    }
 
-        return $this->capabilities()
-            ->where('capability', NodeCapabilityType::Webmail->value)
-            ->whereNull('suspended_at')
-            ->exists();
+    /**
+     * Whether Adminer can be opened on this node: tools.adminer.v1 is declared, the node runs
+     * nginx (the only server that renders the hand-off), and the node's own hostname has a
+     * certified web domain to serve it from (see toolsWebDomain).
+     */
+    public function hasAdminerAvailable(): bool
+    {
+        return $this->hasCapability(NodeCapabilityType::Adminer)
+            && $this->hasCapability(NodeCapabilityType::WebNginx)
+            && $this->toolsWebDomain() !== null;
     }
 
     /**

@@ -1,5 +1,5 @@
 # Managed by LESta. Do not edit by hand.
-# resource={{.ResourceID}} (webmail: this node's own mail hostname)
+# resource={{.ResourceID}} (node tools host: this node's own hostname, serving webmail and/or Adminer)
 server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
@@ -33,6 +33,7 @@ server {
         alias {{.AcmeChallengeDir}}/;
     }
 
+{{if .WebmailSocket}}
     location / {
         try_files $uri $uri/ /index.php$is_args$args;
     }
@@ -52,7 +53,19 @@ server {
         fastcgi_param PATH_INFO $path_info;
         include {{.FastcgiParamsPath}};
     }
-
+{{else}}
+    location / {
+        return 404;
+    }
+{{end}}
+{{if .AdminerSocket}}
+    location = /__lesta-adminer__ {
+        fastcgi_pass unix:{{.AdminerSocket}};
+        fastcgi_index adminer.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/lesta-adminer/adminer-lesta-login.php;
+        include {{.FastcgiParamsPath}};
+    }
+{{end}}
     location ~ /\. {
         deny all;
     }

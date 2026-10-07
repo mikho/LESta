@@ -6,7 +6,6 @@ use App\Models\AdminerAccessToken;
 use App\Models\AuditEvent;
 use App\Models\TenantDatabase;
 use App\Models\User;
-use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -14,8 +13,9 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Mints a single-use, 60-second token and returns the redirect URL a browser follows straight
- * onto the tenant's own domain's /__lesta-adminer__ location (see
- * agent/internal/capability/nginx/templates/php.conf.tmpl). The token itself is redeemed by
+ * onto the database's own node's address, its /__lesta-adminer__ location (see
+ * agent/internal/capability/nginx/templates/webmail.conf.tmpl, the node tools vhost). Never a
+ * customer's domain. The token itself is redeemed by
  * App\Http\Middleware\AuthenticateAdminerToken via the internal, token-only-authenticated
  * /internal/adminer-credentials/{token} endpoint that .install/services/adminer/vendor/
  * adminer-lesta-login.php calls -- this action never talks to a node directly, it only ever
@@ -33,15 +33,15 @@ class PrepareAdminerSession
             ]);
         }
 
-        $webDomain = WebDomain::query()->adminerEligibleFor($tenantDatabase)->first();
+        $node = $tenantDatabase->node;
 
-        if ($webDomain === null) {
+        if (! $node->hasAdminerAvailable()) {
             throw ValidationException::withMessages([
-                'tenant_database' => 'No eligible domain (PHP enabled, certificate issued, served by nginx) exists on this database\'s own node to open Adminer through.',
+                'tenant_database' => 'Adminer is not available on this database\'s node: its own hostname needs a web domain with an issued certificate, and tools.adminer.v1 must be installed.',
             ]);
         }
 
-        return DB::transaction(function () use ($actor, $tenantDatabase, $webDomain): string {
+        return DB::transaction(function () use ($actor, $tenantDatabase, $node): string {
             $raw = Str::random(64);
             $correlationId = (string) Str::uuid();
 
@@ -60,7 +60,7 @@ class PrepareAdminerSession
                 'correlation_id' => $correlationId,
             ]);
 
-            return "https://{$webDomain->domain}/__lesta-adminer__?token={$raw}";
+            return "https://{$node->hostname}/__lesta-adminer__?token={$raw}";
         });
     }
 }

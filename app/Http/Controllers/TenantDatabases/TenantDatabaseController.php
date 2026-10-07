@@ -14,7 +14,6 @@ use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\TenantDatabases\StoreTenantDatabaseRequest;
 use App\Models\TenantDatabase;
-use App\Models\WebDomain;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -42,6 +41,7 @@ class TenantDatabaseController extends Controller
                     TenantDatabase::query()->with(['latestProvisioningOperation']),
                     fn (TenantDatabase $item): array => $this->presentForIndex($item),
                     'label',
+                    ['label' => 'tenant_databases.label'],
                 ),
             ]);
         }
@@ -126,7 +126,7 @@ class TenantDatabaseController extends Controller
 
         return Inertia::render('tenant-databases/edit', [
             'tenantDatabase' => $this->presentForEdit($tenantDatabase),
-            'hasEligibleAdminerDomain' => $this->hasEligibleAdminerDomain($tenantDatabase),
+            'adminerAvailable' => $tenantDatabase->node->hasAdminerAvailable(),
         ]);
     }
 
@@ -233,16 +233,6 @@ class TenantDatabaseController extends Controller
             'suspension_source' => $tenantDatabase->suspension_source?->value,
             'provisioning_status' => $tenantDatabase->latestProvisioningOperation?->status->value,
         ];
-    }
-
-    /**
-     * Whether PrepareAdminerSession would find an eligible WebDomain for this tenant database --
-     * the same WebDomain::adminerEligibleFor() scope that action uses, so the "Open Adminer"
-     * button can be disabled up front rather than only failing after a click.
-     */
-    private function hasEligibleAdminerDomain(TenantDatabase $tenantDatabase): bool
-    {
-        return WebDomain::query()->adminerEligibleFor($tenantDatabase)->exists();
     }
 
     /**

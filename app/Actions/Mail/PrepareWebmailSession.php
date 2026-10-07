@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Mints a single-use, 60-second token and returns the redirect URL a browser follows straight
- * onto the mail domain's own node's mail hostname, where Roundcube's lesta_autologin plugin
+ * onto the mail domain's own node's address (its own hostname, the node tools vhost), where Roundcube's lesta_autologin plugin
  * (.install/services/webmail/vendor/lesta_autologin/lesta_autologin.php) redeems it via the
  * internal, token-only-authenticated /internal/webmail-credentials/{token} endpoint. Mirrors
  * App\Actions\TenantDatabases\PrepareAdminerSession: this action never talks to a node directly,
@@ -37,7 +37,7 @@ class PrepareWebmailSession
 
         if (! $node->hasWebmailAvailable()) {
             throw ValidationException::withMessages([
-                'mail_account' => 'Webmail is not available on this mail domain\'s node (it needs a mail hostname and the mail.webmail.v1 capability).',
+                'mail_account' => 'Webmail is not available on this mail domain\'s node: its own hostname needs a web domain with an issued certificate, and mail.webmail.v1 must be installed.',
             ]);
         }
 
@@ -59,7 +59,7 @@ class PrepareWebmailSession
                 'correlation_id' => (string) Str::uuid(),
             ]);
 
-            return "https://{$node->mail_hostname}/?_lesta_token={$raw}";
+            return "https://{$node->hostname}/?_lesta_token={$raw}";
         });
     }
 }

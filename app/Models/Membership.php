@@ -45,6 +45,10 @@ class Membership extends Model
             if ($conflicts) {
                 throw new LogicException('A user cannot be both a platform administrator and a member of a hosting account.');
             }
+
+            if ($membership->account_id !== null && Account::query()->whereKey($membership->account_id)->where('is_platform', true)->exists()) {
+                throw new LogicException('The platform account has no members.');
+            }
         });
     }
 

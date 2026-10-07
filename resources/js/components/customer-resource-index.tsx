@@ -18,14 +18,14 @@ export type CustomerListing<T> = {
     groups: {
         node: { uuid: string; name: string };
         totals: { resources: number; accounts: number };
-        accounts: {
+        rows: {
             account: { public_id: string; name: string };
-            items: T[];
+            item: T;
         }[];
     }[];
     nodes: string[];
     summary: { resources: number | null; accounts: number; nodes: number };
-    filters: { node: string; account: string; status: string };
+    filters: { node: string; account: string; status: string; sort: string };
     pagination: {
         current_page: number;
         last_page: number;
@@ -35,9 +35,16 @@ export type CustomerListing<T> = {
     };
 };
 
+/** A list item as the customer view receives it: the resource, plus why its last operation failed. */
+export type CustomerItem<T> = T & { provisioning_error: string | null };
+
 export type CustomerColumn<T> = {
     header: string;
     cell: (item: T) => ReactNode;
+    /** The `sort` query value this column sorts by; omit for a column that cannot be sorted. */
+    sortKey?: string;
+    /** Right-aligns the column and uses tabular figures so magnitudes can be compared. */
+    numeric?: boolean;
 };
 
 type Noun = { one: string; other: string };
@@ -48,14 +55,18 @@ type Noun = { one: string; other: string };
  * become its message catalog.
  */
 const plural = (count: number, noun: Noun): string =>
-    new Intl.PluralRules(document.documentElement.lang || undefined).select(
-        count,
-    ) === 'one'
+    new Intl.PluralRules(
+        typeof document === 'undefined'
+            ? undefined
+            : document.documentElement.lang || undefined,
+    ).select(count) === 'one'
         ? noun.one
         : noun.other;
 
 const accountNoun: Noun = { one: 'account', other: 'accounts' };
 const nodeNoun: Noun = { one: 'node', other: 'nodes' };
+
+type Totals = { resources: number | null; accounts: number; nodes: number };
 
 const messages = {
     nodeFilter: 'Node',
@@ -74,22 +85,37 @@ const messages = {
     previousPage: 'Previous page',
     nextPage: 'Next page',
     caption: (title: string, node: string) => `${title} on node ${node}`,
-    summary: (
-        total: { resources: number | null; accounts: number; nodes: number },
-        noun: Noun | undefined,
-    ) =>
+    sortBy: (column: string) => `Sort by ${column}`,
+    summary: (total: Totals, noun: Noun | undefined) =>
         noun && total.resources !== null
             ? `${total.resources} ${plural(total.resources, noun)} in ${total.accounts} ${plural(total.accounts, accountNoun)} on ${total.nodes} ${plural(total.nodes, nodeNoun)}`
             : `${total.accounts} ${plural(total.accounts, accountNoun)} on ${total.nodes} ${plural(total.nodes, nodeNoun)}`,
+    page: (current: number, last: number) => `Page ${current} of ${last}`,
     nodeTotals: (
         totals: { resources: number; accounts: number },
+        shown: number,
         noun: Noun | undefined,
-    ) =>
-        noun
-            ? `${totals.resources} ${plural(totals.resources, noun)} in ${totals.accounts} ${plural(totals.accounts, accountNoun)}`
-            : `${totals.accounts} ${plural(totals.accounts, accountNoun)}`,
-    pageStatus: (current: number, last: number, total: number) =>
-        `Page ${current} of ${last} (${total} total)`,
+    ) => {
+        if (!noun) {
+            return `${totals.accounts} ${plural(totals.accounts, accountNoun)}`;
+        }
+
+        const base = `${totals.resources} ${plural(totals.resources, noun)} in ${totals.accounts} ${plural(totals.accounts, accountNoun)}`;
+
+        return shown < totals.resources
+            ? `${base}, ${shown} shown on this page`
+            : base;
+    },
+    activeFilters: (node: string, account: string, problems: boolean): string =>
+        [
+            node !== '' ? `Node: ${node}` : '',
+            account !== '' ? `Account: ${account}` : '',
+            problems ? 'Show: Problems only' : '',
+        ]
+            .filter(Boolean)
+            .join(', '),
+    noMatch: (message: string, filters: string) =>
+        filters === '' ? message : `${message} (${filters})`,
     suspended: 'Suspended',
     accountSuspended: 'Account suspended',
     active: 'Active',
@@ -109,19 +135,43 @@ export function SuspensionCell({
                 : messages.suspended}
         </span>
     ) : (
-        <span className="text-green-700 dark:text-green-400">
-            {messages.active}
-        </span>
+        <span className="text-muted-foreground">{messages.active}</span>
     );
 }
+
+export const formatRelative = (iso: string): string => {
+    const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
+    const formatter = new Intl.RelativeTimeFormat(undefined, {
+        numeric: 'auto',
+    });
+    const units: [Intl.RelativeTimeFormatUnit, number][] = [
+        ['day', 86400],
+        ['hour', 3600],
+        ['minute', 60],
+    ];
+
+    for (const [unit, size] of units) {
+        if (Math.abs(seconds) >= size) {
+            return formatter.format(Math.round(seconds / size), unit);
+        }
+    }
+
+    return formatter.format(Math.round(seconds), 'second');
+};
+
+export const formatCount = (value: number | null | undefined): string =>
+    value === null || value === undefined
+        ? '—'
+        : new Intl.NumberFormat().format(value);
 
 const ALL = '__all__';
 
 /**
  * The provider admin's read-only view of every customer's resources for one list page: one table
- * per node, with the owning account as its first column, so columns line up across accounts and
- * the account is part of every row. The node and "show" filters are labelled selects, the account
- * filter is free text, and a polite status line announces what the list now holds.
+ * per node, with the owning account as its first (sticky) column, so columns line up across
+ * accounts and the account is part of every row. Node and "show" filters are labelled selects, the
+ * account filter is free text, columns marked sortable sort within each node, and one polite
+ * status line announces what the list holds and when it is updating.
  */
 export function CustomerResourceIndex<T extends { uuid: string }>({
     title,
@@ -134,6 +184,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
     resourceNoun,
     showStatusFilter = true,
     accountFilterParam = 'account',
+    accountHref = (publicId) => accounts.show({ public_id: publicId }),
 }: {
     title: string;
     description: string;
@@ -145,10 +196,12 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
     resourceNoun?: Noun;
     showStatusFilter?: boolean;
     accountFilterParam?: string;
+    accountHref?: (publicId: string) => string | { url: string };
 }) {
     const [node, setNode] = useState(listing.filters.node);
     const [account, setAccount] = useState(listing.filters.account);
     const [status, setStatus] = useState(listing.filters.status);
+    const [sort, setSort] = useState(listing.filters.sort);
     const [loading, setLoading] = useState(false);
     const isFirstRender = useRef(true);
     const lastAccount = useRef(listing.filters.account);
@@ -161,6 +214,11 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
         listing.filters.status !== '';
     const inputsAreFiltered = node !== '' || account !== '' || status !== '';
 
+    const visit = {
+        onStart: () => setLoading(true),
+        onFinish: () => setLoading(false),
+    };
+
     useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
@@ -168,7 +226,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
             return;
         }
 
-        // Typing waits for a pause; picking from a select applies at once.
+        // Typing waits for a pause; picking from a select or a column header applies at once.
         const delay = account === lastAccount.current ? 0 : 300;
         lastAccount.current = account;
 
@@ -179,6 +237,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                     ...(node !== '' && { node }),
                     ...(account !== '' && { [accountFilterParam]: account }),
                     ...(status !== '' && { status }),
+                    ...(sort !== '' && { sort }),
                 },
                 {
                     preserveState: true,
@@ -190,13 +249,50 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
         }, delay);
 
         return () => clearTimeout(timeout);
-    }, [node, account, status, indexUrl, accountFilterParam]);
+    }, [node, account, status, sort, indexUrl, accountFilterParam]);
 
     const clearFilters = () => {
         setNode('');
         setAccount('');
         setStatus('');
     };
+
+    // none, then ascending, then descending, then none again.
+    const nextSort = (key: string) =>
+        sort === key ? `-${key}` : sort === `-${key}` ? '' : key;
+
+    const sortState = (key: string | undefined) =>
+        key === undefined
+            ? undefined
+            : sort === key
+              ? 'ascending'
+              : sort === `-${key}`
+                ? 'descending'
+                : 'none';
+
+    const resolveHref = (publicId: string) => {
+        const href = accountHref(publicId);
+
+        return typeof href === 'string' ? href : href.url;
+    };
+
+    const empty = listing.groups.length === 0;
+    const statusText = loading
+        ? messages.updating
+        : empty
+          ? messages.noMatch(
+                listIsFiltered ? emptyFilteredMessage : emptyMessage,
+                messages.activeFilters(
+                    listing.filters.node,
+                    listing.filters.account,
+                    listing.filters.status === 'problems',
+                ),
+            )
+          : `${messages.summary(listing.summary, resourceNoun)}${
+                listing.pagination.last_page > 1
+                    ? `. ${messages.page(listing.pagination.current_page, listing.pagination.last_page)}`
+                    : ''
+            }`;
 
     return (
         <>
@@ -287,7 +383,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                             variant="outline"
                             onClick={clearFilters}
                             className="pointer-coarse:h-11"
-                            data-test="customer-clear-filters-inline"
+                            data-test="customer-clear-filters"
                         >
                             {messages.clearFilters}
                         </Button>
@@ -295,52 +391,23 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                 </div>
 
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                    <p role="status" aria-live="polite">
-                        {loading
-                            ? messages.updating
-                            : listing.groups.length > 0
-                              ? messages.summary(listing.summary, resourceNoun)
-                              : ''}
-                    </p>
-                    <p>{messages.readOnly}</p>
-                </div>
-
-                {listing.groups.length === 0 && (
-                    <div
+                    <p
                         role="status"
-                        className="space-y-3 rounded-xl border border-sidebar-border/70 p-6 text-center dark:border-sidebar-border"
+                        aria-live="polite"
+                        className={
+                            empty && !loading
+                                ? 'w-full rounded-xl border border-sidebar-border/70 p-6 text-center dark:border-sidebar-border'
+                                : undefined
+                        }
                     >
-                        <p className="text-sm text-muted-foreground">
-                            {listIsFiltered
-                                ? emptyFilteredMessage
-                                : emptyMessage}
-                        </p>
-
-                        {listIsFiltered && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={clearFilters}
-                                className="pointer-coarse:h-11"
-                                data-test="customer-clear-filters"
-                            >
-                                {messages.clearFilters}
-                            </Button>
-                        )}
-                    </div>
-                )}
+                        {statusText}
+                    </p>
+                    {!empty && <p>{messages.readOnly}</p>}
+                </div>
 
                 <div aria-busy={loading} className="space-y-8">
                     {listing.groups.map((group) => {
                         const headingId = `customer-node-${group.node.uuid}`;
-                        const rows = group.accounts.flatMap(
-                            ({ account: owner, items }) =>
-                                items.map((item, index) => ({
-                                    owner,
-                                    item,
-                                    firstOfAccount: index === 0,
-                                })),
-                        );
 
                         return (
                             <section
@@ -358,6 +425,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                                     <span className="text-sm text-muted-foreground">
                                         {messages.nodeTotals(
                                             group.totals,
+                                            group.rows.length,
                                             resourceNoun,
                                         )}
                                     </span>
@@ -380,7 +448,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                                             <tr>
                                                 <th
                                                     scope="col"
-                                                    className="px-4 py-2 font-medium"
+                                                    className="sticky left-0 z-10 bg-background px-4 py-2 font-medium"
                                                 >
                                                     {messages.accountColumn}
                                                 </th>
@@ -389,61 +457,123 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                                                         <th
                                                             key={index}
                                                             scope="col"
-                                                            className="px-4 py-2 font-medium"
+                                                            aria-sort={sortState(
+                                                                column.sortKey,
+                                                            )}
+                                                            className={`px-4 py-2 font-medium ${
+                                                                column.numeric
+                                                                    ? 'text-right'
+                                                                    : ''
+                                                            }`}
                                                         >
-                                                            {column.header}
+                                                            {column.sortKey ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        setSort(
+                                                                            nextSort(
+                                                                                column.sortKey as string,
+                                                                            ),
+                                                                        )
+                                                                    }
+                                                                    aria-label={messages.sortBy(
+                                                                        column.header,
+                                                                    )}
+                                                                    className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-none"
+                                                                >
+                                                                    {
+                                                                        column.header
+                                                                    }
+                                                                    <span aria-hidden="true">
+                                                                        {sort ===
+                                                                        column.sortKey
+                                                                            ? '↑'
+                                                                            : sort ===
+                                                                                `-${column.sortKey}`
+                                                                              ? '↓'
+                                                                              : ''}
+                                                                    </span>
+                                                                </button>
+                                                            ) : (
+                                                                column.header
+                                                            )}
                                                         </th>
                                                     ),
                                                 )}
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {rows.map(
-                                                ({
-                                                    owner,
-                                                    item,
-                                                    firstOfAccount,
-                                                }) => (
-                                                    <tr
-                                                        key={item.uuid}
-                                                        className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
-                                                    >
-                                                        <th
-                                                            scope="row"
-                                                            className="px-4 py-2 text-left font-medium"
+                                            {group.rows.map(
+                                                (
+                                                    { account: owner, item },
+                                                    rowIndex,
+                                                ) => {
+                                                    const startsAccount =
+                                                        rowIndex === 0 ||
+                                                        group.rows[rowIndex - 1]
+                                                            .account
+                                                            .public_id !==
+                                                            owner.public_id;
+
+                                                    return (
+                                                        <tr
+                                                            key={item.uuid}
+                                                            className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
                                                         >
-                                                            {firstOfAccount ? (
-                                                                <Link
-                                                                    href={accounts.show(
-                                                                        {
-                                                                            public_id:
+                                                            <th
+                                                                scope="row"
+                                                                className="sticky left-0 z-10 bg-background px-4 py-2 text-left font-medium"
+                                                            >
+                                                                {startsAccount ? (
+                                                                    <>
+                                                                        <Link
+                                                                            href={resolveHref(
                                                                                 owner.public_id,
-                                                                        },
-                                                                    )}
-                                                                    className="inline-block py-1 underline pointer-coarse:py-3"
-                                                                >
-                                                                    {owner.name}
-                                                                </Link>
-                                                            ) : (
-                                                                <span className="sr-only">
-                                                                    {owner.name}
-                                                                </span>
+                                                                            )}
+                                                                            className="inline-block py-1 underline pointer-coarse:py-3"
+                                                                        >
+                                                                            {
+                                                                                owner.name
+                                                                            }
+                                                                        </Link>
+                                                                        <span className="block text-xs font-normal text-muted-foreground">
+                                                                            {
+                                                                                owner.public_id
+                                                                            }
+                                                                        </span>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="sr-only">
+                                                                        {
+                                                                            owner.name
+                                                                        }
+                                                                    </span>
+                                                                )}
+                                                            </th>
+                                                            {columns.map(
+                                                                (
+                                                                    column,
+                                                                    index,
+                                                                ) => (
+                                                                    <td
+                                                                        key={
+                                                                            index
+                                                                        }
+                                                                        className={`px-4 py-2 ${
+                                                                            column.numeric
+                                                                                ? 'text-right tabular-nums'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
+                                                                        {column.cell(
+                                                                            item,
+                                                                        )}
+                                                                    </td>
+                                                                ),
                                                             )}
-                                                        </th>
-                                                        {columns.map(
-                                                            (column, index) => (
-                                                                <td
-                                                                    key={index}
-                                                                    className="px-4 py-2"
-                                                                >
-                                                                    {column.cell(
-                                                                        item,
-                                                                    )}
-                                                                </td>
-                                                            ),
-                                                        )}
-                                                    </tr>
-                                                ),
+                                                        </tr>
+                                                    );
+                                                },
                                             )}
                                         </tbody>
                                     </table>
@@ -458,63 +588,68 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                         aria-label="Pagination"
                         className="flex items-center gap-3 text-sm"
                     >
-                        {listing.pagination.prev_page_url ? (
-                            <Button
-                                asChild
-                                variant="outline"
-                                size="sm"
-                                className="pointer-coarse:h-11"
-                            >
-                                <Link
-                                    href={listing.pagination.prev_page_url}
-                                    aria-label={messages.previousPage}
-                                >
-                                    {messages.previous}
-                                </Link>
-                            </Button>
-                        ) : (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled
+                        <Button
+                            asChild
+                            variant="outline"
+                            size="sm"
+                            className="aria-disabled:pointer-events-none aria-disabled:opacity-50 pointer-coarse:h-11"
+                        >
+                            <Link
+                                href={listing.pagination.prev_page_url ?? '#'}
                                 aria-label={messages.previousPage}
-                                className="pointer-coarse:h-11"
+                                aria-disabled={
+                                    !listing.pagination.prev_page_url
+                                }
+                                tabIndex={
+                                    listing.pagination.prev_page_url
+                                        ? undefined
+                                        : -1
+                                }
+                                onClick={(event) => {
+                                    if (!listing.pagination.prev_page_url) {
+                                        event.preventDefault();
+                                    }
+                                }}
+                                preserveScroll
+                                {...visit}
                             >
                                 {messages.previous}
-                            </Button>
-                        )}
+                            </Link>
+                        </Button>
                         <span className="text-muted-foreground">
-                            {messages.pageStatus(
+                            {messages.page(
                                 listing.pagination.current_page,
                                 listing.pagination.last_page,
-                                listing.pagination.total,
                             )}
                         </span>
-                        {listing.pagination.next_page_url ? (
-                            <Button
-                                asChild
-                                variant="outline"
-                                size="sm"
-                                className="pointer-coarse:h-11"
-                            >
-                                <Link
-                                    href={listing.pagination.next_page_url}
-                                    aria-label={messages.nextPage}
-                                >
-                                    {messages.next}
-                                </Link>
-                            </Button>
-                        ) : (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled
+                        <Button
+                            asChild
+                            variant="outline"
+                            size="sm"
+                            className="aria-disabled:pointer-events-none aria-disabled:opacity-50 pointer-coarse:h-11"
+                        >
+                            <Link
+                                href={listing.pagination.next_page_url ?? '#'}
                                 aria-label={messages.nextPage}
-                                className="pointer-coarse:h-11"
+                                aria-disabled={
+                                    !listing.pagination.next_page_url
+                                }
+                                tabIndex={
+                                    listing.pagination.next_page_url
+                                        ? undefined
+                                        : -1
+                                }
+                                onClick={(event) => {
+                                    if (!listing.pagination.next_page_url) {
+                                        event.preventDefault();
+                                    }
+                                }}
+                                preserveScroll
+                                {...visit}
                             >
                                 {messages.next}
-                            </Button>
-                        )}
+                            </Link>
+                        </Button>
                     </nav>
                 )}
             </div>

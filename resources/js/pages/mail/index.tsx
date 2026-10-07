@@ -3,12 +3,19 @@ import { useEffect, useRef, useState } from 'react';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
 import {
     CustomerResourceIndex,
+    formatCount,
     SuspensionCell,
 } from '@/components/customer-resource-index';
-import type { CustomerListing } from '@/components/customer-resource-index';
+import type {
+    CustomerItem,
+    CustomerListing,
+} from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
-import { ProvisioningBadge } from '@/components/provisioning-badge';
+import {
+    ProvisioningBadge,
+    QuietProvisioningStatus,
+} from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -37,7 +44,7 @@ export default function Index({
     mailDomains,
     search: initialSearch,
 }: {
-    customers?: CustomerListing<MailDomain>;
+    customers?: CustomerListing<CustomerItem<MailDomain>>;
     mailDomains: PaginatedMailDomains | null;
     search: string;
 }) {
@@ -75,13 +82,16 @@ export default function Index({
                 columns={[
                     {
                         header: 'Domain',
+                        sortKey: 'domain',
                         cell: (item) => (
                             <span className="font-medium">{item.domain}</span>
                         ),
                     },
                     {
                         header: 'Mailboxes',
-                        cell: (item) => item.accounts_count,
+                        sortKey: 'mailboxes',
+                        numeric: true,
+                        cell: (item) => formatCount(item.accounts_count),
                     },
                     {
                         header: 'Antivirus',
@@ -111,7 +121,7 @@ export default function Index({
                             item.dkim_enabled ? (
                                 'On'
                             ) : (
-                                <span className="font-medium text-amber-700 dark:text-amber-400">
+                                <span className="text-muted-foreground">
                                     Off
                                 </span>
                             ),
@@ -128,8 +138,9 @@ export default function Index({
                     {
                         header: 'Provisioning',
                         cell: (item) => (
-                            <ProvisioningBadge
+                            <QuietProvisioningStatus
                                 status={item.provisioning_status}
+                                reason={item.provisioning_error}
                             />
                         ),
                     },

@@ -519,5 +519,5 @@ func servesNoMarker(p Payload) bool {
 		return false
 	}
 
-	return p.WebTemplate == "apache-proxy" || p.PhpSocket != "" || (p.WebmailSocket != "" && p.SSL.CertificatePath != "")
+	return p.WebTemplate == "apache-proxy" || p.PhpSocket != "" || ((p.WebmailSocket != "" || p.AdminerSocket != "") && p.SSL.CertificatePath != "")
 }
