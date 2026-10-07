@@ -1,11 +1,13 @@
-import { useFlashToast } from '@/hooks/use-flash-toast';
 import { useAppearance } from '@/hooks/use-appearance';
+import { useErrorToast } from '@/hooks/use-error-toast';
+import { useFlashToast } from '@/hooks/use-flash-toast';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
 function Toaster({ ...props }: ToasterProps) {
     const { appearance } = useAppearance();
 
     useFlashToast();
+    useErrorToast();
 
     return (
         <Sonner
