@@ -88,6 +88,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
     listing,
     columns,
     emptyMessage,
+    accountFilterParam = 'account',
 }: {
     title: string;
     description: string;
@@ -95,6 +96,7 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
     listing: CustomerListing<T>;
     columns: CustomerColumn<T>[];
     emptyMessage: string;
+    accountFilterParam?: string;
 }) {
     const [node, setNode] = useState(listing.filters.node);
     const [account, setAccount] = useState(listing.filters.account);
@@ -112,14 +114,14 @@ export function CustomerResourceIndex<T extends { uuid: string }>({
                 indexUrl,
                 {
                     ...(node !== '' && { node }),
-                    ...(account !== '' && { account }),
+                    ...(account !== '' && { [accountFilterParam]: account }),
                 },
                 { preserveState: true, replace: true },
             );
         }, 300);
 
         return () => clearTimeout(timeout);
-    }, [node, account, indexUrl]);
+    }, [node, account, indexUrl, accountFilterParam]);
 
     return (
         <>

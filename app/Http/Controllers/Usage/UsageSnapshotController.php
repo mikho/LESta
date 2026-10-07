@@ -6,17 +6,22 @@ use App\Concerns\ResolvesCurrentAccount;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
 use App\Models\MailAccount;
+use App\Models\Node;
 use App\Models\TenantDatabase;
 use App\Models\UsageSnapshot;
 use App\Models\UsageSnapshotRollup;
 use App\Models\WebDomain;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class UsageSnapshotController extends Controller
 {
+    private const int CUSTOMER_PAGE_SIZE = 50;
+
     use ResolvesCurrentAccount;
 
     /**
@@ -38,6 +43,15 @@ class UsageSnapshotController extends Controller
     public function index(Request $request): Response
     {
         $accountPublicId = $request->string('account')->toString();
+
+        if ($accountPublicId === '' && $request->user()->can('viewAnyAcrossAccounts', UsageSnapshot::class)) {
+            return Inertia::render('usage/index', [
+                'snapshots' => null,
+                'rollups' => null,
+                'viewingAccount' => null,
+                'customers' => $this->customerUsage($request),
+            ]);
+        }
 
         $account = $accountPublicId !== ''
             ? Account::where('public_id', $accountPublicId)->firstOrFail()
@@ -150,5 +164,104 @@ class UsageSnapshotController extends Controller
             $resource instanceof WebDomain => $resource->domain,
             default => '(unknown resource)',
         };
+    }
+
+    /**
+     * The provider admin's usage summary: one row per node and account, grouped by node then
+     * account, filterable by exact node name and by an account text match (the `search` query
+     * param here, since `account` already selects a single account's detail page). Disk is the
+     * sum of each resource's latest reading, since it is an instantaneous measurement; requests
+     * and bytes sent are per-collection-cycle increments, so they are summed over the last 30
+     * days. Each row links to that account's own full usage page.
+     *
+     * @return array{groups: list<array{node: array{uuid: string, name: string}, accounts: list<array{account: array{public_id: string, name: string}, items: list<array<string, mixed>>}>}>, nodes: list<string>, filters: array{node: string, account: string}, pagination: array{current_page: int, last_page: int, prev_page_url: string|null, next_page_url: string|null, total: int}}
+     */
+    private function customerUsage(Request $request): array
+    {
+        $node = trim((string) $request->string('node'));
+        $search = trim((string) $request->string('search'));
+
+        $paginator = UsageSnapshot::query()
+            ->join('nodes', 'nodes.id', '=', 'usage_snapshots.node_id')
+            ->join('accounts', 'accounts.id', '=', 'usage_snapshots.account_id')
+            ->where('usage_snapshots.collected_at', '>=', now()->subDays(30))
+            ->when($node !== '', fn (Builder $q) => $q->where('nodes.name', $node))
+            ->when($search !== '', fn (Builder $q) => $q->where(fn (Builder $w) => $w
+                ->where('accounts.name', 'like', '%'.$search.'%')
+                ->orWhere('accounts.public_id', 'like', '%'.$search.'%')
+                ->orWhere('accounts.contact_email', 'like', '%'.$search.'%')))
+            ->groupBy('usage_snapshots.node_id', 'usage_snapshots.account_id', 'nodes.uuid', 'nodes.name', 'accounts.public_id', 'accounts.name')
+            ->select([
+                'usage_snapshots.node_id',
+                'usage_snapshots.account_id',
+                'nodes.uuid as node_uuid',
+                'nodes.name as node_name',
+                'accounts.public_id as account_public_id',
+                'accounts.name as account_name',
+            ])
+            ->selectRaw('sum(usage_snapshots.request_count) as requests, sum(usage_snapshots.bytes_sent) as bytes_sent, max(usage_snapshots.collected_at) as last_collected_at')
+            ->orderBy('nodes.name')
+            ->orderBy('accounts.name')
+            ->paginate(self::CUSTOMER_PAGE_SIZE)
+            ->withQueryString();
+
+        $rows = collect($paginator->items());
+
+        $disk = UsageSnapshot::query()
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')
+                ->from('usage_snapshots as newer')
+                ->whereColumn('newer.snapshotable_type', 'usage_snapshots.snapshotable_type')
+                ->whereColumn('newer.snapshotable_id', 'usage_snapshots.snapshotable_id')
+                ->where(fn ($w) => $w
+                    ->whereColumn('newer.collected_at', '>', 'usage_snapshots.collected_at')
+                    ->orWhere(fn ($tie) => $tie
+                        ->whereColumn('newer.collected_at', 'usage_snapshots.collected_at')
+                        ->whereColumn('newer.id', '>', 'usage_snapshots.id'))))
+            ->whereIn('account_id', $rows->pluck('account_id')->unique()->all())
+            ->groupBy('node_id', 'account_id')
+            ->selectRaw('node_id, account_id, sum(disk_bytes) as disk_bytes')
+            ->get()
+            ->keyBy(fn (UsageSnapshot $row): string => $row->node_id.'-'.$row->account_id);
+
+        $groups = $rows
+            ->groupBy('node_id')
+            ->map(fn ($nodeRows): array => [
+                'node' => ['uuid' => $nodeRows->first()->node_uuid, 'name' => $nodeRows->first()->node_name],
+                'accounts' => $nodeRows->map(fn ($row): array => [
+                    'account' => ['public_id' => $row->account_public_id, 'name' => $row->account_name],
+                    'items' => [[
+                        'uuid' => $row->node_id.'-'.$row->account_id,
+                        'account_public_id' => $row->account_public_id,
+                        'disk_bytes' => $this->nullableInt($disk->get($row->node_id.'-'.$row->account_id)?->disk_bytes),
+                        'request_count' => $this->nullableInt($row->requests),
+                        'bytes_sent' => $this->nullableInt($row->bytes_sent),
+                        'last_collected_at' => Carbon::parse($row->last_collected_at)->toIso8601String(),
+                    ]],
+                ])->values()->all(),
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'groups' => $groups,
+            'nodes' => Node::query()->orderBy('name')->pluck('name')->all(),
+            'filters' => ['node' => $node, 'account' => $search],
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'prev_page_url' => $paginator->previousPageUrl(),
+                'next_page_url' => $paginator->nextPageUrl(),
+                'total' => $paginator->total(),
+            ],
+        ];
+    }
+
+    /**
+     * SUM() comes back as a decimal string on MariaDB, and stays null when every addend was null
+     * (a resource type that never fills that column).
+     */
+    private function nullableInt(mixed $value): ?int
+    {
+        return $value === null ? null : (int) $value;
     }
 }

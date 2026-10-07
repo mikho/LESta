@@ -1,4 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
+import { CustomerResourceIndex } from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import accounts from '@/routes/accounts';
@@ -92,15 +94,71 @@ type ViewingAccount = {
     name: string;
 };
 
+type CustomerUsageSummary = {
+    uuid: string;
+    account_public_id: string;
+    disk_bytes: number | null;
+    request_count: number | null;
+    bytes_sent: number | null;
+    last_collected_at: string;
+};
+
 export default function Index({
+    customers,
     snapshots: paginatedSnapshots,
     rollups: paginatedRollups,
     viewingAccount,
 }: {
+    customers?: CustomerListing<CustomerUsageSummary>;
     snapshots: Paginated<UsageSnapshot> | null;
     rollups: Paginated<UsageSnapshotRollup> | null;
     viewingAccount: ViewingAccount | null;
 }) {
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="Usage"
+                description="Every customer's resource usage by node and account: disk now, and requests and data sent over the last 30 days."
+                indexUrl={usage.index.url()}
+                listing={customers}
+                emptyMessage="No usage has been collected for these filters yet."
+                accountFilterParam="search"
+                columns={[
+                    {
+                        header: 'Disk now',
+                        cell: (item) => formatBytes(item.disk_bytes),
+                    },
+                    {
+                        header: 'Requests (30 days)',
+                        cell: (item) => item.request_count ?? '—',
+                    },
+                    {
+                        header: 'Data sent (30 days)',
+                        cell: (item) => formatBytes(item.bytes_sent),
+                    },
+                    {
+                        header: 'Last collected',
+                        cell: (item) =>
+                            new Date(item.last_collected_at).toLocaleString(),
+                    },
+                    {
+                        header: 'Details',
+                        cell: (item) => (
+                            <Link
+                                href={usage.index({
+                                    query: { account: item.account_public_id },
+                                })}
+                                className="underline"
+                            >
+                                View usage
+                            </Link>
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
+
     if (paginatedSnapshots === null || paginatedRollups === null) {
         return (
             <>
