@@ -42,6 +42,9 @@ const TERMINAL_STATUSES = new Set([
     'degraded',
 ]);
 
+/** Mirrors StoreFileRequest::MAX_FILE_BYTES on the server. */
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 /** UTF-8-safe base64 encode/decode, since bare btoa/atob only handle Latin1. */
 function encodeBase64(text: string): string {
     return btoa(
@@ -244,8 +247,17 @@ export default function Index({
     }
 
     async function uploadFile(file: File) {
-        setBusy(true);
         setError(null);
+
+        if (file.size > MAX_UPLOAD_BYTES) {
+            setError(
+                `This file is larger than ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB, the most the file manager can upload.`,
+            );
+
+            return;
+        }
+
+        setBusy(true);
 
         try {
             const buffer = await file.arrayBuffer();
@@ -392,7 +404,7 @@ export default function Index({
                         })}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
                         <Button
                             type="button"
                             variant="outline"
@@ -414,9 +426,16 @@ export default function Index({
                             variant="outline"
                             size="sm"
                             onClick={() => fileInputRef.current?.click()}
+                            aria-describedby="upload-limit"
                         >
                             Upload
                         </Button>
+                        <span
+                            id="upload-limit"
+                            className="text-xs text-muted-foreground"
+                        >
+                            Up to {MAX_UPLOAD_BYTES / (1024 * 1024)} MB per file
+                        </span>
                         <input
                             ref={fileInputRef}
                             type="file"

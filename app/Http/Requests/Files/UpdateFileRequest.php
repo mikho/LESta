@@ -19,7 +19,7 @@ class UpdateFileRequest extends FormRequest
         return [
             'path' => ['required', 'string', 'max:1024'],
             'new_path' => ['sometimes', 'string', 'max:1024'],
-            'content_base64' => ['sometimes', 'string'],
+            'content_base64' => ['sometimes', 'string', 'max:'.StoreFileRequest::maxContentBase64Length()],
         ];
     }
 
@@ -38,5 +38,13 @@ class UpdateFileRequest extends FormRequest
                 $validator->errors()->add('new_path', 'Exactly one of new_path or content_base64 is required.');
             }
         });
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return (new StoreFileRequest)->messages();
     }
 }

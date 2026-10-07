@@ -320,6 +320,11 @@ add rather than an automatic change to files it does not own:
          root ${app_dir}/public;
          index index.php;
 
+         # The browser file manager uploads a file (up to 4 MB) as base64 in one request.
+         # nginx's 1m default would refuse it with a 413 before PHP ever saw it; this
+         # matches PHP's default post_max_size of 8M.
+         client_max_body_size 8m;
+
          location / {
              try_files \$uri \$uri/ /index.php?\$query_string;
          }

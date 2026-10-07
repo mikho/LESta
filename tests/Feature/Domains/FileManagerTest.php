@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ProvisioningStatus;
+use App\Http\Requests\Files\StoreFileRequest;
 use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\Membership;
@@ -170,4 +171,36 @@ test('operationStatus 404s for an operation belonging to a different web domain'
     $this->actingAs($owner)
         ->getJson(route('domains.files.operation-status', [$webDomain, $operation]))
         ->assertNotFound();
+});
+
+test('an owner can upload a file well past the old 64 KB payload limit', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $content = base64_encode(random_bytes(1024 * 1024));
+
+    $response = $this->actingAs($owner)->postJson(route('domains.files.store', $webDomain), ['path' => 'big.bin', 'content_base64' => $content]);
+
+    $response->assertStatus(202);
+
+    expect(ProvisioningOperation::find($response->json('operation_id'))->payload['content_base64'])->toBe($content);
+});
+
+test('an upload over the size limit is refused with a clear message, not a server error', function () {
+    $node = Node::factory()->create();
+    $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $tooBig = str_repeat('A', StoreFileRequest::maxContentBase64Length() + 4);
+
+    $this->actingAs($owner)
+        ->postJson(route('domains.files.store', $webDomain), ['path' => 'huge.bin', 'content_base64' => $tooBig])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('content_base64')
+        ->assertJsonPath('errors.content_base64.0', 'This file is larger than 4 MB, the most the file manager can upload.');
+
+    expect(ProvisioningOperation::where('capability', 'files.manager.v1')->where('resource_id', $webDomain->uuid)->exists())->toBeFalse();
 });
