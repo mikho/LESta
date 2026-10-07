@@ -72,12 +72,15 @@ function GeneratedPasswordBanner({
 }
 
 /**
- * Opens Adminer for this tenant database, navigating away from this app's own origin entirely.
+ * Opens Adminer for this tenant database in a new tab, leaving this page as it is.
  * TenantDatabaseController::openAdminer() is a plain JSON endpoint, not an Inertia visit (its
  * redirect target, the tenant's own domain, is outside this app's own Inertia protocol -- see
  * that controller method's own doc comment), so this uses the same `apiPost` helper the file
- * manager's own dispatch endpoints already use, then does a real, full-page navigation with the
- * URL it returns, rather than anything Inertia's router could follow.
+ * manager's own dispatch endpoints already use, then points the new tab at the URL it returns,
+ * rather than anything Inertia's router could follow. The tab is opened synchronously in the
+ * click handler, before the request: opened after an `await`, browsers treat it as an
+ * unrequested popup and block it. If it is blocked anyway, this falls back to navigating the
+ * current tab.
  */
 function OpenAdminerCard({
     tenantDatabase,
@@ -93,13 +96,23 @@ function OpenAdminerCard({
         setOpening(true);
         setError(null);
 
+        const adminerTab = window.open('', '_blank');
+
         try {
             const { url } = await apiPost<AdminerSessionResponse>(
                 TenantDatabaseController.openAdminer(tenantDatabase).url,
             );
-            window.location.href = url;
+
+            if (adminerTab) {
+                adminerTab.opener = null;
+                adminerTab.location.href = url;
+            } else {
+                window.location.href = url;
+            }
         } catch {
+            adminerTab?.close();
             setError('Could not prepare an Adminer session. Try again.');
+        } finally {
             setOpening(false);
         }
     };

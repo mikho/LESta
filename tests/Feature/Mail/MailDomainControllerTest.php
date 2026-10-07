@@ -110,6 +110,27 @@ test('updating a mail domain redirects back to the edit page', function () {
     expect($mailDomain->refresh()->catchall_email)->toBe('catchall@example.com');
 });
 
+test('the edit form saves, sending its checkboxes as 1 and 0', function () {
+    [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['domain' => 'example.com', 'antivirus_enabled' => true]);
+    MailAccount::factory()->for($mailDomain)->create(['local_part' => 'alice']);
+
+    $this->actingAs($owner)
+        ->put(route('mail.update', $mailDomain), [
+            'catchall_email' => 'alice@example.com',
+            'antivirus_enabled' => '0',
+            'antispam_enabled' => '1',
+            'dkim_enabled' => '0',
+        ])
+        ->assertSessionHasNoErrors();
+
+    $mailDomain->refresh();
+
+    expect($mailDomain->catchall_email)->toBe('alice@example.com')
+        ->and($mailDomain->antivirus_enabled)->toBeFalse()
+        ->and($mailDomain->antispam_enabled)->toBeTrue();
+});
+
 test('a catch-all must be an existing mailbox on the same domain', function (string $catchall) {
     [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
     $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['domain' => 'example.com']);

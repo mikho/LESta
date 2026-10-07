@@ -73,6 +73,7 @@ SELECTED=""
 WEB_SERVER=""
 WEB_PROFILE=""
 MAIL_HOSTNAME=""
+MANAGEMENT_PORT=""
 OFFLINE_BUNDLE_NGINX=""
 OFFLINE_BUNDLE_APACHE=""
 OFFLINE_BUNDLE_BIND9=""
@@ -128,6 +129,16 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
                                 this is scoped per service rather than a
                                 single shared path). <svc> is one of
                                 nginx,apache,bind9,mariadb,cron,mail.
+  --management-port <port>     Opt-in: also open this tcp port in the node's
+                                firewall for the control-plane web interface
+                                (the port its nginx vhost listens on, e.g.
+                                8443), registered as its own
+                                control-plane.ports fragment so no service
+                                installer ever removes it. Run it on the
+                                management node only. Valid with --dry-run
+                                (report only) and --apply. Still needs
+                                --services (pick any service already on this
+                                node; every leaf installer is idempotent).
   --prune                      Remove every LESta service present on this
                                 node but not in --services (its units,
                                 packages, firewall ports and owned roots).
@@ -201,6 +212,11 @@ parse_args() {
                 MAIL_HOSTNAME="$2"
                 shift 2
                 ;;
+            --management-port)
+                [ "$#" -ge 2 ] || fail_invocation "--management-port requires an argument"
+                MANAGEMENT_PORT="$2"
+                shift 2
+                ;;
             --offline-bundle)
                 [ "$#" -ge 2 ] || fail_invocation "--offline-bundle requires an argument (svc=path)"
                 case "$2" in
@@ -256,6 +272,13 @@ validate_args() {
     fi
 
     [ -n "${SERVICES_RAW}" ] || fail_invocation "--services is required with --dry-run/--apply"
+
+    if [ -n "${MANAGEMENT_PORT}" ]; then
+        case "${MANAGEMENT_PORT}" in
+            *[!0-9]* | 0*) fail_invocation "--management-port must be a plain port number from 1 to 65535 (got: ${MANAGEMENT_PORT})" ;;
+        esac
+        [ "${MANAGEMENT_PORT}" -le 65535 ] || fail_invocation "--management-port must be a plain port number from 1 to 65535 (got: ${MANAGEMENT_PORT})"
+    fi
 
     SELECTED=$(printf '%s' "${SERVICES_RAW}" | tr ',' ' ')
     for svc in ${SELECTED}; do
@@ -623,6 +646,33 @@ run_preflight() {
     fi
 }
 
+# --- management port ---------------------------------------------------
+#
+# The control-plane web interface is not a node service, so no leaf
+# installer's manifest declares its port. This registers it as its own
+# fragment in the same per-service registry every installer unions into
+# the one shared nftables table, so a later service installer re-rendering
+# the table keeps it, and --prune (which only removes <service>.ports for
+# services it removes) never touches it.
+
+open_management_port() {
+    if [ "${MODE}" != "apply" ]; then
+        add_change firewall.baseline.v1 would_open "${FIREWALL_PORTS_DIR}/control-plane.ports" "tcp/${MANAGEMENT_PORT} would be opened for the control-plane web interface"
+        return 0
+    fi
+
+    install -d -m 0750 -o root -g lesta "${FIREWALL_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_DIR}" "failed to create ${FIREWALL_DIR}"
+    install -d -m 0750 -o root -g lesta "${FIREWALL_PORTS_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_PORTS_DIR}" "failed to create ${FIREWALL_PORTS_DIR}"
+
+    printf 'tcp %s\n' "${MANAGEMENT_PORT}" > "${FIREWALL_PORTS_DIR}/control-plane.ports.tmp"
+    chmod 0640 "${FIREWALL_PORTS_DIR}/control-plane.ports.tmp"
+    chown root:lesta "${FIREWALL_PORTS_DIR}/control-plane.ports.tmp" 2>/dev/null || true
+    mv -f "${FIREWALL_PORTS_DIR}/control-plane.ports.tmp" "${FIREWALL_PORTS_DIR}/control-plane.ports"
+
+    firewall_render_and_apply
+    add_change firewall.baseline.v1 opened "${FIREWALL_PORTS_DIR}/control-plane.ports" "tcp/${MANAGEMENT_PORT} opened for the control-plane web interface"
+}
+
 # --- main -------------------------------------------------------------
 
 main() {
@@ -662,6 +712,10 @@ main() {
     # and complete preflight"), not a synthetic placeholder report, so an
     # operator who runs --dry-run first genuinely learns about a missing
     # include line or a port conflict before ever reaching --apply.
+    if [ -n "${MANAGEMENT_PORT}" ]; then
+        open_management_port
+    fi
+
     for svc in ${ORDER}; do
         rc=0
         run_service "${svc}" || rc=$?

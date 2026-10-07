@@ -2,10 +2,10 @@ import { Form, Head, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import MailAccountController from '@/actions/App/Http/Controllers/Mail/MailAccountController';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
+import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogClose,
@@ -138,7 +138,7 @@ function AddMailAccountDialog({ mailDomain }: { mailDomain: MailDomain }) {
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="forward_only"
                                     name="forward_only"
                                 />
@@ -148,7 +148,7 @@ function AddMailAccountDialog({ mailDomain }: { mailDomain: MailDomain }) {
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="autoreply_enabled"
                                     name="autoreply_enabled"
                                     checked={autoreplyEnabled}
@@ -268,7 +268,7 @@ function EditMailAccountDialog({
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="edit-forward_only"
                                     name="forward_only"
                                     defaultChecked={account.forward_only}
@@ -279,7 +279,7 @@ function EditMailAccountDialog({
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="edit-autoreply_enabled"
                                     name="autoreply_enabled"
                                     checked={autoreplyEnabled}
@@ -385,10 +385,13 @@ function RotatePasswordDialog({
 }
 
 /**
- * Opens webmail for this mailbox, navigating away from this app's own origin entirely.
+ * Opens webmail for this mailbox in a new tab, leaving this page as it is.
  * MailAccountController::openWebmail() is a plain JSON endpoint, not an Inertia visit (its
  * redirect target, the node's own mail hostname, is outside this app's own Inertia protocol), so
- * this uses `apiPost` and then a real, full-page navigation, the same as the Open Adminer card.
+ * this uses `apiPost` and then points the new tab at the returned URL. The tab is opened
+ * synchronously in the click handler, before the request: opened after an `await`, browsers
+ * treat it as an unrequested popup and block it. If it is blocked anyway, this falls back to
+ * navigating the current tab.
  */
 function OpenWebmailButton({
     mailDomain,
@@ -406,13 +409,23 @@ function OpenWebmailButton({
         setOpening(true);
         setError(null);
 
+        const webmailTab = window.open('', '_blank');
+
         try {
             const { url } = await apiPost<WebmailSessionResponse>(
                 MailAccountController.openWebmail([mailDomain, account]).url,
             );
-            window.location.href = url;
+
+            if (webmailTab) {
+                webmailTab.opener = null;
+                webmailTab.location.href = url;
+            } else {
+                window.location.href = url;
+            }
         } catch {
+            webmailTab?.close();
             setError('Could not prepare a webmail session. Try again.');
+        } finally {
             setOpening(false);
         }
     };
@@ -586,7 +599,7 @@ export default function Edit({
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="antivirus_enabled"
                                     name="antivirus_enabled"
                                     defaultChecked={
@@ -599,7 +612,7 @@ export default function Edit({
                             </div>
 
                             <div className="flex items-center space-x-3">
-                                <Checkbox
+                                <FormCheckbox
                                     id="antispam_enabled"
                                     name="antispam_enabled"
                                     defaultChecked={mailDomain.antispam_enabled}
@@ -611,7 +624,7 @@ export default function Edit({
 
                             <div className="grid gap-2">
                                 <div className="flex items-center space-x-3">
-                                    <Checkbox
+                                    <FormCheckbox
                                         id="dkim_enabled"
                                         name="dkim_enabled"
                                         checked={dkimEnabled}

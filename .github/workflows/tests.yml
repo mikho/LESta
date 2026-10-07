@@ -531,6 +531,7 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
           grep -q '443' /tmp/lesta-nft-3.txt && echo "443/tcp still allowed in the firewall table"
           grep -q '53' /tmp/lesta-nft-3.txt && echo "53 still allowed in the firewall table"
+          if grep -Eq '330[67]' /tmp/lesta-nft-3.txt; then echo "mariadb's loopback-only ports must never be opened in the firewall table"; exit 1; fi
 
       - name: Re-apply mariadb (idempotent rerun must still succeed)
         run: sudo sh .install/services/mariadb/install.sh --apply --yes
@@ -2961,6 +2962,21 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
           sudo systemctl is-active cron
           [ -d /var/lib/lesta/backups ] || { echo "expected /var/lib/lesta/backups to exist after backups was applied" >&2; exit 1; }
+
+      - name: "Scenario 28b: --management-port opens the control-plane port, a --dry-run reports it without opening it, and a later run without the flag keeps it open"
+        run: |
+          result=$(sudo sh .install/scripts/install-selected.sh --dry-run --services cron --management-port 8443)
+          printf '%s' "${result}" | grep -q '"action":"would_open"' \
+            || { echo "expected --dry-run to report would_open" >&2; exit 1; }
+          if sudo nft list table inet lesta | grep -q '8443'; then echo "--dry-run must not open 8443" >&2; exit 1; fi
+
+          sudo sh .install/scripts/install-selected.sh --apply --yes --services cron --management-port 8443 >/dev/null 2>&1
+          sudo nft list table inet lesta | grep -q '8443' || { echo "expected 8443 in the firewall table after --management-port" >&2; exit 1; }
+
+          sudo sh .install/scripts/install-selected.sh --apply --yes --services cron >/dev/null 2>&1
+          sudo nft list table inet lesta | grep -q '8443' || { echo "expected 8443 to survive a later run without --management-port" >&2; exit 1; }
+          sudo nft list table inet lesta | grep -Eq '330[67]' && { echo "mariadb's ports must never be in the firewall table" >&2; exit 1; }
+          true
 
       # --- Scenario 29: combined installer, fail-closed missing prerequisite
       #     (mail alone) ---------------------------------------------------

@@ -350,6 +350,12 @@ add rather than an automatic change to files it does not own:
    enrollment, and every ACME-issued tenant certificate, both depend on
    APP_URL actually terminating HTTPS).
 
+   On a server running the LESta firewall baseline, that port is closed until
+   you open it, once, with the node installer (run from the node's own
+   /opt/lesta checkout; --services takes any service already installed there):
+
+     sudo .install/scripts/install-selected.sh --apply --yes --services <one-installed-service> --management-port 8443
+
 2. Queue worker (systemd unit, since QUEUE_CONNECTION=database in .env means
    queued jobs -- ACME issuance, provisioning -- sit in the database until a
    real worker processes them):

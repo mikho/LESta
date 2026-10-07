@@ -540,18 +540,18 @@ bootstrap_base() {
 # "own capability-scoped firewall phase" pattern.
 
 bootstrap_firewall_baseline_mariadb() {
-    log_info "bootstrap_firewall_baseline_mariadb: registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}"
+    log_info "bootstrap_firewall_baseline_mariadb: tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT} stay loopback-only, so the manifest declares no inbound ports"
 
     install -d -m 0750 -o root -g lesta "${FIREWALL_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_DIR}" "failed to create ${FIREWALL_DIR}"
     install -d -m 0750 -o root -g lesta "${FIREWALL_PORTS_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_PORTS_DIR}" "failed to create ${FIREWALL_PORTS_DIR}"
     add_change firewall.baseline.v1 ensured "${FIREWALL_DIR}" "directory present, mode 0750 root:lesta"
 
-    manifest_extract_port_specs "${MARIADB_MANIFEST}" | grep -E "tcp (${CONTROL_PLANE_PORT}|${TENANT_PORT})" > "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" firewall_fragment_write_failed "${FIREWALL_PORTS_DIR}/mariadb.ports" "manifest.json's own ports[] did not contain the expected tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT} entries"
-    chmod 0640 "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp"
-    chown root:lesta "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" 2>/dev/null || true
-    mv -f "${FIREWALL_PORTS_DIR}/mariadb.ports.tmp" "${FIREWALL_PORTS_DIR}/mariadb.ports"
-
+    # Both instances bind 127.0.0.1 only, and the baseline's `iif lo accept` already
+    # covers them. The manifest declares no inbound ports, so this rewrites the
+    # fragment empty, which also closes 3306/3307 on a node an older release opened
+    # them on. Exposing a database instance is a manual admin decision: add a
+    # fragment under ${FIREWALL_PORTS_DIR} yourself.
+    firewall_register_service_ports mariadb "${MARIADB_MANIFEST}"
     firewall_render_and_apply
 
     log_info "bootstrap_firewall_baseline_mariadb complete"
