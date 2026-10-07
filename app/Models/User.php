@@ -75,6 +75,11 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(NodeAdminGrant::class);
     }
 
+    public function isPlatformUser(): bool
+    {
+        return $this->rememberAuthorizationCheck('isPlatformUser', fn (): bool => $this->memberships()->whereNull('account_id')->exists());
+    }
+
     public function isProviderAdmin(): bool
     {
         return $this->rememberAuthorizationCheck('isProviderAdmin', fn (): bool => $this->memberships()->whereNull('account_id')

@@ -7,6 +7,7 @@ use App\Actions\Dns\DeleteDnsZone;
 use App\Actions\Dns\SuspendDnsZone;
 use App\Actions\Dns\UnsuspendDnsZone;
 use App\Actions\Dns\UpdateDnsZone;
+use App\Concerns\ListsCustomerResources;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -23,6 +24,7 @@ use Inertia\Response;
 
 class DnsZoneController extends Controller
 {
+    use ListsCustomerResources;
     use ResolvesCurrentAccount;
 
     /**
@@ -30,6 +32,19 @@ class DnsZoneController extends Controller
      */
     public function index(Request $request): Response
     {
+        if ($request->user()->can('viewAnyAcrossAccounts', DnsZone::class)) {
+            return Inertia::render('dns/index', [
+                'dnsZones' => null,
+                'search' => '',
+                'customers' => $this->customerListing(
+                    $request,
+                    DnsZone::query()->withCount('records')->with(['latestProvisioningOperation']),
+                    fn (DnsZone $item): array => $this->presentForIndex($item),
+                    'domain',
+                ),
+            ]);
+        }
+
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {

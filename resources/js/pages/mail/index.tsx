@@ -1,6 +1,12 @@
 import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
+import {
+    CustomerResourceIndex,
+    ProvisioningBadge as CustomerProvisioningBadge,
+    SuspensionCell,
+} from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
@@ -60,9 +66,11 @@ function ProvisioningBadge({
 }
 
 export default function Index({
+    customers,
     mailDomains,
     search: initialSearch,
 }: {
+    customers?: CustomerListing<MailDomain>;
     mailDomains: PaginatedMailDomains | null;
     search: string;
 }) {
@@ -86,6 +94,59 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="Mail"
+                description="Every customer's mail domains, grouped by node and account"
+                indexUrl={mail.index.url()}
+                listing={customers}
+                emptyMessage="No mail domains match."
+                columns={[
+                    {
+                        header: 'Domain',
+                        cell: (item) => (
+                            <span className="font-medium">{item.domain}</span>
+                        ),
+                    },
+                    {
+                        header: 'Mailboxes',
+                        cell: (item) => item.accounts_count,
+                    },
+                    {
+                        header: 'Antivirus',
+                        cell: (item) => (item.antivirus_enabled ? 'On' : 'Off'),
+                    },
+                    {
+                        header: 'Antispam',
+                        cell: (item) => (item.antispam_enabled ? 'On' : 'Off'),
+                    },
+                    {
+                        header: 'DKIM',
+                        cell: (item) => (item.dkim_enabled ? 'On' : 'Off'),
+                    },
+                    {
+                        header: 'Suspension',
+                        cell: (item) => (
+                            <SuspensionCell
+                                suspendedAt={item.suspended_at}
+                                source={item.suspension_source}
+                            />
+                        ),
+                    },
+                    {
+                        header: 'Provisioning',
+                        cell: (item) => (
+                            <CustomerProvisioningBadge
+                                status={item.provisioning_status}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
 
     if (mailDomains === null) {
         return (

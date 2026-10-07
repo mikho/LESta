@@ -36,6 +36,12 @@ class InviteMember
         return DB::transaction(function () use ($actor, $account, $name, $email, $roleName): Membership {
             $user = $this->resolveUser($name, $email);
 
+            if ($user->isPlatformUser()) {
+                throw ValidationException::withMessages([
+                    'email' => 'A platform administrator cannot be a member of a hosting account.',
+                ]);
+            }
+
             // One membership per user per account, regardless of role: memberships' own DB
             // constraint is only unique on (user_id, account_id, role_id), which would otherwise
             // allow the same user to hold two simultaneous roles (e.g. both owner and member) on

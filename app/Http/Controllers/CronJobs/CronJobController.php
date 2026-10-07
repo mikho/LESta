@@ -7,6 +7,7 @@ use App\Actions\CronJobs\DeleteCronJob;
 use App\Actions\CronJobs\SuspendCronJob;
 use App\Actions\CronJobs\UnsuspendCronJob;
 use App\Actions\CronJobs\UpdateCronJob;
+use App\Concerns\ListsCustomerResources;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -23,6 +24,7 @@ use Inertia\Response;
 
 class CronJobController extends Controller
 {
+    use ListsCustomerResources;
     use ResolvesCurrentAccount;
 
     /**
@@ -30,6 +32,19 @@ class CronJobController extends Controller
      */
     public function index(Request $request): Response
     {
+        if ($request->user()->can('viewAnyAcrossAccounts', CronJob::class)) {
+            return Inertia::render('cron-jobs/index', [
+                'cronJobs' => null,
+                'search' => '',
+                'customers' => $this->customerListing(
+                    $request,
+                    CronJob::query()->with(['latestProvisioningOperation']),
+                    fn (CronJob $item): array => $this->presentForIndex($item),
+                    'id',
+                ),
+            ]);
+        }
+
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {

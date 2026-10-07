@@ -13,6 +13,16 @@ class MailDomainPolicy
         return $user->hasAnyAccountMembership($account);
     }
 
+    /**
+     * The provider admin's read-only, cross-account list of every customer's resources. Never
+     * implies any per-resource ability: viewing a customer's resource, or acting on it, stays
+     * member and owner scoped.
+     */
+    public function viewAnyAcrossAccounts(User $user): bool
+    {
+        return $user->hasPermission('mail_domains.view_any');
+    }
+
     public function view(User $user, MailDomain $mailDomain): bool
     {
         return $user->hasAnyAccountMembership($mailDomain->account);

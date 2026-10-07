@@ -9,6 +9,7 @@ use App\Actions\Domains\SuspendWebDomain;
 use App\Actions\Domains\UnsuspendWebDomain;
 use App\Actions\Domains\UpdateWebDomain;
 use App\Actions\Provisioning\EnsuresAccountNodeIdentity;
+use App\Concerns\ListsCustomerResources;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -25,6 +26,7 @@ use Inertia\Response;
 
 class WebDomainController extends Controller
 {
+    use ListsCustomerResources;
     use ResolvesCurrentAccount;
 
     /**
@@ -32,6 +34,19 @@ class WebDomainController extends Controller
      */
     public function index(Request $request): Response
     {
+        if ($request->user()->can('viewAnyAcrossAccounts', WebDomain::class)) {
+            return Inertia::render('domains/index', [
+                'webDomains' => null,
+                'search' => '',
+                'customers' => $this->customerListing(
+                    $request,
+                    WebDomain::query()->with(['aliases', 'latestProvisioningOperation']),
+                    fn (WebDomain $item): array => $this->present($item),
+                    'domain',
+                ),
+            ]);
+        }
+
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {

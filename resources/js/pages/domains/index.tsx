@@ -1,6 +1,12 @@
 import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
+import {
+    CustomerResourceIndex,
+    ProvisioningBadge as CustomerProvisioningBadge,
+    SuspensionCell,
+} from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
@@ -71,9 +77,11 @@ function ProvisioningBadge({
 }
 
 export default function Index({
+    customers,
     webDomains,
     search: initialSearch,
 }: {
+    customers?: CustomerListing<WebDomain>;
     webDomains: PaginatedWebDomains | null;
     search: string;
 }) {
@@ -97,6 +105,58 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="Domains"
+                description="Every customer's web domains, grouped by node and account"
+                indexUrl={domains.index.url()}
+                listing={customers}
+                emptyMessage="No domains match."
+                columns={[
+                    {
+                        header: 'Domain',
+                        cell: (item) => (
+                            <span className="font-medium">{item.domain}</span>
+                        ),
+                    },
+                    {
+                        header: 'Aliases',
+                        cell: (item) =>
+                            item.aliases.length > 0
+                                ? item.aliases.join(', ')
+                                : '—',
+                    },
+                    {
+                        header: 'SSL',
+                        cell: (item) => sslModeLabels[item.ssl_mode],
+                    },
+                    {
+                        header: 'Web server',
+                        cell: (item) => webServerLabels[item.web_server],
+                    },
+                    {
+                        header: 'Suspension',
+                        cell: (item) => (
+                            <SuspensionCell
+                                suspendedAt={item.suspended_at}
+                                source={item.suspension_source}
+                            />
+                        ),
+                    },
+                    {
+                        header: 'Provisioning',
+                        cell: (item) => (
+                            <CustomerProvisioningBadge
+                                status={item.provisioning_status}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
 
     if (webDomains === null) {
         return (

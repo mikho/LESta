@@ -7,6 +7,7 @@ use App\Actions\Mail\DeleteMailDomain;
 use App\Actions\Mail\SuspendMailDomain;
 use App\Actions\Mail\UnsuspendMailDomain;
 use App\Actions\Mail\UpdateMailDomain;
+use App\Concerns\ListsCustomerResources;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -23,6 +24,7 @@ use Inertia\Response;
 
 class MailDomainController extends Controller
 {
+    use ListsCustomerResources;
     use ResolvesCurrentAccount;
 
     /**
@@ -30,6 +32,19 @@ class MailDomainController extends Controller
      */
     public function index(Request $request): Response
     {
+        if ($request->user()->can('viewAnyAcrossAccounts', MailDomain::class)) {
+            return Inertia::render('mail/index', [
+                'mailDomains' => null,
+                'search' => '',
+                'customers' => $this->customerListing(
+                    $request,
+                    MailDomain::query()->withCount('accounts')->with(['latestProvisioningOperation']),
+                    fn (MailDomain $item): array => $this->presentForIndex($item),
+                    'domain',
+                ),
+            ]);
+        }
+
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {

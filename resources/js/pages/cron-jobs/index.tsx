@@ -1,6 +1,12 @@
 import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import CronJobController from '@/actions/App/Http/Controllers/CronJobs/CronJobController';
+import {
+    CustomerResourceIndex,
+    ProvisioningBadge as CustomerProvisioningBadge,
+    SuspensionCell,
+} from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
@@ -102,9 +108,11 @@ function describeSchedule(cronJob: CronJob): string {
 }
 
 export default function Index({
+    customers,
     cronJobs: paginatedCronJobs,
     search: initialSearch,
 }: {
+    customers?: CustomerListing<CronJob>;
     cronJobs: PaginatedCronJobs | null;
     search: string;
 }) {
@@ -128,6 +136,49 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="Cron jobs"
+                description="Every customer's cron jobs, grouped by node and account"
+                indexUrl={cronJobs.index.url()}
+                listing={customers}
+                emptyMessage="No cron jobs match."
+                columns={[
+                    {
+                        header: 'Schedule',
+                        cell: (item) => (
+                            <code>{`${item.minute} ${item.hour} ${item.day_of_month} ${item.month} ${item.day_of_week}`}</code>
+                        ),
+                    },
+                    {
+                        header: 'Command',
+                        cell: (item) => (
+                            <code className="break-all">{item.command}</code>
+                        ),
+                    },
+                    {
+                        header: 'Suspension',
+                        cell: (item) => (
+                            <SuspensionCell
+                                suspendedAt={item.suspended_at}
+                                source={item.suspension_source}
+                            />
+                        ),
+                    },
+                    {
+                        header: 'Provisioning',
+                        cell: (item) => (
+                            <CustomerProvisioningBadge
+                                status={item.provisioning_status}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
 
     if (paginatedCronJobs === null) {
         return (

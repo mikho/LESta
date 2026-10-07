@@ -8,6 +8,7 @@ use App\Actions\TenantDatabases\PrepareAdminerSession;
 use App\Actions\TenantDatabases\RotateTenantDatabasePassword;
 use App\Actions\TenantDatabases\SuspendTenantDatabase;
 use App\Actions\TenantDatabases\UnsuspendTenantDatabase;
+use App\Concerns\ListsCustomerResources;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -24,6 +25,7 @@ use Inertia\Response;
 
 class TenantDatabaseController extends Controller
 {
+    use ListsCustomerResources;
     use ResolvesCurrentAccount;
 
     /**
@@ -31,6 +33,19 @@ class TenantDatabaseController extends Controller
      */
     public function index(Request $request): Response
     {
+        if ($request->user()->can('viewAnyAcrossAccounts', TenantDatabase::class)) {
+            return Inertia::render('tenant-databases/index', [
+                'tenantDatabases' => null,
+                'search' => '',
+                'customers' => $this->customerListing(
+                    $request,
+                    TenantDatabase::query()->with(['latestProvisioningOperation']),
+                    fn (TenantDatabase $item): array => $this->presentForIndex($item),
+                    'label',
+                ),
+            ]);
+        }
+
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {

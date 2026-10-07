@@ -1,6 +1,12 @@
 import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
+import {
+    CustomerResourceIndex,
+    ProvisioningBadge as CustomerProvisioningBadge,
+    SuspensionCell,
+} from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
@@ -60,9 +66,11 @@ function ProvisioningBadge({
 }
 
 export default function Index({
+    customers,
     tenantDatabases: paginatedTenantDatabases,
     search: initialSearch,
 }: {
+    customers?: CustomerListing<TenantDatabase>;
     tenantDatabases: PaginatedTenantDatabases | null;
     search: string;
 }) {
@@ -86,6 +94,44 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="Databases"
+                description="Every customer's databases, grouped by node and account"
+                indexUrl={tenantDatabases.index.url()}
+                listing={customers}
+                emptyMessage="No databases match."
+                columns={[
+                    {
+                        header: 'Label',
+                        cell: (item) => (
+                            <span className="font-medium">{item.label}</span>
+                        ),
+                    },
+                    { header: 'Database', cell: (item) => item.database_name },
+                    {
+                        header: 'Suspension',
+                        cell: (item) => (
+                            <SuspensionCell
+                                suspendedAt={item.suspended_at}
+                                source={item.suspension_source}
+                            />
+                        ),
+                    },
+                    {
+                        header: 'Provisioning',
+                        cell: (item) => (
+                            <CustomerProvisioningBadge
+                                status={item.provisioning_status}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
 
     if (paginatedTenantDatabases === null) {
         return (

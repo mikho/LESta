@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Creates a hosting account, binding an existing or brand-new user as its owner. Platform-admin-
@@ -32,6 +33,12 @@ class CreateAccount
 
         return DB::transaction(function () use ($actor, $data): Account {
             $owner = $this->resolveOwner($data['owner_name'], $data['owner_email']);
+
+            if ($owner->isPlatformUser()) {
+                throw ValidationException::withMessages([
+                    'owner_email' => 'A platform administrator cannot own a hosting account.',
+                ]);
+            }
 
             $account = Account::create([
                 'name' => $data['name'],

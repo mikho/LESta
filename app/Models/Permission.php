@@ -66,6 +66,7 @@ class Permission extends Model implements ProviderAdminManaged
         'nodes.view_any', 'nodes.view', 'nodes.create', 'nodes.update', 'nodes.delete', 'nodes.suspend', 'nodes.unsuspend',
         'backups.view_any', 'backups.view', 'backups.create', 'backups.delete', 'backups.download', 'backups.restore',
         'usage.view_any',
+        'web_domains.view_any', 'dns_zones.view_any', 'mail_domains.view_any', 'tenant_databases.view_any', 'cron_jobs.view_any',
         'roles.view_any', 'roles.view', 'roles.create', 'roles.update', 'roles.delete',
     ];
 

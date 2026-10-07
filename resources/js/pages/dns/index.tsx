@@ -1,6 +1,12 @@
 import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
+import {
+    CustomerResourceIndex,
+    ProvisioningBadge as CustomerProvisioningBadge,
+    SuspensionCell,
+} from '@/components/customer-resource-index';
+import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { Button } from '@/components/ui/button';
@@ -60,9 +66,11 @@ function ProvisioningBadge({
 }
 
 export default function Index({
+    customers,
     dnsZones,
     search: initialSearch,
 }: {
+    customers?: CustomerListing<DnsZone>;
     dnsZones: PaginatedDnsZones | null;
     search: string;
 }) {
@@ -86,6 +94,45 @@ export default function Index({
 
         return () => clearTimeout(timeout);
     }, [search]);
+
+    if (customers) {
+        return (
+            <CustomerResourceIndex
+                title="DNS"
+                description="Every customer's DNS zones, grouped by node and account"
+                indexUrl={dns.index.url()}
+                listing={customers}
+                emptyMessage="No DNS zones match."
+                columns={[
+                    {
+                        header: 'Zone',
+                        cell: (item) => (
+                            <span className="font-medium">{item.domain}</span>
+                        ),
+                    },
+                    { header: 'TTL', cell: (item) => item.ttl },
+                    { header: 'Records', cell: (item) => item.records_count },
+                    {
+                        header: 'Suspension',
+                        cell: (item) => (
+                            <SuspensionCell
+                                suspendedAt={item.suspended_at}
+                                source={item.suspension_source}
+                            />
+                        ),
+                    },
+                    {
+                        header: 'Provisioning',
+                        cell: (item) => (
+                            <CustomerProvisioningBadge
+                                status={item.provisioning_status}
+                            />
+                        ),
+                    },
+                ]}
+            />
+        );
+    }
 
     if (dnsZones === null) {
         return (
