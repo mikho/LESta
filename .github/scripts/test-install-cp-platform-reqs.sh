@@ -9,7 +9,13 @@
 #    (8.4.1 is the first), so 8.3 exercises the same ordering guarantee, and
 #    php:8.4.1 with ext-sodium removed is the case a major/minor check can
 #    never catch (right PHP version, missing locked extension).
-# 2. At the supported minimum (php:8.4.1): the same preflight check passes,
+# 2. Unsupported tooling (php:8.4.1 with Composer 2.2): PHP and every locked
+#    extension are fine, so only Composer is wrong -- 2.2 predates the --lock
+#    option of check-platform-reqs (added in 2.3). install-cp.sh must still
+#    exit 11 before touching anything, with .env byte-identical afterwards,
+#    and the log must show Composer itself rejecting --lock, so this can't
+#    pass because of some unrelated exit 11.
+# 3. At the supported minimum (php:8.4.1): the same preflight check passes,
 #    and `composer install --no-dev` succeeds from the committed lock as-is
 #    (never `composer update`), leaving composer.lock unchanged.
 #
@@ -27,6 +33,10 @@ trap 'rm -rf "${WORK}" 2>/dev/null || true' EXIT
 
 docker run --rm --entrypoint cat composer:2 /usr/bin/composer > "${WORK}/composer"
 chmod +x "${WORK}/composer"
+
+# The newest Composer release below the 2.3 floor for check-platform-reqs --lock.
+docker run --rm --entrypoint cat composer:2.2 /usr/bin/composer > "${WORK}/composer-2.2"
+chmod +x "${WORK}/composer-2.2"
 
 # Stub node/npm that succeed: the php images have neither, and without them
 # install-cp.sh could stop at its own node/npm check instead, making a
@@ -53,7 +63,7 @@ run_in() {
     dir="$2"
     shift 2
     docker run --rm --platform linux/amd64 \
-        -v "${dir}":/app -v "${WORK}/composer":/usr/local/bin/composer:ro \
+        -v "${dir}":/app -v "${COMPOSER_BIN:-${WORK}/composer}":/usr/local/bin/composer:ro \
         -v "${WORK}/stubs":/stubs:ro -e PATH="/stubs:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
         -w /app "${image}" sh -c "$*"
 }
@@ -102,6 +112,21 @@ grep -q 'ext-sodium' "${WORK}/no-sodium.log" || { cat "${WORK}/no-sodium.log"; f
 after=$(shasum -a 256 "${WORK}/no-sodium/.env" | cut -d' ' -f1)
 [ "${before}" = "${after}" ] || fail ".env was modified"
 echo "ok: exit 11 over ext-sodium, .env unchanged"
+
+echo "== supported PHP and extensions but Composer 2.2 (no check-platform-reqs --lock)"
+fresh_checkout "${WORK}/old-composer"
+printf 'APP_URL=http://sentinel.invalid\nDB_PASSWORD=sentinel\n' > "${WORK}/old-composer/.env"
+before=$(shasum -a 256 "${WORK}/old-composer/.env" | cut -d' ' -f1)
+set +e
+COMPOSER_BIN="${WORK}/composer-2.2" run_in php:8.4.1-cli "${WORK}/old-composer" './install-cp.sh --yes' > "${WORK}/old-composer.log" 2>&1
+rc=$?
+set -e
+[ "${rc}" -eq 11 ] || { cat "${WORK}/old-composer.log"; fail "expected exit 11, got ${rc}"; }
+grep -q 'option does not exist' "${WORK}/old-composer.log" || { cat "${WORK}/old-composer.log"; fail "exited 11 but Composer did not reject --lock"; }
+grep -q 'composer.lock requirements' "${WORK}/old-composer.log" || { cat "${WORK}/old-composer.log"; fail "exited 11 but not from the platform check"; }
+after=$(shasum -a 256 "${WORK}/old-composer/.env" | cut -d' ' -f1)
+[ "${before}" = "${after}" ] || fail ".env was modified"
+echo "ok: exit 11 over unsupported Composer, .env unchanged"
 
 echo "== supported minimum (php:8.4.1): platform check passes, install from the committed lock"
 fresh_checkout "${WORK}/min"
