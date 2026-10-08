@@ -69,6 +69,7 @@ function ImpersonateMemberDialog({
                 <Form
                     {...ImpersonationController.store.form(membership)}
                     options={{ preserveScroll: true }}
+                    className="grid gap-4"
                     // The sidebar prefetches pages while still the admin; those cached copies carry
                     // the admin's menu and no impersonation banner, so drop them on the identity swap.
                     onSuccess={() => router.flushAll()}
@@ -82,6 +83,8 @@ function ImpersonateMemberDialog({
                                     name="reason"
                                     required
                                     maxLength={500}
+                                    rows={5}
+                                    className="min-h-32"
                                 />
                                 <InputError message={errors.reason} />
                             </div>
