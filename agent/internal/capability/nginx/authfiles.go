@@ -110,9 +110,26 @@ func (c *NginxCapability) pruneAuthFiles(resourceID string, keep map[string]stri
 		}
 
 		if info, err := os.Stat(match); err == nil && time.Since(info.ModTime()) < grace && keep != nil {
+			// Still inside the grace period: remove it when the period ends,
+			// provided the live vhost has not started using it again. A daemon
+			// restart in between leaves it for the next apply to prune.
+			file := match
+			time.AfterFunc(grace-time.Since(info.ModTime())+time.Second, func() { c.removeAuthFileIfUnused(resourceID, file) })
+
 			continue
 		}
 
 		_ = os.Remove(match)
 	}
+}
+
+// removeAuthFileIfUnused removes an htpasswd file once its grace period is over,
+// unless the resource's live vhost references it again.
+func (c *NginxCapability) removeAuthFileIfUnused(resourceID, file string) {
+	live, err := os.ReadFile(c.livePath(resourceID))
+	if err == nil && strings.Contains(string(live), file) {
+		return
+	}
+
+	_ = os.Remove(file)
 }

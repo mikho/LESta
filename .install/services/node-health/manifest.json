@@ -7,6 +7,6 @@
   "provides": ["node.health.v1"],
   "packages": [],
   "ports": [],
-  "artifacts": [{"name": "lesta-agent-linux-amd64", "version": "1.0.43", "source": "repo:agent/cmd/lesta-agent", "sha256": "c428dc45c575d02466f4067bb142a48c2f6532c934198e3ac01b462fb4397ba1", "signature": "first-party-build:agent-module"}],
+  "artifacts": [{"name": "lesta-agent-linux-amd64", "version": "1.0.44", "source": "repo:agent/cmd/lesta-agent", "sha256": "988bcdde8624195aedfde313059b400d14888b0f946e3868350c2356e61eef63", "signature": "first-party-build:agent-module"}],
   "ownership": {"owned_roots": ["/etc/lesta/agent", "/var/lib/lesta/agent", "/var/log/lesta/agent"], "read_only_roots": ["/etc/os-release"], "refused_roots": ["/etc/sudoers", "/etc/shadow"]}
 }

@@ -1,6 +1,8 @@
 package nginx
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -441,5 +443,37 @@ func TestProtectedDirectoryPayloadValidation(t *testing.T) {
 
 	if _, err := ParsePayload([]byte(base + `[{"path":"/members/","realm":"Members area","users":[` + user + `]}]}`)); err != nil {
 		t.Errorf("a valid payload was rejected: %v", err)
+	}
+}
+
+func TestReplacedHtpasswdFileIsRemovedAfterTheGraceUnlessReusedAgain(t *testing.T) {
+	live := t.TempDir()
+	auth := t.TempDir()
+	capability := &NginxCapability{cfg: Config{LiveDir: live, AuthDir: auth}}
+
+	const resource = "00000000-0000-0000-0000-00000000000b"
+
+	stale := filepath.Join(auth, resource+".aaaa.htpasswd")
+	reused := filepath.Join(auth, resource+".bbbb.htpasswd")
+
+	for _, file := range []string{stale, reused} {
+		if err := os.WriteFile(file, []byte("x"), 0o640); err != nil {
+			t.Fatalf("writing %s: %v", file, err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(live, resource+".conf"), []byte("auth_basic_user_file "+reused+";"), 0o644); err != nil {
+		t.Fatalf("writing the live fragment: %v", err)
+	}
+
+	capability.removeAuthFileIfUnused(resource, stale)
+	capability.removeAuthFileIfUnused(resource, reused)
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("an unreferenced file must be removed")
+	}
+
+	if _, err := os.Stat(reused); err != nil {
+		t.Errorf("a file the live vhost references must stay: %v", err)
 	}
 }
