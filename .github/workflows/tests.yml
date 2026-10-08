@@ -382,27 +382,26 @@ jobs:
             sudo systemctl reload nginx
           }
           attack="http://127.0.0.1:18080/?q=1%27%20OR%20%271%27=%271%27%20UNION%20SELECT%20password%20FROM%20users--"
-          # A reload returns before the new workers listen, so retry a refused connection.
-          code() {
-            for _ in $(seq 1 20); do
-              if out=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$1"); then echo "$out"; return 0; fi
+          # A reload returns before the new workers take over, so poll for the expected status.
+          expect() {
+            want=$1; url=$2; msg=$3; got=000
+            for _ in $(seq 1 30); do
+              got=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$url" || true)
+              [ "$got" = "$want" ] && return 0
               sleep 0.5
             done
-            echo 000
+            detail=$(sudo tail -n 3 /var/log/nginx/error.log | tr '\n' ' ')
+            echo "::error title=WAF proof failed::$msg (wanted $want, got $got) $detail"
+            exit 1
           }
           trap 'sudo rm -f "$conf"; sudo systemctl reload nginx || true' EXIT
           render On ""
-          clean=$(code http://127.0.0.1:18080/)
-          if [ "$clean" != 200 ]; then
-            detail=$(sudo tail -n 3 /var/log/nginx/error.log | tr '\n' ' '; sudo tail -c 600 /var/log/lesta/waf/waf-proof.audit.log 2>/dev/null | tr '\n' ' ')
-            echo "::error title=WAF proof failed::a clean request returned $clean: $detail"
-            exit 1
-          fi
-          [ "$(code "$attack")" = 403 ] || { echo "::error title=WAF proof failed::block mode did not block the SQL injection"; exit 1; }
+          expect 200 http://127.0.0.1:18080/ "a clean request was not served"
+          expect 403 "$attack" "block mode did not block the SQL injection"
           render DetectionOnly ""
-          [ "$(code "$attack")" = 200 ] || { echo "::error title=WAF proof failed::detect mode blocked a request"; exit 1; }
+          expect 200 "$attack" "detect mode blocked a request"
           render On "SecRuleRemoveById 949110"
-          [ "$(code "$attack")" = 200 ] || { echo "::error title=WAF proof failed::excluding rule 949110 did not stop the block"; exit 1; }
+          expect 200 "$attack" "excluding rule 949110 did not stop the block"
 
       - name: Standalone Apache installer coverage (help/version/dry-run/argument validation only; a real --apply here would conflict with nginx already owning 80/443 in this same job)
         run: |
