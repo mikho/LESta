@@ -48,3 +48,42 @@ func TestDefaultTemplatesServeTheDomainsOwnFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestContentTemplatesRenderErrorPagesForTheFourStatuses guards the custom
+// error pages: each status prefers the domain's own <status>.html and falls
+// back to a built-in page that keeps the original status code.
+func TestContentTemplatesRenderErrorPagesForTheFourStatuses(t *testing.T) {
+	for name, data := range map[string]vhostData{
+		"static":     {},
+		"static tls": {CertificatePath: "/etc/ssl/fullchain.pem"},
+		"php":        {PhpSocket: "/run/php.sock", FastcgiParamsPath: "/etc/nginx/fastcgi_params"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data.ResourceID = "00000000-0000-0000-0000-000000000003"
+			data.Domain = "errors.example.test"
+			data.IPAddress = "127.0.0.1"
+			data.Port = 80
+			data.SSLPort = 443
+			data.Docroot = "/home/acct/domains/x/public"
+
+			rendered, err := renderVhost(data, false)
+			if err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			body := string(rendered)
+
+			for _, code := range []string{"401", "403", "404", "500"} {
+				for _, want := range []string{
+					"error_page " + code + " @lesta_" + code + ";",
+					"try_files /" + code + ".html @lesta_default_" + code + ";",
+					"return " + code + " '<!doctype html>",
+				} {
+					if !strings.Contains(body, want) {
+						t.Errorf("expected %q in rendered vhost:\n%s", want, body)
+					}
+				}
+			}
+		})
+	}
+}

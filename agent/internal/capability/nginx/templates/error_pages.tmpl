@@ -1,0 +1,42 @@
+{{define "errorPages"}}
+    error_page 401 @lesta_401;
+    location @lesta_401 {
+        root {{.Docroot}};
+        try_files /401.html @lesta_default_401;
+    }
+    location @lesta_default_401 {
+        default_type text/html;
+        return 401 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in required</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Sign in required</h1><p>You need to sign in to see this page.</p></body></html>';
+    }
+
+    error_page 403 @lesta_403;
+    location @lesta_403 {
+        root {{.Docroot}};
+        try_files /403.html @lesta_default_403;
+    }
+    location @lesta_default_403 {
+        default_type text/html;
+        return 403 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access denied</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Access denied</h1><p>You do not have permission to view this page.</p></body></html>';
+    }
+
+    error_page 404 @lesta_404;
+    location @lesta_404 {
+        root {{.Docroot}};
+        try_files /404.html @lesta_default_404;
+    }
+    location @lesta_default_404 {
+        default_type text/html;
+        return 404 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page not found</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Page not found</h1><p>The page you asked for does not exist.</p></body></html>';
+    }
+
+    error_page 500 @lesta_500;
+    location @lesta_500 {
+        root {{.Docroot}};
+        try_files /500.html @lesta_default_500;
+    }
+    location @lesta_default_500 {
+        default_type text/html;
+        return 500 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Something went wrong</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Something went wrong</h1><p>The server hit an unexpected problem. Please try again shortly.</p></body></html>';
+    }
+
+{{end}}

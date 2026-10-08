@@ -1122,3 +1122,40 @@ func TestDefaultSslTemplateServesRealHTTPSContent(t *testing.T) {
 	}
 	t.Logf("confirmed a real HTTPS request, terminated with a real self-signed certificate, served the vhost's own marker: %q", strings.TrimSpace(string(httpsBody)))
 }
+
+// TestUnknownPathServesTheBuiltInNotFoundPage proves, against a real nginx,
+// that the error-page wiring answers a missing file with the built-in page
+// and keeps the 404 status.
+func TestUnknownPathServesTheBuiltInNotFoundPage(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "notfound.contract.test"
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, nginxPayload(domain, "127.0.0.1", false)))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/nope.html", d.Port), nil)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Host = domain
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "Page not found") {
+		t.Fatalf("expected the built-in 404 page with status 404, got %d: %s", resp.StatusCode, body)
+	}
+}

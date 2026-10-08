@@ -30,6 +30,7 @@ server {
         include {{.FastcgiParamsPath}};
     }
 {{end}}
+{{template "errorPages" .}}
     location ~ /\.ht {
         deny all;
     }
@@ -68,6 +69,7 @@ server {
         include {{.FastcgiParamsPath}};
     }
 {{end}}
+{{template "errorPages" .}}
     location ~ /\.ht {
         deny all;
     }
