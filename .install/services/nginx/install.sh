@@ -728,13 +728,14 @@ install_waf_rules() {
 
     cat > /etc/lesta/waf/main.conf <<'WAFCONF'
 # Managed by LESta. Do not edit by hand. Per-domain mode, audit log and rule
-# exclusions are rendered into each vhost; this file is the shared rule set.
-SecRuleEngine DetectionOnly
+# exclusions are rendered into each vhost (SecRuleEngine is set there, after this
+# file is loaded, so it must not be set here); this file is the shared rule set.
 SecRequestBodyAccess On
 SecRequestBodyLimit 8388608
 SecRequestBodyNoFilesLimit 131072
 SecResponseBodyAccess Off
 SecAuditEngine RelevantOnly
+SecAuditLogRelevantStatus "^(?:5|4(?!04))"
 SecAuditLogType Serial
 SecAuditLogFormat JSON
 SecAuditLogParts AHZ
@@ -754,7 +755,7 @@ WAFCONF
 }
 WAFLOGROTATE
 
-    add_change web.nginx.v1 ensured /etc/lesta/waf/main.conf "ModSecurity connector and OWASP Core Rule Set installed; shared rule file written (detection only by default, each domain sets its own mode)"
+    add_change web.nginx.v1 ensured /etc/lesta/waf/main.conf "ModSecurity connector and OWASP Core Rule Set installed; shared rule file written (each domain sets its own mode)"
 }
 
 install_nginx() {

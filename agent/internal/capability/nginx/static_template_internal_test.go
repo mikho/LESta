@@ -34,7 +34,7 @@ func TestDefaultTemplatesServeTheDomainsOwnFiles(t *testing.T) {
 			for _, want := range []string{
 				"root /home/acct/domains/x/public;",
 				"location = /__lesta-health__ {",
-				"try_files $uri $uri/ =404;",
+				"try_files $uri $uri/index.html $uri/index.htm =404;",
 				"location ~ /\\.ht {",
 			} {
 				if !strings.Contains(body, want) {
