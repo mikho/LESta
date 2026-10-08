@@ -796,7 +796,7 @@ jobs:
               return json.loads(out.stdout)
 
 
-          def smtp_transaction(rcpt_local_part, rcpt_domain, body):
+          def smtp_transaction(rcpt_local_part, rcpt_domain, body, sender="sender@ci-av-spam-proof.invalid", expect_rcpt_ok=True):
               with socket.create_connection(("127.0.0.1", 25), timeout=10) as s:
                   def send(line):
                       s.sendall((line + "\r\n").encode())
@@ -807,10 +807,13 @@ jobs:
                   read()  # banner
                   send("EHLO ci-av-spam-proof.invalid")
                   read()
-                  send("MAIL FROM:<sender@ci-av-spam-proof.invalid>")
+                  send(f"MAIL FROM:<{sender}>")
                   read()
                   send(f"RCPT TO:<{rcpt_local_part}@{rcpt_domain}>")
                   rcpt_reply = read()
+                  if not expect_rcpt_ok:
+                      send("QUIT")
+                      return rcpt_reply
                   if not rcpt_reply.startswith("250"):
                       die(f"RCPT TO was not accepted: {rcpt_reply}")
                   send("DATA")
@@ -836,6 +839,24 @@ jobs:
                       "autoreply_enabled": False,
                       "suspended": False,
                   }
+              ],
+              "lists": [
+                  {
+                      "local_part": "team",
+                      "owner_email": f"{LOCAL_PART}@{DOMAIN}",
+                      "post_policy": "members",
+                      "subject_prefix": "[Team]",
+                      "reply_to_list": True,
+                      "members": [f"{LOCAL_PART}@{DOMAIN}", "sender@ci-av-spam-proof.invalid"],
+                  },
+                  {
+                      "local_part": "empty",
+                      "owner_email": f"{LOCAL_PART}@{DOMAIN}",
+                      "post_policy": "anyone",
+                      "subject_prefix": "",
+                      "reply_to_list": False,
+                      "members": [],
+                  },
               ],
               "suspended": False,
           }
@@ -889,6 +910,39 @@ jobs:
               if not catchall_eicar.startswith(("5", "4")):
                   die(f"expected EICAR sent to the catch-all to still be rejected by clamd, got: {catchall_eicar}")
               print("catch-all recipients are accepted when clean and still scanned for viruses")
+
+              # Mailing lists: a list expands to its members, a restricted list refuses a
+              # non-member (at RCPT time, and again in the router so an authenticated post
+              # cannot fall through to the catch-all), and an empty list refuses honestly.
+              def route_as(sender, address):
+                  return subprocess.run(
+                      ["sudo", "exim4", "-f", sender, "-bt", address], capture_output=True, text=True, timeout=30
+                  ).stdout
+
+              member_route = route_as("sender@ci-av-spam-proof.invalid", f"team@{DOMAIN}")
+              if f"{LOCAL_PART}@{DOMAIN}" not in member_route or f"<-- team@{DOMAIN}" not in member_route:
+                  die(f"expected a member's post to a list to expand to the member mailbox, got: {member_route}")
+
+              stranger_route = route_as("stranger@elsewhere.invalid", f"team@{DOMAIN}")
+              if "undeliverable" not in stranger_route or "restricted" not in stranger_route:
+                  die(f"expected a non-member's post to a restricted list to be refused by the router, got: {stranger_route}")
+
+              stranger_rcpt = smtp_transaction("team", DOMAIN, "", sender="stranger@elsewhere.invalid", expect_rcpt_ok=False)
+              if not stranger_rcpt.startswith("5"):
+                  die(f"expected RCPT TO a restricted list from a non-member to be refused, got: {stranger_rcpt}")
+
+              empty_rcpt = smtp_transaction("empty", DOMAIN, "", expect_rcpt_ok=False)
+              if not empty_rcpt.startswith("5"):
+                  die(f"expected RCPT TO an empty list to be refused, got: {empty_rcpt}")
+
+              member_clean = smtp_transaction("team", DOMAIN, "Subject: list clean\r\n\r\nHello list, a real, harmless message.")
+              if not member_clean.startswith("250"):
+                  die(f"expected a clean post from a member to the list to be accepted, got: {member_clean}")
+
+              list_eicar = smtp_transaction("team", DOMAIN, f"Subject: list eicar\r\n\r\n{EICAR}")
+              if not list_eicar.startswith(("5", "4")):
+                  die(f"expected EICAR sent to a list to still be rejected by clamd, got: {list_eicar}")
+              print("mailing lists expand to members, refuse non-members and empty lists, and are still scanned")
           finally:
               deleted = invoke_agent(envelope("delete", resource_id, 2, create_payload))
               if deleted.get("status") != "applied":

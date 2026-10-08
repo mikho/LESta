@@ -671,6 +671,10 @@ acl_check_rcpt:
           condition = \${if and{{eq{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}{yes}{no}}}{yes}}{!inlisti{\$sender_address}{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}}}}}}
           message = "posting to this mailing list is restricted"
 
+  deny    domains = +local_domains
+          condition = \${if match{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}}}{^:fail:}}
+          message = "this mailing list has no members yet"
+
   accept  domains = +local_domains
           condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}{yes}{no}}
 
@@ -742,7 +746,7 @@ lesta_list_router:
   check_ancestor
   errors_to = \${local_part}-owner@\$domain
   headers_remove = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_prefix.list}{Subject}{}}
-  headers_add = List-Id: <\$local_part.\$domain>\nList-Post: <mailto:\$local_part@\$domain>\nPrecedence: list\n\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_replyto.list}{Reply-To: \$value\n}{}}\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_prefix.list}{Subject: \$value \$h_subject:\n}{}}
+  headers_add = List-Id: <\$local_part.\$domain>\nList-Post: <mailto:\$local_part@\$domain>\nPrecedence: list\n\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_replyto.list}{Reply-To: \$value\n}{}}\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_prefix.list}{\${if match{\$h_subject:}{\\\\Q\$value\\\\E}{Subject: \$h_subject:\n}{Subject: \$value \$h_subject:\n}}}{}}
 
 # A restricted list that declined the post above must not fall through to the
 # catch-all: refuse it explicitly.
