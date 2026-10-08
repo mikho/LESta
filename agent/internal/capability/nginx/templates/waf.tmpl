@@ -4,6 +4,7 @@
     modsecurity_rules '
 SecRuleEngine {{.WafEngine}}
 SecAuditLog {{.WafAuditLog}}
-{{range .WafExcludedRules}}SecRuleRemoveById {{.}}
+{{if eq .WafPreset "wordpress"}}SecRule REQUEST_URI "@rx ^/(?:wp-admin/|wp-json/|wp-login[.]php)|[?&]rest_route=" "id:9000001,phase:1,pass,nolog,ctl:ruleRemoveById=941100,ctl:ruleRemoveById=941110,ctl:ruleRemoveById=941120,ctl:ruleRemoveById=941160,ctl:ruleRemoveById=941180,ctl:ruleRemoveById=932100"
+{{end}}{{range .WafExcludedRules}}SecRuleRemoveById {{.}}
 {{end}}';
 {{end}}{{end}}

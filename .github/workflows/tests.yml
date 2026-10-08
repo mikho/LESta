@@ -408,6 +408,14 @@ jobs:
           expect 200 "$attack" "detect mode blocked a request"
           render On "SecRuleRemoveById 949110"
           expect 200 "$attack" "excluding rule 949110 did not stop the block"
+          # The WordPress preset only relaxes XSS rules under the admin and REST paths.
+          # Same rule agent/internal/capability/nginx/templates/waf.tmpl renders.
+          preset='SecRule REQUEST_URI "@rx ^/(?:wp-admin/|wp-json/|wp-login[.]php)|[?&]rest_route=" "id:9000001,phase:1,pass,nolog,ctl:ruleRemoveById=941100,ctl:ruleRemoveById=941110,ctl:ruleRemoveById=941120,ctl:ruleRemoveById=941160,ctl:ruleRemoveById=941180,ctl:ruleRemoveById=932100"'
+          render On "$preset"
+          xss="comment=%3Cscript%3Ealert(document.cookie)%3C/script%3E"
+          expect 403 "http://127.0.0.1:18080/?$xss" "the preset must not relax XSS rules on ordinary paths"
+          expect 200 "http://127.0.0.1:18080/?rest_route=/wp/v2/posts&$xss" "the preset did not relax XSS rules on the REST path"
+          expect 403 "$attack" "the preset must not stop SQL injection being blocked"
 
       - name: Standalone Apache installer coverage (help/version/dry-run/argument validation only; a real --apply here would conflict with nginx already owning 80/443 in this same job)
         run: |

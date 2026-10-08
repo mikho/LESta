@@ -218,6 +218,7 @@ class WebDomainController extends Controller
             'php_version' => $webDomain->php_version?->value,
             'ssl_mode' => $webDomain->ssl_mode->value,
             'waf_mode' => $webDomain->waf_mode,
+            'waf_preset' => $webDomain->waf_preset,
             'waf_excluded_rules' => ($webDomain->waf_excluded_rules ?? []),
             'certificate_issued_at' => $webDomain->certificate_issued_at?->toIso8601String(),
             'certificate_expires_at' => $webDomain->certificate_expires_at?->toIso8601String(),

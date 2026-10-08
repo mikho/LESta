@@ -257,6 +257,38 @@ export default function Edit({
                             </div>
 
                             <div className="grid gap-2">
+                                <Label htmlFor="waf_preset">
+                                    Firewall preset
+                                </Label>
+
+                                <Select
+                                    name="waf_preset"
+                                    defaultValue={webDomain.waf_preset}
+                                >
+                                    <SelectTrigger id="waf_preset">
+                                        <SelectValue placeholder="Select a preset" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">
+                                            None
+                                        </SelectItem>
+                                        <SelectItem value="wordpress">
+                                            WordPress
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+
+                                <p className="text-sm text-muted-foreground">
+                                    WordPress lets the admin, login and REST
+                                    areas accept HTML and scripts in posts,
+                                    while the rest of the site stays fully
+                                    protected.
+                                </p>
+
+                                <InputError message={errors.waf_preset} />
+                            </div>
+
+                            <div className="grid gap-2">
                                 <Label htmlFor="waf_excluded_rules">
                                     Excluded rule ids
                                 </Label>

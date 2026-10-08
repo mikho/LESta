@@ -99,6 +99,7 @@ type vhostData struct {
 	// installer provides, WafAuditLog this resource's own audit log.
 	WafMode          string
 	WafExcludedRules []int
+	WafPreset        string
 	WafRulesFile     string
 	WafAuditLog      string
 	// SuspendedPage is suspendedHTML's content, substituted in only when

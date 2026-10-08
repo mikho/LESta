@@ -50,6 +50,7 @@ class UpdateWebDomainRequest extends FormRequest
             'php_version' => ['nullable', 'string', Rule::in(array_column(PhpVersion::cases(), 'value'))],
             'ssl_mode' => ['nullable', 'string', Rule::in(['none', 'manual', 'lets_encrypt'])],
             'waf_mode' => ['nullable', 'string', Rule::in(['off', 'detect', 'block'])],
+            'waf_preset' => ['nullable', 'string', Rule::in(['none', 'wordpress'])],
             'waf_excluded_rules' => ['array', 'max:100'],
             'waf_excluded_rules.*' => ['integer', 'between:1,999999999'],
             'aliases' => ['array'],

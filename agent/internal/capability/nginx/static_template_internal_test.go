@@ -150,3 +150,42 @@ func TestWafPayloadValidation(t *testing.T) {
 		t.Errorf("a valid WAF payload was rejected: %v", err)
 	}
 }
+
+// TestWafWordpressPresetIsScopedToAdminAndRestPaths guards the preset: its
+// exclusions are applied by a rule that only matches the CMS's admin, login
+// and REST paths, never as a site-wide SecRuleRemoveById.
+func TestWafWordpressPresetIsScopedToAdminAndRestPaths(t *testing.T) {
+	rendered, err := renderVhost(vhostData{
+		ResourceID: "00000000-0000-0000-0000-000000000005",
+		Domain:     "wp.example.test",
+		IPAddress:  "127.0.0.1",
+		Port:       80,
+		Docroot:    "/home/acct/domains/x/public",
+		WafMode:    "block",
+		WafPreset:  "wordpress",
+	}, false)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	body := string(rendered)
+
+	for _, want := range []string{"wp-admin/|wp-json/|wp-login[.]php", "rest_route=", "ctl:ruleRemoveById=941100", "ctl:ruleRemoveById=932100"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in rendered vhost:\n%s", want, body)
+		}
+	}
+
+	if strings.Contains(body, "SecRuleRemoveById") {
+		t.Errorf("the preset must not remove rules site wide:\n%s", body)
+	}
+
+	off, err := renderVhost(vhostData{ResourceID: "00000000-0000-0000-0000-000000000006", Domain: "n.example.test", IPAddress: "127.0.0.1", Port: 80, WafMode: "block", WafPreset: "none"}, false)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(string(off), "id:9000001") {
+		t.Errorf("preset none must not render the preset rule")
+	}
+}

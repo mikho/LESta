@@ -102,6 +102,7 @@ class CustomerResourceController extends Controller
                 $this->fact('PHP version', $domain->php_version->value ?? 'None (static only)'),
                 $this->fact('SSL mode', $domain->ssl_mode->value),
                 $this->fact('Firewall (WAF)', $domain->waf_mode),
+                $this->fact('WAF preset', $domain->waf_preset),
                 $this->fact('Excluded WAF rules', implode(', ', $domain->waf_excluded_rules ?? []) ?: 'None'),
                 $this->fact('Certificate issued', $domain->certificate_issued_at?->toIso8601String() ?? 'Not yet', $domain->certificate_issued_at ? 'datetime' : 'text'),
                 $this->fact('Certificate expires', $domain->certificate_expires_at?->toIso8601String() ?? 'Not recorded', $domain->certificate_expires_at ? 'datetime' : 'text'),

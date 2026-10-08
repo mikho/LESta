@@ -197,12 +197,13 @@ test('an owner can turn the WAF on and exclude rules, and the nginx update carri
     $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
 
     $this->actingAs($owner)
-        ->put(route('domains.update', $webDomain), ['domain' => 'waf.example.com', 'waf_mode' => 'detect', 'waf_excluded_rules' => '942100, 920350'])
+        ->put(route('domains.update', $webDomain), ['domain' => 'waf.example.com', 'waf_mode' => 'detect', 'waf_preset' => 'wordpress', 'waf_excluded_rules' => '942100, 920350'])
         ->assertSessionHasNoErrors();
 
     $webDomain->refresh();
 
     expect($webDomain->waf_mode)->toBe('detect')
+        ->and($webDomain->waf_preset)->toBe('wordpress')
         ->and($webDomain->waf_excluded_rules)->toBe([942100, 920350]);
 
     $operation = ProvisioningOperation::where('provisionable_id', $webDomain->id)->where('operation', ProvisioningVerb::Update)->latest('id')->first();
@@ -221,6 +222,7 @@ test('the WAF mode and rule ids are validated', function (array $input, string $
         ->assertSessionHasErrors($field);
 })->with([
     'unknown mode' => [['waf_mode' => 'paranoid'], 'waf_mode'],
+    'unknown preset' => [['waf_preset' => 'drupal'], 'waf_preset'],
     'text instead of an id' => [['waf_excluded_rules' => '942100; SecRuleEngine Off'], 'waf_excluded_rules.1'],
     'id out of range' => [['waf_excluded_rules' => '0'], 'waf_excluded_rules.0'],
 ]);

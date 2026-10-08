@@ -102,6 +102,9 @@ type Payload struct {
 	// are integers so nothing a tenant types ever reaches the config as text.
 	WafMode          string `json:"waf_mode"`
 	WafExcludedRules []int  `json:"waf_excluded_rules"`
+	// WafPreset is "", "none" or "wordpress": a fixed, built-in set of rule
+	// exclusions scoped to the CMS's admin and REST paths (see waf.tmpl).
+	WafPreset string `json:"waf_preset"`
 }
 
 const maxWafExcludedRules = 100
@@ -166,6 +169,12 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	case "", "off", "detect", "block":
 	default:
 		return Payload{}, &ValidationError{Code: "invalid_waf_mode", Message: "waf_mode must be off, detect or block", Field: "waf_mode"}
+	}
+
+	switch p.WafPreset {
+	case "", "none", "wordpress":
+	default:
+		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
 	}
 
 	if len(p.WafExcludedRules) > maxWafExcludedRules {

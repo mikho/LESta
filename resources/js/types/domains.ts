@@ -27,6 +27,7 @@ export type WebDomain = {
     ssl_mode: SslMode;
     waf_mode: 'off' | 'detect' | 'block';
     waf_excluded_rules: number[];
+    waf_preset: 'none' | 'wordpress';
     certificate_issued_at: string | null;
     certificate_expires_at: string | null;
     last_certificate_error: string | null;

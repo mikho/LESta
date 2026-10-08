@@ -32,6 +32,7 @@ use RuntimeException;
  * @property SslMode $ssl_mode
  * @property string $waf_mode
  * @property list<int>|null $waf_excluded_rules
+ * @property string $waf_preset
  * @property string|null $certificate_authority
  * @property Carbon|null $certificate_issued_at
  * @property Carbon|null $certificate_expires_at
@@ -42,7 +43,7 @@ use RuntimeException;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'php_version', 'ssl_mode', 'waf_mode', 'waf_excluded_rules', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'php_version', 'ssl_mode', 'waf_mode', 'waf_excluded_rules', 'waf_preset', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
@@ -53,7 +54,7 @@ class WebDomain extends Model
      *
      * @var array<string, mixed>
      */
-    protected $attributes = ['waf_mode' => 'off'];
+    protected $attributes = ['waf_mode' => 'off', 'waf_preset' => 'none'];
 
     /**
      * Get the attributes that should be cast.
@@ -192,7 +193,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, waf_mode?: string, waf_excluded_rules?: list<int>, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, waf_mode?: string, waf_excluded_rules?: list<int>, waf_preset?: string, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -211,7 +212,7 @@ class WebDomain extends Model
 
         // Only web.nginx.v1 renders ModSecurity; web.apache.v1 rejects unknown payload fields.
         $waf = $capability === 'web.nginx.v1'
-            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? [])]
+            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? []), 'waf_preset' => $this->waf_preset]
             : [];
 
         return [
