@@ -169,7 +169,7 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 
 			switch l.PostPolicy {
 			case "members":
-				listPostersList.WriteString(lsearchLine(address, strings.Join(append([]string{l.OwnerEmail}, l.Members...), ":")))
+				listPostersList.WriteString(lsearchLine(address, strings.Join(uniqueAddresses(append([]string{l.OwnerEmail}, l.Members...)), ":")))
 			case "owner":
 				listPostersList.WriteString(lsearchLine(address, l.OwnerEmail))
 			}
@@ -241,4 +241,21 @@ func catchallTargetsActiveMailbox(d Payload) bool {
 	}
 
 	return false
+}
+
+// uniqueAddresses drops repeated addresses, keeping the first of each in order.
+func uniqueAddresses(addresses []string) []string {
+	seen := make(map[string]struct{}, len(addresses))
+	out := make([]string, 0, len(addresses))
+
+	for _, address := range addresses {
+		if _, dup := seen[address]; dup {
+			continue
+		}
+
+		seen[address] = struct{}{}
+		out = append(out, address)
+	}
+
+	return out
 }

@@ -13,7 +13,7 @@ func listPayload(lists string) json.RawMessage {
 
 func TestRender_ListsPostersPrefixAndOwner(t *testing.T) {
 	payload, err := ParsePayload(listPayload(`[
-		{"local_part":"news","owner_email":"boss@corp.example","post_policy":"members","subject_prefix":"[News]","reply_to_list":true,"members":["a@x.example","b@y.example"]},
+		{"local_part":"news","owner_email":"boss@corp.example","post_policy":"members","subject_prefix":"[News]","reply_to_list":true,"members":["a@x.example","b@y.example","boss@corp.example"]},
 		{"local_part":"open","owner_email":"boss@corp.example","post_policy":"anyone","subject_prefix":"","reply_to_list":false,"members":["a@x.example"]},
 		{"local_part":"board","owner_email":"chair@corp.example","post_policy":"owner","subject_prefix":"","reply_to_list":false,"members":[]}
 	]`))
@@ -41,6 +41,10 @@ func TestRender_ListsPostersPrefixAndOwner(t *testing.T) {
 				t.Errorf("%s file is missing %q:\n%s", file, line, want.got)
 			}
 		}
+	}
+
+	if strings.Contains(data.listPosters, "boss@corp.example:boss@corp.example") {
+		t.Errorf("an owner who is also a member must be listed once:\n%s", data.listPosters)
 	}
 
 	if strings.Contains(data.listPosters, "open@example.com") {
