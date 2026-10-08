@@ -1264,6 +1264,14 @@ func TestIpRulesAgainstARealNginx(t *testing.T) {
 		t.Errorf("health path must stay reachable for a denied client: got %d, want 200", got)
 	}
 
+	if err := os.WriteFile(filepath.Join(d.Config.AcmeChallengeDir, "token"), []byte("proof"), 0o644); err != nil {
+		t.Fatalf("writing an ACME challenge file: %v", err)
+	}
+
+	if got := get("/.well-known/acme-challenge/token"); got != http.StatusOK {
+		t.Errorf("an existing ACME challenge must stay reachable for a denied client: got %d, want 200", got)
+	}
+
 	payload["ip_rules"] = []map[string]string{
 		{"action": "deny", "cidr": "127.0.0.0/8"},
 		{"action": "allow", "cidr": "127.0.0.1"},
