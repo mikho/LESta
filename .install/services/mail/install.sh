@@ -658,6 +658,25 @@ acl_check_rcpt:
   accept  domains = +local_domains
           condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
 
+  # Mailing lists: a list restricted to its members (or its owner) refuses a
+  # post from anyone else right here, at RCPT time, instead of accepting it and
+  # sending a bounce to a forged sender afterwards. Authenticated submissions
+  # were accepted above and are checked again by the list router itself.
+  warn    domains = +local_domains
+          condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}{yes}{no}}
+          set acl_m_av = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antivirus.list}{1}{0}}}{1}{1}{\$acl_m_av}}
+          set acl_m_spam = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antispam.list}{1}{0}}}{1}{1}{\$acl_m_spam}}
+
+  deny    domains = +local_domains
+          condition = \${if and{{eq{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}{yes}{no}}}{yes}}{!inlisti{\$sender_address}{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}}}}}}
+          message = "posting to this mailing list is restricted"
+
+  accept  domains = +local_domains
+          condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}{yes}{no}}
+
+  accept  domains = +local_domains
+          condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_owners.list}{yes}{no}}
+
   warn    domains = +local_domains
           condition = \${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/catchall.list}{yes}{no}}
           set acl_m_av = \${if eq{\${lookup{\$domain}lsearch{${EXIM_DATA_DIR}/antivirus.list}{1}{0}}}{1}{1}{\$acl_m_av}}
@@ -702,6 +721,37 @@ lesta_virtual_router:
   domains = +local_domains
   condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/accounts.list}{yes}{no}}
   transport = lesta_lmtp_delivery
+
+# Mailing lists. Both routers sit before the catch-all so a post to a list can
+# never end up in the catch-all mailbox. A list address expands to its members;
+# its bounces and replies-to-owner go to <list>-owner@, which expands to the
+# owner. Everything a list's own data file says (members, prefix, owner) is
+# validated by the agent to contain no character Exim treats as syntax.
+lesta_list_owner_router:
+  driver = redirect
+  domains = +local_domains
+  condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_owners.list}{yes}{no}}
+  data = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_owners.list}}
+
+lesta_list_router:
+  driver = redirect
+  domains = +local_domains
+  condition = \${if and{{eq{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}{yes}{no}}}{yes}}{or{{!eq{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}{yes}{no}}}{yes}}{inlisti{\$sender_address}{\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_posters.list}}}}}}}}
+  data = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}}
+  allow_fail
+  check_ancestor
+  errors_to = \${local_part}-owner@\$domain
+  headers_remove = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_prefix.list}{Subject}{}}
+  headers_add = List-Id: <\$local_part.\$domain>\nList-Post: <mailto:\$local_part@\$domain>\nPrecedence: list\n\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_replyto.list}{Reply-To: \$value\n}{}}\${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/list_prefix.list}{Subject: \$value \$h_subject:\n}{}}
+
+# A restricted list that declined the post above must not fall through to the
+# catch-all: refuse it explicitly.
+lesta_list_refuse_router:
+  driver = redirect
+  domains = +local_domains
+  condition = \${lookup{\$local_part@\$domain}lsearch{${EXIM_DATA_DIR}/lists.list}{yes}{no}}
+  allow_fail
+  data = :fail: posting to this mailing list is restricted
 
 lesta_catchall_router:
   driver = redirect

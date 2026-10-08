@@ -57,6 +57,11 @@ type renderedData struct {
 	dkimKeys      string
 	dkimSelectors string
 	catchall      string
+	lists         string
+	listOwners    string
+	listPosters   string
+	listPrefixes  string
+	listReplyTo   string
 	dovecotPasswd string
 }
 
@@ -122,6 +127,8 @@ func passwdFileLine(address, hash string, quotaMB *int) string {
 func (c *MailCapability) render(ctx context.Context, domains []Payload, credentials map[string]string) (renderedData, error) {
 	var domainsList, accountsList, antivirusList, antispamList, dkimKeysList, dkimSelectorsList, catchallList, passwdFile strings.Builder
 
+	var listsList, listOwnersList, listPostersList, listPrefixesList, listReplyToList strings.Builder
+
 	for _, d := range domains {
 		if d.Suspended {
 			continue
@@ -144,6 +151,36 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 
 		if d.CatchallEmail != nil && catchallTargetsActiveMailbox(d) {
 			catchallList.WriteString(lsearchLine(d.Domain, *d.CatchallEmail))
+		}
+
+		for _, l := range d.Lists {
+			address := l.LocalPart + "@" + d.Domain
+
+			if len(l.Members) == 0 {
+				// A list nobody has joined yet answers with a clear refusal instead of
+				// delivering nowhere (Exim's redirect router refuses an empty address
+				// list, and the catch-all must not swallow the post).
+				listsList.WriteString(lsearchLine(address, ":fail: this mailing list has no members yet"))
+			} else {
+				listsList.WriteString(lsearchLine(address, strings.Join(l.Members, ", ")))
+			}
+
+			listOwnersList.WriteString(lsearchLine(l.LocalPart+"-owner@"+d.Domain, l.OwnerEmail))
+
+			switch l.PostPolicy {
+			case "members":
+				listPostersList.WriteString(lsearchLine(address, strings.Join(append([]string{l.OwnerEmail}, l.Members...), ":")))
+			case "owner":
+				listPostersList.WriteString(lsearchLine(address, l.OwnerEmail))
+			}
+
+			if strings.TrimSpace(l.SubjectPrefix) != "" {
+				listPrefixesList.WriteString(lsearchLine(address, strings.TrimSpace(l.SubjectPrefix)))
+			}
+
+			if l.ReplyToList {
+				listReplyToList.WriteString(lsearchLine(address, address))
+			}
 		}
 
 		for _, a := range d.Accounts {
@@ -181,6 +218,11 @@ func (c *MailCapability) render(ctx context.Context, domains []Payload, credenti
 		dkimKeys:      dkimKeysList.String(),
 		dkimSelectors: dkimSelectorsList.String(),
 		catchall:      catchallList.String(),
+		lists:         listsList.String(),
+		listOwners:    listOwnersList.String(),
+		listPosters:   listPostersList.String(),
+		listPrefixes:  listPrefixesList.String(),
+		listReplyTo:   listReplyToList.String(),
 		dovecotPasswd: passwdFile.String(),
 	}, nil
 }

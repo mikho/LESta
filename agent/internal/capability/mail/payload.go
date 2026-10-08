@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // domainPattern matches a normalized domain as MailDomain::normalizeDomain
@@ -54,6 +55,34 @@ type Account struct {
 	Suspended        bool    `json:"suspended"`
 }
 
+// MailingList is one list address of a domain: mail to <local_part>@<domain>
+// is delivered to every member. Every address is validated against
+// memberEmailPattern, which excludes every character Exim's redirect data or
+// a colon-separated list treats specially, so a member can never add a
+// recipient, a pipe, a file or a :fail: directive.
+type MailingList struct {
+	LocalPart     string   `json:"local_part"`
+	OwnerEmail    string   `json:"owner_email"`
+	PostPolicy    string   `json:"post_policy"`
+	SubjectPrefix string   `json:"subject_prefix"`
+	ReplyToList   bool     `json:"reply_to_list"`
+	Members       []string `json:"members"`
+}
+
+const (
+	maxListsPerDomain = 100
+	maxListMembers    = 500
+)
+
+var (
+	// memberEmailPattern is deliberately narrower than RFC 5321: lower-case
+	// letters, digits and . _ % + - in the local part, a normalized domain.
+	memberEmailPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+	// listSubjectPrefixPattern allows text such as "[News]" and nothing Exim
+	// would treat as syntax.
+	listSubjectPrefixPattern = regexp.MustCompile(`^[A-Za-z0-9 ._\[\]-]{0,40}$`)
+)
+
 // Payload is the mail.smtp-imap.v1 capability's request body, mirroring
 // MailDomain::toProvisioningPayload()'s exact shape: one fixed shape for
 // every operation, the domain as the single resource with every account
@@ -72,16 +101,17 @@ type Account struct {
 // Laravel has already finished retiring its own DNS record and rotation
 // bookkeeping for it.
 type Payload struct {
-	Domain              string    `json:"domain"`
-	AntivirusEnabled    bool      `json:"antivirus_enabled"`
-	AntispamEnabled     bool      `json:"antispam_enabled"`
-	DkimEnabled         bool      `json:"dkim_enabled"`
-	DkimActiveSelector  string    `json:"dkim_active_selector"`
-	DkimPendingSelector *string   `json:"dkim_pending_selector"`
-	DkimRetireSelector  *string   `json:"dkim_retire_selector"`
-	CatchallEmail       *string   `json:"catchall_email"`
-	Accounts            []Account `json:"accounts"`
-	Suspended           bool      `json:"suspended"`
+	Domain              string        `json:"domain"`
+	AntivirusEnabled    bool          `json:"antivirus_enabled"`
+	AntispamEnabled     bool          `json:"antispam_enabled"`
+	DkimEnabled         bool          `json:"dkim_enabled"`
+	DkimActiveSelector  string        `json:"dkim_active_selector"`
+	DkimPendingSelector *string       `json:"dkim_pending_selector"`
+	DkimRetireSelector  *string       `json:"dkim_retire_selector"`
+	CatchallEmail       *string       `json:"catchall_email"`
+	Accounts            []Account     `json:"accounts"`
+	Lists               []MailingList `json:"lists"`
+	Suspended           bool          `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -157,7 +187,66 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		}
 	}
 
+	if err := validateLists(p); err != nil {
+		return Payload{}, err
+	}
+
 	return p, nil
+}
+
+// validateLists checks every mailing list of the payload.
+func validateLists(p Payload) error {
+	if len(p.Lists) > maxListsPerDomain {
+		return &ValidationError{Code: "invalid_lists", Message: fmt.Sprintf("at most %d mailing lists per domain", maxListsPerDomain), Field: "lists"}
+	}
+
+	taken := make(map[string]struct{}, len(p.Accounts)+2*len(p.Lists))
+	for _, a := range p.Accounts {
+		taken[a.LocalPart] = struct{}{}
+	}
+
+	for i, l := range p.Lists {
+		field := fmt.Sprintf("lists[%d]", i)
+
+		switch {
+		case !localPartPattern.MatchString(l.LocalPart) || len(l.LocalPart) > 64:
+			return &ValidationError{Code: "invalid_lists", Message: "list name must be a plain mail name", Field: field + ".local_part"}
+		case strings.HasSuffix(l.LocalPart, "-owner"):
+			return &ValidationError{Code: "invalid_lists", Message: "a list name cannot end in -owner, that address is reserved for the list's owner", Field: field + ".local_part"}
+		case !memberEmailPattern.MatchString(l.OwnerEmail):
+			return &ValidationError{Code: "invalid_lists", Message: "the list owner must be a plain email address", Field: field + ".owner_email"}
+		case l.PostPolicy != "members" && l.PostPolicy != "anyone" && l.PostPolicy != "owner":
+			return &ValidationError{Code: "invalid_lists", Message: "post_policy must be members, anyone or owner", Field: field + ".post_policy"}
+		case !listSubjectPrefixPattern.MatchString(l.SubjectPrefix):
+			return &ValidationError{Code: "invalid_lists", Message: "the subject prefix can use letters, numbers, spaces and . _ [ ] - only (up to 40)", Field: field + ".subject_prefix"}
+		case len(l.Members) > maxListMembers:
+			return &ValidationError{Code: "invalid_lists", Message: fmt.Sprintf("at most %d members per list", maxListMembers), Field: field + ".members"}
+		}
+
+		for _, name := range []string{l.LocalPart, l.LocalPart + "-owner"} {
+			if _, clash := taken[name]; clash {
+				return &ValidationError{Code: "invalid_lists", Message: fmt.Sprintf("%q is already used by a mailbox or another list", name), Field: field + ".local_part"}
+			}
+
+			taken[name] = struct{}{}
+		}
+
+		seen := make(map[string]struct{}, len(l.Members))
+
+		for j, m := range l.Members {
+			if !memberEmailPattern.MatchString(m) {
+				return &ValidationError{Code: "invalid_lists", Message: "every member must be a plain email address", Field: fmt.Sprintf("%s.members[%d]", field, j)}
+			}
+
+			if _, dup := seen[m]; dup {
+				return &ValidationError{Code: "invalid_lists", Message: "a member can only appear once", Field: fmt.Sprintf("%s.members[%d]", field, j)}
+			}
+
+			seen[m] = struct{}{}
+		}
+	}
+
+	return nil
 }
 
 // passwordPattern matches exactly what CreateMailAccount/

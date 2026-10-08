@@ -29,6 +29,11 @@ func (c *MailCapability) aggregateFiles(data renderedData) []aggregateFile {
 		{c.cfg.EximDataDir + "/dkim_keys.list", data.dkimKeys},
 		{c.cfg.EximDataDir + "/dkim_selector.list", data.dkimSelectors},
 		{c.cfg.EximDataDir + "/catchall.list", data.catchall},
+		{c.cfg.EximDataDir + "/lists.list", data.lists},
+		{c.cfg.EximDataDir + "/list_owners.list", data.listOwners},
+		{c.cfg.EximDataDir + "/list_posters.list", data.listPosters},
+		{c.cfg.EximDataDir + "/list_prefix.list", data.listPrefixes},
+		{c.cfg.EximDataDir + "/list_replyto.list", data.listReplyTo},
 		{c.cfg.DovecotPasswdPath, data.dovecotPasswd},
 	}
 }
