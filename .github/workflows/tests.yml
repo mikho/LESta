@@ -356,6 +356,42 @@ jobs:
       - name: Re-apply (idempotent rerun must still succeed)
         run: sudo sh .install/services/nginx/install.sh --apply --web-server nginx --yes
 
+      - name: "Real proof: the WAF rule set blocks a SQL injection in block mode, detects it in detect mode, and honours a rule exclusion"
+        run: |
+          set -eu
+          test -s /etc/lesta/waf/main.conf
+          docroot=$(mktemp -d); chmod 755 "$docroot"; echo ok > "$docroot/index.html"
+          conf=/etc/nginx/lesta.d/waf-proof.conf
+          render() {
+            # Same directives agent/internal/capability/nginx/templates/waf.tmpl renders.
+            sudo tee "$conf" >/dev/null <<EOF
+          server {
+              listen 127.0.0.1:18080;
+              server_name waf-proof.test;
+              root $docroot;
+              modsecurity on;
+              modsecurity_rules_file /etc/lesta/waf/main.conf;
+              modsecurity_rules '
+          SecRuleEngine $1
+          SecAuditLog /var/log/lesta/waf/waf-proof.audit.log
+          $2
+          ';
+          }
+          EOF
+            sudo nginx -t
+            sudo systemctl reload nginx
+          }
+          attack="http://127.0.0.1:18080/?q=1%27%20OR%20%271%27=%271%27%20UNION%20SELECT%20password%20FROM%20users--"
+          code() { curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$1"; }
+          trap 'sudo rm -f "$conf"; sudo systemctl reload nginx || true' EXIT
+          render On ""
+          [ "$(code http://127.0.0.1:18080/)" = 200 ] || { echo "::error title=WAF proof failed::a clean request was not served"; exit 1; }
+          [ "$(code "$attack")" = 403 ] || { echo "::error title=WAF proof failed::block mode did not block the SQL injection"; exit 1; }
+          render DetectionOnly ""
+          [ "$(code "$attack")" = 200 ] || { echo "::error title=WAF proof failed::detect mode blocked a request"; exit 1; }
+          render On "SecRuleRemoveById 949110"
+          [ "$(code "$attack")" = 200 ] || { echo "::error title=WAF proof failed::excluding rule 949110 did not stop the block"; exit 1; }
+
       - name: Standalone Apache installer coverage (help/version/dry-run/argument validation only; a real --apply here would conflict with nginx already owning 80/443 in this same job)
         run: |
           sh .install/services/apache/install.sh --help
