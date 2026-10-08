@@ -739,6 +739,11 @@ SecAuditLogRelevantStatus "^(?:5|4(?!04))"
 SecAuditLogType Serial
 SecAuditLogFormat JSON
 SecAuditLogParts AHZ
+# Without these, JSON and XML request bodies (REST APIs, the WordPress block
+# editor) are not parsed and so are never inspected by the rule set.
+SecRule REQUEST_HEADERS:Content-Type "^(?:application(?:/soap\+|/)|text/)xml" "id:200000,phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=XML"
+SecRule REQUEST_HEADERS:Content-Type "^application/json" "id:200001,phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=JSON"
+SecRule REQUEST_HEADERS:Content-Type "^application/[a-z0-9.-]+[+]json" "id:200006,phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=JSON"
 Include /etc/modsecurity/crs/crs-setup.conf
 Include /usr/share/modsecurity-crs/rules/*.conf
 WAFCONF

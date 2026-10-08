@@ -398,6 +398,12 @@ jobs:
           render On ""
           expect 200 http://127.0.0.1:18080/ "a clean request was not served"
           expect 403 "$attack" "block mode did not block the SQL injection"
+          # JSON request bodies must be inspected too (REST APIs, block editors).
+          json_attack() {
+            curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' -H 'Content-Type: application/json' \
+              -d '{"content":"1 UNION ALL SELECT user_login,user_pass FROM wp_users-- -"}' http://127.0.0.1:18080/
+          }
+          [ "$(json_attack)" = 403 ] || { echo "::error title=WAF proof failed::block mode did not block a SQL injection inside a JSON body"; exit 1; }
           render DetectionOnly ""
           expect 200 "$attack" "detect mode blocked a request"
           render On "SecRuleRemoveById 949110"
