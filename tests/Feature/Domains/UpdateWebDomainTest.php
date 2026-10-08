@@ -226,3 +226,35 @@ test('the WAF mode and rule ids are validated', function (array $input, string $
     'text instead of an id' => [['waf_excluded_rules' => '942100; SecRuleEngine Off'], 'waf_excluded_rules.1'],
     'id out of range' => [['waf_excluded_rules' => '0'], 'waf_excluded_rules.0'],
 ]);
+
+test('an owner can turn hotlink protection on with allowed sites, and the nginx update carries them', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'photos.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->put(route('domains.update', $webDomain), ['domain' => 'photos.example.com', 'hotlink_protection' => '1', 'hotlink_allowed_hosts' => ['Partner.Example']])
+        ->assertSessionHasNoErrors();
+
+    $webDomain->refresh();
+
+    expect($webDomain->hotlink_protection)->toBeTrue()
+        ->and($webDomain->hotlink_allowed_hosts)->toBe(['partner.example']);
+
+    $operation = ProvisioningOperation::where('provisionable_id', $webDomain->id)->where('operation', ProvisioningVerb::Update)->latest('id')->first();
+
+    expect($operation->payload)->toMatchArray(['hotlink_protection' => true, 'hotlink_allowed_hosts' => ['partner.example']]);
+});
+
+test('hotlink allowed hosts must be hostnames', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'photos.example.com']);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->put(route('domains.update', $webDomain), ['domain' => 'photos.example.com', 'hotlink_allowed_hosts' => ['evil.example; return 200']])
+        ->assertSessionHasErrors('hotlink_allowed_hosts.0');
+});

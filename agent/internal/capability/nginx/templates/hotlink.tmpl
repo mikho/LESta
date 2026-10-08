@@ -1,0 +1,9 @@
+{{define "hotlink"}}{{if .HotlinkEnabled}}
+    location ~* \.(?:jpe?g|png|gif|webp|svg|ico)$ {
+        valid_referers none blocked server_names{{range .HotlinkAllowedHosts}} {{.}} *.{{.}}{{end}};
+        if ($invalid_referer) {
+            return 403;
+        }
+        try_files $uri =404;
+    }
+{{end}}{{end}}

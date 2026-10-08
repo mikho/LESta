@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
+import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,13 @@ export default function Edit({
                                       .split('\n')
                                       .map((alias: string) => alias.trim())
                                       .filter((alias: string) => alias !== '')
+                                : [],
+                        hotlink_allowed_hosts:
+                            typeof data.hotlink_allowed_hosts === 'string'
+                                ? data.hotlink_allowed_hosts
+                                      .split('\n')
+                                      .map((host: string) => host.trim())
+                                      .filter((host: string) => host !== '')
                                 : [],
                         php_version:
                             data.php_version === 'none'
@@ -220,6 +228,48 @@ export default function Edit({
                                         {webDomain.last_certificate_error}
                                     </p>
                                 )}
+                            </div>
+
+                            <div className="grid gap-2">
+                                <div className="flex items-center gap-2">
+                                    <FormCheckbox
+                                        id="hotlink_protection"
+                                        name="hotlink_protection"
+                                        defaultChecked={
+                                            webDomain.hotlink_protection
+                                        }
+                                    />
+                                    <Label htmlFor="hotlink_protection">
+                                        Hotlink protection
+                                    </Label>
+                                </div>
+
+                                <p className="text-sm text-muted-foreground">
+                                    Stops other sites from showing this
+                                    domain&apos;s images on their pages. This
+                                    domain and its aliases are always allowed,
+                                    and so are visitors who arrive without a
+                                    referrer.
+                                </p>
+
+                                <Label htmlFor="hotlink_allowed_hosts">
+                                    Other sites allowed to show your images (one
+                                    per line)
+                                </Label>
+
+                                <Textarea
+                                    id="hotlink_allowed_hosts"
+                                    name="hotlink_allowed_hosts"
+                                    rows={3}
+                                    placeholder="partner.example"
+                                    defaultValue={webDomain.hotlink_allowed_hosts.join(
+                                        '\n',
+                                    )}
+                                />
+
+                                <InputError
+                                    message={errors.hotlink_allowed_hosts}
+                                />
                             </div>
 
                             <div className="grid gap-2">

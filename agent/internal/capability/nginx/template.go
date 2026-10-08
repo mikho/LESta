@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl templates/hotlink.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -100,8 +100,11 @@ type vhostData struct {
 	WafMode          string
 	WafExcludedRules []int
 	WafPreset        string
-	WafRulesFile     string
-	WafAuditLog      string
+	// HotlinkEnabled and HotlinkAllowedHosts back templates/hotlink.tmpl.
+	HotlinkEnabled      bool
+	HotlinkAllowedHosts []string
+	WafRulesFile        string
+	WafAuditLog         string
 	// SuspendedPage is suspendedHTML's content, substituted in only when
 	// rendering the suspended template.
 	SuspendedPage string
@@ -183,7 +186,7 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 
 	tmplPath := path.Join("templates", name)
 
-	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl")
+	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl", "templates/hotlink.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %s: %w", name, err)
 	}

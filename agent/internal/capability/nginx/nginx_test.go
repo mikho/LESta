@@ -1159,3 +1159,57 @@ func TestUnknownPathServesTheBuiltInNotFoundPage(t *testing.T) {
 		t.Fatalf("expected the built-in 404 page with status 404, got %d: %s", resp.StatusCode, body)
 	}
 }
+
+// TestHotlinkProtectionAgainstARealNginx proves, against a real nginx, that an
+// image requested with another site's Referer is refused while the domain's
+// own site, an allowed host and a request with no Referer are not.
+func TestHotlinkProtectionAgainstARealNginx(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "hotlink.contract.test"
+
+	payload := nginxPayload(domain, "127.0.0.1", false)
+	payload["hotlink_protection"] = true
+	payload["hotlink_allowed_hosts"] = []string{"partner.contract.test"}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	status := func(referer string) int {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/logo.png", d.Port), nil)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
+		}
+		req.Host = domain
+		if referer != "" {
+			req.Header.Set("Referer", referer)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		return resp.StatusCode
+	}
+
+	// No file exists, so an allowed request ends at 404 and a refused one at 403.
+	for referer, want := range map[string]int{
+		"":                                   http.StatusNotFound,
+		"http://" + domain + "/page":         http.StatusNotFound,
+		"https://sub.partner.contract.test/": http.StatusNotFound,
+		"https://evil.example/post":          http.StatusForbidden,
+	} {
+		if got := status(referer); got != want {
+			t.Errorf("Referer %q: got %d, want %d", referer, got, want)
+		}
+	}
+}

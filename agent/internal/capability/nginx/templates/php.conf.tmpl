@@ -32,6 +32,7 @@ server {
     }
 {{end}}
 {{template "errorPages" .}}
+{{template "hotlink" .}}
     location ~ /\.ht {
         deny all;
     }
@@ -72,6 +73,7 @@ server {
     }
 {{end}}
 {{template "errorPages" .}}
+{{template "hotlink" .}}
     location ~ /\.ht {
         deny all;
     }

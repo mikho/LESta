@@ -44,8 +44,10 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'waf_mode' => 'off',
         'waf_excluded_rules' => [],
         'waf_preset' => 'none',
+        'hotlink_protection' => false,
+        'hotlink_allowed_hosts' => [],
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'webmail_socket', 'ssl', 'suspended', 'waf_mode', 'waf_excluded_rules', 'waf_preset']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'webmail_socket', 'ssl', 'suspended', 'waf_mode', 'waf_excluded_rules', 'waf_preset', 'hotlink_protection', 'hotlink_allowed_hosts']);
 });
 
 test('toProvisioningPayload reports a real php_socket once php_version is set', function () {
@@ -356,9 +358,9 @@ test('resolveFor with web_server apache throws when the given node has no active
 
 test('only the nginx payload carries the WAF fields, with the stored mode and rule ids', function () {
     $node = Node::factory()->create();
-    $webDomain = WebDomain::factory()->for($node)->create(['waf_mode' => 'block', 'waf_excluded_rules' => [942100, 920350], 'waf_preset' => 'wordpress']);
+    $webDomain = WebDomain::factory()->for($node)->create(['waf_mode' => 'block', 'waf_excluded_rules' => [942100, 920350], 'waf_preset' => 'wordpress', 'hotlink_protection' => true, 'hotlink_allowed_hosts' => ['partner.example']]);
     AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
 
-    expect($webDomain->toProvisioningPayload('web.nginx.v1'))->toMatchArray(['waf_mode' => 'block', 'waf_excluded_rules' => [942100, 920350], 'waf_preset' => 'wordpress'])
-        ->and($webDomain->toProvisioningPayload('web.apache.v1'))->not->toHaveKeys(['waf_mode', 'waf_excluded_rules', 'waf_preset']);
+    expect($webDomain->toProvisioningPayload('web.nginx.v1'))->toMatchArray(['waf_mode' => 'block', 'waf_excluded_rules' => [942100, 920350], 'waf_preset' => 'wordpress', 'hotlink_protection' => true, 'hotlink_allowed_hosts' => ['partner.example']])
+        ->and($webDomain->toProvisioningPayload('web.apache.v1'))->not->toHaveKeys(['waf_mode', 'waf_excluded_rules', 'waf_preset', 'hotlink_protection', 'hotlink_allowed_hosts']);
 });

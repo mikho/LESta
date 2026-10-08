@@ -105,7 +105,16 @@ type Payload struct {
 	// WafPreset is "", "none" or "wordpress": a fixed, built-in set of rule
 	// exclusions scoped to the CMS's admin and REST paths (see waf.tmpl).
 	WafPreset string `json:"waf_preset"`
+	// HotlinkProtection, when true, makes image requests whose Referer is
+	// another site answer 403. HotlinkAllowedHosts are extra hostnames (and
+	// their subdomains) allowed to embed; the domain's own names are always
+	// allowed. Hostnames only, validated against hostnamePattern, so nothing
+	// a tenant types reaches the config as anything but a hostname.
+	HotlinkProtection   bool     `json:"hotlink_protection"`
+	HotlinkAllowedHosts []string `json:"hotlink_allowed_hosts"`
 }
+
+const maxHotlinkAllowedHosts = 50
 
 const maxWafExcludedRules = 100
 
@@ -175,6 +184,16 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	case "", "none", "wordpress":
 	default:
 		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
+	}
+
+	if len(p.HotlinkAllowedHosts) > maxHotlinkAllowedHosts {
+		return Payload{}, &ValidationError{Code: "invalid_hotlink_allowed_hosts", Message: fmt.Sprintf("at most %d hosts may be allowed", maxHotlinkAllowedHosts), Field: "hotlink_allowed_hosts"}
+	}
+
+	for i, host := range p.HotlinkAllowedHosts {
+		if !hostnamePattern.MatchString(host) {
+			return Payload{}, &ValidationError{Code: "invalid_hotlink_allowed_hosts", Message: "allowed host is not a valid hostname", Field: fmt.Sprintf("hotlink_allowed_hosts[%d]", i)}
+		}
 	}
 
 	if len(p.WafExcludedRules) > maxWafExcludedRules {

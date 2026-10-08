@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 class UpdateWebDomain
 {
     /**
-     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, php_version?: string|null, ssl_mode?: string, waf_mode?: string, waf_preset?: string, waf_excluded_rules?: array<int, int>, aliases?: array<int, string>}
+     * @param  array<string, mixed>  $data  Expected shape: array{domain: string, web_template?: string, web_server?: string, php_version?: string|null, ssl_mode?: string, waf_mode?: string, waf_preset?: string, hotlink_protection?: bool, hotlink_allowed_hosts?: array<int, string>, waf_excluded_rules?: array<int, int>, aliases?: array<int, string>}
      */
     public function handle(User $actor, WebDomain $webDomain, array $data): WebDomain
     {
@@ -34,6 +34,8 @@ class UpdateWebDomain
                 'ssl_mode' => $data['ssl_mode'] ?? 'none',
                 'waf_mode' => $data['waf_mode'] ?? $webDomain->waf_mode,
                 'waf_preset' => $data['waf_preset'] ?? $webDomain->waf_preset,
+                'hotlink_protection' => $data['hotlink_protection'] ?? $webDomain->hotlink_protection,
+                'hotlink_allowed_hosts' => array_key_exists('hotlink_allowed_hosts', $data) ? array_values($data['hotlink_allowed_hosts']) : $webDomain->hotlink_allowed_hosts,
                 'waf_excluded_rules' => array_key_exists('waf_excluded_rules', $data) ? array_values($data['waf_excluded_rules']) : $webDomain->waf_excluded_rules,
                 'desired_state_version' => $webDomain->desired_state_version + 1,
             ])->save();

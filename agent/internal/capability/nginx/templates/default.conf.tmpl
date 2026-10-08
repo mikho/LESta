@@ -24,6 +24,7 @@ server {
     }
 
 {{template "errorPages" .}}
+{{template "hotlink" .}}
     location ~ /\.ht {
         deny all;
     }

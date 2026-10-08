@@ -189,3 +189,54 @@ func TestWafWordpressPresetIsScopedToAdminAndRestPaths(t *testing.T) {
 		t.Errorf("preset none must not render the preset rule")
 	}
 }
+
+// TestHotlinkProtectionRendersOnlyWhenEnabled guards the hotlink location:
+// absent by default, and when enabled it allows the domain's own names plus
+// each configured host and its subdomains.
+func TestHotlinkProtectionRendersOnlyWhenEnabled(t *testing.T) {
+	render := func(enabled bool, hosts []string) string {
+		rendered, err := renderVhost(vhostData{
+			ResourceID:          "00000000-0000-0000-0000-000000000007",
+			Domain:              "photos.example.test",
+			IPAddress:           "127.0.0.1",
+			Port:                80,
+			Docroot:             "/home/acct/domains/x/public",
+			HotlinkEnabled:      enabled,
+			HotlinkAllowedHosts: hosts,
+		}, false)
+		if err != nil {
+			t.Fatalf("rendering: %v", err)
+		}
+
+		return string(rendered)
+	}
+
+	if strings.Contains(render(false, []string{"partner.example"}), "valid_referers") {
+		t.Errorf("hotlink protection off must render nothing")
+	}
+
+	on := render(true, []string{"partner.example"})
+	for _, want := range []string{"valid_referers none blocked server_names partner.example *.partner.example;", "if ($invalid_referer) {", "return 403;"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("expected %q in rendered vhost:\n%s", want, on)
+		}
+	}
+}
+
+func TestHotlinkPayloadValidation(t *testing.T) {
+	base := `{"domain":"a.example.test","aliases":[],"ip_address":"127.0.0.1","web_template":"default","account_id":1,"account_username":"","php_socket":"","ssl":{"mode":"off"},"suspended":false,"hotlink_protection":true,`
+
+	for name, tail := range map[string]string{
+		"injection attempt": `"hotlink_allowed_hosts":["evil.example; return 200"]}`,
+		"scheme":            `"hotlink_allowed_hosts":["https://partner.example"]}`,
+		"single label":      `"hotlink_allowed_hosts":["localhost"]}`,
+	} {
+		if _, err := ParsePayload([]byte(base + tail)); err == nil {
+			t.Errorf("%s: expected a rejection", name)
+		}
+	}
+
+	if _, err := ParsePayload([]byte(base + `"hotlink_allowed_hosts":["partner.example"]}`)); err != nil {
+		t.Errorf("a valid payload was rejected: %v", err)
+	}
+}

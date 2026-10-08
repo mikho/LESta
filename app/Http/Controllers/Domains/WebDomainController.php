@@ -219,6 +219,8 @@ class WebDomainController extends Controller
             'ssl_mode' => $webDomain->ssl_mode->value,
             'waf_mode' => $webDomain->waf_mode,
             'waf_preset' => $webDomain->waf_preset,
+            'hotlink_protection' => $webDomain->hotlink_protection,
+            'hotlink_allowed_hosts' => ($webDomain->hotlink_allowed_hosts ?? []),
             'waf_excluded_rules' => ($webDomain->waf_excluded_rules ?? []),
             'certificate_issued_at' => $webDomain->certificate_issued_at?->toIso8601String(),
             'certificate_expires_at' => $webDomain->certificate_expires_at?->toIso8601String(),

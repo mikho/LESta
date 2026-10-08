@@ -28,6 +28,8 @@ export type WebDomain = {
     waf_mode: 'off' | 'detect' | 'block';
     waf_excluded_rules: number[];
     waf_preset: 'none' | 'wordpress';
+    hotlink_protection: boolean;
+    hotlink_allowed_hosts: string[];
     certificate_issued_at: string | null;
     certificate_expires_at: string | null;
     last_certificate_error: string | null;
