@@ -58,7 +58,7 @@
         "laravel-vite-plugin": "^3.0.0",
         "lucide-react": "^0.475.0",
         "marked": "^18.0.13",
-        "playwright": "^1.62.1",
+        "playwright": "^1.64.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
         "sonner": "^2.0.0",

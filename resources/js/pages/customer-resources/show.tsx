@@ -1,5 +1,8 @@
 import { Head, Link } from '@inertiajs/react';
-import { formatRelative } from '@/components/customer-resource-index';
+import {
+    formatDateTime,
+    formatRelative,
+} from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { ProvisioningBadge } from '@/components/provisioning-badge';
 import accounts from '@/routes/accounts';
@@ -37,14 +40,7 @@ const looksLikeTimestamp = (value: string) =>
 
 function Moment({ iso }: { iso: string }) {
     return (
-        <time
-            dateTime={iso}
-            title={new Date(iso).toLocaleString(undefined, {
-                dateStyle: 'medium',
-                timeStyle: 'medium',
-                timeZoneName: 'short',
-            })}
-        >
+        <time dateTime={iso} title={formatDateTime(iso)}>
             {formatRelative(iso)}
         </time>
     );

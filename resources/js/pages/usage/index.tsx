@@ -2,6 +2,7 @@ import { Head, Link } from '@inertiajs/react';
 import {
     CustomerResourceIndex,
     formatCount,
+    formatDateTime,
     formatRelative,
 } from '@/components/customer-resource-index';
 import type { CustomerListing } from '@/components/customer-resource-index';
@@ -157,13 +158,7 @@ export default function Index({
                         cell: (item) => (
                             <time
                                 dateTime={item.last_collected_at}
-                                title={new Date(
-                                    item.last_collected_at,
-                                ).toLocaleString(undefined, {
-                                    dateStyle: 'medium',
-                                    timeStyle: 'short',
-                                    timeZoneName: 'short',
-                                })}
+                                title={formatDateTime(item.last_collected_at)}
                             >
                                 {formatRelative(item.last_collected_at)}
                             </time>

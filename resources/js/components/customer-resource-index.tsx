@@ -139,6 +139,21 @@ export function SuspensionCell({
     );
 }
 
+/**
+ * A full local date and time with the timezone name. Built from individual components:
+ * dateStyle and timeStyle cannot be combined with timeZoneName, and the formatter throws a
+ * TypeError ("Invalid option") if they are.
+ */
+export const formatDateTime = (iso: string): string =>
+    new Date(iso).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+    });
+
 export const formatRelative = (iso: string): string => {
     const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
     const formatter = new Intl.RelativeTimeFormat(undefined, {
