@@ -5,15 +5,18 @@ server {
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
+{{template "ipAccess" .}}
 
     location /.well-known/acme-challenge/ {
-        alias {{.AcmeChallengeDir}}/;
+        alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
+        allow all;{{end}}
     }
 
     root {{.Docroot}};
     index index.html index.htm;
 
     location = /__lesta-health__ {
+        {{if .IpRestricted}}allow all;{{end}}
         default_type text/plain;
         return 200 '{{.Marker}}
 ';

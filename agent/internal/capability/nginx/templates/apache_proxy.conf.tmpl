@@ -5,9 +5,11 @@ server {
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
+{{template "ipAccess" .}}
 
     location /.well-known/acme-challenge/ {
-        alias {{.AcmeChallengeDir}}/;
+        alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
+        allow all;{{end}}
     }
 
     location / {

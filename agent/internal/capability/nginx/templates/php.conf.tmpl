@@ -5,12 +5,14 @@ server {
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
+{{template "ipAccess" .}}
 
     root {{.Docroot}};
     index index.php index.html index.htm;
 
     location /.well-known/acme-challenge/ {
-        alias {{.AcmeChallengeDir}}/;
+        alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
+        allow all;{{end}}
     }
 
     location / {
@@ -43,6 +45,7 @@ server {
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
+{{template "ipAccess" .}}
 
     ssl_certificate {{.CertificatePath}};
     ssl_certificate_key {{.PrivateKeyPath}};
@@ -51,7 +54,8 @@ server {
     index index.php index.html index.htm;
 
     location /.well-known/acme-challenge/ {
-        alias {{.AcmeChallengeDir}}/;
+        alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
+        allow all;{{end}}
     }
 
     location / {

@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl templates/hotlink.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl templates/hotlink.tmpl templates/ip_access.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -101,6 +101,8 @@ type vhostData struct {
 	WafExcludedRules []int
 	WafPreset        string
 	// HotlinkEnabled and HotlinkAllowedHosts back templates/hotlink.tmpl.
+	IpAllows            []string
+	IpDenies            []string
 	HotlinkEnabled      bool
 	HotlinkAllowedHosts []string
 	WafRulesFile        string
@@ -114,6 +116,12 @@ const (
 	wafRulesFile = "/etc/lesta/waf/main.conf"
 	wafLogDir    = "/var/log/lesta/waf"
 )
+
+// IpRestricted reports whether the account has any IP rule, so the ACME and
+// health locations must opt out of it and stay reachable.
+func (d vhostData) IpRestricted() bool {
+	return len(d.IpAllows) > 0 || len(d.IpDenies) > 0
+}
 
 // WafEnabled reports whether the waf partial renders any directives.
 func (d vhostData) WafEnabled() bool {
@@ -186,7 +194,7 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 
 	tmplPath := path.Join("templates", name)
 
-	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl", "templates/hotlink.tmpl")
+	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl", "templates/hotlink.tmpl", "templates/ip_access.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %s: %w", name, err)
 	}

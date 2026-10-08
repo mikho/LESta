@@ -1,0 +1,4 @@
+{{define "ipAccess"}}{{range .IpAllows}}
+    allow {{.}};{{end}}{{range .IpDenies}}
+    deny {{.}};{{end}}
+{{end}}

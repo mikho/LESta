@@ -145,6 +145,8 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		WafMode:             payload.WafMode,
 		WafExcludedRules:    payload.WafExcludedRules,
 		WafPreset:           payload.WafPreset,
+		IpAllows:            payload.ipAddresses("allow"),
+		IpDenies:            payload.ipAddresses("deny"),
 		HotlinkEnabled:      payload.HotlinkProtection,
 		HotlinkAllowedHosts: payload.HotlinkAllowedHosts,
 		FastcgiParamsPath:   filepath.Join(filepath.Dir(c.cfg.NginxConfPath), "fastcgi_params"),

@@ -112,9 +112,23 @@ type Payload struct {
 	// a tenant types reaches the config as anything but a hostname.
 	HotlinkProtection   bool     `json:"hotlink_protection"`
 	HotlinkAllowedHosts []string `json:"hotlink_allowed_hosts"`
+	// IpRules is the owning account's IP access list, rendered into every
+	// one of the account's vhosts: allow entries first, then deny entries,
+	// nginx's first match wins, and anything unmatched is allowed.
+	IpRules []IpRule `json:"ip_rules"`
 }
 
 const maxHotlinkAllowedHosts = 50
+
+// IpRule is one allow or deny entry from the account's IP access list. Cidr is
+// a single address or a CIDR range; it is parsed and re-rendered from the
+// parsed value, so nothing a tenant types reaches the config as text.
+type IpRule struct {
+	Action string `json:"action"`
+	Cidr   string `json:"cidr"`
+}
+
+const maxIpRules = 200
 
 const maxWafExcludedRules = 100
 
@@ -186,6 +200,20 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
 	}
 
+	if len(p.IpRules) > maxIpRules {
+		return Payload{}, &ValidationError{Code: "invalid_ip_rules", Message: fmt.Sprintf("at most %d IP rules may be set", maxIpRules), Field: "ip_rules"}
+	}
+
+	for i, rule := range p.IpRules {
+		if rule.Action != "allow" && rule.Action != "deny" {
+			return Payload{}, &ValidationError{Code: "invalid_ip_rules", Message: "ip rule action must be allow or deny", Field: fmt.Sprintf("ip_rules[%d].action", i)}
+		}
+
+		if _, ok := normalizeIpOrCidr(rule.Cidr); !ok {
+			return Payload{}, &ValidationError{Code: "invalid_ip_rules", Message: "ip rule address must be an IP address or a CIDR range", Field: fmt.Sprintf("ip_rules[%d].cidr", i)}
+		}
+	}
+
 	if len(p.HotlinkAllowedHosts) > maxHotlinkAllowedHosts {
 		return Payload{}, &ValidationError{Code: "invalid_hotlink_allowed_hosts", Message: fmt.Sprintf("at most %d hosts may be allowed", maxHotlinkAllowedHosts), Field: "hotlink_allowed_hosts"}
 	}
@@ -219,4 +247,42 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	}
 
 	return p, nil
+}
+
+// normalizeIpOrCidr parses raw as an IP address or a CIDR range and returns
+// its canonical form, which is what the template renders.
+func normalizeIpOrCidr(raw string) (string, bool) {
+	if strings.Contains(raw, "/") {
+		_, network, err := net.ParseCIDR(raw)
+		if err != nil {
+			return "", false
+		}
+
+		return network.String(), true
+	}
+
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		return "", false
+	}
+
+	return ip.String(), true
+}
+
+// ipAddresses returns the canonical addresses of the payload's rules for one
+// action, in the order given. ParsePayload has already validated them.
+func (p Payload) ipAddresses(action string) []string {
+	var out []string
+
+	for _, rule := range p.IpRules {
+		if rule.Action != action {
+			continue
+		}
+
+		if normalized, ok := normalizeIpOrCidr(rule.Cidr); ok {
+			out = append(out, normalized)
+		}
+	}
+
+	return out
 }

@@ -197,7 +197,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, waf_mode?: string, waf_excluded_rules?: list<int>, waf_preset?: string, hotlink_protection?: bool, hotlink_allowed_hosts?: list<string>, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, waf_mode?: string, waf_excluded_rules?: list<int>, waf_preset?: string, hotlink_protection?: bool, hotlink_allowed_hosts?: list<string>, ip_rules?: list<array{action: string, cidr: string}>, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -214,9 +214,9 @@ class WebDomain extends Model
             $ssl['private_key_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/privkey.pem";
         }
 
-        // Only web.nginx.v1 renders ModSecurity and hotlink protection; web.apache.v1 rejects unknown payload fields.
+        // Only web.nginx.v1 renders ModSecurity, hotlink protection and the account's IP rules; web.apache.v1 rejects unknown payload fields.
         $waf = $capability === 'web.nginx.v1'
-            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? []), 'waf_preset' => $this->waf_preset, 'hotlink_protection' => $this->hotlink_protection, 'hotlink_allowed_hosts' => ($this->hotlink_allowed_hosts ?? [])]
+            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? []), 'waf_preset' => $this->waf_preset, 'hotlink_protection' => $this->hotlink_protection, 'hotlink_allowed_hosts' => ($this->hotlink_allowed_hosts ?? []), 'ip_rules' => array_values($this->account->ipRules()->orderBy('id')->get(['action', 'cidr'])->map(fn (AccountIpRule $rule): array => ['action' => $rule->action, 'cidr' => $rule->cidr])->all())]
             : [];
 
         return [

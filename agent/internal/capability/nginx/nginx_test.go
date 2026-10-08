@@ -1213,3 +1213,78 @@ func TestHotlinkProtectionAgainstARealNginx(t *testing.T) {
 		}
 	}
 }
+
+// TestIpRulesAgainstARealNginx proves, against a real nginx, that a deny rule
+// blocks the matching client, an allow entry carves an exception out of it,
+// and the health path stays reachable so provisioning keeps working.
+func TestIpRulesAgainstARealNginx(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "iprules.contract.test"
+
+	get := func(path string) int {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", d.Port, path), nil)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
+		}
+		req.Host = domain
+
+		// A fresh connection every time: a kept-alive one would stay on the
+		// worker that served the previous config after a reload.
+		client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		return resp.StatusCode
+	}
+
+	// The test client connects from 127.0.0.1: deny the whole loopback range.
+	payload := nginxPayload(domain, "127.0.0.1", false)
+	payload["ip_rules"] = []map[string]string{{"action": "deny", "cidr": "127.0.0.0/8"}}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create with a deny rule must still pass its own health check: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	if got := get("/anything"); got != http.StatusForbidden {
+		t.Errorf("denied client: got %d, want 403", got)
+	}
+
+	if got := get("/__lesta-health__"); got != http.StatusOK {
+		t.Errorf("health path must stay reachable for a denied client: got %d, want 200", got)
+	}
+
+	payload["ip_rules"] = []map[string]string{
+		{"action": "deny", "cidr": "127.0.0.0/8"},
+		{"action": "allow", "cidr": "127.0.0.1"},
+	}
+
+	updated, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 2, payload))
+	if err != nil || updated.Status != protocol.StatusApplied {
+		t.Fatalf("update: status=%s err=%v errors=%+v", updated.Status, err, updated.Errors)
+	}
+
+	// A reload returns before the new workers take over, so poll briefly.
+	got := 0
+	for range 40 {
+		if got = get("/anything"); got == http.StatusNotFound {
+			break
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if got != http.StatusNotFound {
+		t.Errorf("allowed exception: got %d, want 404 (served, no such file)", got)
+	}
+}

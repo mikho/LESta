@@ -125,6 +125,14 @@ class Account extends Model
     }
 
     /**
+     * @return HasMany<AccountIpRule, $this>
+     */
+    public function ipRules(): HasMany
+    {
+        return $this->hasMany(AccountIpRule::class);
+    }
+
+    /**
      * @return HasMany<CronJob, $this>
      */
     public function cronJobs(): HasMany

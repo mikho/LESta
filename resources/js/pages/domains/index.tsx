@@ -28,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input';
 import customerResources from '@/routes/customer-resources';
 import domains from '@/routes/domains';
+import { index as ipRulesIndex } from '@/routes/ip-rules';
 import type { WebDomain } from '@/types';
 
 type PaginatedWebDomains = {
@@ -167,11 +168,17 @@ export default function Index({
                         description="Manage this account's web domains"
                     />
 
-                    <Button asChild>
-                        <Link href={WebDomainController.create()}>
-                            Add domain
-                        </Link>
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" asChild>
+                            <Link href={ipRulesIndex()}>IP access rules</Link>
+                        </Button>
+
+                        <Button asChild>
+                            <Link href={WebDomainController.create()}>
+                                Add domain
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
 
                 <Input
