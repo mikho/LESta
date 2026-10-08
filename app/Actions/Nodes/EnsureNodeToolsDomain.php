@@ -4,10 +4,13 @@ namespace App\Actions\Nodes;
 
 use App\Actions\Domains\CreateWebDomain;
 use App\Models\Account;
+use App\Models\AuditEvent;
 use App\Models\Node;
 use App\Models\Package;
+use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Makes sure a node's own hostname has a web domain: the one vhost that hosts webmail and Adminer,
@@ -20,9 +23,9 @@ class EnsureNodeToolsDomain
 {
     public const PLATFORM_ACCOUNT_NAME = 'LESta platform';
 
-    public function handle(Node $node, string $sslMode = 'lets_encrypt'): WebDomain
+    public function handle(Node $node, string $sslMode = 'lets_encrypt', ?User $actor = null): WebDomain
     {
-        return DB::transaction(function () use ($node, $sslMode): WebDomain {
+        return DB::transaction(function () use ($node, $sslMode, $actor): WebDomain {
             $existing = WebDomain::query()
                 ->where('node_id', $node->id)
                 ->where('domain', WebDomain::normalizeDomain($node->hostname))
@@ -32,11 +35,22 @@ class EnsureNodeToolsDomain
                 return $existing;
             }
 
-            return app(CreateWebDomain::class)->handleSystemInitiated($this->platformAccount(), $node, [
+            $webDomain = app(CreateWebDomain::class)->handleSystemInitiated($this->platformAccount(), $node, [
                 'domain' => $node->hostname,
                 'web_server' => 'nginx',
                 'ssl_mode' => $sslMode,
             ]);
+
+            AuditEvent::create([
+                'actor_type' => $actor?->getMorphClass(),
+                'actor_id' => $actor?->getKey(),
+                'auditable_type' => $node->getMorphClass(),
+                'auditable_id' => $node->getKey(),
+                'action' => 'node.tools_domain_created',
+                'correlation_id' => (string) Str::uuid(),
+            ]);
+
+            return $webDomain;
         });
     }
 

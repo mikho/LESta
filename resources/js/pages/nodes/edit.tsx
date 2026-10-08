@@ -1,4 +1,4 @@
-import { Form, Head, router } from '@inertiajs/react';
+import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
@@ -23,6 +23,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import customerResources from '@/routes/customer-resources';
 import nodes from '@/routes/nodes';
 import type {
     Node,
@@ -548,6 +549,188 @@ function AdminGrantRow({ node, grant }: { node: Node; grant: NodeAdminGrant }) {
     );
 }
 
+function ToolState({
+    label,
+    tool,
+    certified,
+}: {
+    label: string;
+    tool: { declared: boolean; available: boolean };
+    certified: boolean;
+}) {
+    const state = tool.available
+        ? 'Available'
+        : !tool.declared
+          ? 'Not enabled on this node. Declare its capability below once it is installed.'
+          : certified
+            ? 'Enabled, applying to the web server'
+            : 'Enabled, waiting for the certificate';
+
+    return (
+        <li className="flex flex-wrap gap-x-2 text-sm">
+            <span className="font-medium">{label}</span>
+            <span
+                className={
+                    tool.available
+                        ? 'text-green-700 dark:text-green-400'
+                        : 'text-muted-foreground'
+                }
+            >
+                {state}
+            </span>
+        </li>
+    );
+}
+
+/**
+ * Webmail and Adminer both open on the node's own hostname, so that hostname needs a web domain
+ * with an issued certificate. This creates the domain (owned by the hidden platform account) and,
+ * for a certificate installed by hand, records that the files are in place.
+ */
+function ToolsAddress({ node }: { node: Node }) {
+    const tools = node.tools;
+    const [sslMode, setSslMode] = useState<'lets_encrypt' | 'manual'>(
+        'lets_encrypt',
+    );
+
+    if (!tools) {
+        return null;
+    }
+
+    const domain = tools.domain;
+    const certified = domain?.certificate_issued_at != null;
+
+    return (
+        <div
+            className="space-y-4 rounded-lg border p-4"
+            data-test="node-tools-address"
+        >
+            <Heading
+                variant="small"
+                title="Webmail and Adminer address"
+                description={`Both open at https://${tools.hostname}/. That hostname needs a web domain on this node with an issued certificate.`}
+            />
+
+            <ul className="space-y-1">
+                <ToolState
+                    label="Webmail"
+                    tool={tools.webmail}
+                    certified={certified}
+                />
+                <ToolState
+                    label="Adminer"
+                    tool={tools.adminer}
+                    certified={certified}
+                />
+            </ul>
+
+            {domain === null && (
+                <Form
+                    {...NodeController.createToolsDomain.form(node)}
+                    options={{ preserveScroll: true }}
+                    className="flex flex-wrap items-end gap-3"
+                >
+                    {({ processing }) => (
+                        <>
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="tools-ssl-mode">
+                                    Certificate
+                                </Label>
+                                <Select
+                                    name="ssl_mode"
+                                    value={sslMode}
+                                    onValueChange={(value) =>
+                                        setSslMode(
+                                            value as 'lets_encrypt' | 'manual',
+                                        )
+                                    }
+                                >
+                                    <SelectTrigger
+                                        id="tools-ssl-mode"
+                                        className="w-72"
+                                    >
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="lets_encrypt">
+                                            Let's Encrypt (automatic)
+                                        </SelectItem>
+                                        <SelectItem value="manual">
+                                            I will install the certificate
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <Button
+                                disabled={processing}
+                                data-test="create-tools-domain-button"
+                            >
+                                Create web domain for {tools.hostname}
+                            </Button>
+                        </>
+                    )}
+                </Form>
+            )}
+
+            {domain !== null && !certified && domain.ssl_mode === 'manual' && (
+                <div className="space-y-3 text-sm">
+                    <p className="text-muted-foreground">
+                        Put the certificate chain at{' '}
+                        <code>{domain.certificate_path}/fullchain.pem</code> and
+                        its key at{' '}
+                        <code>{domain.certificate_path}/privkey.pem</code> on
+                        the node (the key readable by root only), then confirm.
+                        If the files are missing the web server keeps its
+                        previous configuration and the failure shows on the
+                        domain's operations.
+                    </p>
+                    <Form
+                        {...NodeController.confirmToolsCertificate.form(node)}
+                        options={{ preserveScroll: true }}
+                    >
+                        {({ processing }) => (
+                            <Button
+                                disabled={processing}
+                                data-test="confirm-tools-certificate-button"
+                            >
+                                The certificate files are in place
+                            </Button>
+                        )}
+                    </Form>
+                </div>
+            )}
+
+            {domain !== null && !certified && domain.ssl_mode !== 'manual' && (
+                <p className="text-sm text-muted-foreground">
+                    Waiting for Let's Encrypt to issue the certificate.
+                    {domain.last_certificate_error
+                        ? ` Last error: ${domain.last_certificate_error}`
+                        : ''}
+                </p>
+            )}
+
+            {domain !== null && certified && (
+                <p className="text-sm text-muted-foreground">
+                    Certificate issued
+                    {domain.certificate_expires_at
+                        ? `, expires ${new Date(domain.certificate_expires_at).toLocaleDateString()}`
+                        : ''}
+                    .{' '}
+                    <Link
+                        href={customerResources.show({
+                            type: 'domains',
+                            uuid: domain.uuid,
+                        })}
+                        className="underline"
+                    >
+                        View the web domain
+                    </Link>
+                </p>
+            )}
+        </div>
+    );
+}
+
 export default function Edit({
     node,
     canManageAdminGrants,
@@ -692,6 +875,8 @@ export default function Edit({
 
                     <IssueEnrollmentTokenDialog node={node} />
                 </div>
+
+                <ToolsAddress node={node} />
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex items-center justify-between gap-4">

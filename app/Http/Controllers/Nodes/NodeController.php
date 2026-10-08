@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Nodes;
 
 use App\Actions\Cron\DeleteOrphanedAccountNodeIdentity;
+use App\Actions\Nodes\ConfirmNodeToolsCertificate;
 use App\Actions\Nodes\CreateNode;
 use App\Actions\Nodes\DeleteNode;
+use App\Actions\Nodes\EnsureNodeToolsDomain;
 use App\Actions\Nodes\GrantNodeAdmin;
 use App\Actions\Nodes\IssueNodeEnrollmentToken;
 use App\Actions\Nodes\RevokeNodeAdminGrant;
@@ -13,19 +15,24 @@ use App\Actions\Nodes\UnsuspendNode;
 use App\Actions\Nodes\UpdateNode;
 use App\Actions\Nodes\UpdateNodeScheduledBackups;
 use App\Enums\NodeCapabilityType;
+use App\Exceptions\NoIpAllocationAvailableException;
+use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Nodes\GrantNodeAdminRequest;
 use App\Http\Requests\Nodes\StoreNodeRequest;
+use App\Http\Requests\Nodes\StoreNodeToolsDomainRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
 use App\Models\AccountNodeIdentity;
 use App\Models\Node;
 use App\Models\NodeAdminGrant;
 use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
+use App\Models\WebDomain;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -110,6 +117,39 @@ class NodeController extends Controller
             'node' => $this->presentForEdit($node, $orphanedIdentities),
             'canManageAdminGrants' => $request->user()->hasPermission('nodes.update'),
         ]);
+    }
+
+    /**
+     * Create the web domain for this node's own hostname (owned by the hidden platform account),
+     * which hosts webmail and Adminer.
+     */
+    public function createToolsDomain(StoreNodeToolsDomainRequest $request, Node $node): RedirectResponse
+    {
+        Gate::authorize('update', $node);
+
+        try {
+            app(EnsureNodeToolsDomain::class)->handle($node, $request->validated('ssl_mode'), $request->user());
+        } catch (NoWebCapableNodeAvailableException|NoIpAllocationAvailableException $exception) {
+            throw ValidationException::withMessages([
+                'tools_domain' => 'This node cannot host the domain yet: it needs nginx declared and an IP allocation.',
+            ]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Web domain for the node hostname created.')]);
+
+        return to_route('nodes.edit', $node);
+    }
+
+    /**
+     * Record that the manually installed certificate for the node hostname is in place.
+     */
+    public function confirmToolsCertificate(Request $request, Node $node): RedirectResponse
+    {
+        app(ConfirmNodeToolsCertificate::class)->handle($request->user(), $node);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Certificate recorded. The web server is being updated.')]);
+
+        return to_route('nodes.edit', $node);
     }
 
     /**
@@ -257,6 +297,34 @@ class NodeController extends Controller
     }
 
     /**
+     * The state of this node's tools address: the web domain for its own hostname, and whether
+     * webmail and Adminer can use it.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentTools(Node $node): array
+    {
+        $domain = WebDomain::query()
+            ->where('node_id', $node->id)
+            ->where('domain', WebDomain::normalizeDomain($node->hostname))
+            ->first();
+
+        return [
+            'hostname' => $node->hostname,
+            'domain' => $domain === null ? null : [
+                'uuid' => $domain->uuid,
+                'ssl_mode' => $domain->ssl_mode->value,
+                'certificate_issued_at' => $domain->certificate_issued_at?->toIso8601String(),
+                'certificate_expires_at' => $domain->certificate_expires_at?->toIso8601String(),
+                'last_certificate_error' => $domain->last_certificate_error,
+                'certificate_path' => '/var/lib/lesta/acme/certs/'.$domain->domain,
+            ],
+            'webmail' => ['declared' => $node->hasCapability(NodeCapabilityType::Webmail), 'available' => $node->hasWebmailAvailable()],
+            'adminer' => ['declared' => $node->hasCapability(NodeCapabilityType::Adminer), 'available' => $node->hasAdminerAvailable()],
+        ];
+    }
+
+    /**
      * Shape a node, with its capabilities, recent provisioning operations, and orphaned
      * account-node identities, for the edit page.
      *
@@ -278,6 +346,7 @@ class NodeController extends Controller
             'suspended_at' => $node->suspended_at?->toIso8601String(),
             'suspension_source' => $node->suspension_source?->value,
             'backups_scheduled' => $node->backups_scheduled,
+            'tools' => $this->presentTools($node),
             'capabilities' => $node->capabilities
                 ->map(fn (NodeCapability $capability): array => $this->presentCapability($node, $capability))
                 ->all(),

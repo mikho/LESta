@@ -40,6 +40,20 @@ export type NodeAdminGrant = {
     created_at: string | null;
 };
 
+export type NodeTools = {
+    hostname: string;
+    domain: {
+        uuid: string;
+        ssl_mode: 'none' | 'manual' | 'lets_encrypt';
+        certificate_issued_at: string | null;
+        certificate_expires_at: string | null;
+        last_certificate_error: string | null;
+        certificate_path: string;
+    } | null;
+    webmail: { declared: boolean; available: boolean };
+    adminer: { declared: boolean; available: boolean };
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -58,4 +72,5 @@ export type Node = {
     recent_operations?: NodeProvisioningOperation[];
     orphaned_identities?: OrphanedAccountNodeIdentity[];
     admin_grants?: NodeAdminGrant[];
+    tools?: NodeTools;
 };
