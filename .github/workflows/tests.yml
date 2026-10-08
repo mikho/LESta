@@ -385,7 +385,12 @@ jobs:
           code() { curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$1"; }
           trap 'sudo rm -f "$conf"; sudo systemctl reload nginx || true' EXIT
           render On ""
-          [ "$(code http://127.0.0.1:18080/)" = 200 ] || { echo "::error title=WAF proof failed::a clean request was not served"; exit 1; }
+          clean=$(code http://127.0.0.1:18080/)
+          if [ "$clean" != 200 ]; then
+            detail=$(sudo tail -n 3 /var/log/nginx/error.log | tr '\n' ' '; sudo tail -c 600 /var/log/lesta/waf/waf-proof.audit.log 2>/dev/null | tr '\n' ' ')
+            echo "::error title=WAF proof failed::a clean request returned $clean: $detail"
+            exit 1
+          fi
           [ "$(code "$attack")" = 403 ] || { echo "::error title=WAF proof failed::block mode did not block the SQL injection"; exit 1; }
           render DetectionOnly ""
           [ "$(code "$attack")" = 200 ] || { echo "::error title=WAF proof failed::detect mode blocked a request"; exit 1; }
