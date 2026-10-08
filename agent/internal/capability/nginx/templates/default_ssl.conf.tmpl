@@ -9,10 +9,21 @@ server {
         alias {{.AcmeChallengeDir}}/;
     }
 
-    location / {
+    root {{.Docroot}};
+    index index.html index.htm;
+
+    location = /__lesta-health__ {
         default_type text/plain;
         return 200 '{{.Marker}}
 ';
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ~ /\.ht {
+        deny all;
     }
 }
 
@@ -28,9 +39,20 @@ server {
         alias {{.AcmeChallengeDir}}/;
     }
 
-    location / {
+    root {{.Docroot}};
+    index index.html index.htm;
+
+    location = /__lesta-health__ {
         default_type text/plain;
         return 200 '{{.Marker}}
 ';
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ~ /\.ht {
+        deny all;
     }
 }

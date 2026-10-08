@@ -806,7 +806,7 @@ exec nginx "$@"
 func getVhost(t *testing.T, port int, domain string) string {
 	t.Helper()
 
-	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
+	url := fmt.Sprintf("http://127.0.0.1:%d/__lesta-health__", port)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -1080,7 +1080,7 @@ func TestDefaultSslTemplateServesRealHTTPSContent(t *testing.T) {
 		},
 	}
 
-	httpsURL := fmt.Sprintf("https://127.0.0.1:%d/", cfg.SSLPort)
+	httpsURL := fmt.Sprintf("https://127.0.0.1:%d/__lesta-health__", cfg.SSLPort)
 
 	req, err := http.NewRequest(http.MethodGet, httpsURL, nil)
 	if err != nil {

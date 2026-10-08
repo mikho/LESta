@@ -119,7 +119,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if payload.PhpSocket != "" {
+	if payload.PhpSocket != "" || (payload.AccountUsername != "" && !payload.Suspended) {
 		if err := ensureDocrootPrivileged(c.cfg, payload.AccountUsername, op.ResourceID); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}

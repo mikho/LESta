@@ -57,7 +57,7 @@ func TestSudoBinaryRoutesValidateAndReloadCorrectly(t *testing.T) {
 		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", d.Port), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/__lesta-health__", d.Port), nil)
 	if err != nil {
 		t.Fatalf("building request: %v", err)
 	}

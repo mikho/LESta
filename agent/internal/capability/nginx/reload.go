@@ -40,13 +40,23 @@ func (c *NginxCapability) reload(ctx context.Context) error {
 	return nil
 }
 
+// healthProbePath is where the default templates answer with the resource
+// marker, so "/" is free to serve the domain's own files. The suspended page
+// still carries its marker at "/".
+const healthProbePath = "/__lesta-health__"
+
 // waitHealthy polls a real HTTP request to the vhost (ip:port, with the Host
 // header set to domain) until it returns 200 with expectedMarker present in the
 // body, proving *this* vhost answered, not just that nginx is alive, or until
 // ctx's deadline is reached.
 func (c *NginxCapability) waitHealthy(ctx context.Context, ip string, port int, domain, expectedMarker string) error {
+	healthPath := healthProbePath
+	if expectedMarker == suspendedMarker {
+		healthPath = "/"
+	}
+
 	return pollUntil(ctx, func() error {
-		url := fmt.Sprintf("http://%s:%d/", ip, port)
+		url := fmt.Sprintf("http://%s:%d%s", ip, port, healthPath)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
