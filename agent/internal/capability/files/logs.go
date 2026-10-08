@@ -226,6 +226,11 @@ func summarizeAccessLog(path string) (trafficSummary, error) {
 			continue
 		}
 
+		// The node's own health probes are not visitors.
+		if requestPath(m[3]) == "/__lesta-health__" {
+			continue
+		}
+
 		summary.Requests++
 
 		if bytesSent := parseInt(m[5]); bytesSent > 0 {

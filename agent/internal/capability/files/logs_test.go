@@ -56,6 +56,7 @@ func TestLogSummaryCountsStatusPagesReferrersAndVisitors(t *testing.T) {
 		`203.0.113.2 - - [08/Oct/2026:11:00:00 +0000] "GET /missing HTTP/1.1" 404 150 "-" "Googlebot/2.1"`,
 		`203.0.113.3 - - [08/Oct/2026:11:30:00 +0000] "GET /old HTTP/1.1" 301 0 "-" "Mozilla/5.0 Firefox/121.0"`,
 		`203.0.113.3 - - [08/Oct/2026:12:30:00 +0000] "POST /form HTTP/1.1" 500 80 "-" "curl/8.0"`,
+		`10.0.0.50 - - [08/Oct/2026:12:31:00 +0000] "GET /__lesta-health__ HTTP/1.1" 200 59 "-" "Go-http-client/1.1"`,
 		`garbage line that is not a log entry`,
 	}
 
