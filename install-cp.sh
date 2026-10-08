@@ -126,7 +126,7 @@ require_command() {
 # already rewritten .env. `check-platform-reqs --lock` checks the exact
 # locked requirements (extensions included), and Composer deliberately
 # ignores config.platform for it, so a platform override can't mask a real
-# mismatch. Needs Composer 2.3+ for --lock; an older Composer fails this
+# mismatch. Composer 2.x supports --lock; Composer 1.x does not, and fails this
 # check too, which is the right outcome.
 require_platform_reqs() {
     [ -f "composer.lock" ] || fail_invocation "composer.lock not found -- this checkout is incomplete"

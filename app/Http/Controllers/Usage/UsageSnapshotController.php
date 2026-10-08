@@ -175,7 +175,7 @@ class UsageSnapshotController extends Controller
      * requests and bytes sent are per-collection-cycle increments, so they are summed over the
      * last 30 days. Each row's account links to that account's own full usage page.
      *
-     * @return array{groups: list<array{node: array{uuid: string, name: string}, totals: array{resources: int, accounts: int}, rows: list<array{account: array{public_id: string, name: string}, item: array<string, mixed>}>}>, nodes: list<string>, summary: array{resources: int|null, accounts: int, nodes: int}, filters: array{node: string, account: string, status: string, sort: string}, pagination: array{current_page: int, last_page: int, prev_page_url: string|null, next_page_url: string|null, total: int}}
+     * @return array<string, mixed>
      */
     private function customerUsage(Request $request): array
     {
@@ -227,7 +227,7 @@ class UsageSnapshotController extends Controller
             ->paginate(self::CUSTOMER_PAGE_SIZE)
             ->withQueryString();
 
-        $rows = collect($paginator->items());
+        $rows = collect($paginator->items())->map(fn (UsageSnapshot $row): array => $row->getAttributes());
 
         $pairs = (clone $filtered)->toBase()
             ->select('usage_snapshots.node_id', 'usage_snapshots.account_id')
@@ -238,17 +238,17 @@ class UsageSnapshotController extends Controller
         $groups = $rows
             ->groupBy('node_id')
             ->map(fn ($nodeRows): array => [
-                'node' => ['uuid' => $nodeRows->first()->node_uuid, 'name' => $nodeRows->first()->node_name],
-                'totals' => ['resources' => $accountsPerNode->get($nodeRows->first()->node_id, 0), 'accounts' => $accountsPerNode->get($nodeRows->first()->node_id, 0)],
-                'rows' => $nodeRows->map(fn ($row): array => [
-                    'account' => ['public_id' => $row->account_public_id, 'name' => $row->account_name],
+                'node' => ['uuid' => $nodeRows->first()['node_uuid'], 'name' => $nodeRows->first()['node_name']],
+                'totals' => ['resources' => $accountsPerNode->get($nodeRows->first()['node_id'], 0), 'accounts' => $accountsPerNode->get($nodeRows->first()['node_id'], 0)],
+                'rows' => $nodeRows->map(fn (array $row): array => [
+                    'account' => ['public_id' => $row['account_public_id'], 'name' => $row['account_name']],
                     'item' => [
-                        'uuid' => $row->node_id.'-'.$row->account_id,
-                        'account_public_id' => $row->account_public_id,
-                        'disk_bytes' => $this->nullableInt($row->disk_bytes),
-                        'request_count' => $this->nullableInt($row->requests),
-                        'bytes_sent' => $this->nullableInt($row->bytes_sent),
-                        'last_collected_at' => Carbon::parse($row->last_collected_at)->toIso8601String(),
+                        'uuid' => $row['node_id'].'-'.$row['account_id'],
+                        'account_public_id' => $row['account_public_id'],
+                        'disk_bytes' => $this->nullableInt($row['disk_bytes'] ?? null),
+                        'request_count' => $this->nullableInt($row['requests'] ?? null),
+                        'bytes_sent' => $this->nullableInt($row['bytes_sent'] ?? null),
+                        'last_collected_at' => Carbon::parse($row['last_collected_at'])->toIso8601String(),
                         'provisioning_error' => null,
                     ],
                 ])->values()->all(),

@@ -7,6 +7,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The provider admin's customer view for a resource list (domains, DNS zones, mail domains,
@@ -31,7 +32,7 @@ trait ListsCustomerResources
      * @param  Closure(TModel): array<string, mixed>  $present  The resource's own index presenter.
      * @param  array<string, string>  $sortable  Sort key (the `sort` query value) to SQL column.
      * @param  Closure(Builder<TModel>): mixed|null  $extraProblems  Adds this resource's own "problem" rules (orWhere conditions) to the problems-only filter.
-     * @return array{groups: list<array{node: array{uuid: string, name: string}, totals: array{resources: int, accounts: int}, rows: list<array{account: array{public_id: string, name: string}, item: array<string, mixed>}>}>, nodes: list<string>, summary: array{resources: int|null, accounts: int, nodes: int}, filters: array{node: string, account: string, status: string, sort: string}, pagination: array{current_page: int, last_page: int, prev_page_url: string|null, next_page_url: string|null, total: int}}
+     * @return array<string, mixed>
      */
     private function customerListing(Request $request, Builder $query, Closure $present, string $orderColumn, array $sortable = [], ?Closure $extraProblems = null): array
     {
@@ -56,7 +57,9 @@ trait ListsCustomerResources
         $nodeTotals = (clone $filtered)->toBase()
             ->select([])
             ->groupBy('nodes.id')
-            ->selectRaw("nodes.id as node_id, count(*) as resources, count(distinct {$table}.account_id) as accounts")
+            // Identifiers below are the model's own table name, never user input.
+            // @phpstan-ignore argument.type
+            ->addSelect(DB::raw("nodes.id as node_id, count(*) as resources, count(distinct {$table}.account_id) as accounts"))
             ->get()
             ->keyBy('node_id');
 
@@ -77,23 +80,33 @@ trait ListsCustomerResources
 
         $groups = collect($paginator->items())
             ->groupBy('node_id')
-            ->map(fn ($nodeRows, $nodeId): array => [
-                'node' => ['uuid' => $nodeRows->first()->node->uuid, 'name' => $nodeRows->first()->node->name],
-                'totals' => [
-                    'resources' => (int) ($nodeTotals->get($nodeId)?->resources ?? 0),
-                    'accounts' => (int) ($nodeTotals->get($nodeId)?->accounts ?? 0),
-                ],
-                'rows' => $nodeRows->map(fn ($row): array => [
-                    'account' => ['public_id' => $row->account->public_id, 'name' => $row->account->name],
-                    'item' => $present($row) + ['provisioning_error' => $this->provisioningError($row)],
-                ])->values()->all(),
-            ])
+            ->map(function ($nodeRows, $nodeId) use ($nodeTotals, $present): array {
+                $node = $nodeRows->first()->getRelation('node');
+                $totals = $nodeTotals[$nodeId] ?? null;
+
+                return [
+                    'node' => ['uuid' => $node->uuid, 'name' => $node->name],
+                    'totals' => [
+                        'resources' => (int) ($totals->resources ?? 0),
+                        'accounts' => (int) ($totals->accounts ?? 0),
+                    ],
+                    'rows' => $nodeRows->map(function ($row) use ($present): array {
+                        $account = $row->getRelation('account');
+
+                        return [
+                            'account' => ['public_id' => $account->public_id, 'name' => $account->name],
+                            'item' => $present($row) + ['provisioning_error' => $this->provisioningError($row)],
+                        ];
+                    })->values()->all(),
+                ];
+            })
             ->values()
             ->all();
 
         $overall = (clone $filtered)->toBase()
             ->select([])
-            ->selectRaw("count(*) as resources, count(distinct {$table}.account_id) as accounts, count(distinct {$table}.node_id) as nodes")
+            // @phpstan-ignore argument.type
+            ->addSelect(DB::raw("count(*) as resources, count(distinct {$table}.account_id) as accounts, count(distinct {$table}.node_id) as nodes"))
             ->first();
 
         return [
@@ -144,7 +157,7 @@ trait ListsCustomerResources
      */
     private function provisioningError($resource): ?string
     {
-        $operation = $resource->latestProvisioningOperation;
+        $operation = $resource->getRelation('latestProvisioningOperation');
 
         if ($operation === null || ! in_array($operation->status->value, ['failed', 'rejected', 'degraded'], true)) {
             return null;

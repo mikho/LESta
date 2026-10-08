@@ -323,10 +323,9 @@ jobs:
 
       - name: Root install-cp.sh -- platform preflight against real PHP runtimes
         run: |
-          # Real php:<version>-cli images: an incompatible runtime (PHP 8.3,
-          # PHP 8.4.1 missing a locked extension, and PHP 8.4.1 with Composer
-          # 2.2, which predates check-platform-reqs --lock) must exit 11 with
-          # .env untouched, and the supported minimum (8.4.1) must install the
+          # Real php:<version>-cli images: an incompatible runtime (PHP 8.3, and
+          # PHP 8.4.1 missing a locked extension) must exit 11 with .env
+          # untouched, and the supported minimum (8.4.1) must install the
           # committed composer.lock as-is.
           .github/scripts/test-install-cp-platform-reqs.sh
 
@@ -807,7 +806,8 @@ jobs:
               route = subprocess.run(
                   ["sudo", "exim4", "-bt", f"nobody-here@{DOMAIN}"], capture_output=True, text=True, timeout=30
               ).stdout
-              if f"-> {LOCAL_PART}@{DOMAIN}" not in route or "router = lesta_virtual_router" not in route:
+              resolved_first_line = route.splitlines()[0].strip() if route.strip() else ""
+              if resolved_first_line != f"{LOCAL_PART}@{DOMAIN}" or f"<-- nobody-here@{DOMAIN}" not in route or "router = lesta_virtual_router" not in route:
                   sys.exit(f"expected an unknown address to route to the catch-all mailbox, got: {route}")
               print("an address with no mailbox of its own routes to the catch-all mailbox")
 

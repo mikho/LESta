@@ -9,6 +9,7 @@ use App\Models\MailDomain;
 use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\WebDomain;
+use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -41,15 +42,12 @@ class CustomerResourceController extends Controller
 
         Gate::authorize('viewAnyAcrossAccounts', $class);
 
-        /** @var Model $resource */
-        $resource = $class::query()->where('uuid', $uuid)->with(['account:id,public_id,name', 'node:id,uuid,name'])->firstOrFail();
-
-        $present = match ($type) {
-            'domains' => $this->webDomain($resource),
-            'dns' => $this->dnsZone($resource),
-            'mail' => $this->mailDomain($resource),
-            'databases' => $this->tenantDatabase($resource),
-            'cron-jobs' => $this->cronJob($resource),
+        [$resource, $present] = match ($type) {
+            'domains' => $this->presenting(WebDomain::class, $uuid, fn (WebDomain $r): array => $this->webDomain($r)),
+            'dns' => $this->presenting(DnsZone::class, $uuid, fn (DnsZone $r): array => $this->dnsZone($r)),
+            'mail' => $this->presenting(MailDomain::class, $uuid, fn (MailDomain $r): array => $this->mailDomain($r)),
+            'databases' => $this->presenting(TenantDatabase::class, $uuid, fn (TenantDatabase $r): array => $this->tenantDatabase($r)),
+            'cron-jobs' => $this->presenting(CronJob::class, $uuid, fn (CronJob $r): array => $this->cronJob($r)),
         };
 
         return Inertia::render('customer-resources/show', [
@@ -75,6 +73,23 @@ class CustomerResourceController extends Controller
     }
 
     /**
+     * Loads one resource by uuid, with the relations every detail page shows, and presents it.
+     *
+     * @template TResource of Model
+     *
+     * @param  class-string<TResource>  $class
+     * @param  Closure(TResource): array{title: string, facts: list<array<string, string>>, tables: list<array<string, mixed>>}  $present
+     * @return array{0: TResource, 1: array{title: string, facts: list<array<string, string>>, tables: list<array<string, mixed>>}}
+     */
+    private function presenting(string $class, string $uuid, Closure $present): array
+    {
+        /** @var TResource $resource */
+        $resource = $class::query()->where('uuid', $uuid)->with(['account:id,public_id,name', 'node:id,uuid,name'])->firstOrFail();
+
+        return [$resource, $present($resource)];
+    }
+
+    /**
      * @return array{title: string, facts: list<array<string, string>>, tables: list<array<string, mixed>>}
      */
     private function webDomain(WebDomain $domain): array
@@ -84,7 +99,7 @@ class CustomerResourceController extends Controller
             'facts' => [
                 $this->fact('Web server', $domain->web_server->value),
                 $this->fact('Template', $domain->web_template),
-                $this->fact('PHP version', $domain->php_version?->value ?? 'None (static only)'),
+                $this->fact('PHP version', $domain->php_version->value ?? 'None (static only)'),
                 $this->fact('SSL mode', $domain->ssl_mode->value),
                 $this->fact('Certificate issued', $domain->certificate_issued_at?->toIso8601String() ?? 'Not yet', $domain->certificate_issued_at ? 'datetime' : 'text'),
                 $this->fact('Certificate expires', $domain->certificate_expires_at?->toIso8601String() ?? 'Not recorded', $domain->certificate_expires_at ? 'datetime' : 'text'),
@@ -197,7 +212,7 @@ class CustomerResourceController extends Controller
      * The resource's most recent provisioning operations, newest first. Payloads are never
      * included: they carry credentials on the way to a node.
      *
-     * @return list<array<string, string|null>>
+     * @return array<int, array<string, mixed>>
      */
     private function operations(Model $resource): array
     {
@@ -214,6 +229,7 @@ class CustomerResourceController extends Controller
                 'status' => $operation->status->value,
                 'error' => is_string($message = $operation->errors[0]['message'] ?? null) ? $message : null,
             ])
+            ->values()
             ->all();
     }
 
