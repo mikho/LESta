@@ -26,6 +26,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import customerResources from '@/routes/customer-resources';
 import tenantDatabases from '@/routes/tenant-databases';
 import type { TenantDatabase } from '@/types';
 
@@ -83,7 +84,15 @@ export default function Index({
                         header: 'Label',
                         sortKey: 'label',
                         cell: (item) => (
-                            <span className="font-medium">{item.label}</span>
+                            <Link
+                                href={customerResources.show({
+                                    type: 'databases',
+                                    uuid: item.uuid,
+                                })}
+                                className="font-medium underline"
+                            >
+                                {item.label}
+                            </Link>
                         ),
                     },
                     { header: 'Database', cell: (item) => item.database_name },

@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import cronJobs from '@/routes/cron-jobs';
+import customerResources from '@/routes/customer-resources';
 import type { CronJob } from '@/types';
 
 type PaginatedCronJobs = {
@@ -131,7 +132,17 @@ export default function Index({
                         header: 'Command',
                         sortKey: 'command',
                         cell: (item) => (
-                            <code className="break-all">{item.command}</code>
+                            <Link
+                                href={customerResources.show({
+                                    type: 'cron-jobs',
+                                    uuid: item.uuid,
+                                })}
+                                className="underline"
+                            >
+                                <code className="break-all">
+                                    {item.command}
+                                </code>
+                            </Link>
                         ),
                     },
                     {

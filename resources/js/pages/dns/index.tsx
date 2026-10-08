@@ -27,6 +27,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import customerResources from '@/routes/customer-resources';
 import dns from '@/routes/dns';
 import type { DnsZone } from '@/types';
 
@@ -84,7 +85,15 @@ export default function Index({
                         header: 'Zone',
                         sortKey: 'domain',
                         cell: (item) => (
-                            <span className="font-medium">{item.domain}</span>
+                            <Link
+                                href={customerResources.show({
+                                    type: 'dns',
+                                    uuid: item.uuid,
+                                })}
+                                className="font-medium underline"
+                            >
+                                {item.domain}
+                            </Link>
                         ),
                     },
                     {

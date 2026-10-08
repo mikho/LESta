@@ -26,6 +26,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import customerResources from '@/routes/customer-resources';
 import domains from '@/routes/domains';
 import type { WebDomain } from '@/types';
 
@@ -94,7 +95,15 @@ export default function Index({
                         header: 'Domain',
                         sortKey: 'domain',
                         cell: (item) => (
-                            <span className="font-medium">{item.domain}</span>
+                            <Link
+                                href={customerResources.show({
+                                    type: 'domains',
+                                    uuid: item.uuid,
+                                })}
+                                className="font-medium underline"
+                            >
+                                {item.domain}
+                            </Link>
                         ),
                     },
                     {
