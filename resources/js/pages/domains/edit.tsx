@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
+import WebDomainRedirectController from '@/actions/App/Http/Controllers/Domains/WebDomainRedirectController';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -26,12 +27,22 @@ import { Textarea } from '@/components/ui/textarea';
 import domains from '@/routes/domains';
 import type { SftpAccess, WebDomain } from '@/types';
 
+type Redirect = {
+    uuid: string;
+    source: string;
+    target: string;
+    status: 301 | 302;
+    prefix: boolean;
+};
+
 export default function Edit({
     webDomain,
     sftp,
+    redirects,
 }: {
     webDomain: WebDomain;
     sftp: SftpAccess;
+    redirects: Redirect[];
 }) {
     return (
         <>
@@ -376,6 +387,143 @@ export default function Edit({
                         </>
                     )}
                 </Form>
+
+                <div
+                    className="space-y-4 rounded-lg border p-4"
+                    data-test="redirects-section"
+                >
+                    <Heading
+                        variant="small"
+                        title="Redirects"
+                        description="Send visitors from a path on this domain to another address. Redirects run before anything else on the site."
+                    />
+
+                    <Form
+                        {...WebDomainRedirectController.store.form(webDomain)}
+                        options={{ preserveScroll: true }}
+                        resetOnSuccess
+                        className="space-y-4"
+                    >
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="redirect_source">
+                                        From path
+                                    </Label>
+                                    <Input
+                                        id="redirect_source"
+                                        name="source"
+                                        placeholder="/old-page"
+                                        autoComplete="off"
+                                        required
+                                    />
+                                    <InputError message={errors.source} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="redirect_target">To</Label>
+                                    <Input
+                                        id="redirect_target"
+                                        name="target"
+                                        placeholder="https://example.com/new-page"
+                                        autoComplete="off"
+                                        required
+                                    />
+                                    <InputError message={errors.target} />
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="redirect_status">
+                                            Type
+                                        </Label>
+                                        <Select
+                                            name="status"
+                                            defaultValue="301"
+                                        >
+                                            <SelectTrigger id="redirect_status">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="301">
+                                                    Permanent (301)
+                                                </SelectItem>
+                                                <SelectItem value="302">
+                                                    Temporary (302)
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <InputError message={errors.status} />
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-6">
+                                        <FormCheckbox
+                                            id="redirect_prefix"
+                                            name="prefix"
+                                        />
+                                        <Label htmlFor="redirect_prefix">
+                                            Also redirect everything under this
+                                            path
+                                        </Label>
+                                    </div>
+                                </div>
+
+                                <Button
+                                    disabled={processing}
+                                    data-test="add-redirect-button"
+                                >
+                                    Add redirect
+                                </Button>
+                            </>
+                        )}
+                    </Form>
+
+                    {redirects.length > 0 && (
+                        <ul className="divide-y rounded-md border text-sm">
+                            {redirects.map((redirect) => (
+                                <li
+                                    key={redirect.uuid}
+                                    className="flex items-center justify-between gap-4 p-3"
+                                    data-test="redirect-row"
+                                >
+                                    <span className="min-w-0 break-all">
+                                        <span className="font-mono">
+                                            {redirect.source}
+                                            {redirect.prefix ? '…' : ''}
+                                        </span>{' '}
+                                        →{' '}
+                                        <span className="font-mono">
+                                            {redirect.target}
+                                        </span>{' '}
+                                        <span className="text-muted-foreground">
+                                            ({redirect.status})
+                                        </span>
+                                    </span>
+                                    <Form
+                                        {...WebDomainRedirectController.destroy.form(
+                                            {
+                                                webDomain: webDomain.uuid,
+                                                redirect: redirect.uuid,
+                                            },
+                                        )}
+                                        options={{ preserveScroll: true }}
+                                    >
+                                        {({ processing }) => (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={processing}
+                                                aria-label={`Remove redirect from ${redirect.source}`}
+                                            >
+                                                Remove
+                                            </Button>
+                                        )}
+                                    </Form>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

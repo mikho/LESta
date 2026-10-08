@@ -6,11 +6,12 @@ server {
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
 {{template "ipAccess" .}}
+{{template "redirects" .}}
 
     root {{.Docroot}};
     index index.php index.html index.htm;
 
-    location /.well-known/acme-challenge/ {
+    location ^~ /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
         allow all;{{end}}
     }
@@ -46,6 +47,7 @@ server {
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
 {{template "ipAccess" .}}
+{{template "redirects" .}}
 
     ssl_certificate {{.CertificatePath}};
     ssl_certificate_key {{.PrivateKeyPath}};
@@ -53,7 +55,7 @@ server {
     root {{.Docroot}};
     index index.php index.html index.htm;
 
-    location /.well-known/acme-challenge/ {
+    location ^~ /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
         allow all;{{end}}
     }

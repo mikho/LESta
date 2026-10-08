@@ -304,3 +304,67 @@ func TestIpRulePayloadValidation(t *testing.T) {
 		t.Errorf("a valid payload was rejected: %v", err)
 	}
 }
+
+func TestRedirectsRenderBeforeOtherLocations(t *testing.T) {
+	payload := Payload{Redirects: []Redirect{
+		{Source: "/old.html", Target: "/new", Status: 301},
+		{Source: "/blog", Target: "https://blog.example.com", Status: 302, Prefix: true},
+	}}
+
+	rendered, err := renderVhost(vhostData{
+		ResourceID: "00000000-0000-0000-0000-000000000009",
+		Domain:     "r.example.test",
+		IPAddress:  "127.0.0.1",
+		Port:       80,
+		Docroot:    "/home/acct/domains/x/public",
+		Redirects:  payload.redirectRules(),
+		PhpSocket:  "/run/php.sock",
+	}, false)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	body := string(rendered)
+
+	for _, want := range []string{
+		"location = /old.html {\n        return 301 '/new';",
+		`location ~ ^/blog/(.*)$ {`,
+		"return 302 'https://blog.example.com/$1';",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in rendered vhost:\n%s", want, body)
+		}
+	}
+
+	if strings.Index(body, "location = /old.html") > strings.Index(body, `\.php$`) {
+		t.Errorf("redirects must come before the PHP location:\n%s", body)
+	}
+
+	if !strings.Contains(body, "location ^~ /.well-known/acme-challenge/") {
+		t.Errorf("the ACME location must be ^~ so a regex redirect cannot shadow it:\n%s", body)
+	}
+}
+
+func TestRedirectPayloadValidation(t *testing.T) {
+	base := `{"domain":"a.example.test","aliases":[],"ip_address":"127.0.0.1","web_template":"default","account_id":1,"account_username":"","php_socket":"","ssl":{"mode":"off"},"suspended":false,`
+
+	for name, tail := range map[string]string{
+		"relative source":    `"redirects":[{"source":"old","target":"/new","status":301,"prefix":false}]}`,
+		"injection source":   `"redirects":[{"source":"/a; return 200","target":"/new","status":301,"prefix":false}]}`,
+		"traversal":          `"redirects":[{"source":"/a/../b","target":"/new","status":301,"prefix":false}]}`,
+		"quote in target":    `"redirects":[{"source":"/a","target":"/x';}server{","status":301,"prefix":false}]}`,
+		"variable in target": `"redirects":[{"source":"/a","target":"/x$host","status":301,"prefix":false}]}`,
+		"javascript target":  `"redirects":[{"source":"/a","target":"javascript:alert(1)","status":301,"prefix":false}]}`,
+		"empty target":       `"redirects":[{"source":"/a","target":"","status":301,"prefix":false}]}`,
+		"bad status":         `"redirects":[{"source":"/a","target":"/b","status":200,"prefix":false}]}`,
+		"self redirect":      `"redirects":[{"source":"/a","target":"/a","status":301,"prefix":false}]}`,
+	} {
+		if _, err := ParsePayload([]byte(base + tail)); err == nil {
+			t.Errorf("%s: expected a rejection", name)
+		}
+	}
+
+	if _, err := ParsePayload([]byte(base + `"redirects":[{"source":"/old","target":"https://example.org:8443/new?x=1","status":302,"prefix":true},{"source":"/","target":"https://other.example","status":301,"prefix":true}]}`)); err != nil {
+		t.Errorf("a valid payload was rejected: %v", err)
+	}
+}

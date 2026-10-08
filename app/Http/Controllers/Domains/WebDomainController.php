@@ -17,6 +17,7 @@ use App\Http\Requests\Domains\StoreWebDomainRequest;
 use App\Http\Requests\Domains\UpdateSshPublicKeyRequest;
 use App\Http\Requests\Domains\UpdateWebDomainRequest;
 use App\Models\WebDomain;
+use App\Models\WebDomainRedirect;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -127,6 +128,13 @@ class WebDomainController extends Controller
 
         return Inertia::render('domains/edit', [
             'webDomain' => $this->present($webDomain),
+            'redirects' => $webDomain->redirects()->orderBy('id')->get()->map(fn (WebDomainRedirect $redirect): array => [
+                'uuid' => $redirect->uuid,
+                'source' => $redirect->source,
+                'target' => $redirect->target,
+                'status' => $redirect->status,
+                'prefix' => $redirect->prefix,
+            ])->all(),
             'sftp' => [
                 'identityUuid' => $identity->uuid,
                 'username' => $identity->system_username,

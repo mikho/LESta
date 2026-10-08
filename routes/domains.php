@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Domains\FileManagerController;
 use App\Http\Controllers\Domains\WebDomainController;
+use App\Http\Controllers\Domains\WebDomainRedirectController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -12,6 +13,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('domains/{webDomain}', [WebDomainController::class, 'update'])->name('domains.update');
     Route::put('domains/{webDomain}/ssh-key', [WebDomainController::class, 'updateSshKey'])->name('domains.update-ssh-key');
     Route::delete('domains/{webDomain}', [WebDomainController::class, 'destroy'])->name('domains.destroy');
+    Route::post('domains/{webDomain}/redirects', [WebDomainRedirectController::class, 'store'])->name('domains.redirects.store');
+    Route::delete('domains/{webDomain}/redirects/{redirect}', [WebDomainRedirectController::class, 'destroy'])->name('domains.redirects.destroy');
     Route::post('domains/{webDomain}/suspend', [WebDomainController::class, 'suspend'])->name('domains.suspend');
     Route::post('domains/{webDomain}/unsuspend', [WebDomainController::class, 'unsuspend'])->name('domains.unsuspend');
 

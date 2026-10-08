@@ -116,6 +116,9 @@ type Payload struct {
 	// one of the account's vhosts: allow entries first, then deny entries,
 	// nginx's first match wins, and anything unmatched is allowed.
 	IpRules []IpRule `json:"ip_rules"`
+	// Redirects are this domain's own URL redirects, rendered before every
+	// other location so they win over PHP and the hotlink rule.
+	Redirects []Redirect `json:"redirects"`
 }
 
 const maxHotlinkAllowedHosts = 50
@@ -129,6 +132,25 @@ type IpRule struct {
 }
 
 const maxIpRules = 200
+
+// Redirect is one per-domain URL redirect. Source is an absolute path; with
+// Prefix, everything under it is redirected and the rest of the path is
+// appended to Target. Source and Target are validated against strict patterns
+// that exclude every character nginx treats specially, so they reach the
+// config only as plain path and URL text.
+type Redirect struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Status int    `json:"status"`
+	Prefix bool   `json:"prefix"`
+}
+
+const maxRedirects = 100
+
+var (
+	redirectSourcePattern = regexp.MustCompile(`^/[A-Za-z0-9._~%+/-]{0,198}$`)
+	redirectTargetPattern = regexp.MustCompile(`^(?:https?://[A-Za-z0-9.-]{1,253}(?::[0-9]{1,5})?)?(?:/[A-Za-z0-9._~%+=&?#:@!*,/-]{0,498})?$`)
+)
 
 const maxWafExcludedRules = 100
 
@@ -198,6 +220,25 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	case "", "none", "wordpress":
 	default:
 		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
+	}
+
+	if len(p.Redirects) > maxRedirects {
+		return Payload{}, &ValidationError{Code: "invalid_redirects", Message: fmt.Sprintf("at most %d redirects may be set", maxRedirects), Field: "redirects"}
+	}
+
+	for i, redirect := range p.Redirects {
+		field := fmt.Sprintf("redirects[%d]", i)
+
+		switch {
+		case !redirectSourcePattern.MatchString(redirect.Source) || strings.Contains(redirect.Source, "//") || strings.Contains(redirect.Source, ".."):
+			return Payload{}, &ValidationError{Code: "invalid_redirects", Message: "redirect source must be a plain absolute path", Field: field + ".source"}
+		case redirect.Target == "" || !redirectTargetPattern.MatchString(redirect.Target):
+			return Payload{}, &ValidationError{Code: "invalid_redirects", Message: "redirect target must be an http(s) URL or an absolute path", Field: field + ".target"}
+		case redirect.Status != 301 && redirect.Status != 302:
+			return Payload{}, &ValidationError{Code: "invalid_redirects", Message: "redirect status must be 301 or 302", Field: field + ".status"}
+		case redirect.Target == redirect.Source:
+			return Payload{}, &ValidationError{Code: "invalid_redirects", Message: "a redirect cannot point at its own source", Field: field + ".target"}
+		}
 	}
 
 	if len(p.IpRules) > maxIpRules {
@@ -285,4 +326,45 @@ func (p Payload) ipAddresses(action string) []string {
 	}
 
 	return out
+}
+
+// redirectRule is a Redirect prepared for the template: Pattern is Source as a
+// regular expression prefix (only "." needs escaping, the pattern excludes
+// every other metacharacter), and a prefix rule always ends in a slash.
+type redirectRule struct {
+	Source  string
+	Pattern string
+	Target  string
+	Status  int
+	Prefix  bool
+}
+
+// redirectRules prepares the payload's redirects for rendering.
+func (p Payload) redirectRules() []redirectRule {
+	rules := make([]redirectRule, 0, len(p.Redirects))
+
+	for _, redirect := range p.Redirects {
+		source := redirect.Source
+		target := redirect.Target
+
+		if redirect.Prefix {
+			if !strings.HasSuffix(source, "/") {
+				source += "/"
+			}
+
+			if !strings.HasSuffix(target, "/") {
+				target += "/"
+			}
+		}
+
+		rules = append(rules, redirectRule{
+			Source:  source,
+			Pattern: strings.ReplaceAll(strings.ReplaceAll(source, ".", `\.`), "+", `\+`),
+			Target:  target,
+			Status:  redirect.Status,
+			Prefix:  redirect.Prefix,
+		})
+	}
+
+	return rules
 }

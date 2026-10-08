@@ -46,9 +46,10 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
         'waf_preset' => 'none',
         'hotlink_protection' => false,
         'hotlink_allowed_hosts' => [],
+        'redirects' => [],
         'ip_rules' => [],
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'webmail_socket', 'ssl', 'suspended', 'waf_mode', 'waf_excluded_rules', 'waf_preset', 'hotlink_protection', 'hotlink_allowed_hosts', 'ip_rules']);
+        ->and(array_keys($payload))->toBe(['domain', 'aliases', 'ip_address', 'web_template', 'account_id', 'account_username', 'php_socket', 'adminer_socket', 'webmail_socket', 'ssl', 'suspended', 'waf_mode', 'waf_excluded_rules', 'waf_preset', 'hotlink_protection', 'hotlink_allowed_hosts', 'redirects', 'ip_rules']);
 });
 
 test('toProvisioningPayload reports a real php_socket once php_version is set', function () {

@@ -2,9 +2,7 @@
 
 namespace App\Actions\IpRules;
 
-use App\Actions\Provisioning\RecordsProvisioningOperation;
-use App\Actions\Provisioning\ResolvesWebCapableNode;
-use App\Enums\ProvisioningVerb;
+use App\Actions\Domains\RerenderWebDomain;
 use App\Models\Account;
 use App\Models\WebDomain;
 use Illuminate\Support\Str;
@@ -23,20 +21,7 @@ class RerenderAccountWebDomains
 
         foreach ($account->webDomains()->with(['node', 'ipAllocation'])->get() as $webDomain) {
             /** @var WebDomain $webDomain */
-            $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
-
-            if (! in_array('web.nginx.v1', $capabilities, true)) {
-                continue;
-            }
-
-            app(RecordsProvisioningOperation::class)->record(
-                $webDomain,
-                'web.nginx.v1',
-                ProvisioningVerb::Update,
-                $webDomain->toProvisioningPayload('web.nginx.v1'),
-                $correlationId,
-                $webDomain->desired_state_version,
-            );
+            app(RerenderWebDomain::class)->handle($webDomain, $correlationId);
         }
     }
 }

@@ -1,0 +1,11 @@
+{{define "redirects"}}{{range .Redirects}}
+{{- if .Prefix}}
+    location ~ ^{{.Pattern}}(.*)$ {
+        return {{.Status}} '{{.Target}}$1';
+    }
+{{- else}}
+    location = {{.Source}} {
+        return {{.Status}} '{{.Target}}';
+    }
+{{- end}}
+{{end}}{{end}}

@@ -145,6 +145,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		WafMode:             payload.WafMode,
 		WafExcludedRules:    payload.WafExcludedRules,
 		WafPreset:           payload.WafPreset,
+		Redirects:           payload.redirectRules(),
 		IpAllows:            payload.ipAddresses("allow"),
 		IpDenies:            payload.ipAddresses("deny"),
 		HotlinkEnabled:      payload.HotlinkProtection,

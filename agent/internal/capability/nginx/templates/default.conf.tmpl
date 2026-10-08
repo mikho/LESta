@@ -6,8 +6,9 @@ server {
     access_log {{.AccessLogPath}};
 {{template "waf" .}}
 {{template "ipAccess" .}}
+{{template "redirects" .}}
 
-    location /.well-known/acme-challenge/ {
+    location ^~ /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}
         allow all;{{end}}
     }

@@ -1296,3 +1296,70 @@ func TestIpRulesAgainstARealNginx(t *testing.T) {
 		t.Errorf("allowed exception: got %d, want 404 (served, no such file)", got)
 	}
 }
+
+// TestRedirectsAgainstARealNginx proves, against a real nginx, an exact
+// redirect, a prefix redirect that appends the rest of the path, and that a
+// whole-site prefix redirect does not swallow the ACME challenge path.
+func TestRedirectsAgainstARealNginx(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "redirects.contract.test"
+
+	payload := nginxPayload(domain, "127.0.0.1", false)
+	payload["redirects"] = []map[string]any{
+		{"source": "/old.html", "target": "/new", "status": 301, "prefix": false},
+		{"source": "/", "target": "https://elsewhere.example", "status": 302, "prefix": true},
+	}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	client := &http.Client{
+		Transport:     &http.Transport{DisableKeepAlives: true},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+
+	get := func(path string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", d.Port, path), nil)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
+		}
+		req.Host = domain
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		return resp.StatusCode, resp.Header.Get("Location")
+	}
+
+	// nginx turns a path target into an absolute URL on the same host.
+	if code, location := get("/old.html"); code != http.StatusMovedPermanently || !strings.HasPrefix(location, "http://"+domain) || !strings.HasSuffix(location, "/new") {
+		t.Errorf("exact redirect: got %d %q, want 301 to /new on the same host", code, location)
+	}
+
+	if code, location := get("/some/page"); code != http.StatusFound || location != "https://elsewhere.example/some/page" {
+		t.Errorf("whole-site prefix redirect: got %d %q, want 302 https://elsewhere.example/some/page", code, location)
+	}
+
+	if err := os.WriteFile(filepath.Join(d.Config.AcmeChallengeDir, "token"), []byte("proof"), 0o644); err != nil {
+		t.Fatalf("writing an ACME challenge file: %v", err)
+	}
+
+	if code, _ := get("/.well-known/acme-challenge/token"); code != http.StatusOK {
+		t.Errorf("the ACME challenge must not be redirected: got %d, want 200", code)
+	}
+
+	if code, _ := get("/__lesta-health__"); code != http.StatusOK {
+		t.Errorf("the health path must not be redirected: got %d, want 200", code)
+	}
+}
