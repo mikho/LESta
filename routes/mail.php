@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Mail\MailAccountController;
 use App\Http\Controllers\Mail\MailDomainController;
+use App\Http\Controllers\Mail\MailingListController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -13,6 +14,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('mail/{mailDomain}', [MailDomainController::class, 'destroy'])->name('mail.destroy');
     Route::post('mail/{mailDomain}/suspend', [MailDomainController::class, 'suspend'])->name('mail.suspend');
     Route::post('mail/{mailDomain}/unsuspend', [MailDomainController::class, 'unsuspend'])->name('mail.unsuspend');
+
+    Route::get('mail/{mailDomain}/lists', [MailingListController::class, 'index'])->name('mail.lists.index');
+    Route::post('mail/{mailDomain}/lists', [MailingListController::class, 'store'])->name('mail.lists.store');
+    Route::put('mail/{mailDomain}/lists/{list}', [MailingListController::class, 'update'])->name('mail.lists.update');
+    Route::delete('mail/{mailDomain}/lists/{list}', [MailingListController::class, 'destroy'])->name('mail.lists.destroy');
+    Route::post('mail/{mailDomain}/lists/{list}/members', [MailingListController::class, 'storeMembers'])->name('mail.lists.members.store');
+    Route::delete('mail/{mailDomain}/lists/{list}/members/{member}', [MailingListController::class, 'destroyMember'])->name('mail.lists.members.destroy');
 
     Route::post('mail/{mailDomain}/accounts', [MailAccountController::class, 'store'])->name('mail.accounts.store');
     Route::put('mail/{mailDomain}/accounts/{mailAccount}', [MailAccountController::class, 'update'])->name('mail.accounts.update');

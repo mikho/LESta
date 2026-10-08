@@ -1,4 +1,4 @@
-import { Form, Head, router } from '@inertiajs/react';
+import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import MailAccountController from '@/actions/App/Http/Controllers/Mail/MailAccountController';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
@@ -563,10 +563,17 @@ export default function Edit({
             <PasswordRevealDialog />
 
             <div className="mx-auto w-full max-w-3xl space-y-8 p-4">
-                <Heading
-                    title={mailDomain.domain}
-                    description="Update this mail domain's configuration"
-                />
+                <div className="flex items-start justify-between gap-4">
+                    <Heading
+                        title={mailDomain.domain}
+                        description="Update this mail domain's configuration"
+                    />
+                    <Button variant="outline" size="sm" asChild>
+                        <Link href={`/mail/${mailDomain.uuid}/lists`}>
+                            Mailing lists
+                        </Link>
+                    </Button>
+                </div>
 
                 <Form
                     {...MailDomainController.update.form(mailDomain)}

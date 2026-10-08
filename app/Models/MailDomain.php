@@ -131,6 +131,14 @@ class MailDomain extends Model
     }
 
     /**
+     * @return HasMany<MailingList, $this>
+     */
+    public function mailingLists(): HasMany
+    {
+        return $this->hasMany(MailingList::class);
+    }
+
+    /**
      * @return HasMany<MailAccount, $this>
      */
     public function accounts(): HasMany
@@ -176,7 +184,7 @@ class MailDomain extends Model
      * means this never disrupts a mailbox owner who keeps using the password they already have.
      *
      * @param  array<int, string>  $resyncPasswordsByAccountId
-     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, suspended: bool}
+     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, lists: list<array{local_part: string, owner_email: string, post_policy: string, subject_prefix: string, reply_to_list: bool, members: list<string>}>, suspended: bool}
      */
     public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null, ?string $retireSelector = null, array $resyncPasswordsByAccountId = []): array
     {
@@ -209,6 +217,14 @@ class MailDomain extends Model
 
                 return $account;
             })->all(),
+            'lists' => array_values($this->mailingLists()->with('members')->orderBy('id')->get()->map(fn (MailingList $list): array => [
+                'local_part' => $list->local_part,
+                'owner_email' => $list->owner_email,
+                'post_policy' => $list->post_policy,
+                'subject_prefix' => (string) $list->subject_prefix,
+                'reply_to_list' => $list->reply_to_list,
+                'members' => array_values($list->members->sortBy('id')->pluck('email')->all()),
+            ])->all()),
             'suspended' => $this->isSuspended(),
         ];
     }

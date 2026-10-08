@@ -157,6 +157,7 @@ class CustomerResourceController extends Controller
                 $this->fact('DKIM selector', $domain->dkim_selector ?? 'None'),
                 $this->fact('Catch-all', $domain->catchall_email ?? 'None'),
                 $this->fact('Mailboxes', (string) $mailboxes->count()),
+                $this->fact('Mailing lists', (string) $domain->mailingLists()->count()),
             ],
             'tables' => [[
                 'title' => 'Mailboxes',

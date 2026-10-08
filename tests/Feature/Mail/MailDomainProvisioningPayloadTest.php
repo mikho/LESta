@@ -47,9 +47,10 @@ test('toProvisioningPayload returns exactly the expected keys with no secret-sha
                 'suspended' => false,
             ],
         ],
+        'lists' => [],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'dkim_active_selector', 'dkim_pending_selector', 'dkim_retire_selector', 'catchall_email', 'accounts', 'suspended'])
+        ->and(array_keys($payload))->toBe(['domain', 'antivirus_enabled', 'antispam_enabled', 'dkim_enabled', 'dkim_active_selector', 'dkim_pending_selector', 'dkim_retire_selector', 'catchall_email', 'accounts', 'lists', 'suspended'])
         ->and(array_keys($payload['accounts'][0]))->not->toContain('password');
 });
 
