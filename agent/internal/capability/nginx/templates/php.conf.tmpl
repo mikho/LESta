@@ -8,6 +8,7 @@ server {
 {{template "waf" .}}
 {{template "ipAccess" .}}
 {{template "redirects" .}}
+{{template "protectedDirsPhp" .}}
 
     root {{.Docroot}};
     index index.php index.html index.htm;
@@ -50,6 +51,7 @@ server {
 {{template "waf" .}}
 {{template "ipAccess" .}}
 {{template "redirects" .}}
+{{template "protectedDirsPhp" .}}
 
     ssl_certificate {{.CertificatePath}};
     ssl_certificate_key {{.PrivateKeyPath}};

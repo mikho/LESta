@@ -18,7 +18,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1361,5 +1363,195 @@ func TestRedirectsAgainstARealNginx(t *testing.T) {
 
 	if code, _ := get("/__lesta-health__"); code != http.StatusOK {
 		t.Errorf("the health path must not be redirected: got %d, want 200", code)
+	}
+}
+
+// sha512CryptHash returns a SHA-512 crypt hash of password, or skips the test:
+// nginx verifies it with the system's crypt(3), which only Linux's libxcrypt
+// understands, so the real check runs in CI and on a node, not on a Mac.
+func sha512CryptHash(t *testing.T, password string) string {
+	t.Helper()
+
+	out, err := exec.Command("openssl", "passwd", "-6", "-salt", "abcdefgh", password).Output()
+	if err != nil || !strings.HasPrefix(string(out), "$6$") {
+		t.Skip("openssl cannot produce a SHA-512 crypt hash here")
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+// TestProtectedDirectoryAgainstARealNginx proves, against a real nginx, that a
+// protected directory asks for a login and accepts only the right one, that
+// the rest of the site stays open, that the 401 keeps its WWW-Authenticate
+// header with the custom error page, and that the htpasswd files follow the
+// generations: a changed user list gets a new file and the old one is pruned,
+// and a deleted domain leaves none behind.
+func TestProtectedDirectoryAgainstARealNginx(t *testing.T) {
+	requireRealNginx(t)
+
+	hash := sha512CryptHash(t, "correct horse")
+	otherHash := sha512CryptHash(t, "battery staple")
+
+	d := newDisposableNginx(t)
+	cfg := d.Config
+	cfg.AuthDir = t.TempDir()
+	capability := nginx.New(cfg)
+	ctx := context.Background()
+
+	resourceID := newTestUUID()
+	domain := "private.contract.test"
+
+	payload := nginxPayload(domain, "127.0.0.1", false)
+	payload["protected_dirs"] = []map[string]any{{
+		"path": "/members", "realm": "Members area",
+		"users": []map[string]string{{"username": "alice", "hash": hash}},
+	}}
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, payload))
+	if err != nil || created.Status != protocol.StatusApplied {
+		t.Fatalf("create: status=%s err=%v errors=%+v", created.Status, err, created.Errors)
+	}
+
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+	get := func(path, user, password string) (int, string, string) {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", d.Port, path), nil)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
+		}
+		req.Host = domain
+
+		if user != "" {
+			req.SetBasicAuth(user, password)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		body, _ := io.ReadAll(resp.Body)
+
+		return resp.StatusCode, resp.Header.Get("WWW-Authenticate"), string(body)
+	}
+
+	if code, challenge, body := get("/members/page.html", "", ""); code != http.StatusUnauthorized || !strings.Contains(challenge, "Members area") || !strings.Contains(body, "Sign in required") {
+		t.Errorf("no credentials: got %d challenge %q body %q, want 401 with the realm and the custom page", code, challenge, body)
+	}
+
+	if code, _, _ := get("/members/page.html", "alice", "wrong"); code != http.StatusUnauthorized {
+		t.Errorf("wrong password: got %d, want 401", code)
+	}
+
+	// Only Linux's crypt(3) understands $6$ hashes (see sha512CryptHash), so the
+	// positive logins are checked there; every other assertion runs everywhere.
+	linux := runtime.GOOS == "linux"
+
+	if code, _, _ := get("/members/page.html", "alice", "correct horse"); linux && code != http.StatusNotFound {
+		t.Errorf("right password: got %d, want 404 (past the login, no such file)", code)
+	}
+
+	if code, _, _ := get("/open.html", "", ""); code != http.StatusNotFound {
+		t.Errorf("outside the directory: got %d, want 404 (no login asked)", code)
+	}
+
+	authFiles := func() []string {
+		matches, _ := filepath.Glob(filepath.Join(cfg.AuthDir, resourceID+".*.htpasswd"))
+
+		return matches
+	}
+
+	if len(authFiles()) != 1 {
+		t.Fatalf("expected one htpasswd file after create, got %v", authFiles())
+	}
+
+	payload["protected_dirs"] = []map[string]any{{
+		"path": "/members", "realm": "Members area",
+		"users": []map[string]string{{"username": "bob", "hash": otherHash}},
+	}}
+
+	updated, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 2, payload))
+	if err != nil || updated.Status != protocol.StatusApplied {
+		t.Fatalf("update: status=%s err=%v errors=%+v", updated.Status, err, updated.Errors)
+	}
+
+	// The replaced list's file is kept for the grace period: nginx workers still
+	// draining under the old configuration need it, and so would a rollback.
+	if len(authFiles()) != 2 {
+		t.Errorf("the replaced user list's file must survive the grace period, got %v", authFiles())
+	}
+
+	old := time.Now().Add(-time.Hour)
+	for _, file := range authFiles() {
+		_ = os.Chtimes(file, old, old)
+	}
+
+	// Rendering the same list again keeps the current file and prunes the stale one.
+	again, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 3, payload))
+	if err != nil || again.Status != protocol.StatusApplied {
+		t.Fatalf("second update: status=%s err=%v errors=%+v", again.Status, err, again.Errors)
+	}
+
+	if len(authFiles()) != 1 {
+		t.Errorf("the stale file must be pruned once it is past the grace period, got %v", authFiles())
+	}
+
+	// A reload returns before the new workers take over, so poll briefly.
+	if linux {
+		got := 0
+		for range 40 {
+			if got, _, _ = get("/members/page.html", "bob", "battery staple"); got == http.StatusNotFound {
+				break
+			}
+
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		if got != http.StatusNotFound {
+			t.Errorf("the new user: got %d, want 404 (past the login)", got)
+		}
+	}
+
+	// The test backdated and pruned the first list's file itself, so workers still
+	// draining under the first configuration may answer 403 for a moment.
+	removed := 0
+	for range 40 {
+		if removed, _, _ = get("/members/page.html", "alice", "correct horse"); removed == http.StatusUnauthorized {
+			break
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if removed != http.StatusUnauthorized {
+		t.Errorf("the removed user must be refused: got %d, want 401", removed)
+	}
+
+	deleted, err := capability.Apply(ctx, newOp(protocol.OperationDelete, resourceID, newTestUUID(), 4, payload))
+	if err != nil || deleted.Status != protocol.StatusApplied {
+		t.Fatalf("delete: status=%s err=%v errors=%+v", deleted.Status, err, deleted.Errors)
+	}
+
+	if len(authFiles()) != 0 {
+		t.Errorf("a deleted domain must leave no htpasswd file, got %v", authFiles())
+	}
+}
+
+func TestProtectedDirectoriesAreRefusedOnANodeWithoutAnAuthDirectory(t *testing.T) {
+	requireRealNginx(t)
+
+	d := newDisposableNginx(t)
+	capability := nginx.New(d.Config)
+
+	payload := nginxPayload("noauth.contract.test", "127.0.0.1", false)
+	payload["protected_dirs"] = []map[string]any{{
+		"path": "/members", "realm": "R",
+		"users": []map[string]string{{"username": "alice", "hash": "$6$abcdefgh$" + strings.Repeat("A", 86)}},
+	}}
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1, payload))
+	if err != nil || result.Status != protocol.StatusRejected {
+		t.Fatalf("expected a rejection, got status=%s err=%v", result.Status, err)
 	}
 }

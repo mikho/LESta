@@ -8,6 +8,7 @@ server {
 {{template "waf" .}}
 {{template "ipAccess" .}}
 {{template "redirects" .}}
+{{template "protectedDirsStatic" .}}
 
     location ^~ /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;{{if .IpRestricted}}

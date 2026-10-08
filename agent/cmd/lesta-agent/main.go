@@ -281,6 +281,7 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 func nginxProductionConfig() nginx.Config {
 	return nginx.Config{
 		LiveDir:       "/etc/nginx/lesta.d",
+		AuthDir:       "/etc/lesta/nginx-auth",
 		StateRoot:     "/var/lib/lesta/nginx",
 		NginxConfPath: "/etc/nginx/nginx.conf",
 		NginxBinary:   "nginx",

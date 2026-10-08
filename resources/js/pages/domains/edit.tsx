@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
+import WebDomainProtectedDirController from '@/actions/App/Http/Controllers/Domains/WebDomainProtectedDirController';
 import WebDomainRedirectController from '@/actions/App/Http/Controllers/Domains/WebDomainRedirectController';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
@@ -35,14 +36,23 @@ type Redirect = {
     prefix: boolean;
 };
 
+type ProtectedDir = {
+    uuid: string;
+    path: string;
+    realm: string;
+    users: { uuid: string; username: string }[];
+};
+
 export default function Edit({
     webDomain,
     sftp,
     redirects,
+    protectedDirs,
 }: {
     webDomain: WebDomain;
     sftp: SftpAccess;
     redirects: Redirect[];
+    protectedDirs: ProtectedDir[];
 }) {
     return (
         <>
@@ -530,6 +540,225 @@ export default function Edit({
                             ))}
                         </ul>
                     )}
+                </div>
+
+                <div
+                    className="space-y-4 rounded-lg border p-4"
+                    data-test="protected-dirs-section"
+                >
+                    <Heading
+                        variant="small"
+                        title="Password-protected folders"
+                        description="Ask visitors for a username and password before they can open a folder of this site, such as /members. The folder itself is not changed."
+                    />
+
+                    <Form
+                        {...WebDomainProtectedDirController.store.form(
+                            webDomain,
+                        )}
+                        options={{ preserveScroll: true }}
+                        resetOnSuccess
+                        className="space-y-4"
+                    >
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="protected_path">
+                                            Folder
+                                        </Label>
+                                        <Input
+                                            id="protected_path"
+                                            name="path"
+                                            placeholder="/members"
+                                            autoComplete="off"
+                                            required
+                                        />
+                                        <InputError message={errors.path} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="protected_realm">
+                                            Name shown in the login box
+                                        </Label>
+                                        <Input
+                                            id="protected_realm"
+                                            name="realm"
+                                            defaultValue="Members area"
+                                            autoComplete="off"
+                                            required
+                                        />
+                                        <InputError message={errors.realm} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="protected_username">
+                                            First username
+                                        </Label>
+                                        <Input
+                                            id="protected_username"
+                                            name="username"
+                                            autoComplete="off"
+                                            required
+                                        />
+                                        <InputError message={errors.username} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="protected_password">
+                                            Password (at least 8 characters)
+                                        </Label>
+                                        <Input
+                                            id="protected_password"
+                                            name="password"
+                                            type="password"
+                                            autoComplete="new-password"
+                                            required
+                                        />
+                                        <InputError message={errors.password} />
+                                    </div>
+                                </div>
+
+                                <Button
+                                    disabled={processing}
+                                    data-test="add-protected-dir-button"
+                                >
+                                    Protect folder
+                                </Button>
+                            </>
+                        )}
+                    </Form>
+
+                    {protectedDirs.map((directory) => (
+                        <div
+                            key={directory.uuid}
+                            className="space-y-3 rounded-md border p-3"
+                            data-test="protected-dir"
+                        >
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="font-mono text-sm break-all">
+                                        {directory.path}/
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Login box: {directory.realm}
+                                    </p>
+                                </div>
+                                <Form
+                                    {...WebDomainProtectedDirController.destroy.form(
+                                        {
+                                            webDomain: webDomain.uuid,
+                                            directory: directory.uuid,
+                                        },
+                                    )}
+                                    options={{ preserveScroll: true }}
+                                >
+                                    {({ processing }) => (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={processing}
+                                            aria-label={`Remove the password from ${directory.path}`}
+                                        >
+                                            Remove protection
+                                        </Button>
+                                    )}
+                                </Form>
+                            </div>
+
+                            <ul className="divide-y rounded-md border text-sm">
+                                {directory.users.map((user) => (
+                                    <li
+                                        key={user.uuid}
+                                        className="flex items-center justify-between gap-3 p-2"
+                                    >
+                                        <span className="font-mono">
+                                            {user.username}
+                                        </span>
+                                        <Form
+                                            {...WebDomainProtectedDirController.destroyUser.form(
+                                                {
+                                                    webDomain: webDomain.uuid,
+                                                    directory: directory.uuid,
+                                                    user: user.uuid,
+                                                },
+                                            )}
+                                            options={{ preserveScroll: true }}
+                                        >
+                                            {({ processing }) => (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={processing}
+                                                    aria-label={`Remove the login ${user.username} from ${directory.path}`}
+                                                >
+                                                    Remove
+                                                </Button>
+                                            )}
+                                        </Form>
+                                    </li>
+                                ))}
+                            </ul>
+
+                            <Form
+                                {...WebDomainProtectedDirController.storeUser.form(
+                                    {
+                                        webDomain: webDomain.uuid,
+                                        directory: directory.uuid,
+                                    },
+                                )}
+                                options={{ preserveScroll: true }}
+                                resetOnSuccess
+                                className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+                            >
+                                {({ processing, errors }) => (
+                                    <>
+                                        <div className="grid gap-2">
+                                            <Label
+                                                htmlFor={`user_${directory.uuid}`}
+                                            >
+                                                Add a login or change its
+                                                password
+                                            </Label>
+                                            <Input
+                                                id={`user_${directory.uuid}`}
+                                                name="username"
+                                                placeholder="username"
+                                                autoComplete="off"
+                                                required
+                                            />
+                                            <InputError
+                                                message={errors.username}
+                                            />
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label
+                                                htmlFor={`pass_${directory.uuid}`}
+                                            >
+                                                Password
+                                            </Label>
+                                            <Input
+                                                id={`pass_${directory.uuid}`}
+                                                name="password"
+                                                type="password"
+                                                autoComplete="new-password"
+                                                required
+                                            />
+                                            <InputError
+                                                message={errors.password}
+                                            />
+                                        </div>
+                                        <Button
+                                            variant="secondary"
+                                            disabled={processing}
+                                        >
+                                            Save login
+                                        </Button>
+                                    </>
+                                )}
+                            </Form>
+                        </div>
+                    ))}
                 </div>
 
                 <div className="space-y-4 rounded-lg border p-4">

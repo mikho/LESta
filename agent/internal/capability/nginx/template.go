@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl templates/hotlink.tmpl templates/ip_access.tmpl templates/redirects.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl templates/hotlink.tmpl templates/ip_access.tmpl templates/redirects.tmpl templates/protected_dirs.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -105,6 +105,7 @@ type vhostData struct {
 	WafPreset        string
 	// HotlinkEnabled and HotlinkAllowedHosts back templates/hotlink.tmpl.
 	Redirects           []redirectRule
+	ProtectedDirs       []protectedDirRule
 	IpAllows            []string
 	IpDenies            []string
 	HotlinkEnabled      bool
@@ -198,7 +199,7 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 
 	tmplPath := path.Join("templates", name)
 
-	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl", "templates/hotlink.tmpl", "templates/ip_access.tmpl", "templates/redirects.tmpl")
+	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl", "templates/hotlink.tmpl", "templates/ip_access.tmpl", "templates/redirects.tmpl", "templates/protected_dirs.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %s: %w", name, err)
 	}

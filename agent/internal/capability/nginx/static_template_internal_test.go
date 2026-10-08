@@ -368,3 +368,78 @@ func TestRedirectPayloadValidation(t *testing.T) {
 		t.Errorf("a valid payload was rejected: %v", err)
 	}
 }
+
+var testSha512Hash = "$6$abcdefgh$" + strings.Repeat("A", 86)
+
+func TestProtectedDirectoriesRenderTheirOwnLocationWithAuth(t *testing.T) {
+	cfg := Config{AuthDir: "/etc/lesta/nginx-auth"}
+	capability := &NginxCapability{cfg: cfg}
+
+	auth := capability.prepareAuthFiles("00000000-0000-0000-0000-00000000000a", []ProtectedDir{
+		{Path: "/private", Realm: "Staff area", Users: []ProtectedUser{{Username: "alice", Hash: testSha512Hash}}},
+	})
+
+	for name, data := range map[string]vhostData{
+		"static": {},
+		"php":    {PhpSocket: "/run/php.sock", FastcgiParamsPath: "/etc/nginx/fastcgi_params"},
+		"proxy":  {WebTemplate: "apache-proxy", ProxyBackend: "127.0.0.1:8080"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data.ResourceID = "00000000-0000-0000-0000-00000000000a"
+			data.Domain = "auth.example.test"
+			data.IPAddress = "127.0.0.1"
+			data.Port = 80
+			data.Docroot = "/home/acct/domains/x/public"
+			data.ProtectedDirs = auth.Rules
+
+			rendered, err := renderVhost(data, false)
+			if err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			body := string(rendered)
+
+			for _, want := range []string{"location ^~ /private/ {", "auth_basic 'Staff area';", "auth_basic_user_file /etc/lesta/nginx-auth/00000000-0000-0000-0000-00000000000a."} {
+				if !strings.Contains(body, want) {
+					t.Errorf("expected %q in rendered vhost:\n%s", want, body)
+				}
+			}
+		})
+	}
+
+	if len(auth.Files) != 1 {
+		t.Fatalf("expected one htpasswd file, got %d", len(auth.Files))
+	}
+
+	for _, content := range auth.Files {
+		if content != "alice:"+testSha512Hash+"\n" {
+			t.Errorf("unexpected htpasswd content %q", content)
+		}
+	}
+}
+
+func TestProtectedDirectoryPayloadValidation(t *testing.T) {
+	base := `{"domain":"a.example.test","aliases":[],"ip_address":"127.0.0.1","web_template":"default","account_id":1,"account_username":"","php_socket":"","ssl":{"mode":"off"},"suspended":false,"protected_dirs":`
+	user := `{"username":"alice","hash":"` + testSha512Hash + `"}`
+
+	for name, dirs := range map[string]string{
+		"root path":          `[{"path":"/","realm":"R","users":[` + user + `]}]`,
+		"traversal":          `[{"path":"/a/../b","realm":"R","users":[` + user + `]}]`,
+		"well-known":         `[{"path":"/.well-known/x","realm":"R","users":[` + user + `]}]`,
+		"quote in realm":     `[{"path":"/a","realm":"R';}","users":[` + user + `]}]`,
+		"no users":           `[{"path":"/a","realm":"R","users":[]}]`,
+		"colon in username":  `[{"path":"/a","realm":"R","users":[{"username":"a:b","hash":"` + testSha512Hash + `"}]}]`,
+		"plaintext password": `[{"path":"/a","realm":"R","users":[{"username":"alice","hash":"hunter2"}]}]`,
+		"newline in hash":    `[{"path":"/a","realm":"R","users":[{"username":"alice","hash":"$6$salt$x\nroot:y"}]}]`,
+		"duplicate path":     `[{"path":"/a","realm":"R","users":[` + user + `]},{"path":"/a/","realm":"R","users":[` + user + `]}]`,
+		"duplicate user":     `[{"path":"/a","realm":"R","users":[` + user + `,` + user + `]}]`,
+	} {
+		if _, err := ParsePayload([]byte(base + dirs + `}`)); err == nil {
+			t.Errorf("%s: expected a rejection", name)
+		}
+	}
+
+	if _, err := ParsePayload([]byte(base + `[{"path":"/members/","realm":"Members area","users":[` + user + `]}]}`)); err != nil {
+		t.Errorf("a valid payload was rejected: %v", err)
+	}
+}

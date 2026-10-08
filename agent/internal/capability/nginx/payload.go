@@ -119,6 +119,8 @@ type Payload struct {
 	// Redirects are this domain's own URL redirects, rendered before every
 	// other location so they win over PHP and the hotlink rule.
 	Redirects []Redirect `json:"redirects"`
+	// ProtectedDirs are directories that ask for a login (auth_basic).
+	ProtectedDirs []ProtectedDir `json:"protected_dirs"`
 }
 
 const maxHotlinkAllowedHosts = 50
@@ -146,6 +148,37 @@ type Redirect struct {
 }
 
 const maxRedirects = 100
+
+// ProtectedUser is one login of a protected directory. Hash is a SHA-512
+// crypt(3) hash computed by the control plane; the plain password never
+// reaches the node.
+type ProtectedUser struct {
+	Username string `json:"username"`
+	Hash     string `json:"hash"`
+}
+
+// ProtectedDir is a directory of the domain that needs a login: nginx's
+// auth_basic with the listed users. Path is an absolute path below the site
+// root (never "/" itself).
+type ProtectedDir struct {
+	Path  string          `json:"path"`
+	Realm string          `json:"realm"`
+	Users []ProtectedUser `json:"users"`
+}
+
+const (
+	maxProtectedDirs        = 20
+	maxUsersPerProtectedDir = 50
+)
+
+var (
+	protectedPathPattern  = regexp.MustCompile(`^/[A-Za-z0-9._~%+/-]{1,198}$`)
+	protectedRealmPattern = regexp.MustCompile(`^[A-Za-z0-9 .,_-]{1,64}$`)
+	protectedUserPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
+	// protectedHashPattern accepts only SHA-512 crypt hashes ("$6$salt$86 chars"),
+	// which cannot contain a colon, a space or a newline.
+	protectedHashPattern = regexp.MustCompile(`^\$6\$(?:rounds=[0-9]{1,9}\$)?[A-Za-z0-9./]{1,16}\$[A-Za-z0-9./]{86}$`)
+)
 
 var (
 	redirectSourcePattern = regexp.MustCompile(`^/[A-Za-z0-9._~%+/-]{0,198}$`)
@@ -220,6 +253,46 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	case "", "none", "wordpress":
 	default:
 		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
+	}
+
+	if len(p.ProtectedDirs) > maxProtectedDirs {
+		return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: fmt.Sprintf("at most %d protected directories may be set", maxProtectedDirs), Field: "protected_dirs"}
+	}
+
+	seenProtected := map[string]bool{}
+
+	for i, dir := range p.ProtectedDirs {
+		field := fmt.Sprintf("protected_dirs[%d]", i)
+		trimmed := strings.TrimSuffix(dir.Path, "/")
+
+		switch {
+		case !protectedPathPattern.MatchString(trimmed) || strings.Contains(trimmed, "//") || strings.Contains(trimmed, ".."):
+			return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "protected directory must be a plain absolute path below the site root", Field: field + ".path"}
+		case strings.HasPrefix(trimmed, "/.well-known") || trimmed == "/__lesta-health__":
+			return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "that path is reserved and cannot be protected", Field: field + ".path"}
+		case seenProtected[trimmed]:
+			return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "a directory can only be protected once", Field: field + ".path"}
+		case !protectedRealmPattern.MatchString(dir.Realm):
+			return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "realm must be 1 to 64 letters, numbers, spaces or . , _ -", Field: field + ".realm"}
+		case len(dir.Users) == 0 || len(dir.Users) > maxUsersPerProtectedDir:
+			return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: fmt.Sprintf("a protected directory needs 1 to %d users", maxUsersPerProtectedDir), Field: field + ".users"}
+		}
+
+		seenProtected[trimmed] = true
+		seenUsers := map[string]bool{}
+
+		for j, user := range dir.Users {
+			switch {
+			case !protectedUserPattern.MatchString(user.Username):
+				return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "username must be 1 to 32 letters, numbers or . _ -", Field: fmt.Sprintf("%s.users[%d].username", field, j)}
+			case seenUsers[user.Username]:
+				return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "a username can only appear once per directory", Field: fmt.Sprintf("%s.users[%d].username", field, j)}
+			case !protectedHashPattern.MatchString(user.Hash):
+				return Payload{}, &ValidationError{Code: "invalid_protected_dirs", Message: "the password hash is not a SHA-512 crypt hash", Field: fmt.Sprintf("%s.users[%d].hash", field, j)}
+			}
+
+			seenUsers[user.Username] = true
+		}
 	}
 
 	if len(p.Redirects) > maxRedirects {

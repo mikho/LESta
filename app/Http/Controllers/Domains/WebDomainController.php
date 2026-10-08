@@ -17,6 +17,8 @@ use App\Http\Requests\Domains\StoreWebDomainRequest;
 use App\Http\Requests\Domains\UpdateSshPublicKeyRequest;
 use App\Http\Requests\Domains\UpdateWebDomainRequest;
 use App\Models\WebDomain;
+use App\Models\WebDomainProtectedDir;
+use App\Models\WebDomainProtectedDirUser;
 use App\Models\WebDomainRedirect;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -134,6 +136,12 @@ class WebDomainController extends Controller
                 'target' => $redirect->target,
                 'status' => $redirect->status,
                 'prefix' => $redirect->prefix,
+            ])->all(),
+            'protectedDirs' => $webDomain->protectedDirs()->with('users')->orderBy('id')->get()->map(fn (WebDomainProtectedDir $directory): array => [
+                'uuid' => $directory->uuid,
+                'path' => $directory->path,
+                'realm' => $directory->realm,
+                'users' => $directory->users->sortBy('id')->map(fn (WebDomainProtectedDirUser $user): array => ['uuid' => $user->uuid, 'username' => $user->username])->values()->all(),
             ])->all(),
             'sftp' => [
                 'identityUuid' => $identity->uuid,

@@ -3,6 +3,7 @@ package nginx
 import (
 	"context"
 	"os/exec"
+	"time"
 )
 
 // Config parameterizes NginxCapability by root paths and invocation details, so
@@ -26,6 +27,18 @@ type Config struct {
 	// bandwidth/request-count usage per domain, with no per-line Host-header
 	// attribution needed.
 	LogDir string
+	// AuthDir is where the htpasswd files for protected directories are
+	// written, one per distinct user list, named by the list's content hash so
+	// a previous generation's file stays in place until a new one is active
+	// (see authfiles.go). Empty means protected directories are unavailable on
+	// this node. Production: /etc/lesta/nginx-auth, owned by lesta-agent with
+	// group www-data so nginx's workers can read what the agent writes.
+	AuthDir string
+	// AuthPruneGrace is how long a replaced htpasswd file is kept before the
+	// next apply removes it, covering nginx workers still finishing requests
+	// under the previous configuration (a missing user file answers 403) and a
+	// rollback. Zero means five minutes.
+	AuthPruneGrace time.Duration
 	// NginxConfPath is the real, read-only main nginx.conf. It must already
 	// contain an `include <LiveDir>/*.conf;` line; this phase's code requires
 	// that precondition, it does not create it.

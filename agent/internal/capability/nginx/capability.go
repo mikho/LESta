@@ -125,6 +125,15 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		}
 	}
 
+	if len(payload.ProtectedDirs) > 0 && c.cfg.AuthDir == "" {
+		return c.rejected(op, "protected_directories_unavailable", "this node has no directory for protected-directory password files; rerun the nginx installer", "protected_dirs")
+	}
+
+	auth := c.prepareAuthFiles(op.ResourceID, payload.ProtectedDirs)
+	if err := c.writeAuthFiles(auth.Files); err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
 	content, err := renderVhost(vhostData{
 		ResourceID:          op.ResourceID,
 		Domain:              payload.Domain,
@@ -147,6 +156,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		WafExcludedRules:    payload.WafExcludedRules,
 		WafPreset:           payload.WafPreset,
 		Redirects:           payload.redirectRules(),
+		ProtectedDirs:       auth.Rules,
 		IpAllows:            payload.ipAddresses("allow"),
 		IpDenies:            payload.ipAddresses("deny"),
 		HotlinkEnabled:      payload.HotlinkProtection,
@@ -218,6 +228,8 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return c.recoverFromFailure(ctx, op, requirePrior, "health_check_failed", healthErr.Error())
 	}
 
+	c.pruneAuthFiles(op.ResourceID, auth.Files)
+
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
@@ -269,6 +281,8 @@ func (c *NginxCapability) applyDelete(ctx context.Context, op protocol.Operation
 	if healthErr := c.waitHealthyGeneric(ctx, payload.IPAddress, c.cfg.Port); healthErr != nil {
 		return c.recoverFromFailure(ctx, op, true, "health_check_failed", healthErr.Error())
 	}
+
+	c.pruneAuthFiles(op.ResourceID, nil)
 
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }

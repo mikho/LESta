@@ -816,6 +816,18 @@ install_nginx() {
     install -d -m 0750 -o root -g lesta "${NGINX_LOG_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LOG_DIR}" "failed to create ${NGINX_LOG_DIR}"
     add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "per-vhost access-log directory present, mode 0750 root:lesta"
 
+    # Password files for protected directories (auth_basic). Owned by the agent
+    # so it can write them, group www-data (nginx's worker user) with the setgid
+    # bit so every file it creates is readable by nginx and by nobody else:
+    # tenants' own processes run as other users and must not read each other's
+    # password hashes.
+    if getent group www-data >/dev/null 2>&1; then
+        install -d -m 2750 -o lesta-agent -g www-data /etc/lesta/nginx-auth || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/nginx-auth "failed to create /etc/lesta/nginx-auth"
+        add_change web.nginx.v1 ensured /etc/lesta/nginx-auth "protected-directory password file directory present, mode 2750 lesta-agent:www-data"
+    else
+        add_change web.nginx.v1 skipped /etc/lesta/nginx-auth "no www-data group on this node, so protected directories are unavailable"
+    fi
+
     cat > /etc/logrotate.d/lesta-nginx <<LOGROTATE
 ${NGINX_LOG_DIR}/*.access.log ${NGINX_LOG_DIR}/*.error.log {
     daily

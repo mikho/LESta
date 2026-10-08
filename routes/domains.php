@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Domains\FileManagerController;
 use App\Http\Controllers\Domains\WebDomainController;
+use App\Http\Controllers\Domains\WebDomainProtectedDirController;
 use App\Http\Controllers\Domains\WebDomainRedirectController;
 use App\Http\Controllers\Domains\WebLogController;
 use Illuminate\Support\Facades\Route;
@@ -19,6 +20,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('domains/{webDomain}/logs', [WebLogController::class, 'index'])->name('domains.logs.index');
     Route::post('domains/{webDomain}/logs/observe', [WebLogController::class, 'observe'])->name('domains.logs.observe');
     Route::get('domains/{webDomain}/logs/download/{operation}', [WebLogController::class, 'download'])->name('domains.logs.download');
+    Route::post('domains/{webDomain}/protected-dirs', [WebDomainProtectedDirController::class, 'store'])->name('domains.protected-dirs.store');
+    Route::delete('domains/{webDomain}/protected-dirs/{directory}', [WebDomainProtectedDirController::class, 'destroy'])->name('domains.protected-dirs.destroy');
+    Route::post('domains/{webDomain}/protected-dirs/{directory}/users', [WebDomainProtectedDirController::class, 'storeUser'])->name('domains.protected-dirs.users.store');
+    Route::delete('domains/{webDomain}/protected-dirs/{directory}/users/{user}', [WebDomainProtectedDirController::class, 'destroyUser'])->name('domains.protected-dirs.users.destroy');
     Route::post('domains/{webDomain}/suspend', [WebDomainController::class, 'suspend'])->name('domains.suspend');
     Route::post('domains/{webDomain}/unsuspend', [WebDomainController::class, 'unsuspend'])->name('domains.unsuspend');
 

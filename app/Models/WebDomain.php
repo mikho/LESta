@@ -126,6 +126,14 @@ class WebDomain extends Model
     }
 
     /**
+     * @return HasMany<WebDomainProtectedDir, $this>
+     */
+    public function protectedDirs(): HasMany
+    {
+        return $this->hasMany(WebDomainProtectedDir::class);
+    }
+
+    /**
      * @return HasMany<WebDomainRedirect, $this>
      */
     public function redirects(): HasMany
@@ -224,7 +232,7 @@ class WebDomain extends Model
 
         // Only web.nginx.v1 renders ModSecurity, hotlink protection and the account's IP rules; web.apache.v1 rejects unknown payload fields.
         $waf = $capability === 'web.nginx.v1'
-            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? []), 'waf_preset' => $this->waf_preset, 'hotlink_protection' => $this->hotlink_protection, 'hotlink_allowed_hosts' => ($this->hotlink_allowed_hosts ?? []), 'redirects' => array_values($this->redirects()->orderBy('id')->get()->map(fn (WebDomainRedirect $redirect): array => ['source' => $redirect->source, 'target' => $redirect->target, 'status' => $redirect->status, 'prefix' => $redirect->prefix])->all()), 'ip_rules' => array_values($this->account->ipRules()->orderBy('id')->get(['action', 'cidr'])->map(fn (AccountIpRule $rule): array => ['action' => $rule->action, 'cidr' => $rule->cidr])->all())]
+            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? []), 'waf_preset' => $this->waf_preset, 'hotlink_protection' => $this->hotlink_protection, 'hotlink_allowed_hosts' => ($this->hotlink_allowed_hosts ?? []), 'redirects' => array_values($this->redirects()->orderBy('id')->get()->map(fn (WebDomainRedirect $redirect): array => ['source' => $redirect->source, 'target' => $redirect->target, 'status' => $redirect->status, 'prefix' => $redirect->prefix])->all()), 'protected_dirs' => array_values($this->protectedDirs()->with('users')->orderBy('id')->get()->map(fn (WebDomainProtectedDir $dir): array => ['path' => $dir->path, 'realm' => $dir->realm, 'users' => array_values($dir->users->sortBy('id')->map(fn (WebDomainProtectedDirUser $user): array => ['username' => $user->username, 'hash' => $user->password_hash])->all())])->all()), 'ip_rules' => array_values($this->account->ipRules()->orderBy('id')->get(['action', 'cidr'])->map(fn (AccountIpRule $rule): array => ['action' => $rule->action, 'cidr' => $rule->cidr])->all())]
             : [];
 
         return [
