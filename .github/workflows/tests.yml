@@ -690,6 +690,11 @@ jobs:
           import sys
           import time
 
+
+          def die(message):
+              print("::error title=Mail proof failed::" + str(message).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:1500], flush=True)
+              sys.exit(message)
+
           AGENT_BINARY = "/var/lib/lesta/agent/bin/lesta-agent"
           DOMAIN = "avtest.lesta-ci.invalid"
           LOCAL_PART = "avtest"
@@ -726,7 +731,7 @@ jobs:
                   ["sudo", "-u", "lesta-agent", "--", AGENT_BINARY], input=json.dumps(env), capture_output=True, text=True, timeout=30
               )
               if out.returncode != 0:
-                  sys.exit(f"agent exited {out.returncode}: {out.stdout} {out.stderr}")
+                  die(f"agent exited {out.returncode}: {out.stdout} {out.stderr}")
               return json.loads(out.stdout)
 
 
@@ -746,7 +751,7 @@ jobs:
                   send(f"RCPT TO:<{rcpt_local_part}@{rcpt_domain}>")
                   rcpt_reply = read()
                   if not rcpt_reply.startswith("250"):
-                      sys.exit(f"RCPT TO was not accepted: {rcpt_reply}")
+                      die(f"RCPT TO was not accepted: {rcpt_reply}")
                   send("DATA")
                   read()
                   s.sendall((body + "\r\n.\r\n").encode())
@@ -776,7 +781,7 @@ jobs:
 
           created = invoke_agent(envelope("create", resource_id, 1, create_payload))
           if created.get("status") != "applied":
-              sys.exit(f"expected create status=applied, got: {created}")
+              die(f"expected create status=applied, got: {created}")
           print("real avtest.lesta-ci.invalid domain created with antivirus_enabled/antispam_enabled=true")
 
           try:
@@ -784,21 +789,21 @@ jobs:
                   LOCAL_PART, DOMAIN, f"Subject: eicar test\r\n\r\n{EICAR}"
               )
               if not eicar_reply.startswith(("5", "4")):
-                  sys.exit(f"expected the EICAR test message to be rejected/deferred by clamd, got: {eicar_reply}")
+                  die(f"expected the EICAR test message to be rejected/deferred by clamd, got: {eicar_reply}")
               print(f"EICAR test message correctly rejected/deferred by clamd: {eicar_reply.strip()}")
 
               gtube_reply = smtp_transaction(
                   LOCAL_PART, DOMAIN, f"Subject: gtube test\r\n\r\n{GTUBE}"
               )
               if not gtube_reply.startswith(("5", "4")):
-                  sys.exit(f"expected the GTUBE test message to be rejected/deferred by spamd, got: {gtube_reply}")
+                  die(f"expected the GTUBE test message to be rejected/deferred by spamd, got: {gtube_reply}")
               print(f"GTUBE test message correctly rejected/deferred by spamd: {gtube_reply.strip()}")
 
               clean_reply = smtp_transaction(
                   LOCAL_PART, DOMAIN, "Subject: a genuinely clean test message\r\n\r\nHello, this is a real, harmless message."
               )
               if not clean_reply.startswith("250"):
-                  sys.exit(f"expected a genuinely clean message to still be accepted, got: {clean_reply}")
+                  die(f"expected a genuinely clean message to still be accepted, got: {clean_reply}")
               print(f"a genuinely clean message was still accepted, proving the ACL doesn't just reject everything: {clean_reply.strip()}")
 
               # Catch-all: a recipient with no mailbox of its own is accepted and routed to
@@ -808,25 +813,25 @@ jobs:
               ).stdout
               resolved_first_line = route.splitlines()[0].strip() if route.strip() else ""
               if resolved_first_line != f"{LOCAL_PART}@{DOMAIN}" or f"<-- nobody-here@{DOMAIN}" not in route or "router = lesta_virtual_router" not in route:
-                  sys.exit(f"expected an unknown address to route to the catch-all mailbox, got: {route}")
+                  die(f"expected an unknown address to route to the catch-all mailbox, got: {route}")
               print("an address with no mailbox of its own routes to the catch-all mailbox")
 
               catchall_clean = smtp_transaction(
                   "nobody-here", DOMAIN, "Subject: catch-all clean\r\n\r\nHello, this is a real, harmless message."
               )
               if not catchall_clean.startswith("250"):
-                  sys.exit(f"expected a clean message to an unknown address to be accepted by the catch-all, got: {catchall_clean}")
+                  die(f"expected a clean message to an unknown address to be accepted by the catch-all, got: {catchall_clean}")
 
               catchall_eicar = smtp_transaction(
                   "nobody-here", DOMAIN, f"Subject: catch-all eicar\r\n\r\n{EICAR}"
               )
               if not catchall_eicar.startswith(("5", "4")):
-                  sys.exit(f"expected EICAR sent to the catch-all to still be rejected by clamd, got: {catchall_eicar}")
+                  die(f"expected EICAR sent to the catch-all to still be rejected by clamd, got: {catchall_eicar}")
               print("catch-all recipients are accepted when clean and still scanned for viruses")
           finally:
               deleted = invoke_agent(envelope("delete", resource_id, 2, create_payload))
               if deleted.get("status") != "applied":
-                  sys.exit(f"expected delete status=applied, got: {deleted}")
+                  die(f"expected delete status=applied, got: {deleted}")
               print("real avtest.lesta-ci.invalid domain deleted")
           PYEOF
           sudo python3 /tmp/av-spam-proof.py
