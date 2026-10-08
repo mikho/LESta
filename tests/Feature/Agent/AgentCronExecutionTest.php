@@ -57,6 +57,30 @@ test('resending the identical batch creates no duplicates', function () {
     expect(CronJobExecution::query()->where('cron_job_id', $cronJob->id)->count())->toBe(1);
 });
 
+test('a node reporting in its own timezone is stored as the same instant and resends stay idempotent', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $cronJob = CronJob::factory()->for($node)->create();
+
+    // 12:00:00 at +02:00 is 10:00:00 UTC.
+    $entry = executionEntry($cronJob, [
+        'started_at' => '2026-10-08T12:00:00+02:00',
+        'finished_at' => '2026-10-08T12:00:05+02:00',
+    ]);
+
+    foreach ([1, 2] as $attempt) {
+        $this->withHeader('Authorization', 'Bearer '.$credential)
+            ->postJson('/agent/v1/cron-executions', cronExecutionsPayload([$entry]))
+            ->assertOk();
+    }
+
+    $stored = CronJobExecution::query()->where('cron_job_id', $cronJob->id)->get();
+
+    expect($stored)->toHaveCount(1)
+        ->and($stored->first()->started_at->utc()->format('Y-m-d H:i:s'))->toBe('2026-10-08 10:00:00')
+        ->and($stored->first()->finished_at->utc()->format('Y-m-d H:i:s'))->toBe('2026-10-08 10:00:05');
+});
+
 test('an execution claiming a resource_id belonging to a different node is silently skipped', function () {
     $node = Node::factory()->create();
     $otherNode = Node::factory()->create();
