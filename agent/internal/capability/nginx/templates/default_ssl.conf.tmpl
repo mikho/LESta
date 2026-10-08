@@ -4,6 +4,7 @@ server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+{{template "waf" .}}
 
     location /.well-known/acme-challenge/ {
         alias {{.AcmeChallengeDir}}/;
@@ -32,6 +33,7 @@ server {
     listen {{.IPAddress}}:{{.SSLPort}} ssl;
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+{{template "waf" .}}
 
     ssl_certificate {{.CertificatePath}};
     ssl_certificate_key {{.PrivateKeyPath}};

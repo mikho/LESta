@@ -18,7 +18,14 @@ class UpdateWebDomainRequest extends FormRequest
     {
         $aliases = $this->input('aliases', []);
 
+        $wafRules = $this->input('waf_excluded_rules', []);
+
+        if (is_string($wafRules)) {
+            $wafRules = preg_split('/[\s,]+/', trim($wafRules), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+
         $this->merge([
+            'waf_excluded_rules' => is_array($wafRules) ? array_map(fn (mixed $id): mixed => is_string($id) && ctype_digit($id) ? (int) $id : $id, $wafRules) : [],
             'domain' => WebDomain::normalizeDomain((string) $this->input('domain')),
             'aliases' => is_array($aliases)
                 ? array_map(fn (mixed $alias): string => WebDomain::normalizeDomain((string) $alias), $aliases)
@@ -42,6 +49,9 @@ class UpdateWebDomainRequest extends FormRequest
             'web_server' => ['nullable', 'string', Rule::in(['nginx', 'apache'])],
             'php_version' => ['nullable', 'string', Rule::in(array_column(PhpVersion::cases(), 'value'))],
             'ssl_mode' => ['nullable', 'string', Rule::in(['none', 'manual', 'lets_encrypt'])],
+            'waf_mode' => ['nullable', 'string', Rule::in(['off', 'detect', 'block'])],
+            'waf_excluded_rules' => ['array', 'max:100'],
+            'waf_excluded_rules.*' => ['integer', 'between:1,999999999'],
             'aliases' => ['array'],
             'aliases.*' => ['string', new ValidDomainName, Rule::unique('web_domain_aliases', 'alias')->ignore($webDomain->id, 'web_domain_id')],
         ];

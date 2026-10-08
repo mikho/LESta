@@ -188,3 +188,39 @@ test('updating with an empty aliases list removes all existing aliases', functio
 
     expect($webDomain->aliases()->count())->toBe(0);
 });
+
+test('an owner can turn the WAF on and exclude rules, and the nginx update carries them', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'waf.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->put(route('domains.update', $webDomain), ['domain' => 'waf.example.com', 'waf_mode' => 'detect', 'waf_excluded_rules' => '942100, 920350'])
+        ->assertSessionHasNoErrors();
+
+    $webDomain->refresh();
+
+    expect($webDomain->waf_mode)->toBe('detect')
+        ->and($webDomain->waf_excluded_rules)->toBe([942100, 920350]);
+
+    $operation = ProvisioningOperation::where('provisionable_id', $webDomain->id)->where('operation', ProvisioningVerb::Update)->latest('id')->first();
+
+    expect($operation->payload)->toMatchArray(['waf_mode' => 'detect', 'waf_excluded_rules' => [942100, 920350]]);
+});
+
+test('the WAF mode and rule ids are validated', function (array $input, string $field) {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'waf.example.com']);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->put(route('domains.update', $webDomain), ['domain' => 'waf.example.com'] + $input)
+        ->assertSessionHasErrors($field);
+})->with([
+    'unknown mode' => [['waf_mode' => 'paranoid'], 'waf_mode'],
+    'text instead of an id' => [['waf_excluded_rules' => '942100; SecRuleEngine Off'], 'waf_excluded_rules.1'],
+    'id out of range' => [['waf_excluded_rules' => '0'], 'waf_excluded_rules.0'],
+]);

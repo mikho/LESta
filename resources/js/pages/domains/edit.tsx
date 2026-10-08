@@ -222,6 +222,67 @@ export default function Edit({
                                 )}
                             </div>
 
+                            <div className="grid gap-2">
+                                <Label htmlFor="waf_mode">
+                                    Web application firewall
+                                </Label>
+
+                                <Select
+                                    name="waf_mode"
+                                    defaultValue={webDomain.waf_mode}
+                                >
+                                    <SelectTrigger id="waf_mode">
+                                        <SelectValue placeholder="Select a mode" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="off">Off</SelectItem>
+                                        <SelectItem value="detect">
+                                            Detect only (log, never block)
+                                        </SelectItem>
+                                        <SelectItem value="block">
+                                            Block
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+
+                                <p className="text-sm text-muted-foreground">
+                                    Blocks common attacks such as SQL injection
+                                    using the OWASP Core Rule Set. Start with
+                                    Detect only to see what would be blocked. If
+                                    the node cannot enable it, the update fails
+                                    and the previous settings stay.
+                                </p>
+
+                                <InputError message={errors.waf_mode} />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <Label htmlFor="waf_excluded_rules">
+                                    Excluded rule ids
+                                </Label>
+
+                                <Input
+                                    id="waf_excluded_rules"
+                                    name="waf_excluded_rules"
+                                    defaultValue={webDomain.waf_excluded_rules.join(
+                                        ', ',
+                                    )}
+                                    placeholder="942100, 920350"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                />
+
+                                <p className="text-sm text-muted-foreground">
+                                    Comma separated. Turns off these rules for
+                                    this domain only, for example when a rule
+                                    blocks a legitimate form.
+                                </p>
+
+                                <InputError
+                                    message={errors.waf_excluded_rules}
+                                />
+                            </div>
+
                             <div className="flex items-center gap-4">
                                 <Button
                                     disabled={processing}

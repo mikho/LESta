@@ -4,6 +4,7 @@ server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+{{template "waf" .}}
 
     root {{.Docroot}};
     index index.php index.html index.htm;
@@ -40,6 +41,7 @@ server {
     listen {{.IPAddress}}:{{.SSLPort}} ssl;
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+{{template "waf" .}}
 
     ssl_certificate {{.CertificatePath}};
     ssl_certificate_key {{.PrivateKeyPath}};

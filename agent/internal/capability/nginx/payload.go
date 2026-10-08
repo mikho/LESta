@@ -97,7 +97,14 @@ type Payload struct {
 	WebmailSocket string `json:"webmail_socket"`
 	SSL           SSL    `json:"ssl"`
 	Suspended     bool   `json:"suspended"`
+	// WafMode is "", "off", "detect" (ModSecurity logs only) or "block".
+	// WafExcludedRules are CRS rule ids removed for this domain only; they
+	// are integers so nothing a tenant types ever reaches the config as text.
+	WafMode          string `json:"waf_mode"`
+	WafExcludedRules []int  `json:"waf_excluded_rules"`
 }
+
+const maxWafExcludedRules = 100
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
 // message, field) triple the caller turns directly into a rejected
@@ -153,6 +160,22 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if p.AdminerSocket != "" && !strings.HasPrefix(p.AdminerSocket, "/") {
 		return Payload{}, &ValidationError{Code: "invalid_adminer_socket", Message: "adminer_socket must be an absolute path when set", Field: "adminer_socket"}
+	}
+
+	switch p.WafMode {
+	case "", "off", "detect", "block":
+	default:
+		return Payload{}, &ValidationError{Code: "invalid_waf_mode", Message: "waf_mode must be off, detect or block", Field: "waf_mode"}
+	}
+
+	if len(p.WafExcludedRules) > maxWafExcludedRules {
+		return Payload{}, &ValidationError{Code: "invalid_waf_excluded_rules", Message: fmt.Sprintf("at most %d rule ids may be excluded", maxWafExcludedRules), Field: "waf_excluded_rules"}
+	}
+
+	for i, id := range p.WafExcludedRules {
+		if id < 1 || id > 999999999 {
+			return Payload{}, &ValidationError{Code: "invalid_waf_excluded_rules", Message: "rule ids must be positive integers below 1000000000", Field: fmt.Sprintf("waf_excluded_rules[%d]", i)}
+		}
 	}
 
 	if net.ParseIP(p.IPAddress) == nil {

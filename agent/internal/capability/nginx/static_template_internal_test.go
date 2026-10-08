@@ -87,3 +87,66 @@ func TestContentTemplatesRenderErrorPagesForTheFourStatuses(t *testing.T) {
 		})
 	}
 }
+
+// TestWafDirectivesFollowTheDomainsMode guards the ModSecurity rendering:
+// off renders nothing, detect logs only, block enforces, and excluded rule
+// ids come after the rule set is loaded (ModSecurity only removes rules
+// defined before the removal).
+func TestWafDirectivesFollowTheDomainsMode(t *testing.T) {
+	render := func(mode string, rules []int) string {
+		rendered, err := renderVhost(vhostData{
+			ResourceID:       "00000000-0000-0000-0000-000000000004",
+			Domain:           "waf.example.test",
+			IPAddress:        "127.0.0.1",
+			Port:             80,
+			Docroot:          "/home/acct/domains/x/public",
+			WafMode:          mode,
+			WafExcludedRules: rules,
+		}, false)
+		if err != nil {
+			t.Fatalf("rendering: %v", err)
+		}
+
+		return string(rendered)
+	}
+
+	for _, mode := range []string{"", "off"} {
+		if strings.Contains(render(mode, []int{942100}), "modsecurity") {
+			t.Errorf("mode %q must not render any ModSecurity directive", mode)
+		}
+	}
+
+	detect := render("detect", []int{942100, 920350})
+	for _, want := range []string{"modsecurity on;", "SecRuleEngine DetectionOnly", "SecRuleRemoveById 942100", "SecRuleRemoveById 920350", "/var/log/lesta/waf/00000000-0000-0000-0000-000000000004.audit.log"} {
+		if !strings.Contains(detect, want) {
+			t.Errorf("detect mode: expected %q in:\n%s", want, detect)
+		}
+	}
+
+	if strings.Index(detect, "modsecurity_rules_file") > strings.Index(detect, "SecRuleRemoveById") {
+		t.Errorf("rule exclusions must come after the rule set is loaded:\n%s", detect)
+	}
+
+	if !strings.Contains(render("block", nil), "SecRuleEngine On") {
+		t.Errorf("block mode must enable the engine")
+	}
+}
+
+func TestWafPayloadValidation(t *testing.T) {
+	base := `{"domain":"a.example.test","aliases":[],"ip_address":"127.0.0.1","web_template":"default","account_id":1,"account_username":"","php_socket":"","ssl":{"mode":"off"},"suspended":false,`
+
+	for name, tail := range map[string]string{
+		"unknown mode":   `"waf_mode":"paranoid"}`,
+		"zero rule id":   `"waf_mode":"block","waf_excluded_rules":[0]}`,
+		"huge rule id":   `"waf_mode":"block","waf_excluded_rules":[1000000000]}`,
+		"string rule id": `"waf_mode":"block","waf_excluded_rules":["942100; evil"]}`,
+	} {
+		if _, err := ParsePayload([]byte(base + tail)); err == nil {
+			t.Errorf("%s: expected a rejection", name)
+		}
+	}
+
+	if _, err := ParsePayload([]byte(base + `"waf_mode":"block","waf_excluded_rules":[942100]}`)); err != nil {
+		t.Errorf("a valid WAF payload was rejected: %v", err)
+	}
+}

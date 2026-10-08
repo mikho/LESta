@@ -25,6 +25,8 @@ export type WebDomain = {
     web_server: WebServer;
     php_version: PhpVersion | null;
     ssl_mode: SslMode;
+    waf_mode: 'off' | 'detect' | 'block';
+    waf_excluded_rules: number[];
     certificate_issued_at: string | null;
     certificate_expires_at: string | null;
     last_certificate_error: string | null;

@@ -142,6 +142,8 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		PhpSocket:         payload.PhpSocket,
 		AdminerSocket:     payload.AdminerSocket,
 		WebmailSocket:     payload.WebmailSocket,
+		WafMode:           payload.WafMode,
+		WafExcludedRules:  payload.WafExcludedRules,
 		FastcgiParamsPath: filepath.Join(filepath.Dir(c.cfg.NginxConfPath), "fastcgi_params"),
 	}, payload.Suspended)
 	if err != nil {

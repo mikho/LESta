@@ -1,0 +1,9 @@
+{{define "waf"}}{{if .WafEnabled}}
+    modsecurity on;
+    modsecurity_rules_file {{.WafRulesFile}};
+    modsecurity_rules '
+SecRuleEngine {{.WafEngine}}
+SecAuditLog {{.WafAuditLog}}
+{{range .WafExcludedRules}}SecRuleRemoveById {{.}}
+{{end}}';
+{{end}}{{end}}

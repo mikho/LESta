@@ -30,6 +30,8 @@ use RuntimeException;
  * @property WebServer $web_server
  * @property PhpVersion|null $php_version
  * @property SslMode $ssl_mode
+ * @property string $waf_mode
+ * @property list<int>|null $waf_excluded_rules
  * @property string|null $certificate_authority
  * @property Carbon|null $certificate_issued_at
  * @property Carbon|null $certificate_expires_at
@@ -40,11 +42,18 @@ use RuntimeException;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'php_version', 'ssl_mode', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
+#[Fillable(['account_id', 'node_id', 'ip_allocation_id', 'domain', 'web_template', 'web_server', 'php_version', 'ssl_mode', 'waf_mode', 'waf_excluded_rules', 'certificate_authority', 'certificate_issued_at', 'certificate_expires_at', 'last_certificate_error', 'desired_state_version'])]
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
     use HasFactory, HasUuid, Suspendable;
+
+    /**
+     * Mirrors the column default, so a model created in memory reads the same as one loaded.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = ['waf_mode' => 'off'];
 
     /**
      * Get the attributes that should be cast.
@@ -57,6 +66,7 @@ class WebDomain extends Model
             'web_server' => WebServer::class,
             'php_version' => PhpVersion::class,
             'ssl_mode' => SslMode::class,
+            'waf_excluded_rules' => 'array',
             'certificate_issued_at' => 'datetime',
             'certificate_expires_at' => 'datetime',
             'suspended_at' => 'datetime',
@@ -182,7 +192,7 @@ class WebDomain extends Model
      * account_id for open_basedir scoping) via toPhpFpmProvisioningPayload() below, resolved
      * separately since it is only ever dispatched when php_version is actually set.
      *
-     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
+     * @return array{domain: string, aliases: array<int, string>, ip_address: string, web_template: string, account_id: int, account_username: string, php_socket: string|null, waf_mode?: string, waf_excluded_rules?: list<int>, adminer_socket: string|null, webmail_socket: string|null, ssl: array{mode: string, certificate_path?: string, private_key_path?: string}, suspended: bool}
      */
     public function toProvisioningPayload(string $capability): array
     {
@@ -199,6 +209,11 @@ class WebDomain extends Model
             $ssl['private_key_path'] = "/var/lib/lesta/acme/certs/{$this->domain}/privkey.pem";
         }
 
+        // Only web.nginx.v1 renders ModSecurity; web.apache.v1 rejects unknown payload fields.
+        $waf = $capability === 'web.nginx.v1'
+            ? ['waf_mode' => $this->waf_mode, 'waf_excluded_rules' => ($this->waf_excluded_rules ?? [])]
+            : [];
+
         return [
             'domain' => $this->domain,
             'aliases' => $this->aliases()->pluck('alias')->all(),
@@ -211,7 +226,7 @@ class WebDomain extends Model
             'webmail_socket' => $this->resolveWebmailSocket($capability),
             'ssl' => $ssl,
             'suspended' => $this->isSuspended(),
-        ];
+        ] + $waf;
     }
 
     /**

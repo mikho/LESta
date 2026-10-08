@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl
+//go:embed templates/default.conf.tmpl templates/suspended.conf.tmpl templates/apache_proxy.conf.tmpl templates/default_ssl.conf.tmpl templates/php.conf.tmpl templates/webmail.conf.tmpl templates/error_pages.tmpl templates/waf.tmpl
 var templateFS embed.FS
 
 // suspendedHTML is the static maintenance page served for every suspended
@@ -94,9 +94,35 @@ type vhostData struct {
 	// on the right resource's vhost; the marker only needs to confirm that,
 	// not which generation rendered it.
 	Marker string
+	// WafMode and WafExcludedRules turn on ModSecurity for this vhost (see
+	// templates/waf.tmpl); WafRulesFile is the node-wide rule set the
+	// installer provides, WafAuditLog this resource's own audit log.
+	WafMode          string
+	WafExcludedRules []int
+	WafRulesFile     string
+	WafAuditLog      string
 	// SuspendedPage is suspendedHTML's content, substituted in only when
 	// rendering the suspended template.
 	SuspendedPage string
+}
+
+const (
+	wafRulesFile = "/etc/lesta/waf/main.conf"
+	wafLogDir    = "/var/log/lesta/waf"
+)
+
+// WafEnabled reports whether the waf partial renders any directives.
+func (d vhostData) WafEnabled() bool {
+	return d.WafMode == "detect" || d.WafMode == "block"
+}
+
+// WafEngine is the SecRuleEngine value for the domain's mode.
+func (d vhostData) WafEngine() string {
+	if d.WafMode == "block" {
+		return "On"
+	}
+
+	return "DetectionOnly"
 }
 
 func (d vhostData) marker() string {
@@ -129,6 +155,8 @@ func (d vhostData) marker() string {
 // funnel through the identical rendering call.
 func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 	data.Marker = data.marker()
+	data.WafRulesFile = wafRulesFile
+	data.WafAuditLog = wafLogDir + "/" + data.ResourceID + ".audit.log"
 
 	name := "default.conf.tmpl"
 
@@ -154,7 +182,7 @@ func renderVhost(data vhostData, suspended bool) ([]byte, error) {
 
 	tmplPath := path.Join("templates", name)
 
-	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl")
+	tmpl, err := template.New(name).ParseFS(templateFS, tmplPath, "templates/error_pages.tmpl", "templates/waf.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parsing template %s: %w", name, err)
 	}

@@ -702,6 +702,61 @@ install_nginx_offline_bundle() {
     add_change web.nginx.v1 generation_retained "/var/lib/lesta/nginx/bundle-generations" "offline-bundle generation bookkeeping updated: current/ now reflects this bundle; previous/ holds the prior generation if the ${seed_name} version actually changed"
 }
 
+# install_waf_rules
+# Best-effort ModSecurity setup for the per-domain WAF (waf_mode in the
+# web.nginx.v1 payload): the nginx connector, the OWASP Core Rule Set, and one
+# node-wide rule file the rendered vhosts include. A domain whose waf_mode is
+# "off" never touches any of it, so a failure here is reported as a change
+# detail, not an error: a domain that asks for the WAF without it then fails
+# its own nginx -t and rolls back with a clear message. The live apt path
+# only; an offline bundle does not vendor these packages.
+install_waf_rules() {
+    local out
+
+    if [ -n "${OFFLINE_BUNDLE}" ]; then
+        add_change web.nginx.v1 skipped /etc/lesta/waf "WAF packages are not part of an offline bundle; domains cannot enable the WAF on this node"
+        return 0
+    fi
+
+    if ! out=$(apt-get install -y libnginx-mod-http-modsecurity modsecurity-crs 2>&1); then
+        add_change web.nginx.v1 skipped /etc/lesta/waf "WAF packages could not be installed (domains cannot enable the WAF on this node): $(printf '%s' "${out}" | tail -n 3 | tr '\n' ' ')"
+        return 0
+    fi
+
+    install -d -m 0755 -o root -g root /etc/lesta/waf || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/waf "failed to create /etc/lesta/waf"
+    install -d -m 0770 -o root -g www-data /var/log/lesta/waf || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta/waf "failed to create /var/log/lesta/waf"
+
+    cat > /etc/lesta/waf/main.conf <<'WAFCONF'
+# Managed by LESta. Do not edit by hand. Per-domain mode, audit log and rule
+# exclusions are rendered into each vhost; this file is the shared rule set.
+SecRuleEngine DetectionOnly
+SecRequestBodyAccess On
+SecRequestBodyLimit 8388608
+SecRequestBodyNoFilesLimit 131072
+SecResponseBodyAccess Off
+SecAuditEngine RelevantOnly
+SecAuditLogType Serial
+SecAuditLogFormat JSON
+SecAuditLogParts AHZ
+Include /etc/modsecurity/crs/crs-setup.conf
+Include /usr/share/modsecurity-crs/rules/*.conf
+WAFCONF
+    chmod 0644 /etc/lesta/waf/main.conf
+
+    cat > /etc/logrotate.d/lesta-waf <<'WAFLOGROTATE'
+/var/log/lesta/waf/*.audit.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+WAFLOGROTATE
+
+    add_change web.nginx.v1 ensured /etc/lesta/waf/main.conf "ModSecurity connector and OWASP Core Rule Set installed; shared rule file written (detection only by default, each domain sets its own mode)"
+}
+
 install_nginx() {
     log_info "install_nginx: installing nginx package and activating web.nginx.v1"
 
@@ -766,6 +821,8 @@ ${NGINX_LOG_DIR}/*.access.log {
 }
 LOGROTATE
     add_change web.nginx.v1 written /etc/logrotate.d/lesta-nginx "logrotate policy installed: daily, 14 rotations, copytruncate (never signals nginx -- metrics.usage.v1's own offset-tracked reader treats a shorter file as freshly rotated)"
+
+    install_waf_rules
 
     # --- sudoers: the real daemon's own nginx -t/-s reload need root too -----
     #
