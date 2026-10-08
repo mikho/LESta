@@ -382,7 +382,14 @@ jobs:
             sudo systemctl reload nginx
           }
           attack="http://127.0.0.1:18080/?q=1%27%20OR%20%271%27=%271%27%20UNION%20SELECT%20password%20FROM%20users--"
-          code() { curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$1"; }
+          # A reload returns before the new workers listen, so retry a refused connection.
+          code() {
+            for _ in $(seq 1 20); do
+              if out=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: waf-proof.test' "$1"); then echo "$out"; return 0; fi
+              sleep 0.5
+            done
+            echo 000
+          }
           trap 'sudo rm -f "$conf"; sudo systemctl reload nginx || true' EXIT
           render On ""
           clean=$(code http://127.0.0.1:18080/)
