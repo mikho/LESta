@@ -276,7 +276,13 @@ func (c *MailCapability) healthCheck(ctx context.Context, payload Payload) error
 		return c.waitSMTPRejects(ctx, probeLocalPart+"@"+payload.Domain)
 	}
 
-	if err := c.waitSMTPRejects(ctx, probeLocalPart+"@"+payload.Domain); err != nil {
+	// With a catch-all set, an unknown address is accepted by design, so the
+	// probe address proves the catch-all took effect instead of the reject.
+	if payload.CatchallEmail != nil {
+		if err := c.waitSMTPAccepts(ctx, probeLocalPart+"@"+payload.Domain); err != nil {
+			return err
+		}
+	} else if err := c.waitSMTPRejects(ctx, probeLocalPart+"@"+payload.Domain); err != nil {
 		return err
 	}
 
