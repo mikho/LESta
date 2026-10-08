@@ -4,6 +4,7 @@ server {
     listen {{.IPAddress}}:{{.Port}};
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+    error_log {{.ErrorLogPath}} warn;
 {{template "waf" .}}
 {{template "ipAccess" .}}
 {{template "redirects" .}}
@@ -38,6 +39,7 @@ server {
     listen {{.IPAddress}}:{{.SSLPort}} ssl;
     server_name {{.Domain}}{{range .Aliases}} {{.}}{{end}};
     access_log {{.AccessLogPath}};
+    error_log {{.ErrorLogPath}} warn;
 {{template "waf" .}}
 {{template "ipAccess" .}}
 {{template "redirects" .}}

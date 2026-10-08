@@ -54,11 +54,18 @@ export default function Edit({
                         title="Edit domain"
                         description="Update this domain's configuration"
                     />
-                    <Button variant="outline" size="sm" asChild>
-                        <Link href={`/domains/${webDomain.uuid}/files`}>
-                            Files
-                        </Link>
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href={`/domains/${webDomain.uuid}/logs`}>
+                                Logs and traffic
+                            </Link>
+                        </Button>
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href={`/domains/${webDomain.uuid}/files`}>
+                                Files
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
 
                 <Form

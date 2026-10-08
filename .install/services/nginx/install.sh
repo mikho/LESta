@@ -817,7 +817,7 @@ install_nginx() {
     add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "per-vhost access-log directory present, mode 0750 root:lesta"
 
     cat > /etc/logrotate.d/lesta-nginx <<LOGROTATE
-${NGINX_LOG_DIR}/*.access.log {
+${NGINX_LOG_DIR}/*.access.log ${NGINX_LOG_DIR}/*.error.log {
     daily
     rotate 14
     compress

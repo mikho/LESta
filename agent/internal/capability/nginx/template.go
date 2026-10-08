@@ -57,6 +57,9 @@ type vhostData struct {
 	// Config.LogDir's own doc comment for why this is per-resource, never a
 	// single combined log).
 	AccessLogPath string
+	// ErrorLogPath is this resource's own error log, next to its access log, so a
+	// tenant can read the errors of their own domain only.
+	ErrorLogPath string
 	// Docroot and PhpSocket are new as of web.php-fpm.v1. Docroot backs
 	// php.conf.tmpl's own `root` directive (this domain's own real
 	// per-domain webroot, per Config.AccountsRoot's own doc comment).

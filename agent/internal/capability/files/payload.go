@@ -33,6 +33,14 @@ type Payload struct {
 	ContentBase64   string `json:"content_base64"`
 	IsDirectory     bool   `json:"is_directory"`
 	Recursive       bool   `json:"recursive"`
+	// LogKind, LogMode and LogLines turn an Observe into a read of this
+	// domain's own web log instead of a file: LogKind is "access" or "error",
+	// LogMode is "tail" (the last LogLines lines), "summary" (traffic figures
+	// from the recent access log) or "download" (the log's last megabytes).
+	// Path must stay empty: a log is never addressed by a path.
+	LogKind  string `json:"log_kind"`
+	LogMode  string `json:"log_mode"`
+	LogLines int    `json:"log_lines"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped
@@ -68,6 +76,16 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 
 	if !usernamePattern.MatchString(p.AccountUsername) {
 		return Payload{}, &ValidationError{Code: "invalid_account_username", Message: "account_username is required and must be a valid system username", Field: "account_username"}
+	}
+
+	if p.LogKind != "" {
+		if p.LogKind != "access" && p.LogKind != "error" {
+			return Payload{}, &ValidationError{Code: "invalid_log_kind", Message: "log_kind must be access or error", Field: "log_kind"}
+		}
+
+		if p.Path != "" || p.NewPath != "" || p.ContentBase64 != "" {
+			return Payload{}, &ValidationError{Code: "invalid_log_request", Message: "a log request cannot carry a path or content", Field: "path"}
+		}
 	}
 
 	if err := validateRelativePath(p.Path, "path"); err != nil {

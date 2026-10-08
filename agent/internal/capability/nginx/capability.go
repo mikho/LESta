@@ -138,6 +138,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		PrivateKeyPath:      payload.SSL.PrivateKeyPath,
 		SSLPort:             c.cfg.SSLPort,
 		AccessLogPath:       filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"),
+		ErrorLogPath:        filepath.Join(c.cfg.LogDir, op.ResourceID+".error.log"),
 		Docroot:             filepath.Join(c.cfg.AccountsRoot, payload.AccountUsername, "domains", op.ResourceID, "public"),
 		PhpSocket:           payload.PhpSocket,
 		AdminerSocket:       payload.AdminerSocket,

@@ -48,6 +48,11 @@ type Config struct {
 	// own "files-manager-apply" CLI mode. Must stay in lockstep with
 	// .install/lib/agent.sh's own AGENT_BINARY_DEST.
 	AgentBinaryPath string
+	// LogDirs are the per-vhost log directories a domain's own access and
+	// error logs live in, tried in order (nginx first: it fronts every
+	// domain, including apache-proxied ones). Production:
+	// /var/log/lesta/nginx and /var/log/lesta/apache.
+	LogDirs []string
 }
 
 // docroot returns AccountsRoot/<accountUsername>/domains/<resourceID>/public,

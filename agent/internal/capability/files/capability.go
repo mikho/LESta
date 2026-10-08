@@ -32,6 +32,19 @@ func (c *Capability) Apply(ctx context.Context, op protocol.OperationEnvelope) (
 		return c.rejectedFromValidationError(op, verr)
 	}
 
+	if payload.LogKind != "" {
+		if op.Operation != protocol.OperationObserve {
+			return c.rejected(op, "unsupported_operation", "logs can only be observed")
+		}
+
+		data, code, message := observeLog(c.cfg, op.ResourceID, payload)
+		if data == nil {
+			return c.rejected(op, code, message)
+		}
+
+		return c.applied(op, data), nil
+	}
+
 	req := applyRequest{
 		AccountUsername: payload.AccountUsername,
 		ResourceID:      op.ResourceID,

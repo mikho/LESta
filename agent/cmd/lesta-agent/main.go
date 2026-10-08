@@ -535,6 +535,7 @@ func filesManagerProductionConfig() files.Config {
 		AccountsRoot:    "/var/lib/lesta/web/accounts",
 		SudoBinary:      "sudo",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
+		LogDirs:         []string{"/var/log/lesta/nginx", "/var/log/lesta/apache"},
 	}
 }
 
