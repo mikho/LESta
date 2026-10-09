@@ -7,7 +7,9 @@ use App\Actions\AccountBackups\RestoreAccountBackup;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupDownload;
 use App\Models\ProvisioningOperation;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * The completion side of a self-service backup: writes what the node reported (size, checksum,
@@ -28,6 +30,7 @@ class RecordsAccountBackupResult
         match ($operation->operation) {
             ProvisioningVerb::Create => $this->recordCreate($backup, $operation),
             ProvisioningVerb::Restore => $this->recordRestore($backup, $operation),
+            ProvisioningVerb::Observe => $this->recordDownload($backup, $operation),
             default => null,
         };
     }
@@ -89,6 +92,28 @@ class RecordsAccountBackupResult
             'last_restore_status' => 'failed',
             'last_restore_error' => __('Nothing was restored: the safety backup taken first failed (:reason).', ['reason' => $reason]),
         ])->save();
+    }
+
+    /**
+     * The node's report on streaming a download: the upload endpoint marks the copy ready when the
+     * final chunk arrives, so only a failure (or a report of success without that) matters here.
+     */
+    private function recordDownload(AccountBackup $backup, ProvisioningOperation $operation): void
+    {
+        $succeeded = in_array($operation->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true);
+
+        $backup->downloads()->where('status', 'pending')->each(function (AccountBackupDownload $download) use ($operation, $succeeded): void {
+            if ($download->path !== null) {
+                Storage::disk('local')->delete($download->path);
+            }
+
+            $download->forceFill([
+                'status' => 'failed',
+                'path' => null,
+                'size_bytes' => 0,
+                'error_message' => $succeeded ? __('The download was not completed.') : ($operation->errors[0]['message'] ?? __('The download could not be prepared.')),
+            ])->save();
+        });
     }
 
     private function recordRestore(AccountBackup $backup, ProvisioningOperation $operation): void

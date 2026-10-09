@@ -1,5 +1,7 @@
 package backup
 
+import "net/http"
+
 // Config parameterizes BackupCapability by the fixed, root-owned artifact
 // directory it writes to and the fixed set of other capabilities' own state
 // roots it may snapshot. Every field here is fixed at process start
@@ -93,4 +95,7 @@ type Config struct {
 	// binaries (test stand-ins); empty means the real ones.
 	DumpBinary   string
 	ClientBinary string
+	// UploadClient overrides the HTTP client a per-account download uses
+	// (tests); nil means a client with a two-minute timeout per request.
+	UploadClient *http.Client
 }

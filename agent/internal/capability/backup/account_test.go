@@ -1,12 +1,21 @@
 package backup_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mikho/LESta/agent/internal/capability/backup"
@@ -294,5 +303,188 @@ func TestAccountBackupFailsCleanlyWhenTheAccountIsTooLarge(t *testing.T) {
 
 	if leftovers, _ := filepath.Glob(filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, "*")); len(leftovers) != 0 {
 		t.Errorf("a failed backup must leave no file behind: %v", leftovers)
+	}
+}
+
+// fakePanel is a stand-in for the control plane's one-time upload address: it
+// accepts chunks only at the expected offset and records what arrived.
+type fakePanel struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	body    bytes.Buffer
+	final   bool
+	refuse  bool
+	chunks  int
+	offsets []int64
+}
+
+func newFakePanel(t *testing.T) *fakePanel {
+	t.Helper()
+
+	p := &fakePanel{}
+
+	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		if r.Method != http.MethodPut || p.refuse {
+			http.Error(w, "refused", http.StatusForbidden)
+
+			return
+		}
+
+		offset, _ := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
+		if offset != int64(p.body.Len()) {
+			http.Error(w, "wrong offset", http.StatusConflict)
+
+			return
+		}
+
+		chunk, _ := io.ReadAll(r.Body)
+		p.body.Write(chunk)
+		p.chunks++
+		p.offsets = append(p.offsets, offset)
+
+		if r.URL.Query().Get("final") == "1" {
+			p.final = true
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	t.Cleanup(p.server.Close)
+
+	return p
+}
+
+func (p *fakePanel) url() string {
+	return p.server.URL + "/agent/v1/account-backup-uploads/" + strings.Repeat("ab", 32)
+}
+
+func TestAccountBackupDownloadStreamsAPlainTarGzToTheUploadAddress(t *testing.T) {
+	h := newAccountHarness(t)
+
+	// A site big enough for several upload chunks.
+	big := make([]byte, 6<<20)
+	_, _ = rand.Read(big)
+
+	if err := os.WriteFile(filepath.Join(h.siteDir, "random.bin"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	panel := newFakePanel(t)
+	capability := backup.New(h.cfg)
+	ctx := context.Background()
+
+	key := newTestEncryptionKey()
+	resourceID := newTestUUID()
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{"encryption_key": key, "account": h.account("files", "databases")}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
+
+	downloaded, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
+		"encryption_key": key, "artifact_path": path, "account": h.account("files", "databases"), "upload_url": panel.url(),
+	}))
+	requireStatus(t, "download", downloaded, err, protocol.StatusApplied)
+
+	if !panel.final || panel.chunks < 3 {
+		t.Errorf("expected several chunks and a final marker, got %d chunks final=%v", panel.chunks, panel.final)
+	}
+
+	// What arrived is a plain gzip tar holding the account's data.
+	gz, err := gzip.NewReader(bytes.NewReader(panel.body.Bytes()))
+	if err != nil {
+		t.Fatalf("the download must be a gzip stream: %v", err)
+	}
+
+	names := map[string]bool{}
+	tr := tar.NewReader(gz)
+
+	for {
+		header, err := tr.Next()
+		if err != nil {
+			break
+		}
+
+		names[header.Name] = true
+	}
+
+	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/shopdb.sql"] || !names["files/"+h.siteID+"/random.bin"] {
+		t.Errorf("unexpected archive content: %v", names)
+	}
+
+	var data struct {
+		BytesSent int64 `json:"bytes_sent"`
+	}
+	_ = json.Unmarshal(downloaded.Data, &data)
+
+	if data.BytesSent != int64(panel.body.Len()) {
+		t.Errorf("bytes_sent %d does not match what arrived %d", data.BytesSent, panel.body.Len())
+	}
+}
+
+func TestAccountBackupDownloadRefusesBadAddressesWrongKeyAndATamperedBackup(t *testing.T) {
+	h := newAccountHarness(t)
+	capability := backup.New(h.cfg)
+	ctx := context.Background()
+
+	key := newTestEncryptionKey()
+	resourceID := newTestUUID()
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{"encryption_key": key, "account": h.account("files")}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
+	panel := newFakePanel(t)
+
+	download := func(key, url string) protocol.ResultEnvelope {
+		result, err := capability.Apply(ctx, newOp(protocol.OperationObserve, resourceID, newTestUUID(), map[string]any{
+			"encryption_key": key, "artifact_path": path, "account": h.account("files"), "upload_url": url,
+		}))
+		if err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+
+		return result
+	}
+
+	for name, url := range map[string]string{
+		"another path":        panel.server.URL + "/admin/secrets",
+		"not an upload token": panel.server.URL + "/agent/v1/account-backup-uploads/short",
+		"a file address":      "file:///etc/passwd",
+		"with a query":        panel.url() + "?x=1",
+	} {
+		if result := download(key, url); result.Status != protocol.StatusFailed {
+			t.Errorf("%s: expected a refusal, got %s", name, result.Status)
+		}
+	}
+
+	if panel.chunks != 0 {
+		t.Errorf("a refused address must receive nothing")
+	}
+
+	if result := download(newTestEncryptionKey(), panel.url()); result.Status != protocol.StatusFailed || panel.final {
+		t.Errorf("the wrong key must fail and never mark the upload final: %s final=%v", result.Status, panel.final)
+	}
+
+	// Damage the end of the sealed file: the chunks that authenticate may be sent,
+	// but the final marker never is.
+	sealed, _ := os.ReadFile(path)
+	sealed[len(sealed)-3] ^= 0xff
+
+	if err := os.WriteFile(path, sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := download(key, panel.url()); result.Status != protocol.StatusFailed || panel.final {
+		t.Errorf("a tampered backup must fail and never be marked complete: %s final=%v", result.Status, panel.final)
+	}
+
+	panel.refuse = true
+
+	if result := download(key, panel.url()); result.Status != protocol.StatusFailed {
+		t.Errorf("a refusing panel must fail the download")
 	}
 }

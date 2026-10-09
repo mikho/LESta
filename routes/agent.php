@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Agent\AgentAccountBackupUploadController;
 use App\Http\Controllers\Agent\AgentCronExecutionController;
 use App\Http\Controllers\Agent\AgentEnrollmentController;
 use App\Http\Controllers\Agent\AgentFileOperationController;
@@ -26,3 +27,9 @@ Route::prefix('agent/v1')->middleware([AuthenticateNodeCredential::class, 'throt
 Route::prefix('agent/v1')->middleware([AuthenticateNodeCredential::class, 'throttle:agent-files'])->group(function () {
     Route::post('file-operations/poll', [AgentFileOperationController::class, 'poll']);
 });
+
+// A node streams a decrypted account backup here, in chunks, for the owner to download (see
+// PrepareAccountBackupDownload). No node credential: the one-time token in the address authorizes it.
+Route::put('agent/v1/account-backup-uploads/{token}', [AgentAccountBackupUploadController::class, 'store'])
+    ->middleware('throttle:600,1')
+    ->name('agent.account-backup-uploads');

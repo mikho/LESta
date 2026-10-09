@@ -35,6 +35,13 @@ type Backup = {
     parts: Part[];
     size_bytes: number | null;
     skipped: string[];
+    download: {
+        status: 'pending' | 'ready' | 'failed';
+        size_bytes: number;
+        expires_at: string;
+        error: string | null;
+        url: string | null;
+    } | null;
     created_at: string | null;
     restore: {
         status: 'running' | 'applied' | 'failed';
@@ -364,7 +371,8 @@ export default function Index({
         backups?.some(
             (backup) =>
                 backup.status === 'running' ||
-                backup.restore?.status === 'running',
+                backup.restore?.status === 'running' ||
+                backup.download?.status === 'pending',
         ) ?? false;
 
     // While something is running on a server, look again every few seconds.
@@ -483,6 +491,32 @@ export default function Index({
 
                                         {can_manage && (
                                             <div className="flex gap-2">
+                                                <Form
+                                                    {...AccountBackupController.prepareDownload.form(
+                                                        backup.uuid,
+                                                    )}
+                                                    options={{
+                                                        preserveScroll: true,
+                                                    }}
+                                                >
+                                                    {({ processing }) => (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            disabled={
+                                                                processing ||
+                                                                backup.status !==
+                                                                    'ready' ||
+                                                                backup.download
+                                                                    ?.status ===
+                                                                    'pending'
+                                                            }
+                                                            aria-label={`Prepare a download of the backup from ${backup.created_at}`}
+                                                        >
+                                                            Download
+                                                        </Button>
+                                                    )}
+                                                </Form>
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
@@ -556,6 +590,61 @@ export default function Index({
                                             left out (links that point outside
                                             your folders or files that changed
                                             while backing up).
+                                        </p>
+                                    )}
+
+                                    {backup.download && (
+                                        <p
+                                            className="text-sm"
+                                            data-test="download-status"
+                                            aria-live="polite"
+                                        >
+                                            {backup.download.status ===
+                                                'pending' &&
+                                                'Preparing the download… this can take a few minutes for a large backup.'}
+                                            {backup.download.status ===
+                                                'ready' &&
+                                                backup.download.url && (
+                                                    <>
+                                                        <a
+                                                            href={
+                                                                backup.download
+                                                                    .url
+                                                            }
+                                                            className="font-medium underline"
+                                                            download
+                                                        >
+                                                            Download the backup
+                                                            (
+                                                            {formatBytes(
+                                                                backup.download
+                                                                    .size_bytes,
+                                                            )}
+                                                            )
+                                                        </a>
+                                                        <span className="text-muted-foreground">
+                                                            {' '}
+                                                            A standard .tar.gz
+                                                            with your files,
+                                                            database dumps and
+                                                            mailboxes. Available
+                                                            until{' '}
+                                                            {new Date(
+                                                                backup.download
+                                                                    .expires_at,
+                                                            ).toLocaleTimeString()}
+                                                            .
+                                                        </span>
+                                                    </>
+                                                )}
+                                            {backup.download.status ===
+                                                'failed' && (
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    The download could not be
+                                                    prepared:{' '}
+                                                    {backup.download.error}
+                                                </span>
+                                            )}
                                         </p>
                                     )}
 

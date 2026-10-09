@@ -259,6 +259,10 @@ func (c *BackupCapability) applyObserve(op protocol.OperationEnvelope) (protocol
 		return c.rejectedFromValidationError(op, verr)
 	}
 
+	if payload.Account != nil {
+		return c.applyAccountDownloadOp(context.Background(), op, payload)
+	}
+
 	cleaned := filepath.Clean(*payload.ArtifactPath)
 	if !isWithinRoot(cleaned, c.cfg.ArtifactsRoot) {
 		return c.rejected(op, "artifact_path_outside_root",

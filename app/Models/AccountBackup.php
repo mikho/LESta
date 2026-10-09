@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Carbon;
 
@@ -106,6 +107,14 @@ class AccountBackup extends Model
         return $this->morphOne(ProvisioningOperation::class, 'provisionable')->latestOfMany();
     }
 
+    /**
+     * @return HasMany<AccountBackupDownload, $this>
+     */
+    public function downloads(): HasMany
+    {
+        return $this->hasMany(AccountBackupDownload::class);
+    }
+
     public function isComplete(): bool
     {
         return in_array($this->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true);
@@ -144,6 +153,22 @@ class AccountBackup extends Model
             'artifact_path' => $this->artifact_path,
             'encryption_key' => $this->encryption_key,
             'account' => $scope + ['parts' => $parts],
+        ];
+    }
+
+    /**
+     * What the node needs to stream this backup, decrypted, to a one-time upload address.
+     *
+     * @param  array{username: string, web_resources: list<string>, mail_domains: list<string>, databases: list<string>}  $scope
+     * @return array{artifact_path: string|null, encryption_key: string, upload_url: string, account: array<string, mixed>}
+     */
+    public function toDownloadPayload(array $scope, string $uploadUrl): array
+    {
+        return [
+            'artifact_path' => $this->artifact_path,
+            'encryption_key' => $this->encryption_key,
+            'upload_url' => $uploadUrl,
+            'account' => $scope + ['parts' => $this->parts ?? $this->requested_parts],
         ];
     }
 

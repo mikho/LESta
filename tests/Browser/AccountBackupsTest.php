@@ -43,6 +43,14 @@ test('an owner backs up, restores part of a backup with confirmation, and delete
         ->assertDontSee('Restore this backup')
         ->assertNoJavaScriptErrors();
 
+    // The fake node cannot upload anything, so a requested download ends up reported as failed:
+    // the button, the request and the status line are what is checked here.
+    $page = visit(route('account-backups.index'));
+
+    $page->click('[aria-label="Prepare a download of the backup from '.$backup->created_at->toIso8601String().'"]')
+        ->assertSee('The download could not be prepared')
+        ->assertNoJavaScriptErrors();
+
     $page->click('[aria-label="Delete the backup from '.$backup->created_at->toIso8601String().'"]')
         ->assertNoJavaScriptErrors();
 

@@ -32,6 +32,14 @@ class AccountBackupPolicy
         return $user->hasAccountRole($backup->account, 'owner');
     }
 
+    /**
+     * Downloading hands over all of the account's data, so it is an owner's action.
+     */
+    public function download(User $user, AccountBackup $backup): bool
+    {
+        return $user->hasAccountRole($backup->account, 'owner');
+    }
+
     public function delete(User $user, AccountBackup $backup): bool
     {
         return $user->hasAccountRole($backup->account, 'owner');

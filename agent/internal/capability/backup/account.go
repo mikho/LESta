@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -16,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
@@ -125,6 +128,7 @@ type accountRequest struct {
 	ArtifactPath  string         `json:"artifact_path"`
 	EncryptionKey string         `json:"encryption_key"`
 	Account       AccountPayload `json:"account"`
+	UploadURL     string         `json:"upload_url,omitempty"`
 }
 
 // accountResponse is the one JSON object the helper writes.
@@ -199,6 +203,8 @@ func applyAccount(ctx context.Context, cfg Config, req accountRequest) accountRe
 		return applyAccountCreate(ctx, cfg, req, artifact)
 	case "restore":
 		return applyAccountRestore(ctx, cfg, req, artifact)
+	case "download":
+		return applyAccountDownload(ctx, cfg, req, artifact)
 	}
 
 	return accountError("unsupported_verb", "the verb must be create or restore")
@@ -595,4 +601,170 @@ func fileChecksum(path string) (string, error) {
 	}
 
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// ---- download -------------------------------------------------------------
+
+var uploadPathPattern = regexp.MustCompile(`^/agent/v1/account-backup-uploads/[0-9a-f]{64}$`)
+
+const (
+	// downloadChunkSize is how much of the backup one upload request carries,
+	// below the panel's request size limit.
+	downloadChunkSize = 4 << 20
+	downloadAttempts  = 3
+)
+
+type accountDownloadData struct {
+	BytesSent int64 `json:"bytes_sent"`
+}
+
+// applyAccountDownload decrypts the account backup on this node and streams it to
+// the control plane's one-time upload address as a plain tar.gz, in chunks of
+// downloadChunkSize at increasing offsets, then sends an empty final chunk. The
+// final chunk is sent only after the whole sealed archive authenticated, so a
+// damaged or truncated backup is never offered as a complete download.
+func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, artifact string) accountResponse {
+	target, err := url.Parse(req.UploadURL)
+	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" || target.RawQuery != "" || !uploadPathPattern.MatchString(target.Path) {
+		return accountError("invalid_upload_url", "the upload address is not a one-time backup upload address")
+	}
+
+	f, err := os.OpenFile(artifact, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return accountError("artifact_not_found", "the backup file no longer exists on this node")
+	} else if err != nil {
+		return accountError("artifact_read_failed", err.Error())
+	}
+
+	defer func() { _ = f.Close() }()
+
+	sr, err := newSealReader(f, req.EncryptionKey)
+	if err != nil {
+		return accountError("decryption_failed", err.Error())
+	}
+
+	client := cfg.uploadClient()
+	buf := make([]byte, downloadChunkSize)
+
+	var offset int64
+
+	for {
+		n, readErr := io.ReadFull(sr, buf)
+		if n > 0 {
+			if err := uploadChunk(ctx, client, target, offset, false, buf[:n]); err != nil {
+				return accountError("upload_failed", err.Error())
+			}
+
+			offset += int64(n)
+		}
+
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			break
+		}
+
+		if readErr != nil {
+			return accountError("decryption_failed", readErr.Error())
+		}
+	}
+
+	if err := uploadChunk(ctx, client, target, offset, true, nil); err != nil {
+		return accountError("upload_failed", err.Error())
+	}
+
+	data, _ := json.Marshal(accountDownloadData{BytesSent: offset})
+
+	return accountResponse{OK: true, Data: data}
+}
+
+func (c Config) uploadClient() *http.Client {
+	if c.UploadClient != nil {
+		return c.UploadClient
+	}
+
+	return &http.Client{Timeout: 2 * time.Minute}
+}
+
+// uploadChunk PUTs one chunk at offset, retrying a failed attempt a few times.
+func uploadChunk(ctx context.Context, client *http.Client, base *url.URL, offset int64, final bool, body []byte) error {
+	target := *base
+	query := url.Values{"offset": {strconv.FormatInt(offset, 10)}}
+
+	if final {
+		query.Set("final", "1")
+	}
+
+	target.RawQuery = query.Encode()
+
+	var lastErr error
+
+	for attempt := 1; attempt <= downloadAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, target.String(), bytes.NewReader(body))
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("Content-Type", "application/octet-stream")
+
+		resp, err := client.Do(req)
+		if err == nil {
+			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
+
+			if resp.StatusCode/100 == 2 {
+				return nil
+			}
+
+			// A refusal (bad token, wrong offset, too large) will not change on retry.
+			if resp.StatusCode/100 == 4 {
+				return fmt.Errorf("the control plane refused the upload (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
+			}
+
+			err = fmt.Errorf("the control plane answered %d", resp.StatusCode)
+		}
+
+		lastErr = err
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+		}
+	}
+
+	return fmt.Errorf("uploading a chunk at %d failed: %w", offset, lastErr)
+}
+
+// applyAccountDownloadOp is the daemon's half of a download: the helper runs as
+// root (the sealed file is private), the network request is made by it.
+func (c *BackupCapability) applyAccountDownloadOp(ctx context.Context, op protocol.OperationEnvelope, payload Payload) (protocol.ResultEnvelope, error) {
+	if payload.EncryptionKey == nil || !encryptionKeyPattern.MatchString(*payload.EncryptionKey) {
+		return c.rejected(op, "invalid_encryption_key", "encryption_key must be a 64-character lowercase hex string", "encryption_key")
+	}
+
+	if payload.UploadURL == nil || *payload.UploadURL == "" {
+		return c.rejected(op, "invalid_upload_url", "upload_url is required for a download", "upload_url")
+	}
+
+	if err := validateAccountPayload(payload.Account); err != nil {
+		return c.rejectedFromValidationError(op, err)
+	}
+
+	artifact := filepath.Clean(*payload.ArtifactPath)
+	if !isWithinRoot(artifact, c.cfg.ArtifactsRoot) {
+		return c.rejected(op, "artifact_path_outside_root", "artifact_path is not within the owned artifacts root", "artifact_path")
+	}
+
+	resp, err := c.runAccountHelper(ctx, accountRequest{Verb: "download", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, UploadURL: *payload.UploadURL})
+	if err != nil {
+		return c.failed(op, "account_helper_failed", err.Error())
+	}
+
+	if !resp.OK {
+		return c.failed(op, resp.Code, resp.Message)
+	}
+
+	result := c.buildResult(op, protocol.StatusApplied, nil)
+	result.Data = resp.Data
+
+	return result, nil
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Backups;
 
 use App\Actions\AccountBackups\CreateAccountBackup;
 use App\Actions\AccountBackups\DeleteAccountBackup;
+use App\Actions\AccountBackups\PrepareAccountBackupDownload;
 use App\Actions\AccountBackups\ResolvesAccountBackupScope;
 use App\Actions\AccountBackups\RestoreAccountBackup;
 use App\Concerns\ResolvesCurrentAccount;
@@ -11,15 +12,19 @@ use App\Enums\ProvisioningStatus;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupDownload;
 use App\Models\AccountBackupSchedule;
 use App\Models\Node;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * An account's own backups: back up now, restore chosen parts, delete. See
@@ -42,7 +47,7 @@ class AccountBackupController extends Controller
         $resolver = app(ResolvesAccountBackupScope::class);
 
         return Inertia::render('account-backups/index', [
-            'backups' => $account->hasMany(AccountBackup::class)->with('node:id,uuid,name')->latest('id')->get()->map(fn (AccountBackup $backup): array => $this->present($backup))->all(),
+            'backups' => $account->hasMany(AccountBackup::class)->with(['node:id,uuid,name', 'downloads'])->latest('id')->get()->map(fn (AccountBackup $backup): array => $this->present($backup))->all(),
             'nodes' => array_map(function (Node $node) use ($account, $resolver): array {
                 $scope = $resolver->for($account, $node);
 
@@ -139,6 +144,36 @@ class AccountBackupController extends Controller
         return to_route('account-backups.index');
     }
 
+    /**
+     * Asks the node to prepare a downloadable copy; the page shows it when it is ready.
+     */
+    public function prepareDownload(Request $request, AccountBackup $backup): RedirectResponse
+    {
+        try {
+            app(PrepareAccountBackupDownload::class)->handle($request->user(), $backup);
+        } catch (NoBackupCapableNodeAvailableException) {
+            throw ValidationException::withMessages(['backup' => __('Backups are not available on :node.', ['node' => $backup->node->name])]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Preparing the download. It appears here in a moment.')]);
+
+        return to_route('account-backups.index');
+    }
+
+    /**
+     * Streams a ready copy as a tar.gz. It stays available until it expires.
+     */
+    public function download(AccountBackup $backup, AccountBackupDownload $download): StreamedResponse
+    {
+        Gate::authorize('download', $backup);
+
+        abort_unless($download->account_backup_id === $backup->id && $download->isReady() && $download->path !== null && Storage::disk('local')->exists($download->path), 404);
+
+        $name = Str::slug($backup->account->name).'-backup-'.($backup->completed_at ?? $backup->created_at)?->format('Y-m-d-Hi').'.tar.gz';
+
+        return Storage::disk('local')->download($download->path, $name, ['Content-Type' => 'application/gzip']);
+    }
+
     public function destroy(Request $request, AccountBackup $backup): RedirectResponse
     {
         app(DeleteAccountBackup::class)->handle($request->user(), $backup);
@@ -146,6 +181,26 @@ class AccountBackupController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Backup deleted.')]);
 
         return to_route('account-backups.index');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function presentDownload(AccountBackup $backup): ?array
+    {
+        $download = $backup->downloads->sortByDesc('id')->first();
+
+        if ($download === null || ($download->status !== 'failed' && $download->expires_at->isPast())) {
+            return null;
+        }
+
+        return [
+            'status' => $download->status,
+            'size_bytes' => $download->size_bytes,
+            'expires_at' => $download->expires_at->toIso8601String(),
+            'error' => $download->error_message,
+            'url' => $download->isReady() ? route('account-backups.download', [$backup, $download]) : null,
+        ];
     }
 
     /**
@@ -180,6 +235,7 @@ class AccountBackupController extends Controller
             'error' => $backup->error_message,
             'parts' => $backup->parts ?? $backup->requested_parts,
             'size_bytes' => $backup->size_bytes,
+            'download' => $this->presentDownload($backup),
             'skipped' => $backup->report['skipped'] ?? [],
             'created_at' => $backup->created_at?->toIso8601String(),
             'restore' => $backup->last_restore_status === null ? null : [

@@ -27,6 +27,10 @@ type Payload struct {
 	// that account's own data only (see account.go) instead of the whole-node
 	// snapshot every other shape of this payload describes.
 	Account *AccountPayload `json:"account,omitempty"`
+	// UploadURL, on a per-account observe, is where the node streams the
+	// decrypted backup (a plain tar.gz) to, in chunks: a one-time address on the
+	// control plane (see account.go's download).
+	UploadURL *string `json:"upload_url,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
