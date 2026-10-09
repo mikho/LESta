@@ -283,6 +283,34 @@ export default function Index({
                                                 </Link>
                                             </Button>
 
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                asChild
+                                            >
+                                                <Link
+                                                    href={domains.files.index(
+                                                        webDomain,
+                                                    )}
+                                                >
+                                                    Files
+                                                </Link>
+                                            </Button>
+
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                asChild
+                                            >
+                                                <Link
+                                                    href={domains.logs.index(
+                                                        webDomain,
+                                                    )}
+                                                >
+                                                    Logs
+                                                </Link>
+                                            </Button>
+
                                             {webDomain.suspended_at ? (
                                                 <Dialog>
                                                     <DialogTrigger asChild>

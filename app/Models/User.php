@@ -26,6 +26,10 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $two_factor_recovery_codes
  * @property Carbon|null $two_factor_confirmed_at
  * @property string|null $remember_token
+ * @property Carbon|null $last_login_at
+ * @property string|null $last_login_ip
+ * @property Carbon|null $previous_login_at
+ * @property string|null $previous_login_ip
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -56,6 +60,8 @@ class User extends Authenticatable implements PasskeyUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
+            'last_login_at' => 'datetime',
+            'previous_login_at' => 'datetime',
         ];
     }
 

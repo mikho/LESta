@@ -33,8 +33,10 @@ class StopImpersonation
             'metadata' => ['membership_id' => $membershipId],
         ]);
 
-        $request->session()->forget(['impersonator_id', 'impersonated_membership_id']);
+        // Logged back in while the impersonation keys are still set, so RecordSignIn does not count
+        // this as the admin signing in.
         Auth::loginUsingId($admin->id);
+        $request->session()->forget(['impersonator_id', 'impersonated_membership_id']);
         $request->session()->regenerate();
     }
 }

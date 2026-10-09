@@ -63,3 +63,16 @@ test('stopping impersonation restores the admin session and returns to the accou
     expect(auth()->id())->toBe($admin->id)
         ->and(AuditEvent::where('action', 'impersonation.ended')->exists())->toBeTrue();
 });
+
+test('impersonating and stopping never records a sign-in for either user', function () {
+    $account = Account::factory()->create();
+    $membership = Membership::factory()->for($account)->owner()->create();
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+
+    $this->actingAs($admin)
+        ->post(route('impersonation.store', $membership), ['reason' => 'support ticket #123']);
+    $this->delete(route('impersonation.destroy'));
+
+    expect($admin->fresh()->last_login_at)->toBeNull()
+        ->and($membership->user->fresh()->last_login_at)->toBeNull();
+});
