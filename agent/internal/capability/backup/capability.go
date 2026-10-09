@@ -153,6 +153,10 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 		return c.rejectedFromValidationError(op, verr)
 	}
 
+	if payload.Account != nil {
+		return c.applyAccountCreateOp(ctx, op, payload)
+	}
+
 	included := discoverIncludedCapabilities(c.cfg.StateRoots)
 	artifactPath := filepath.Join(c.cfg.ArtifactsRoot, op.ResourceID+".tar.enc")
 

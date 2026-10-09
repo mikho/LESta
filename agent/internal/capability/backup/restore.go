@@ -69,6 +69,10 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 			fmt.Sprintf("artifact_path %q is not within the owned artifacts root %q", *payload.ArtifactPath, c.cfg.ArtifactsRoot), "artifact_path")
 	}
 
+	if payload.Account != nil {
+		return c.applyAccountRestoreOp(ctx, op, payload)
+	}
+
 	sealed, err := os.ReadFile(cleaned)
 	if os.IsNotExist(err) {
 		return c.rejected(op, "artifact_not_found", fmt.Sprintf("no artifact exists at %q", *payload.ArtifactPath), "artifact_path")

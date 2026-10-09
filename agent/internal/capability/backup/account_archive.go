@@ -21,13 +21,13 @@ import (
 // sealed stream of stream.go. Entry names are "manifest.json" first, then
 // "databases/<name>.sql", "mail/<domain>/...", and "files/<resource id>/...",
 // written in that order so a restore can finish the parts that need root
-// before it gives root up for the tenant's own files.
+// before the tenant's own files. The tenant's files are read and written under the tenant's own filesystem identity.
 //
 // Nothing in an archive is trusted to name a destination: the destination of
 // every entry is built from a validated part root plus the cleaned remainder of
 // the entry name, links are only recreated when they stay inside the part, and
-// the tenant's files are written only after dropping to the tenant's own
-// user, so a link planted in a live site cannot be used to write elsewhere.
+// the tenant's files are read and written under the tenant's own filesystem
+// identity, so a link planted in a live site cannot be used to write elsewhere.
 
 const (
 	partFiles     = "files"
@@ -65,10 +65,11 @@ type archiveSource struct {
 	MailDirs map[string]string
 	// DocRoots maps a web resource id to that site's folder.
 	DocRoots map[string]string
-	// DropPrivileges runs once, before the tenant's own files are read. Nil
-	// outside production.
-	DropPrivileges func() error
-	MaxBytes       int64
+	// AsAccount runs fn with the tenant's own filesystem identity, so a link in
+	// the live site cannot make a root process read another account's or the
+	// system's files. Nil runs fn as is (tests).
+	AsAccount func(fn func() error) error
+	MaxBytes  int64
 }
 
 // archiveReport is what an archive contained.
@@ -163,14 +164,23 @@ func writeAccountArchive(w io.Writer, hexKey string, src archiveSource) (archive
 		}
 	}
 
-	if len(src.DocRoots) > 0 && src.DropPrivileges != nil {
-		if err := src.DropPrivileges(); err != nil {
-			return report, fmt.Errorf("dropping to the account's own user: %w", err)
-		}
-	}
+	if len(src.DocRoots) > 0 {
+		readFiles := func() error {
+			for _, id := range sortedKeys(src.DocRoots) {
+				if err := addTree(tw, partFiles+"/"+id, src.DocRoots[id], nil, func(n int64) error { return count(partFiles, n) }, &report); err != nil {
+					return err
+				}
+			}
 
-	for _, id := range sortedKeys(src.DocRoots) {
-		if err := addTree(tw, partFiles+"/"+id, src.DocRoots[id], nil, func(n int64) error { return count(partFiles, n) }, &report); err != nil {
+			return nil
+		}
+
+		asAccount := src.AsAccount
+		if asAccount == nil {
+			asAccount = func(fn func() error) error { return fn() }
+		}
+
+		if err := asAccount(readFiles); err != nil {
 			return report, err
 		}
 	}
@@ -378,8 +388,10 @@ type restoreTarget struct {
 	Databases map[string]bool
 	// RestoreDatabase receives the dump of one database.
 	RestoreDatabase func(name string, sql io.Reader) error
-	// DropPrivileges runs once, before the first file of the files part.
-	DropPrivileges func() error
+	// AsAccount runs fn with the tenant's own filesystem identity, so what the
+	// files part creates is owned by the tenant and a planted link cannot be
+	// used to write anywhere the tenant could not. Nil runs fn as is (tests).
+	AsAccount func(fn func() error) error
 	// Chown sets the owner of a restored mail path; nil leaves the owner.
 	Chown func(path string, uid, gid int) error
 }
@@ -408,7 +420,6 @@ func restoreAccountArchive(r io.Reader, hexKey string, t restoreTarget) (restore
 	}
 
 	tr := tar.NewReader(gz)
-	dropped := false
 	touched := map[string]bool{}
 
 	for {
@@ -456,22 +467,18 @@ func restoreAccountArchive(r io.Reader, hexKey string, t restoreTarget) (restore
 				continue
 			}
 
-			if part == partFiles && !dropped {
-				if t.DropPrivileges != nil {
-					if err := t.DropPrivileges(); err != nil {
-						return report, fmt.Errorf("dropping to the account's own user: %w", err)
-					}
-				}
-
-				dropped = true
-			}
-
 			chown := t.Chown
+			run := func(fn func() error) error { return fn() }
+
 			if part == partFiles {
 				chown = nil
+
+				if t.AsAccount != nil {
+					run = t.AsAccount
+				}
 			}
 
-			if err := extractEntry(tr, header, dest, rel, chown); err != nil {
+			if err := run(func() error { return extractEntry(tr, header, dest, rel, chown) }); err != nil {
 				report.Skipped = append(report.Skipped, header.Name+": "+err.Error())
 
 				continue

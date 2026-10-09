@@ -81,4 +81,16 @@ type Config struct {
 	// matching this package's own disposable test harness, which owns its
 	// own temp directories outright.
 	AgentBinaryPath string
+
+	// AccountsRoot is the chroot accounts root every per-domain site folder nests
+	// under (<AccountsRoot>/<user>/domains/<resource id>/public), the same value
+	// the files and nginx capabilities use. Used only by per-account backups.
+	AccountsRoot string
+	// MaxAccountSourceBytes bounds how much data one per-account backup may
+	// hold; zero means 5 GB.
+	MaxAccountSourceBytes int64
+	// DumpBinary and ClientBinary override the MariaDB dump and client
+	// binaries (test stand-ins); empty means the real ones.
+	DumpBinary   string
+	ClientBinary string
 }

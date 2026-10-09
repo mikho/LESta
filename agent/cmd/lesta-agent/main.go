@@ -181,6 +181,15 @@ func main() {
 		os.Exit(files.Apply(filesManagerProductionConfig(), os.Stdin, os.Stdout))
 	}
 
+	// "backup-account-apply" is the per-account mode of
+	// backup.encrypted-artifacts.v1: reading a tenant's folders and mailboxes
+	// and dumping or loading its databases needs root, so the daemon re-invokes
+	// this binary through sudo (scoped by the backups installer's sudoers rule)
+	// with one JSON request on stdin, the same pattern as files-manager-apply.
+	if len(os.Args) >= 2 && os.Args[1] == "backup-account-apply" {
+		os.Exit(backup.ApplyAccount(backupProductionConfig(), os.Stdin, os.Stdout))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
@@ -723,6 +732,9 @@ func backupProductionConfig() backup.Config {
 			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
 		VMailRoot: "/var/lib/lesta/mail/vmail",
+		// AccountsRoot backs per-account backups (the same chroot accounts
+		// root the files and nginx capabilities use).
+		AccountsRoot: "/var/lib/lesta/web/accounts",
 		// The real lesta-agent-daemon systemd unit runs as the
 		// unprivileged lesta-agent user, confirmed directly
 		// deploying to a real node: dumpSocket's/restoreSocket's own

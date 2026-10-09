@@ -23,6 +23,10 @@ type Payload struct {
 	Label         *string `json:"label,omitempty"`
 	EncryptionKey *string `json:"encryption_key,omitempty"`
 	ArtifactPath  *string `json:"artifact_path,omitempty"`
+	// Account, when present, makes this a per-account backup or restore of
+	// that account's own data only (see account.go) instead of the whole-node
+	// snapshot every other shape of this payload describes.
+	Account *AccountPayload `json:"account,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -53,6 +57,10 @@ func ParseCreatePayload(raw json.RawMessage) (Payload, error) {
 			Message: "encryption_key must be a 64-character lowercase hex string (a 32-byte AES-256 key)",
 			Field:   "encryption_key",
 		}
+	}
+
+	if err := validateAccountPayload(p.Account); err != nil {
+		return Payload{}, err
 	}
 
 	return p, nil
@@ -91,6 +99,10 @@ func ParseRestorePayload(raw json.RawMessage) (Payload, error) {
 			Message: "encryption_key must be a 64-character lowercase hex string (a 32-byte AES-256 key)",
 			Field:   "encryption_key",
 		}
+	}
+
+	if err := validateAccountPayload(p.Account); err != nil {
+		return Payload{}, err
 	}
 
 	return p, nil
