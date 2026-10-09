@@ -16,6 +16,7 @@ require __DIR__.'/mail.php';
 require __DIR__.'/tenant-databases.php';
 require __DIR__.'/cron-jobs.php';
 require __DIR__.'/ip-rules.php';
+require __DIR__.'/account-backups.php';
 require __DIR__.'/nodes.php';
 require __DIR__.'/packages.php';
 require __DIR__.'/backups.php';

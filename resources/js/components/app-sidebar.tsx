@@ -1,6 +1,7 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
     Archive,
+    ArchiveRestore,
     BarChart3,
     BookOpen,
     Building2,
@@ -28,6 +29,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import accountBackups from '@/routes/account-backups';
 import accounts from '@/routes/accounts';
 import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
@@ -115,6 +117,12 @@ const rolesNavItem: NavItem = {
     icon: ShieldCheck,
 };
 
+const myBackupsNavItem: NavItem = {
+    title: 'My backups',
+    href: accountBackups.index(),
+    icon: ArchiveRestore,
+};
+
 const myAccountNavItem: NavItem = {
     title: 'My account',
     href: accounts.mine(),
@@ -144,7 +152,7 @@ export function AppSidebar() {
     if (auth.has_any_account_membership) {
         // Independent of admin/node-admin capacity: a provider admin who also happens to hold a
         // real membership sees both the platform-wide Accounts list and their own account.
-        items = [...items, myAccountNavItem];
+        items = [...items, myBackupsNavItem, myAccountNavItem];
     }
 
     return (

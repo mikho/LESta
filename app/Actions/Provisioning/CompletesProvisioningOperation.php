@@ -20,6 +20,7 @@ class CompletesProvisioningOperation
         private PublishesDkimDnsRecord $publishesDkimDnsRecord,
         private PreparesBackupDownload $preparesBackupDownload,
         private CascadesRestoreIntoResync $cascadesRestoreIntoResync,
+        private RecordsAccountBackupResult $recordsAccountBackupResult,
     ) {}
 
     public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
@@ -40,5 +41,6 @@ class CompletesProvisioningOperation
         $this->publishesDkimDnsRecord->handle($operation);
         $this->preparesBackupDownload->handle($operation);
         $this->cascadesRestoreIntoResync->handle($operation);
+        $this->recordsAccountBackupResult->handle($operation);
     }
 }
