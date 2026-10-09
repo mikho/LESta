@@ -211,3 +211,23 @@ test('expired downloads and their files are pruned', function () {
         ->and(Storage::disk('local')->exists('account-backup-downloads/old.tar.gz'))->toBeFalse()
         ->and(Storage::disk('local')->exists('account-backup-downloads/new.tar.gz'))->toBeTrue();
 });
+
+test('deleting a backup removes its prepared downloads, and the prune sweeps stray old files', function () {
+    [, , $owner, $backup] = accountWithCompletedBackup();
+    Storage::disk('local')->put('account-backup-downloads/mine.tar.gz', 'x');
+    Storage::disk('local')->put('account-backup-downloads/stray-old.tar.gz', 'x');
+    Storage::disk('local')->put('account-backup-downloads/stray-new.tar.gz', 'x');
+    AccountBackupDownload::factory()->create(['account_backup_id' => $backup->id, 'status' => 'ready', 'path' => 'account-backup-downloads/mine.tar.gz', 'expires_at' => now()->addMinutes(30)]);
+
+    touch(Storage::disk('local')->path('account-backup-downloads/stray-old.tar.gz'), now()->subHours(5)->getTimestamp());
+
+    $this->artisan('account-backups:prune-downloads')->assertSuccessful();
+
+    expect(Storage::disk('local')->exists('account-backup-downloads/stray-old.tar.gz'))->toBeFalse()
+        ->and(Storage::disk('local')->exists('account-backup-downloads/stray-new.tar.gz'))->toBeTrue()
+        ->and(Storage::disk('local')->exists('account-backup-downloads/mine.tar.gz'))->toBeTrue();
+
+    $this->actingAs($owner)->delete(route('account-backups.destroy', $backup))->assertSessionHasNoErrors();
+
+    expect(Storage::disk('local')->exists('account-backup-downloads/mine.tar.gz'))->toBeFalse();
+});

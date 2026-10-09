@@ -10,6 +10,7 @@ use App\Models\AuditEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -61,6 +62,9 @@ class DeleteAccountBackup
                 $backup->desired_state_version,
             );
         }
+
+        // The prepared downloads go with the backup; their rows are removed by the cascade.
+        $backup->downloads()->whereNotNull('path')->pluck('path')->each(fn (string $path) => Storage::disk('local')->delete($path));
 
         $backup->delete();
     }

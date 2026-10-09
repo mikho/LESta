@@ -29,7 +29,18 @@ class PruneAccountBackupDownloads extends Command
             $removed++;
         });
 
-        $this->info("Removed {$removed} expired download(s).");
+        // A file no row refers to (left by a crash, say) is removed once it is a few hours old.
+        $referenced = AccountBackupDownload::query()->whereNotNull('path')->pluck('path')->all();
+        $disk = Storage::disk('local');
+
+        foreach ($disk->files('account-backup-downloads') as $file) {
+            if (! in_array($file, $referenced, true) && $disk->lastModified($file) < now()->subHours(3)->getTimestamp()) {
+                $disk->delete($file);
+                $removed++;
+            }
+        }
+
+        $this->info("Removed {$removed} expired download(s) and stray file(s).");
 
         return self::SUCCESS;
     }
