@@ -11,6 +11,7 @@ use App\Enums\ProvisioningStatus;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupSchedule;
 use App\Models\Node;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,7 +34,7 @@ class AccountBackupController extends Controller
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {
-            return Inertia::render('account-backups/index', ['backups' => null, 'nodes' => [], 'keep' => AccountBackup::KEEP]);
+            return Inertia::render('account-backups/index', ['backups' => null, 'nodes' => [], 'keep' => AccountBackup::KEEP_BY_KIND, 'schedule' => null]);
         }
 
         Gate::authorize('viewAny', [AccountBackup::class, $account]);
@@ -53,7 +54,8 @@ class AccountBackupController extends Controller
                     'can_back_up' => $node->capabilities()->where('capability', 'backup.encrypted-artifacts.v1')->whereNull('suspended_at')->exists(),
                 ];
             }, $resolver->nodesWithData($account)),
-            'keep' => AccountBackup::KEEP,
+            'keep' => AccountBackup::KEEP_BY_KIND,
+            'schedule' => $this->presentSchedule($account->backupSchedule),
             'can_manage' => $request->user()->can('create', [AccountBackup::class, $account]),
         ]);
     }
@@ -87,6 +89,35 @@ class AccountBackupController extends Controller
         return to_route('account-backups.index');
     }
 
+    /**
+     * Sets the account's automatic backup schedule: off, daily or weekly, and what to include.
+     */
+    public function updateSchedule(Request $request): RedirectResponse
+    {
+        $account = $this->resolveAccount($request->user());
+
+        abort_if($account === null, 404);
+
+        Gate::authorize('create', [AccountBackup::class, $account]);
+
+        $data = $request->validate([
+            'frequency' => ['required', Rule::in(AccountBackupSchedule::FREQUENCIES)],
+            'parts' => ['required_unless:frequency,off', 'array'],
+            'parts.*' => ['string', Rule::in(AccountBackup::PARTS)],
+        ], ['parts.required_unless' => __('Choose what to back up.')]);
+
+        $schedule = $account->backupSchedule ?? new AccountBackupSchedule(['account_id' => $account->id, 'parts' => AccountBackup::PARTS]);
+
+        $parts = array_values(array_intersect(AccountBackup::PARTS, $data['parts'] ?? $schedule->parts));
+
+        $schedule->forceFill(['account_id' => $account->id, 'frequency' => $data['frequency'], 'parts' => $parts === [] ? AccountBackup::PARTS : $parts]);
+        $schedule->forceFill(['next_run_at' => $data['frequency'] === 'off' ? null : $schedule->nextRunAfter(now())])->save();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => $data['frequency'] === 'off' ? __('Automatic backups are off.') : __('Automatic backups saved.')]);
+
+        return to_route('account-backups.index');
+    }
+
     public function restore(Request $request, AccountBackup $backup): RedirectResponse
     {
         Gate::authorize('restore', $backup);
@@ -115,6 +146,24 @@ class AccountBackupController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Backup deleted.')]);
 
         return to_route('account-backups.index');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function presentSchedule(?AccountBackupSchedule $schedule): array
+    {
+        if ($schedule === null) {
+            return ['frequency' => 'off', 'parts' => AccountBackup::PARTS, 'next_run_at' => null, 'last_run_at' => null, 'last_message' => null];
+        }
+
+        return [
+            'frequency' => $schedule->frequency,
+            'parts' => $schedule->parts,
+            'next_run_at' => $schedule->next_run_at?->toIso8601String(),
+            'last_run_at' => $schedule->last_run_at?->toIso8601String(),
+            'last_message' => $schedule->last_message,
+        ];
     }
 
     /**

@@ -15,13 +15,20 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 type Part = 'files' | 'databases' | 'mail';
 
 type Backup = {
     uuid: string;
     label: string | null;
-    kind: 'manual' | 'before_restore';
+    kind: 'manual' | 'scheduled' | 'before_restore';
     node: string;
     status: 'running' | 'ready' | 'failed';
     error: string | null;
@@ -46,10 +53,19 @@ type NodeInfo = {
     can_back_up: boolean;
 };
 
+type Schedule = {
+    frequency: 'off' | 'daily' | 'weekly';
+    parts: Part[];
+    next_run_at: string | null;
+    last_run_at: string | null;
+    last_message: string | null;
+};
+
 type Props = {
     backups: Backup[] | null;
     nodes: NodeInfo[];
-    keep: number;
+    keep: { manual: number; scheduled: number; before_restore: number };
+    schedule: Schedule | null;
     can_manage?: boolean;
 };
 
@@ -163,6 +179,92 @@ function BackUpNow({ node }: { node: NodeInfo }) {
     );
 }
 
+function ScheduleSection({ schedule }: { schedule: Schedule }) {
+    const [frequency, setFrequency] = useState(schedule.frequency);
+    const [parts, setParts] = useState<Part[]>(schedule.parts);
+
+    return (
+        <Form
+            {...AccountBackupController.updateSchedule.form()}
+            options={{ preserveScroll: true }}
+            transform={(data) => ({ ...data, frequency, parts })}
+            className="space-y-3 rounded-lg border p-4"
+            data-test="schedule-form"
+        >
+            {({ processing, errors }) => (
+                <>
+                    <div className="grid gap-2">
+                        <Label htmlFor="schedule_frequency">
+                            Automatic backups
+                        </Label>
+                        <Select
+                            value={frequency}
+                            onValueChange={(value) =>
+                                setFrequency(value as Schedule['frequency'])
+                            }
+                        >
+                            <SelectTrigger id="schedule_frequency">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="off">Off</SelectItem>
+                                <SelectItem value="daily">
+                                    Every night
+                                </SelectItem>
+                                <SelectItem value="weekly">
+                                    Once a week
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <InputError message={errors.frequency} />
+                    </div>
+
+                    {frequency !== 'off' && (
+                        <>
+                            <PartChecklist
+                                available={['files', 'databases', 'mail']}
+                                selected={parts}
+                                onChange={setParts}
+                                idPrefix="schedule"
+                            />
+                            <InputError message={errors.parts} />
+                        </>
+                    )}
+
+                    <p className="text-sm text-muted-foreground">
+                        Runs at night (between 01:00 and 04:00 UTC, at a time
+                        picked for your account). Automatic backups are kept
+                        separately from the ones you make yourself.
+                        {schedule.next_run_at && schedule.frequency !== 'off'
+                            ? ` Next run: ${new Date(schedule.next_run_at).toLocaleString()}.`
+                            : ''}
+                    </p>
+
+                    {schedule.last_message && (
+                        <p
+                            className="text-sm text-muted-foreground"
+                            data-test="schedule-last-message"
+                        >
+                            Last run
+                            {schedule.last_run_at
+                                ? ` ${new Date(schedule.last_run_at).toLocaleString()}`
+                                : ''}
+                            : {schedule.last_message}
+                        </p>
+                    )}
+
+                    <Button
+                        disabled={processing}
+                        data-test="save-schedule-button"
+                    >
+                        Save
+                    </Button>
+                </>
+            )}
+        </Form>
+    );
+}
+
 function RestoreDialog({
     backup,
     onClose,
@@ -253,6 +355,7 @@ export default function Index({
     backups,
     nodes,
     keep,
+    schedule,
     can_manage = true,
 }: Props) {
     const [restoring, setRestoring] = useState<Backup | null>(null);
@@ -299,11 +402,12 @@ export default function Index({
                 />
 
                 <p className="text-sm text-muted-foreground">
-                    The last {keep} backups per server are kept; older ones are
+                    The last {keep.manual} backups you make, {keep.scheduled}{' '}
+                    automatic ones and {keep.before_restore} safety backups
+                    taken before a restore are kept per server; older ones are
                     removed. A backup is stored on the same server as your data,
                     so it protects against a mistake, such as a deleted file or
                     a broken update, but not against losing the whole server.
-                    There is no download and no automatic schedule yet.
                 </p>
 
                 {can_manage && nodes.length > 0 && (
@@ -313,6 +417,10 @@ export default function Index({
                             <BackUpNow key={node.uuid} node={node} />
                         ))}
                     </section>
+                )}
+
+                {can_manage && schedule && nodes.length > 0 && (
+                    <ScheduleSection schedule={schedule} />
                 )}
 
                 {nodes.length === 0 && (
@@ -354,7 +462,11 @@ export default function Index({
                                                 on {backup.node}
                                             </p>
                                             <p className="text-xs text-muted-foreground">
-                                                {backup.label
+                                                {backup.kind === 'scheduled'
+                                                    ? 'Automatic. '
+                                                    : ''}
+                                                {backup.label &&
+                                                backup.kind !== 'scheduled'
                                                     ? `${backup.label}. `
                                                     : ''}
                                                 {backup.parts

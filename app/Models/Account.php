@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
@@ -122,6 +123,14 @@ class Account extends Model
     public function tenantDatabases(): HasMany
     {
         return $this->hasMany(TenantDatabase::class);
+    }
+
+    /**
+     * @return HasOne<AccountBackupSchedule, $this>
+     */
+    public function backupSchedule(): HasOne
+    {
+        return $this->hasOne(AccountBackupSchedule::class);
     }
 
     /**

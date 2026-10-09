@@ -27,7 +27,7 @@ use Illuminate\Support\Carbon;
  * @property int $account_id
  * @property int $node_id
  * @property string|null $label
- * @property string $kind manual or before_restore
+ * @property string $kind manual, scheduled or before_restore
  * @property string $encryption_key
  * @property list<string> $requested_parts
  * @property ProvisioningStatus $status
@@ -55,8 +55,10 @@ class AccountBackup extends Model
     /** @use HasFactory<AccountBackupFactory> */
     use HasFactory, HasUuid;
 
-    /** How many backups are kept per account and node; the oldest beyond this are deleted. */
+    /** How many backups of each kind are kept per account and node; the oldest beyond this are deleted. */
     public const int KEEP = 5;
+
+    public const array KEEP_BY_KIND = ['manual' => 5, 'scheduled' => 7, 'before_restore' => 3];
 
     public const array PARTS = ['files', 'databases', 'mail'];
 

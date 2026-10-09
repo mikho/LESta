@@ -45,4 +45,14 @@ test('an owner backs up, restores part of a backup with confirmation, and delete
 
     $page->click('[aria-label="Delete the backup from '.$backup->created_at->toIso8601String().'"]')
         ->assertNoJavaScriptErrors();
+
+    $page = visit(route('account-backups.index'));
+
+    $page->click('#schedule_frequency')
+        ->click('[role="option"]:has-text("Every night")')
+        ->click('[data-test="save-schedule-button"]')
+        ->assertSee('Next run')
+        ->assertNoJavaScriptErrors();
+
+    expect($account->backupSchedule()->first()->frequency)->toBe('daily');
 });

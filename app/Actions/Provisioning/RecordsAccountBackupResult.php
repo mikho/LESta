@@ -13,7 +13,7 @@ use App\Models\ProvisioningOperation;
  * The completion side of a self-service backup: writes what the node reported (size, checksum,
  * parts, a per-part report, or the reason it failed) onto the AccountBackup, starts the restore
  * a safety snapshot was taken for, records a restore's outcome, and prunes the oldest backups
- * beyond AccountBackup::KEEP.
+ * beyond the per-kind limits in AccountBackup::KEEP_BY_KIND.
  */
 class RecordsAccountBackupResult
 {
@@ -110,7 +110,8 @@ class RecordsAccountBackupResult
     }
 
     /**
-     * Keeps the newest AccountBackup::KEEP completed backups of the account on the node; anything
+     * Keeps the newest few completed backups of each kind (AccountBackup::KEEP_BY_KIND) for the
+     * account on the node, so a run of scheduled backups never pushes out the manual ones; anything
      * older that is not in use goes.
      */
     private function pruneOldest(AccountBackup $latest): void
@@ -122,16 +123,19 @@ class RecordsAccountBackupResult
             ->pluck('id')
             ->all();
 
-        AccountBackup::query()
-            ->where('account_id', $latest->account_id)
-            ->where('node_id', $latest->node_id)
-            ->whereIn('status', [ProvisioningStatus::Applied->value, ProvisioningStatus::AlreadyApplied->value])
-            ->orderByDesc('completed_at')
-            ->orderByDesc('id')
-            ->offset(AccountBackup::KEEP)
-            ->limit(1000)
-            ->get()
-            ->reject(fn (AccountBackup $old): bool => in_array($old->id, $inUse, true) || $old->id === $latest->id)
-            ->each(fn (AccountBackup $old) => app(DeleteAccountBackup::class)->handleSystemInitiated($old));
+        foreach (AccountBackup::KEEP_BY_KIND as $kind => $keep) {
+            AccountBackup::query()
+                ->where('account_id', $latest->account_id)
+                ->where('node_id', $latest->node_id)
+                ->where('kind', $kind)
+                ->whereIn('status', [ProvisioningStatus::Applied->value, ProvisioningStatus::AlreadyApplied->value])
+                ->orderByDesc('completed_at')
+                ->orderByDesc('id')
+                ->offset($keep)
+                ->limit(1000)
+                ->get()
+                ->reject(fn (AccountBackup $old): bool => in_array($old->id, $inUse, true) || $old->id === $latest->id)
+                ->each(fn (AccountBackup $old) => app(DeleteAccountBackup::class)->handleSystemInitiated($old));
+        }
     }
 }

@@ -6,6 +6,7 @@ use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Models\Account;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupSchedule;
 use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\MailDomain;
@@ -234,7 +235,7 @@ test('only the newest five completed backups are kept per account and node', fun
 
     complete($operation, ProvisioningStatus::Applied, ['parts' => ['files'], 'size_bytes' => 1, 'checksum' => 'sha256:'.str_repeat('d', 64), 'artifact_path' => '/x/new.acct.enc']);
 
-    expect(AccountBackup::count())->toBe(AccountBackup::KEEP)
+    expect(AccountBackup::count())->toBe(AccountBackup::KEEP_BY_KIND['manual'])
         ->and(AccountBackup::find($old[0]->id))->toBeNull()
         ->and(AccountBackup::find($old[1]->id))->not->toBeNull()
         ->and(ProvisioningOperation::where('operation', ProvisioningVerb::Delete->value)->where('resource_id', $old[0]->uuid)->exists())->toBeTrue();
@@ -288,4 +289,90 @@ test('a user with no account sees an empty page', function () {
     $admin = Membership::factory()->providerAdmin()->create()->user;
 
     $this->actingAs($admin)->get(route('account-backups.index'))->assertInertia(fn ($page) => $page->where('backups', null));
+});
+
+test('an owner turns on a daily schedule, which is set for the account night slot, and turns it off again', function () {
+    [$account, , $owner] = accountWithData();
+
+    $this->actingAs($owner)->put(route('account-backups.schedule'), ['frequency' => 'daily', 'parts' => ['files', 'databases']])->assertSessionHasNoErrors();
+
+    $schedule = $account->backupSchedule()->first();
+
+    expect($schedule->frequency)->toBe('daily')
+        ->and($schedule->parts)->toBe(['files', 'databases'])
+        ->and($schedule->next_run_at->isFuture())->toBeTrue()
+        ->and($schedule->next_run_at->hour)->toBe(1 + ($account->id % 4))
+        ->and($schedule->next_run_at->minute)->toBe(0);
+
+    $this->actingAs($owner)->put(route('account-backups.schedule'), ['frequency' => 'off'])->assertSessionHasNoErrors();
+
+    expect($schedule->fresh()->frequency)->toBe('off')
+        ->and($schedule->fresh()->next_run_at)->toBeNull();
+});
+
+test('a schedule needs a valid frequency and parts, and only an owner can set it', function () {
+    [$account, , $owner] = accountWithData();
+    $member = Membership::factory()->for($account)->member()->create()->user;
+
+    $this->actingAs($owner)->put(route('account-backups.schedule'), ['frequency' => 'hourly', 'parts' => ['files']])->assertSessionHasErrors('frequency');
+    $this->actingAs($owner)->put(route('account-backups.schedule'), ['frequency' => 'daily'])->assertSessionHasErrors('parts');
+    $this->actingAs($owner)->put(route('account-backups.schedule'), ['frequency' => 'daily', 'parts' => ['everything']])->assertSessionHasErrors('parts.0');
+    $this->actingAs($member)->put(route('account-backups.schedule'), ['frequency' => 'daily', 'parts' => ['files']])->assertForbidden();
+
+    expect($account->backupSchedule()->count())->toBe(0);
+});
+
+test('the scheduler starts the due backups, records the outcome and sets the next run', function () {
+    [$account, $node] = accountWithData();
+    $schedule = AccountBackupSchedule::factory()->daily()->create(['account_id' => $account->id, 'parts' => ['files', 'mail']]);
+    $notDue = AccountBackupSchedule::factory()->create(['frequency' => 'daily', 'next_run_at' => now()->addHours(5)]);
+
+    $this->artisan('account-backups:run-scheduled')->assertSuccessful();
+
+    $backup = AccountBackup::where('kind', 'scheduled')->sole();
+    $schedule->refresh();
+
+    expect($backup->account_id)->toBe($account->id)
+        ->and($backup->requested_parts)->toBe(['files', 'mail'])
+        ->and($backup->label)->toBe('Scheduled backup')
+        ->and(AuditEvent::where('action', 'account_backup.created')->whereNull('actor_id')->count())->toBe(1)
+        ->and($schedule->last_message)->toContain('Started on '.$node->name)
+        ->and($schedule->next_run_at->isFuture())->toBeTrue()
+        ->and($notDue->fresh()->last_run_at)->toBeNull();
+
+    // Nothing is due any more: a second run starts nothing.
+    $this->artisan('account-backups:run-scheduled')->assertSuccessful();
+
+    expect(AccountBackup::count())->toBe(1);
+});
+
+test('a busy or incapable node is skipped with a reason, and the schedule still moves on', function () {
+    [$account, $node] = accountWithData();
+    AccountBackup::factory()->for($account)->for($node)->create(['status' => ProvisioningStatus::Pending]);
+    $schedule = AccountBackupSchedule::factory()->daily()->create(['account_id' => $account->id]);
+
+    $this->artisan('account-backups:run-scheduled')->assertSuccessful();
+
+    expect(AccountBackup::where('kind', 'scheduled')->count())->toBe(0)
+        ->and($schedule->fresh()->last_message)->toContain('Skipped on '.$node->name)
+        ->and($schedule->fresh()->next_run_at->isFuture())->toBeTrue();
+});
+
+test('scheduled, manual and safety backups are kept separately so scheduled ones never push out manual ones', function () {
+    [$account, $node, $owner] = accountWithData();
+
+    $manual = collect(range(1, 5))->map(fn (int $i) => AccountBackup::factory()->completed()->for($account)->for($node)->create(['completed_at' => now()->subDays(30 - $i)]));
+    $scheduled = collect(range(1, 7))->map(fn (int $i) => AccountBackup::factory()->completed()->for($account)->for($node)->create(['kind' => 'scheduled', 'completed_at' => now()->subDays(20 - $i)]));
+
+    $newest = CreateAccountBackup::class;
+    $new = app($newest)->handleScheduled($account, $node, ['files']);
+    $new->forceFill(['status' => ProvisioningStatus::Pending])->save();
+    $operation = ProvisioningOperation::where('provisionable_id', $new->id)->where('provisionable_type', $new->getMorphClass())->sole();
+
+    complete($operation, ProvisioningStatus::Applied, ['parts' => ['files'], 'size_bytes' => 1, 'checksum' => 'sha256:'.str_repeat('e', 64), 'artifact_path' => '/x/s.acct.enc']);
+
+    expect(AccountBackup::where('kind', 'manual')->count())->toBe(5)
+        ->and(AccountBackup::where('kind', 'scheduled')->count())->toBe(AccountBackup::KEEP_BY_KIND['scheduled'])
+        ->and(AccountBackup::find($scheduled[0]->id))->toBeNull()
+        ->and(AccountBackup::find($manual[0]->id))->not->toBeNull();
 });

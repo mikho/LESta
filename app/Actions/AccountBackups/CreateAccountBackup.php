@@ -34,6 +34,16 @@ class CreateAccountBackup
     }
 
     /**
+     * The schedule's counterpart to handle(): no actor to authorize or attribute.
+     *
+     * @param  list<string>  $parts
+     */
+    public function handleScheduled(Account $account, Node $node, array $parts): AccountBackup
+    {
+        return DB::transaction(fn (): AccountBackup => $this->create(null, $account, $node, $parts, __('Scheduled backup'), 'scheduled', null, []));
+    }
+
+    /**
      * The safety snapshot a restore takes first: when it completes, the restore of
      * $restoreAfter (the parts given) is dispatched.
      *
@@ -49,7 +59,7 @@ class CreateAccountBackup
      * @param  list<string>  $parts
      * @param  list<string>  $restoreParts
      */
-    private function create(User $actor, Account $account, Node $node, array $parts, ?string $label, string $kind, ?AccountBackup $restoreAfter, array $restoreParts): AccountBackup
+    private function create(?User $actor, Account $account, Node $node, array $parts, ?string $label, string $kind, ?AccountBackup $restoreAfter, array $restoreParts): AccountBackup
     {
         $parts = array_values(array_intersect(AccountBackup::PARTS, $parts));
 
@@ -85,8 +95,8 @@ class CreateAccountBackup
         $correlationId = (string) Str::uuid();
 
         AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
+            'actor_type' => $actor?->getMorphClass(),
+            'actor_id' => $actor?->getKey(),
             'auditable_type' => $backup->getMorphClass(),
             'auditable_id' => $backup->getKey(),
             'action' => 'account_backup.created',
