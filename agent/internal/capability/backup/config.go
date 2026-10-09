@@ -98,4 +98,13 @@ type Config struct {
 	// UploadClient overrides the HTTP client a per-account download uses
 	// (tests); nil means a client with a two-minute timeout per request.
 	UploadClient *http.Client
+	// StorageClient overrides the HTTP client a copy to an account's own
+	// storage uses (tests); nil means storageClient(AllowPrivateStorage).
+	StorageClient *http.Client
+	// AllowPrivateStorage lets the node send a copy to a storage endpoint on a
+	// private or internal address (a MinIO inside the same network, say). Off by
+	// default: an account owner chooses the endpoint, and an internal address
+	// would let them reach the node's own network. Switched on by an
+	// administrator creating /etc/lesta/backup-allow-private-storage.
+	AllowPrivateStorage bool
 }

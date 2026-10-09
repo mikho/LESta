@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Backups;
 
+use App\Actions\AccountBackups\CopyAccountBackupOffNode;
 use App\Actions\AccountBackups\CreateAccountBackup;
 use App\Actions\AccountBackups\DeleteAccountBackup;
 use App\Actions\AccountBackups\PrepareAccountBackupDownload;
@@ -12,6 +13,7 @@ use App\Enums\ProvisioningStatus;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupDestination;
 use App\Models\AccountBackupDownload;
 use App\Models\AccountBackupSchedule;
 use App\Models\Node;
@@ -39,7 +41,7 @@ class AccountBackupController extends Controller
         $account = $this->resolveAccount($request->user());
 
         if ($account === null) {
-            return Inertia::render('account-backups/index', ['backups' => null, 'nodes' => [], 'keep' => AccountBackup::KEEP_BY_KIND, 'schedule' => null]);
+            return Inertia::render('account-backups/index', ['backups' => null, 'nodes' => [], 'keep' => AccountBackup::KEEP_BY_KIND, 'schedule' => null, 'destination' => null]);
         }
 
         Gate::authorize('viewAny', [AccountBackup::class, $account]);
@@ -61,6 +63,7 @@ class AccountBackupController extends Controller
             }, $resolver->nodesWithData($account)),
             'keep' => AccountBackup::KEEP_BY_KIND,
             'schedule' => $this->presentSchedule($account->backupSchedule),
+            'destination' => $this->presentDestination($account->backupDestination),
             'can_manage' => $request->user()->can('create', [AccountBackup::class, $account]),
         ]);
     }
@@ -119,6 +122,103 @@ class AccountBackupController extends Controller
         $schedule->forceFill(['next_run_at' => $data['frequency'] === 'off' ? null : $schedule->nextRunAfter(now())])->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $data['frequency'] === 'off' ? __('Automatic backups are off.') : __('Automatic backups saved.')]);
+
+        return to_route('account-backups.index');
+    }
+
+    /**
+     * Saves the account's own S3-compatible storage. The keys are write-only: left empty on a later
+     * save they keep their saved values.
+     */
+    public function updateDestination(Request $request): RedirectResponse
+    {
+        $account = $this->resolveAccount($request->user());
+
+        abort_if($account === null, 404);
+
+        Gate::authorize('create', [AccountBackup::class, $account]);
+
+        $existing = $account->backupDestination;
+
+        $data = $request->validate([
+            'enabled' => ['nullable', 'boolean'],
+            'endpoint' => [
+                'required', 'string', 'max:255',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    $parts = parse_url((string) $value);
+
+                    if ($parts === false || ($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') === '' || isset($parts['user']) || isset($parts['query']) || isset($parts['fragment']) || ! in_array($parts['path'] ?? '', ['', '/'], true)) {
+                        $fail(__('Use an https address of the storage service, such as https://s3.eu-west-1.amazonaws.com.'));
+                    }
+                },
+            ],
+            'region' => ['required', 'string', 'regex:'.AccountBackupDestination::REGION_PATTERN],
+            'bucket' => ['required', 'string', 'regex:'.AccountBackupDestination::BUCKET_PATTERN],
+            'prefix' => ['nullable', 'string', 'regex:'.AccountBackupDestination::PREFIX_PATTERN, fn (string $a, mixed $v, \Closure $fail) => str_contains((string) $v, '..') || str_contains((string) $v, '//') ? $fail(__('The folder cannot contain .. or //.')) : null],
+            'access_key' => [$existing === null ? 'required' : 'nullable', 'string', 'regex:'.AccountBackupDestination::KEY_PATTERN],
+            'secret_key' => [$existing === null ? 'required' : 'nullable', 'string', 'regex:'.AccountBackupDestination::SECRET_PATTERN],
+        ], [
+            'region.regex' => __('The region is lower-case letters, numbers and dashes, such as eu-west-1.'),
+            'bucket.regex' => __('The bucket name is not valid.'),
+            'prefix.regex' => __('The folder can use letters, numbers and . _ - / only.'),
+            'access_key.regex' => __('The access key is not valid.'),
+            'secret_key.regex' => __('The secret key is not valid.'),
+        ]);
+
+        $attributes = [
+            'enabled' => (bool) ($data['enabled'] ?? false),
+            'endpoint' => rtrim($data['endpoint'], '/'),
+            'region' => $data['region'],
+            'bucket' => $data['bucket'],
+            'prefix' => $data['prefix'] ?? '',
+        ];
+
+        if (($data['access_key'] ?? '') !== '') {
+            $attributes['access_key'] = $data['access_key'];
+        }
+
+        if (($data['secret_key'] ?? '') !== '') {
+            $attributes['secret_key'] = $data['secret_key'];
+        }
+
+        if ($existing === null) {
+            $account->backupDestination()->create($attributes);
+        } else {
+            $existing->update($attributes);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Your storage is saved.')]);
+
+        return to_route('account-backups.index');
+    }
+
+    public function destroyDestination(Request $request): RedirectResponse
+    {
+        $account = $this->resolveAccount($request->user());
+
+        abort_if($account === null, 404);
+
+        Gate::authorize('create', [AccountBackup::class, $account]);
+
+        $account->backupDestination()->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Your storage is removed. Copies already made stay where they are.')]);
+
+        return to_route('account-backups.index');
+    }
+
+    /**
+     * Copies a finished backup to the account's storage now (a retry, or an older backup).
+     */
+    public function copy(Request $request, AccountBackup $backup): RedirectResponse
+    {
+        try {
+            app(CopyAccountBackupOffNode::class)->handle($request->user(), $backup);
+        } catch (NoBackupCapableNodeAvailableException) {
+            throw ValidationException::withMessages(['backup' => __('Backups are not available on :node.', ['node' => $backup->node->name])]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Copying to your storage.')]);
 
         return to_route('account-backups.index');
     }
@@ -204,6 +304,27 @@ class AccountBackupController extends Controller
     }
 
     /**
+     * The saved storage without its keys, which are never sent back.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function presentDestination(?AccountBackupDestination $destination): ?array
+    {
+        if ($destination === null) {
+            return null;
+        }
+
+        return [
+            'enabled' => $destination->enabled,
+            'endpoint' => $destination->endpoint,
+            'region' => $destination->region,
+            'bucket' => $destination->bucket,
+            'prefix' => $destination->prefix,
+            'has_keys' => true,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function presentSchedule(?AccountBackupSchedule $schedule): array
@@ -236,6 +357,12 @@ class AccountBackupController extends Controller
             'parts' => $backup->parts ?? $backup->requested_parts,
             'size_bytes' => $backup->size_bytes,
             'download' => $this->presentDownload($backup),
+            'remote' => $backup->remote_status === null ? null : [
+                'status' => $backup->remote_status,
+                'key' => $backup->remote_key,
+                'at' => $backup->remote_at?->toIso8601String(),
+                'error' => $backup->remote_error,
+            ],
             'skipped' => $backup->report['skipped'] ?? [],
             'created_at' => $backup->created_at?->toIso8601String(),
             'restore' => $backup->last_restore_status === null ? null : [

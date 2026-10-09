@@ -127,9 +127,11 @@ func (c *BackupCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 		result, err = c.applyObserve(op)
 	case protocol.OperationRestore:
 		result, err = c.applyRestore(ctx, op)
+	case protocol.OperationUpdate:
+		result, err = c.applyAccountCopyOp(ctx, op)
 	default:
 		result, err = c.rejected(op, "unsupported_operation",
-			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create, delete, observe, and restore", op.Operation), "")
+			fmt.Sprintf("operation %q is not supported; backup.encrypted-artifacts.v1 only implements create, delete, observe, restore and (per-account) update", op.Operation), "")
 	}
 
 	if err != nil {

@@ -749,6 +749,9 @@ func backupProductionConfig() backup.Config {
 		// AccountsRoot backs per-account backups (the same chroot accounts
 		// root the files and nginx capabilities use).
 		AccountsRoot: "/var/lib/lesta/web/accounts",
+		// A storage endpoint on a private address is only allowed when an
+		// administrator has opted in (see backup.Config.AllowPrivateStorage).
+		AllowPrivateStorage: fileExists("/etc/lesta/backup-allow-private-storage"),
 		// The real lesta-agent-daemon systemd unit runs as the
 		// unprivileged lesta-agent user, confirmed directly
 		// deploying to a real node: dumpSocket's/restoreSocket's own
@@ -982,4 +985,11 @@ func readDaemonConfig(path string) (controlPlaneURL, nodeUUID, protocolVersion s
 	}
 
 	return parsed.ControlPlaneURL, parsed.NodeUUID, protocolVersion, heartbeatSeconds
+}
+
+// fileExists reports whether path exists.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+
+	return err == nil
 }

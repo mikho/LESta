@@ -1,10 +1,12 @@
 <?php
 
+use App\Actions\AccountBackups\CreateAccountBackup;
 use App\Actions\Provisioning\CompletesProvisioningOperation;
 use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Models\Account;
 use App\Models\AccountBackup;
+use App\Models\AccountBackupDestination;
 use App\Models\AccountBackupDownload;
 use App\Models\AccountNodeIdentity;
 use App\Models\MailDomain;
@@ -15,8 +17,10 @@ use App\Models\ProvisioningOperation;
 use App\Models\User;
 use App\Models\WebDomain;
 use App\Services\Provisioning\ProvisioningResult;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     Queue::fake();
@@ -230,4 +234,145 @@ test('deleting a backup removes its prepared downloads, and the prune sweeps str
     $this->actingAs($owner)->delete(route('account-backups.destroy', $backup))->assertSessionHasNoErrors();
 
     expect(Storage::disk('local')->exists('account-backup-downloads/mine.tar.gz'))->toBeFalse();
+});
+
+function destinationInput(array $overrides = []): array
+{
+    return $overrides + ['enabled' => '1', 'endpoint' => 'https://s3.eu-west-1.amazonaws.com', 'region' => 'eu-west-1', 'bucket' => 'my-backups', 'prefix' => 'lesta/', 'access_key' => 'AKIAEXAMPLEKEY', 'secret_key' => 'example-secret-key/1234'];
+}
+
+test('an owner saves their own storage; the keys are encrypted and never sent back', function () {
+    [$account, , $owner] = accountWithCompletedBackup();
+
+    $this->actingAs($owner)->put(route('account-backups.destination'), destinationInput())->assertSessionHasNoErrors();
+
+    $destination = $account->backupDestination()->first();
+
+    expect($destination->bucket)->toBe('my-backups')
+        ->and($destination->access_key)->toBe('AKIAEXAMPLEKEY')
+        ->and(DB::table('account_backup_destinations')->value('secret_key'))->not->toContain('example-secret-key');
+
+    $response = $this->actingAs($owner)->get(route('account-backups.index'));
+
+    $response->assertInertia(fn ($page) => $page->where('destination.bucket', 'my-backups')->where('destination.has_keys', true)->missing('destination.secret_key')->missing('destination.access_key'));
+
+    expect($response->getContent())->not->toContain('example-secret-key')->not->toContain('AKIAEXAMPLEKEY');
+
+    // Saving again without the keys keeps them.
+    $this->actingAs($owner)->put(route('account-backups.destination'), destinationInput(['bucket' => 'other-bucket', 'access_key' => '', 'secret_key' => '']))->assertSessionHasNoErrors();
+
+    expect($destination->fresh()->bucket)->toBe('other-bucket')
+        ->and($destination->fresh()->secret_key)->toBe('example-secret-key/1234');
+});
+
+test('unsafe storage settings are refused', function (array $override, string $field) {
+    [, , $owner] = accountWithCompletedBackup();
+
+    $this->actingAs($owner)->put(route('account-backups.destination'), destinationInput($override))->assertSessionHasErrors($field);
+})->with([
+    'plain http' => [['endpoint' => 'http://s3.example.com'], 'endpoint'],
+    'a path in the endpoint' => [['endpoint' => 'https://s3.example.com/admin'], 'endpoint'],
+    'credentials in the endpoint' => [['endpoint' => 'https://user:pass@s3.example.com'], 'endpoint'],
+    'a file address' => [['endpoint' => 'file:///etc/passwd'], 'endpoint'],
+    'an upper-case bucket' => [['bucket' => 'My_Bucket'], 'bucket'],
+    'a bad region' => [['region' => '../etc'], 'region'],
+    'a climbing folder' => [['prefix' => 'a/../b'], 'prefix'],
+    'a header in the key' => [['access_key' => "key\r\nX-Evil: 1"], 'access_key'],
+    'a space in the secret' => [['secret_key' => 'has a space in it'], 'secret_key'],
+]);
+
+test('the keys are required the first time and only an owner can set the storage', function () {
+    [$account, , $owner] = accountWithCompletedBackup();
+    $member = Membership::factory()->for($account)->member()->create()->user;
+
+    $this->actingAs($owner)->put(route('account-backups.destination'), destinationInput(['access_key' => '', 'secret_key' => '']))->assertSessionHasErrors(['access_key', 'secret_key']);
+    $this->actingAs($member)->put(route('account-backups.destination'), destinationInput())->assertForbidden();
+    $this->actingAs($member)->delete(route('account-backups.destination.destroy'))->assertForbidden();
+
+    expect($account->backupDestination()->count())->toBe(0);
+});
+
+test('a backup that completes is copied to the account storage, carrying the keys to the node', function () {
+    [$account, $node, $owner] = accountWithCompletedBackup();
+    AccountBackupDestination::factory()->create(['account_id' => $account->id, 'prefix' => 'lesta']);
+    $backup = app(CreateAccountBackup::class)->handle($owner, $account, $node, ['files']);
+    $backup->forceFill(['status' => ProvisioningStatus::Pending])->save();
+    $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->where('provisionable_type', $backup->getMorphClass())->sole();
+
+    app(CompletesProvisioningOperation::class)->handle($operation, new ProvisioningResult(ProvisioningStatus::Applied, 1, 'sha256:x', 'none', [], now(), ['parts' => ['files'], 'size_bytes' => 5, 'checksum' => 'sha256:'.str_repeat('f', 64), 'artifact_path' => '/x/auto.acct.enc']));
+
+    $backup->refresh();
+    $copy = ProvisioningOperation::where('provisionable_id', $backup->id)->where('operation', ProvisioningVerb::Update->value)->sole();
+
+    expect($backup->remote_status)->toBe('copying')
+        ->and($backup->remote_key)->toStartWith('lesta/'.$account->public_id.'/')
+        ->and($backup->remote_key)->toEndWith('-manual-'.Str::substr($backup->uuid, 0, 8).'.tar.gz')
+        ->and($copy->payload['destination'])->toBe(['endpoint' => 'https://s3.eu-west-1.amazonaws.com', 'region' => 'eu-west-1', 'bucket' => 'my-backups', 'access_key' => 'AKIAEXAMPLEKEY', 'secret_key' => 'example-secret-key/1234'])
+        ->and($copy->payload['object_key'])->toBe($backup->remote_key)
+        ->and($copy->payload['encryption_key'])->toBe($backup->encryption_key);
+
+    $copy->forceFill(['status' => ProvisioningStatus::Pending])->save();
+    app(CompletesProvisioningOperation::class)->handle($copy, new ProvisioningResult(ProvisioningStatus::Applied, 1, 'sha256:x', 'none', [], now(), ['object_key' => $backup->remote_key, 'bytes' => 5]));
+
+    expect($backup->fresh()->remote_status)->toBe('copied')
+        ->and($backup->fresh()->remote_at)->not->toBeNull();
+});
+
+test('no copy is made without a destination, for a disabled one, or for a safety backup', function () {
+    [$account, $node, $owner] = accountWithCompletedBackup();
+
+    $finish = function (string $kind) use ($account, $node, $owner): AccountBackup {
+        $backup = app(CreateAccountBackup::class)->handle($owner, $account, $node, ['files']);
+        $backup->forceFill(['status' => ProvisioningStatus::Pending, 'kind' => $kind])->save();
+        $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->where('provisionable_type', $backup->getMorphClass())->sole();
+        app(CompletesProvisioningOperation::class)->handle($operation, new ProvisioningResult(ProvisioningStatus::Applied, 1, 'sha256:x', 'none', [], now(), ['parts' => ['files'], 'size_bytes' => 5, 'checksum' => 'sha256:'.str_repeat('f', 64), 'artifact_path' => '/x/'.$backup->uuid.'.acct.enc']));
+
+        return $backup->fresh();
+    };
+
+    expect($finish('manual')->remote_status)->toBeNull();
+
+    $destination = AccountBackupDestination::factory()->create(['account_id' => $account->id, 'enabled' => false]);
+
+    expect($finish('manual')->remote_status)->toBeNull();
+
+    $destination->update(['enabled' => true]);
+
+    expect($finish('before_restore')->remote_status)->toBeNull();
+    expect(ProvisioningOperation::where('operation', ProvisioningVerb::Update->value)->count())->toBe(0);
+});
+
+test('a failed copy keeps its reason and the owner can retry it', function () {
+    [$account, $node, $owner, $backup] = accountWithCompletedBackup();
+    AccountBackupDestination::factory()->create(['account_id' => $account->id]);
+
+    $this->actingAs($owner)->post(route('account-backups.copy', $backup))->assertSessionHasNoErrors();
+
+    $operation = ProvisioningOperation::where('provisionable_id', $backup->id)->where('operation', ProvisioningVerb::Update->value)->sole();
+    $operation->forceFill(['status' => ProvisioningStatus::Pending])->save();
+    app(CompletesProvisioningOperation::class)->handle($operation, new ProvisioningResult(ProvisioningStatus::Failed, 1, 'sha256:x', 'none', [['code' => 'copy_failed', 'message' => 'The storage refused the upload (403): AccessDenied']], now(), null));
+
+    expect($backup->fresh()->remote_status)->toBe('failed')
+        ->and($backup->fresh()->remote_error)->toContain('AccessDenied');
+
+    // While it is copying a second request is refused; after a failure it is allowed.
+    $this->actingAs($owner)->post(route('account-backups.copy', $backup))->assertSessionHasNoErrors();
+    $this->actingAs($owner)->post(route('account-backups.copy', $backup))->assertSessionHasErrors('backup');
+});
+
+test('copying needs a destination and a finished backup, and an owner', function () {
+    [$account, $node, $owner, $backup] = accountWithCompletedBackup();
+    $member = Membership::factory()->for($account)->member()->create()->user;
+    $unfinished = AccountBackup::factory()->for($account)->for($node)->create(['status' => ProvisioningStatus::Failed]);
+
+    $this->actingAs($owner)->post(route('account-backups.copy', $backup))->assertSessionHasErrors('backup');
+
+    AccountBackupDestination::factory()->create(['account_id' => $account->id]);
+
+    $this->actingAs($owner)->post(route('account-backups.copy', $unfinished))->assertSessionHasErrors('backup');
+    $this->actingAs($member)->post(route('account-backups.copy', $backup))->assertForbidden();
+
+    $this->actingAs($owner)->delete(route('account-backups.destination.destroy'))->assertSessionHasNoErrors();
+
+    expect($account->backupDestination()->count())->toBe(0);
 });

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Actions\AccountBackups\CopyAccountBackupOffNode;
 use App\Actions\AccountBackups\DeleteAccountBackup;
 use App\Actions\AccountBackups\RestoreAccountBackup;
 use App\Enums\ProvisioningStatus;
@@ -31,6 +32,7 @@ class RecordsAccountBackupResult
             ProvisioningVerb::Create => $this->recordCreate($backup, $operation),
             ProvisioningVerb::Restore => $this->recordRestore($backup, $operation),
             ProvisioningVerb::Observe => $this->recordDownload($backup, $operation),
+            ProvisioningVerb::Update => $this->recordCopy($backup, $operation),
             default => null,
         };
     }
@@ -51,6 +53,7 @@ class RecordsAccountBackupResult
             ])->save();
 
             $this->startPendingRestore($backup);
+            app(CopyAccountBackupOffNode::class)->handleAutomatic($backup);
             $this->pruneOldest($backup);
 
             return;
@@ -114,6 +117,23 @@ class RecordsAccountBackupResult
                 'error_message' => $succeeded ? __('The download was not completed.') : ($operation->errors[0]['message'] ?? __('The download could not be prepared.')),
             ])->save();
         });
+    }
+
+    /**
+     * The node's report on copying the backup to the account's storage.
+     */
+    private function recordCopy(AccountBackup $backup, ProvisioningOperation $operation): void
+    {
+        if (in_array($operation->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true)) {
+            $backup->forceFill(['remote_status' => 'copied', 'remote_error' => null, 'remote_at' => $operation->completed_at ?? now()])->save();
+
+            return;
+        }
+
+        $backup->forceFill([
+            'remote_status' => 'failed',
+            'remote_error' => $operation->errors[0]['message'] ?? __('The copy to your storage failed.'),
+        ])->save();
     }
 
     private function recordRestore(AccountBackup $backup, ProvisioningOperation $operation): void

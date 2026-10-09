@@ -63,4 +63,20 @@ test('an owner backs up, restores part of a backup with confirmation, and delete
         ->assertNoJavaScriptErrors();
 
     expect($account->backupSchedule()->first()->frequency)->toBe('daily');
+
+    $page = visit(route('account-backups.index'));
+
+    $page->fill('endpoint', 'http://insecure.example.com')
+        ->fill('region', 'eu-west-1')
+        ->fill('bucket', 'my-backups')
+        ->fill('access_key', 'AKIAEXAMPLEKEY')
+        ->fill('secret_key', 'example-secret-key/1234')
+        ->click('[data-test="save-storage-button"]')
+        ->assertSee('Use an https address')
+        ->fill('endpoint', 'https://s3.eu-west-1.amazonaws.com')
+        ->click('[data-test="save-storage-button"]')
+        ->assertSee('Remove my storage')
+        ->assertNoJavaScriptErrors();
+
+    expect($account->backupDestination()->first()->bucket)->toBe('my-backups');
 });

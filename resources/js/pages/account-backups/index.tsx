@@ -14,6 +14,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -42,6 +43,12 @@ type Backup = {
         error: string | null;
         url: string | null;
     } | null;
+    remote: {
+        status: 'copying' | 'copied' | 'failed';
+        key: string | null;
+        at: string | null;
+        error: string | null;
+    } | null;
     created_at: string | null;
     restore: {
         status: 'running' | 'applied' | 'failed';
@@ -68,8 +75,18 @@ type Schedule = {
     last_message: string | null;
 };
 
+type Destination = {
+    enabled: boolean;
+    endpoint: string;
+    region: string;
+    bucket: string;
+    prefix: string;
+    has_keys: boolean;
+};
+
 type Props = {
     backups: Backup[] | null;
+    destination: Destination | null;
     nodes: NodeInfo[];
     keep: { manual: number; scheduled: number; before_restore: number };
     schedule: Schedule | null;
@@ -272,6 +289,169 @@ function ScheduleSection({ schedule }: { schedule: Schedule }) {
     );
 }
 
+function StorageSection({ destination }: { destination: Destination | null }) {
+    const [enabled, setEnabled] = useState(destination?.enabled ?? true);
+
+    return (
+        <section
+            className="space-y-3 rounded-lg border p-4"
+            data-test="storage-section"
+        >
+            <h2 className="text-sm font-medium">Copy to your own storage</h2>
+            <p className="text-sm text-muted-foreground">
+                After each backup, a copy is sent to a bucket you own on any
+                S3-compatible service (Amazon S3, Backblaze B2, Wasabi,
+                Cloudflare R2, MinIO and others), as a standard .tar.gz you can
+                open anywhere. That keeps your data safe if this server is lost.
+                Copies are never deleted from here: set a lifecycle rule on your
+                bucket to remove old ones. Use a key that can only write to this
+                bucket.
+            </p>
+
+            <Form
+                {...AccountBackupController.updateDestination.form()}
+                options={{ preserveScroll: true }}
+                transform={(data) => ({
+                    ...data,
+                    enabled: enabled ? '1' : '0',
+                })}
+                className="space-y-3"
+            >
+                {({ processing, errors }) => (
+                    <>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-2 sm:col-span-2">
+                                <Label htmlFor="storage_endpoint">
+                                    Service address
+                                </Label>
+                                <Input
+                                    id="storage_endpoint"
+                                    name="endpoint"
+                                    defaultValue={destination?.endpoint}
+                                    placeholder="https://s3.eu-west-1.amazonaws.com"
+                                    autoComplete="off"
+                                    required
+                                />
+                                <InputError message={errors.endpoint} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="storage_region">Region</Label>
+                                <Input
+                                    id="storage_region"
+                                    name="region"
+                                    defaultValue={destination?.region}
+                                    placeholder="eu-west-1"
+                                    autoComplete="off"
+                                    required
+                                />
+                                <InputError message={errors.region} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="storage_bucket">Bucket</Label>
+                                <Input
+                                    id="storage_bucket"
+                                    name="bucket"
+                                    defaultValue={destination?.bucket}
+                                    autoComplete="off"
+                                    required
+                                />
+                                <InputError message={errors.bucket} />
+                            </div>
+                            <div className="grid gap-2 sm:col-span-2">
+                                <Label htmlFor="storage_prefix">
+                                    Folder in the bucket (optional)
+                                </Label>
+                                <Input
+                                    id="storage_prefix"
+                                    name="prefix"
+                                    defaultValue={destination?.prefix}
+                                    placeholder="lesta-backups/"
+                                    autoComplete="off"
+                                />
+                                <InputError message={errors.prefix} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="storage_access_key">
+                                    Access key
+                                </Label>
+                                <Input
+                                    id="storage_access_key"
+                                    name="access_key"
+                                    placeholder={
+                                        destination?.has_keys
+                                            ? 'Saved. Leave empty to keep it.'
+                                            : ''
+                                    }
+                                    autoComplete="off"
+                                    required={!destination?.has_keys}
+                                />
+                                <InputError message={errors.access_key} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="storage_secret_key">
+                                    Secret key
+                                </Label>
+                                <Input
+                                    id="storage_secret_key"
+                                    name="secret_key"
+                                    type="password"
+                                    placeholder={
+                                        destination?.has_keys
+                                            ? 'Saved. Leave empty to keep it.'
+                                            : ''
+                                    }
+                                    autoComplete="new-password"
+                                    required={!destination?.has_keys}
+                                />
+                                <InputError message={errors.secret_key} />
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="storage_enabled"
+                                checked={enabled}
+                                onCheckedChange={(checked) =>
+                                    setEnabled(checked === true)
+                                }
+                            />
+                            <Label htmlFor="storage_enabled">
+                                Copy new backups here automatically
+                            </Label>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <Button
+                                disabled={processing}
+                                data-test="save-storage-button"
+                            >
+                                Save
+                            </Button>
+                        </div>
+                    </>
+                )}
+            </Form>
+
+            {destination && (
+                <Form
+                    {...AccountBackupController.destroyDestination.form()}
+                    options={{ preserveScroll: true }}
+                >
+                    {({ processing }) => (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={processing}
+                        >
+                            Remove my storage
+                        </Button>
+                    )}
+                </Form>
+            )}
+        </section>
+    );
+}
+
 function RestoreDialog({
     backup,
     onClose,
@@ -360,6 +540,7 @@ function RestoreDialog({
 
 export default function Index({
     backups,
+    destination,
     nodes,
     keep,
     schedule,
@@ -372,7 +553,8 @@ export default function Index({
             (backup) =>
                 backup.status === 'running' ||
                 backup.restore?.status === 'running' ||
-                backup.download?.status === 'pending',
+                backup.download?.status === 'pending' ||
+                backup.remote?.status === 'copying',
         ) ?? false;
 
     // While something is running on a server, look again every few seconds.
@@ -429,6 +611,10 @@ export default function Index({
 
                 {can_manage && schedule && nodes.length > 0 && (
                     <ScheduleSection schedule={schedule} />
+                )}
+
+                {can_manage && nodes.length > 0 && (
+                    <StorageSection destination={destination} />
                 )}
 
                 {nodes.length === 0 && (
@@ -491,6 +677,34 @@ export default function Index({
 
                                         {can_manage && (
                                             <div className="flex gap-2">
+                                                {destination?.enabled &&
+                                                    backup.status === 'ready' &&
+                                                    backup.remote === null && (
+                                                        <Form
+                                                            {...AccountBackupController.copy.form(
+                                                                backup.uuid,
+                                                            )}
+                                                            options={{
+                                                                preserveScroll: true,
+                                                            }}
+                                                        >
+                                                            {({
+                                                                processing,
+                                                            }) => (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    disabled={
+                                                                        processing
+                                                                    }
+                                                                    aria-label={`Copy the backup from ${backup.created_at} to your storage`}
+                                                                >
+                                                                    Copy to my
+                                                                    storage
+                                                                </Button>
+                                                            )}
+                                                        </Form>
+                                                    )}
                                                 <Form
                                                     {...AccountBackupController.prepareDownload.form(
                                                         backup.uuid,
@@ -590,6 +804,54 @@ export default function Index({
                                             left out (links that point outside
                                             your folders or files that changed
                                             while backing up).
+                                        </p>
+                                    )}
+
+                                    {backup.remote && (
+                                        <p
+                                            className="text-sm"
+                                            data-test="remote-status"
+                                            aria-live="polite"
+                                        >
+                                            {backup.remote.status ===
+                                                'copying' &&
+                                                'Copying to your storage…'}
+                                            {backup.remote.status ===
+                                                'copied' &&
+                                                `Copied to your storage${backup.remote.at ? ` at ${new Date(backup.remote.at).toLocaleString()}` : ''}${backup.remote.key ? ` as ${backup.remote.key}` : ''}.`}
+                                            {backup.remote.status ===
+                                                'failed' && (
+                                                <span className="text-red-600 dark:text-red-400">
+                                                    The copy to your storage
+                                                    failed:{' '}
+                                                    {backup.remote.error}
+                                                </span>
+                                            )}
+                                            {backup.remote.status ===
+                                                'failed' &&
+                                                can_manage && (
+                                                    <Form
+                                                        {...AccountBackupController.copy.form(
+                                                            backup.uuid,
+                                                        )}
+                                                        options={{
+                                                            preserveScroll: true,
+                                                        }}
+                                                        className="mt-1"
+                                                    >
+                                                        {({ processing }) => (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                disabled={
+                                                                    processing
+                                                                }
+                                                            >
+                                                                Try again
+                                                            </Button>
+                                                        )}
+                                                    </Form>
+                                                )}
                                         </p>
                                     )}
 

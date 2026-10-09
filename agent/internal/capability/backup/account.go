@@ -129,6 +129,8 @@ type accountRequest struct {
 	EncryptionKey string         `json:"encryption_key"`
 	Account       AccountPayload `json:"account"`
 	UploadURL     string         `json:"upload_url,omitempty"`
+	Destination   *S3Destination `json:"destination,omitempty"`
+	ObjectKey     string         `json:"object_key,omitempty"`
 }
 
 // accountResponse is the one JSON object the helper writes.
@@ -205,6 +207,8 @@ func applyAccount(ctx context.Context, cfg Config, req accountRequest) accountRe
 		return applyAccountRestore(ctx, cfg, req, artifact)
 	case "download":
 		return applyAccountDownload(ctx, cfg, req, artifact)
+	case "copy":
+		return applyAccountCopy(ctx, cfg, req, artifact)
 	}
 
 	return accountError("unsupported_verb", "the verb must be create or restore")
@@ -755,6 +759,117 @@ func (c *BackupCapability) applyAccountDownloadOp(ctx context.Context, op protoc
 	}
 
 	resp, err := c.runAccountHelper(ctx, accountRequest{Verb: "download", ArtifactPath: artifact, EncryptionKey: *payload.EncryptionKey, Account: *payload.Account, UploadURL: *payload.UploadURL})
+	if err != nil {
+		return c.failed(op, "account_helper_failed", err.Error())
+	}
+
+	if !resp.OK {
+		return c.failed(op, resp.Code, resp.Message)
+	}
+
+	result := c.buildResult(op, protocol.StatusApplied, nil)
+	result.Data = resp.Data
+
+	return result, nil
+}
+
+// ---- copy to the account's own storage --------------------------------------
+
+type accountCopyData struct {
+	ObjectKey string `json:"object_key"`
+	Bytes     int64  `json:"bytes"`
+}
+
+// applyAccountCopy decrypts the backup into a temporary plain tar.gz next to it,
+// checks that the whole sealed archive authenticated, and only then uploads the
+// file to the account's storage in one signed PUT. Nothing leaves the node
+// unless the backup is intact, and the temporary file is always removed.
+func applyAccountCopy(ctx context.Context, cfg Config, req accountRequest, artifact string) accountResponse {
+	if err := validateS3(req.Destination, req.ObjectKey); err != nil {
+		return accountError("invalid_destination", err.Error())
+	}
+
+	f, err := os.OpenFile(artifact, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return accountError("artifact_not_found", "the backup file no longer exists on this node")
+	} else if err != nil {
+		return accountError("artifact_read_failed", err.Error())
+	}
+
+	defer func() { _ = f.Close() }()
+
+	sr, err := newSealReader(f, req.EncryptionKey)
+	if err != nil {
+		return accountError("decryption_failed", err.Error())
+	}
+
+	tmpPath := filepath.Join(filepath.Dir(artifact), ".copy-"+filepath.Base(artifact)+".tmp")
+
+	tmp, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return accountError("artifact_write_failed", err.Error())
+	}
+
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	hasher := sha256.New()
+
+	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), sr)
+	if closeErr := tmp.Close(); copyErr == nil {
+		copyErr = closeErr
+	}
+
+	if copyErr != nil {
+		return accountError("decryption_failed", copyErr.Error())
+	}
+
+	client := cfg.StorageClient
+	if client == nil {
+		client = storageClient(cfg.AllowPrivateStorage)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
+
+	if err := s3Put(ctx, client, *req.Destination, req.ObjectKey, tmpPath, size, hex.EncodeToString(hasher.Sum(nil)), time.Now()); err != nil {
+		return accountError("copy_failed", err.Error())
+	}
+
+	data, _ := json.Marshal(accountCopyData{ObjectKey: req.ObjectKey, Bytes: size})
+
+	return accountResponse{OK: true, Data: data}
+}
+
+// applyAccountCopyOp is the daemon's half of a copy: an update of a per-account
+// backup carrying a destination.
+func (c *BackupCapability) applyAccountCopyOp(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+	p, err := decode(op.Payload)
+	if err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
+	if p.Account == nil || p.Destination == nil || p.ObjectKey == nil || p.ArtifactPath == nil || p.EncryptionKey == nil {
+		return c.rejected(op, "unsupported_operation", "update is only supported for copying a per-account backup to its storage", "")
+	}
+
+	if !encryptionKeyPattern.MatchString(*p.EncryptionKey) {
+		return c.rejected(op, "invalid_encryption_key", "encryption_key must be a 64-character lowercase hex string", "encryption_key")
+	}
+
+	if err := validateAccountPayload(p.Account); err != nil {
+		return c.rejectedFromValidationError(op, err)
+	}
+
+	if err := validateS3(p.Destination, *p.ObjectKey); err != nil {
+		return c.rejectedFromValidationError(op, err)
+	}
+
+	artifact := filepath.Clean(*p.ArtifactPath)
+	if !isWithinRoot(artifact, c.cfg.ArtifactsRoot) {
+		return c.rejected(op, "artifact_path_outside_root", "artifact_path is not within the owned artifacts root", "artifact_path")
+	}
+
+	resp, err := c.runAccountHelper(ctx, accountRequest{Verb: "copy", ArtifactPath: artifact, EncryptionKey: *p.EncryptionKey, Account: *p.Account, Destination: p.Destination, ObjectKey: *p.ObjectKey})
 	if err != nil {
 		return c.failed(op, "account_helper_failed", err.Error())
 	}

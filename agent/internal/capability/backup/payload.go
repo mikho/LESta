@@ -31,6 +31,11 @@ type Payload struct {
 	// decrypted backup (a plain tar.gz) to, in chunks: a one-time address on the
 	// control plane (see account.go's download).
 	UploadURL *string `json:"upload_url,omitempty"`
+	// Destination and ObjectKey, on a per-account update, ask for a copy of the
+	// backup (decrypted, as a plain tar.gz) to the account's own S3-compatible
+	// storage (see s3.go).
+	Destination *S3Destination `json:"destination,omitempty"`
+	ObjectKey   *string        `json:"object_key,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,

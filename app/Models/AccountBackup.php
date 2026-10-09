@@ -44,6 +44,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $last_restore_at
  * @property array<string, mixed>|null $last_restore_report
  * @property string|null $last_restore_error
+ * @property string|null $remote_status copying, copied or failed
+ * @property string|null $remote_key
+ * @property string|null $remote_error
+ * @property Carbon|null $remote_at
  * @property int $desired_state_version
  * @property Carbon|null $completed_at
  * @property Carbon|null $created_at
@@ -75,6 +79,7 @@ class AccountBackup extends Model
             'last_restore_report' => 'array',
             'last_restore_at' => 'datetime',
             'completed_at' => 'datetime',
+            'remote_at' => 'datetime',
         ];
     }
 
@@ -168,6 +173,24 @@ class AccountBackup extends Model
             'artifact_path' => $this->artifact_path,
             'encryption_key' => $this->encryption_key,
             'upload_url' => $uploadUrl,
+            'account' => $scope + ['parts' => $this->parts ?? $this->requested_parts],
+        ];
+    }
+
+    /**
+     * What the node needs to copy this backup, decrypted, to the account's storage.
+     *
+     * @param  array{username: string, web_resources: list<string>, mail_domains: list<string>, databases: list<string>}  $scope
+     * @param  array{endpoint: string, region: string, bucket: string, access_key: string, secret_key: string}  $destination
+     * @return array{artifact_path: string|null, encryption_key: string, destination: array<string, string>, object_key: string, account: array<string, mixed>}
+     */
+    public function toCopyPayload(array $scope, array $destination, string $objectKey): array
+    {
+        return [
+            'artifact_path' => $this->artifact_path,
+            'encryption_key' => $this->encryption_key,
+            'destination' => $destination,
+            'object_key' => $objectKey,
             'account' => $scope + ['parts' => $this->parts ?? $this->requested_parts],
         ];
     }

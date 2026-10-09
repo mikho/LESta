@@ -6,7 +6,10 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -486,5 +489,190 @@ func TestAccountBackupDownloadRefusesBadAddressesWrongKeyAndATamperedBackup(t *t
 
 	if result := download(key, panel.url()); result.Status != protocol.StatusFailed {
 		t.Errorf("a refusing panel must fail the download")
+	}
+}
+
+// fakeStorage is an S3-compatible endpoint over TLS that checks a request is
+// signed with the account's access key and keeps what is uploaded.
+type fakeStorage struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	objects map[string][]byte
+	puts    int
+	reject  bool
+}
+
+func newFakeStorage(t *testing.T) *fakeStorage {
+	t.Helper()
+
+	s := &fakeStorage{objects: map[string][]byte{}}
+
+	s.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		auth := r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		sum := sha256.Sum256(body)
+
+		switch {
+		case s.reject:
+			http.Error(w, "<Error><Code>AccessDenied</Code></Error>", http.StatusForbidden)
+		case r.Method != http.MethodPut:
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+		case !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=TESTACCESSKEY/") || !strings.Contains(auth, "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date"):
+			http.Error(w, "bad authorization", http.StatusForbidden)
+		case r.Header.Get("x-amz-content-sha256") != hex.EncodeToString(sum[:]):
+			http.Error(w, "payload hash mismatch", http.StatusBadRequest)
+		default:
+			s.objects[r.URL.Path] = body
+			s.puts++
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+
+	t.Cleanup(s.server.Close)
+
+	return s
+}
+
+func (s *fakeStorage) destination() map[string]any {
+	return map[string]any{"endpoint": s.server.URL, "region": "eu-west-1", "bucket": "my-backups", "access_key": "TESTACCESSKEY", "secret_key": "test-secret-key/1234"}
+}
+
+func TestAccountBackupCopyUploadsAVerifiedPlainTarGzToTheAccountsStorage(t *testing.T) {
+	h := newAccountHarness(t)
+	h.cfg.StorageClient = nil
+	storage := newFakeStorage(t)
+
+	cfg := h.cfg
+	cfg.StorageClient = storage.server.Client()
+	capability := backup.New(cfg)
+	ctx := context.Background()
+
+	key := newTestEncryptionKey()
+	resourceID := newTestUUID()
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{"encryption_key": key, "account": h.account("files", "databases")}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
+	objectKey := "lesta/acct/2026-10-09-abcd1234.tar.gz"
+
+	copied, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), map[string]any{
+		"encryption_key": key, "artifact_path": path, "account": h.account("files", "databases"), "destination": storage.destination(), "object_key": objectKey,
+	}))
+	requireStatus(t, "copy", copied, err, protocol.StatusApplied)
+
+	body := storage.objects["/my-backups/"+objectKey]
+	if len(body) == 0 || storage.puts != 1 {
+		t.Fatalf("expected one object, got %d puts and %d bytes", storage.puts, len(body))
+	}
+
+	gz, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("the object must be a gzip stream: %v", err)
+	}
+
+	names := map[string]bool{}
+	tr := tar.NewReader(gz)
+
+	for {
+		header, err := tr.Next()
+		if err != nil {
+			break
+		}
+
+		names[header.Name] = true
+	}
+
+	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/shopdb.sql"] {
+		t.Errorf("unexpected object content: %v", names)
+	}
+
+	if leftovers, _ := filepath.Glob(filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, ".copy-*")); len(leftovers) != 0 {
+		t.Errorf("the temporary plain copy must be removed: %v", leftovers)
+	}
+
+	if strings.Contains(copied.Data.String(), "test-secret-key") || strings.Contains(fmt.Sprint(copied.Errors), "test-secret-key") {
+		t.Errorf("the secret key must never appear in a result")
+	}
+}
+
+func TestAccountBackupCopyRefusesBadDestinationsDamagedBackupsAndAnErrorFromTheStorage(t *testing.T) {
+	h := newAccountHarness(t)
+	storage := newFakeStorage(t)
+
+	cfg := h.cfg
+	cfg.StorageClient = storage.server.Client()
+	capability := backup.New(cfg)
+	ctx := context.Background()
+
+	key := newTestEncryptionKey()
+	resourceID := newTestUUID()
+
+	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{"encryption_key": key, "account": h.account("files")}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	path := filepath.Join(h.cfg.ArtifactsRoot, "accounts", h.username, resourceID+".acct.enc")
+
+	copyOp := func(destination map[string]any, objectKey, key string) protocol.ResultEnvelope {
+		result, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), map[string]any{
+			"encryption_key": key, "artifact_path": path, "account": h.account("files"), "destination": destination, "object_key": objectKey,
+		}))
+		if err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+
+		return result
+	}
+
+	bad := storage.destination()
+	bad["endpoint"] = "http://insecure.example.com"
+
+	if result := copyOp(bad, "ok.tar.gz", key); result.Status != protocol.StatusRejected {
+		t.Errorf("a plain http endpoint must be rejected, got %s", result.Status)
+	}
+
+	if result := copyOp(storage.destination(), "../escape", key); result.Status != protocol.StatusRejected {
+		t.Errorf("a climbing object name must be rejected, got %s", result.Status)
+	}
+
+	if result := copyOp(storage.destination(), "ok.tar.gz", newTestEncryptionKey()); result.Status != protocol.StatusFailed || storage.puts != 0 {
+		t.Errorf("the wrong key must fail and upload nothing: %s puts=%d", result.Status, storage.puts)
+	}
+
+	storage.reject = true
+
+	if result := copyOp(storage.destination(), "ok.tar.gz", key); result.Status != protocol.StatusFailed || !strings.Contains(fmt.Sprint(result.Errors), "AccessDenied") {
+		t.Errorf("a storage error must fail the copy with its reason: %s %v", result.Status, result.Errors)
+	}
+
+	storage.reject = false
+
+	// A damaged backup is never uploaded.
+	sealed, _ := os.ReadFile(path)
+	sealed[len(sealed)-3] ^= 0xff
+
+	if err := os.WriteFile(path, sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := copyOp(storage.destination(), "ok.tar.gz", key); result.Status != protocol.StatusFailed || storage.puts != 0 {
+		t.Errorf("a tampered backup must never be uploaded: %s puts=%d", result.Status, storage.puts)
+	}
+
+	// Without the test client, the endpoint (a loopback address here) is refused as internal.
+	strict := backup.New(h.cfg)
+
+	result, err := strict.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), map[string]any{
+		"encryption_key": key, "artifact_path": path, "account": h.account("files"), "destination": storage.destination(), "object_key": "ok.tar.gz",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Status != protocol.StatusFailed {
+		t.Errorf("an internal storage address must be refused by default, got %s", result.Status)
 	}
 }

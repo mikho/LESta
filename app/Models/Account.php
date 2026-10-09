@@ -134,6 +134,14 @@ class Account extends Model
     }
 
     /**
+     * @return HasOne<AccountBackupDestination, $this>
+     */
+    public function backupDestination(): HasOne
+    {
+        return $this->hasOne(AccountBackupDestination::class);
+    }
+
+    /**
      * @return HasMany<AccountIpRule, $this>
      */
     public function ipRules(): HasMany
