@@ -44,6 +44,10 @@ type vmailFile struct {
 	mode    os.FileMode
 	uid     int
 	gid     int
+	// isDir marks a folder entry: its own owner and mode are restored too,
+	// otherwise a folder made on the way to a file would belong to whoever runs
+	// the restore (root) and the mail user could not enter it.
+	isDir bool
 }
 
 // applyRestore decrypts this node's own already-local sealed artifact and
@@ -97,8 +101,17 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 			return c.failed(op, "vmail_root_not_configured", "this node's own config has no VMailRoot set; refusing to restore mail content into an unknown location")
 		}
 
-		if err := restoreVMail(vmailFiles, c.cfg.VMailRoot); err != nil {
-			return c.failed(op, "vmail_restore_failed", err.Error())
+		var restoreErr error
+		if c.cfg.SudoBinary != "" && c.cfg.AgentBinaryPath != "" {
+			// The mailboxes are owned by the mail user: restoring them (and
+			// their ownership) needs the root helper.
+			restoreErr = restoreVMailPrivileged(ctx, c.cfg.SudoBinary, c.cfg.AgentBinaryPath, vmailFiles)
+		} else {
+			restoreErr = restoreVMail(vmailFiles, c.cfg.VMailRoot)
+		}
+
+		if restoreErr != nil {
+			return c.failed(op, "vmail_restore_failed", restoreErr.Error())
 		}
 
 		restored = append(restored, mailCapability)
@@ -164,6 +177,14 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 			return nil, nil, fmt.Errorf("reading tar entry: %w", err)
 		}
 
+		if hdr.Typeflag == tar.TypeDir && strings.HasPrefix(hdr.Name, vmailPrefix) {
+			if rel := strings.TrimSuffix(strings.TrimPrefix(hdr.Name, vmailPrefix), "/"); rel != "" {
+				vmailFiles = append(vmailFiles, vmailFile{relPath: rel, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid, isDir: true})
+			}
+
+			continue
+		}
+
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
@@ -213,16 +234,39 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 
 	domains := make(map[string]struct{})
 
+	// Folders first (shortest path first), each with its own recorded owner and
+	// mode; a folder a file needs that has no entry of its own is made with that
+	// file's owner.
+	sort.SliceStable(files, func(i, j int) bool { return files[i].isDir && !files[j].isDir })
+
 	for _, f := range files {
-		domain, _, ok := strings.Cut(f.relPath, "/")
-		if !ok {
+		domain, _, hasRest := strings.Cut(f.relPath, "/")
+		if !hasRest && !f.isDir {
 			continue
 		}
+
 		domains[domain] = struct{}{}
 
 		dest := filepath.Join(staging, f.relPath)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
-			return fmt.Errorf("creating %s: %w", filepath.Dir(dest), err)
+
+		if f.isDir {
+			if err := os.MkdirAll(dest, 0o750); err != nil {
+				return fmt.Errorf("creating %s: %w", dest, err)
+			}
+
+			if err := os.Chown(dest, f.uid, f.gid); err != nil {
+				return fmt.Errorf("restoring ownership of %s: %w", dest, err)
+			}
+
+			if err := os.Chmod(dest, f.mode); err != nil {
+				return fmt.Errorf("restoring the mode of %s: %w", dest, err)
+			}
+
+			continue
+		}
+
+		if err := mkdirAllOwned(filepath.Dir(dest), staging, f.uid, f.gid); err != nil {
+			return err
 		}
 
 		if err := os.WriteFile(dest, f.content, f.mode); err != nil {
@@ -300,6 +344,33 @@ func restoreSocket(ctx context.Context, sudoBinary, socketPath string, dumpSQL [
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
+	}
+
+	return nil
+}
+
+// mkdirAllOwned creates dir and any missing parents below stop, giving each the
+// owner given, so a folder made only because a file needed it is not left owned
+// by the user running the restore.
+func mkdirAllOwned(dir, stop string, uid, gid int) error {
+	if dir == stop || dir == "." || dir == string(filepath.Separator) {
+		return nil
+	}
+
+	if info, err := os.Stat(dir); err == nil && info.IsDir() {
+		return nil
+	}
+
+	if err := mkdirAllOwned(filepath.Dir(dir), stop, uid, gid); err != nil {
+		return err
+	}
+
+	if err := os.Mkdir(dir, 0o750); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+
+	if err := os.Chown(dir, uid, gid); err != nil {
+		return fmt.Errorf("restoring ownership of %s: %w", dir, err)
 	}
 
 	return nil

@@ -89,6 +89,23 @@ func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, 
 			continue
 		}
 
+		// mail.smtp-imap.v1's StateRoot holds the virtual mailboxes (vmail),
+		// owned by the mail user and unreadable by the unprivileged daemon:
+		// root-mediated like cron's state, with the same naming, so every
+		// entry still lands under "mail.smtp-imap.v1/vmail/...".
+		if capability == mailCapability && sudoBinary != "" && agentBinaryPath != "" {
+			nested, err := archiveMailStatePrivileged(ctx, sudoBinary, agentBinaryPath)
+			if err != nil {
+				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			}
+
+			if err := mergeNestedArchive(tw, nested, capability); err != nil {
+				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			}
+
+			continue
+		}
+
 		if err := addDirToTar(tw, stateRoots[capability], capability); err != nil {
 			return nil, fmt.Errorf("archiving %s: %w", capability, err)
 		}

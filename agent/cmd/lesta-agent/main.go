@@ -190,6 +190,20 @@ func main() {
 		os.Exit(backup.ApplyAccount(backupProductionConfig(), os.Stdin, os.Stdout))
 	}
 
+	// "backup-archive-mail-state" and "backup-restore-mail-files" are the two
+	// root-only actions the whole-node backup needs for mail: the virtual
+	// mailboxes are owned by the mail user, so the unprivileged daemon can
+	// neither read them to archive nor write them (and their ownership) back
+	// to restore. Same pattern as "cron-archive-state", scoped by the backups
+	// installer's sudoers rule. The restore request is a gzip tar on stdin.
+	if len(os.Args) >= 2 && os.Args[1] == "backup-archive-mail-state" {
+		os.Exit(backup.ArchiveMailState(backupProductionConfig(), os.Stdout))
+	}
+
+	if len(os.Args) >= 2 && os.Args[1] == "backup-restore-mail-files" {
+		os.Exit(backup.RestoreMailFiles(backupProductionConfig(), os.Stdin))
+	}
+
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
 	// .install/lib/daemon.sh's own systemd unit execs and supervises, not a
