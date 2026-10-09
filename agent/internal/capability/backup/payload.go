@@ -36,6 +36,11 @@ type Payload struct {
 	// storage (see s3.go).
 	Destination *S3Destination `json:"destination,omitempty"`
 	ObjectKey   *string        `json:"object_key,omitempty"`
+	// SourceURL, on a per-account create, makes it an import: the node fetches a
+	// plain tar.gz from this one-time control plane address (or, with Destination
+	// and ObjectKey and no SourceURL, from the account's own storage) and seals it
+	// as a backup of the account (see account_import.go).
+	SourceURL *string `json:"source_url,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,

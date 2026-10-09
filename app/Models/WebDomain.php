@@ -56,6 +56,9 @@ class WebDomain extends Model
      *
      * @var array<string, mixed>
      */
+    /** The firewall presets: each loosens a few rules for one application's own admin areas. */
+    public const array WAF_PRESETS = ['none', 'wordpress', 'drupal', 'nextcloud', 'dokuwiki', 'xenforo'];
+
     protected $attributes = ['waf_mode' => 'off', 'waf_preset' => 'none', 'hotlink_protection' => false];
 
     /**

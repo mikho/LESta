@@ -36,7 +36,7 @@ class CopyAccountBackupOffNode
      */
     public function handleAutomatic(AccountBackup $backup): void
     {
-        if ($backup->kind === 'before_restore' || $backup->account->backupDestination?->enabled !== true) {
+        if (in_array($backup->kind, ['before_restore', 'imported'], true) || $backup->account->backupDestination?->enabled !== true) {
             return;
         }
 

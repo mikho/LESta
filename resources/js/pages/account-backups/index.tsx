@@ -29,7 +29,7 @@ type Part = 'files' | 'databases' | 'mail';
 type Backup = {
     uuid: string;
     label: string | null;
-    kind: 'manual' | 'scheduled' | 'before_restore';
+    kind: 'manual' | 'scheduled' | 'before_restore' | 'imported';
     node: string;
     status: 'running' | 'ready' | 'failed';
     error: string | null;
@@ -88,7 +88,12 @@ type Props = {
     backups: Backup[] | null;
     destination: Destination | null;
     nodes: NodeInfo[];
-    keep: { manual: number; scheduled: number; before_restore: number };
+    keep: {
+        manual: number;
+        scheduled: number;
+        before_restore: number;
+        imported: number;
+    };
     schedule: Schedule | null;
     can_manage?: boolean;
 };
@@ -452,6 +457,250 @@ function StorageSection({ destination }: { destination: Destination | null }) {
     );
 }
 
+const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
+
+function csrfToken(): string {
+    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/);
+
+    return match ? decodeURIComponent(match[1]) : '';
+}
+
+async function sendJson(
+    method: 'POST' | 'PUT',
+    url: string,
+    body: BodyInit,
+    contentType: string,
+): Promise<Record<string, unknown>> {
+    const response = await fetch(url, {
+        method,
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': contentType,
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-XSRF-TOKEN': csrfToken(),
+        },
+        body,
+    });
+
+    const payload = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+    > | null;
+
+    if (!response.ok) {
+        const errors = payload?.errors as Record<string, string[]> | undefined;
+        const first = errors ? Object.values(errors)[0]?.[0] : undefined;
+
+        throw new Error(
+            first ??
+                (typeof payload?.message === 'string'
+                    ? payload.message
+                    : `The upload failed (${response.status}).`),
+        );
+    }
+
+    return payload ?? {};
+}
+
+function ImportSection({
+    nodes,
+    destination,
+}: {
+    nodes: NodeInfo[];
+    destination: Destination | null;
+}) {
+    const [nodeUuid, setNodeUuid] = useState(nodes[0]?.uuid ?? '');
+    const [label, setLabel] = useState('');
+    const [file, setFile] = useState<File | null>(null);
+    const [sent, setSent] = useState(0);
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    async function upload() {
+        if (!file) {
+            return;
+        }
+
+        setError(null);
+        setUploading(true);
+        setSent(0);
+
+        try {
+            const begin = await sendJson(
+                'POST',
+                AccountBackupController.beginUpload.url(),
+                JSON.stringify({ node: nodeUuid, label: label || null }),
+                'application/json',
+            );
+            const chunkUrl = String(begin.chunk_url);
+
+            let offset = 0;
+
+            do {
+                const end = Math.min(offset + UPLOAD_CHUNK_BYTES, file.size);
+                const last = end >= file.size;
+                const query = `?offset=${offset}${last ? '&final=1' : ''}`;
+
+                await sendJson(
+                    'PUT',
+                    chunkUrl + query,
+                    file.slice(offset, end),
+                    'application/octet-stream',
+                );
+
+                offset = end;
+                setSent(offset);
+            } while (offset < file.size);
+
+            setFile(null);
+            router.reload({ only: ['backups'] });
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'The upload failed.');
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    const percent =
+        file && file.size > 0 ? Math.round((sent / file.size) * 100) : 0;
+
+    return (
+        <section
+            className="space-y-4 rounded-lg border p-4"
+            data-test="import-section"
+        >
+            <div className="space-y-1">
+                <h2 className="text-sm font-medium">Restore from a copy</h2>
+                <p className="text-sm text-muted-foreground">
+                    Bring back a backup file you downloaded, or one copied to
+                    your own storage. It is added to your backups below, and you
+                    then restore it like any other, choosing what to put back.
+                    Only a backup made for this account can be used, and a file
+                    can be up to 4 GB.
+                </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+                {nodes.length > 1 && (
+                    <div className="grid gap-2">
+                        <Label htmlFor="import_node">Server</Label>
+                        <Select value={nodeUuid} onValueChange={setNodeUuid}>
+                            <SelectTrigger id="import_node">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {nodes.map((node) => (
+                                    <SelectItem
+                                        key={node.uuid}
+                                        value={node.uuid}
+                                    >
+                                        {node.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                )}
+                <div className="grid gap-2">
+                    <Label htmlFor="import_label">Name (optional)</Label>
+                    <Input
+                        id="import_label"
+                        value={label}
+                        onChange={(e) => setLabel(e.target.value)}
+                        maxLength={120}
+                        placeholder="Imported backup"
+                        autoComplete="off"
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <Label htmlFor="import_file">A file from this computer</Label>
+                <Input
+                    id="import_file"
+                    type="file"
+                    accept=".gz,.tgz,application/gzip"
+                    disabled={uploading}
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+                {uploading && file && (
+                    <div className="space-y-1">
+                        <div
+                            role="progressbar"
+                            aria-label="Upload progress"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={percent}
+                            className="h-1.5 overflow-hidden rounded-full bg-muted"
+                        >
+                            <div
+                                className="h-full bg-foreground/60"
+                                style={{ width: `${percent}%` }}
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Uploading {formatBytes(sent)} of{' '}
+                            {formatBytes(file.size)}
+                        </p>
+                    </div>
+                )}
+                {error && (
+                    <p
+                        className="text-sm text-red-600 dark:text-red-400"
+                        role="alert"
+                    >
+                        {error}
+                    </p>
+                )}
+                <Button
+                    type="button"
+                    onClick={upload}
+                    disabled={!file || uploading || !nodeUuid}
+                    data-test="import-upload-button"
+                >
+                    {uploading ? 'Uploading' : 'Upload and import'}
+                </Button>
+            </div>
+
+            {destination && (
+                <Form
+                    {...AccountBackupController.importFromStorage.form()}
+                    options={{ preserveScroll: true }}
+                    transform={(data) => ({
+                        ...data,
+                        node: nodeUuid,
+                        label: label || null,
+                    })}
+                    className="space-y-2 border-t pt-4"
+                >
+                    {({ processing, errors }) => (
+                        <>
+                            <Label htmlFor="import_object_key">
+                                A file in your storage ({destination.bucket})
+                            </Label>
+                            <Input
+                                id="import_object_key"
+                                name="object_key"
+                                placeholder={`${destination.prefix ? `${destination.prefix.replace(/\/$/, '')}/` : ''}your-account/2026-10-09-manual-1234abcd.tar.gz`}
+                                autoComplete="off"
+                                required
+                            />
+                            <InputError message={errors.object_key} />
+                            <InputError message={errors.backup} />
+                            <Button
+                                disabled={processing || !nodeUuid}
+                                data-test="import-storage-button"
+                            >
+                                Import from my storage
+                            </Button>
+                        </>
+                    )}
+                </Form>
+            )}
+        </section>
+    );
+}
+
 function RestoreDialog({
     backup,
     onClose,
@@ -593,11 +842,12 @@ export default function Index({
 
                 <p className="text-sm text-muted-foreground">
                     The last {keep.manual} backups you make, {keep.scheduled}{' '}
-                    automatic ones and {keep.before_restore} safety backups
-                    taken before a restore are kept per server; older ones are
-                    removed. A backup is stored on the same server as your data,
-                    so it protects against a mistake, such as a deleted file or
-                    a broken update, but not against losing the whole server.
+                    automatic ones, {keep.before_restore} safety backups taken
+                    before a restore and {keep.imported} imported ones are kept
+                    per server; older ones are removed. A backup is stored on
+                    the same server as your data, so it protects against a
+                    mistake, such as a deleted file or a broken update, but not
+                    against losing the whole server.
                 </p>
 
                 {can_manage && nodes.length > 0 && (
@@ -615,6 +865,10 @@ export default function Index({
 
                 {can_manage && nodes.length > 0 && (
                     <StorageSection destination={destination} />
+                )}
+
+                {can_manage && nodes.length > 0 && (
+                    <ImportSection nodes={nodes} destination={destination} />
                 )}
 
                 {nodes.length === 0 && (
@@ -658,6 +912,10 @@ export default function Index({
                                             <p className="text-xs text-muted-foreground">
                                                 {backup.kind === 'scheduled'
                                                     ? 'Automatic. '
+                                                    : ''}
+                                                {backup.kind === 'imported' &&
+                                                !backup.label
+                                                    ? 'Imported. '
                                                     : ''}
                                                 {backup.label &&
                                                 backup.kind !== 'scheduled'

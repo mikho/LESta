@@ -1,4 +1,5 @@
-{{define "waf"}}{{if .WafEnabled}}
+{{define "waf"}}{{if .WafEnabled}}{{if .WafCrsExclusion}}
+    modsecurity_rules 'SecAction "id:9000002,phase:1,pass,nolog,t:none,setvar:tx.crs_exclusions_{{.WafCrsExclusion}}=1"';{{end}}
     modsecurity on;
     modsecurity_rules_file {{.WafRulesFile}};
     modsecurity_rules '

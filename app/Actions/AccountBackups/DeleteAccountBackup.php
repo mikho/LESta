@@ -66,6 +66,8 @@ class DeleteAccountBackup
         // The prepared downloads go with the backup; their rows are removed by the cascade.
         $backup->downloads()->whereNotNull('path')->pluck('path')->each(fn (string $path) => Storage::disk('local')->delete($path));
 
+        $backup->imports()->whereNotNull('path')->pluck('path')->each(fn (string $path) => Storage::disk('local')->delete($path));
+
         $backup->delete();
     }
 }

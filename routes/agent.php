@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Agent\AgentAccountBackupImportController;
 use App\Http\Controllers\Agent\AgentAccountBackupUploadController;
 use App\Http\Controllers\Agent\AgentCronExecutionController;
 use App\Http\Controllers\Agent\AgentEnrollmentController;
@@ -33,3 +34,9 @@ Route::prefix('agent/v1')->middleware([AuthenticateNodeCredential::class, 'throt
 Route::put('agent/v1/account-backup-uploads/{token}', [AgentAccountBackupUploadController::class, 'store'])
     ->middleware('throttle:600,1')
     ->name('agent.account-backup-uploads');
+
+// A node fetches an uploaded account backup here, to seal it as a backup of the account (see
+// ImportAccountBackup). No node credential: the token in the address authorizes it.
+Route::get('agent/v1/account-backup-imports/{token}', [AgentAccountBackupImportController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('agent.account-backup-imports');

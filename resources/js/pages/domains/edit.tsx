@@ -353,14 +353,30 @@ export default function Edit({
                                         <SelectItem value="wordpress">
                                             WordPress
                                         </SelectItem>
+                                        <SelectItem value="drupal">
+                                            Drupal
+                                        </SelectItem>
+                                        <SelectItem value="nextcloud">
+                                            Nextcloud
+                                        </SelectItem>
+                                        <SelectItem value="dokuwiki">
+                                            DokuWiki
+                                        </SelectItem>
+                                        <SelectItem value="xenforo">
+                                            XenForo
+                                        </SelectItem>
                                     </SelectContent>
                                 </Select>
 
                                 <p className="text-sm text-muted-foreground">
-                                    WordPress lets the admin, login and REST
-                                    areas accept HTML and scripts in posts,
-                                    while the rest of the site stays fully
-                                    protected.
+                                    A preset lets the application&apos;s own
+                                    admin and editing areas accept the HTML,
+                                    scripts and file uploads they need, while
+                                    the rest of the site stays fully protected.
+                                    WordPress is limited to its admin, login and
+                                    REST areas. The others use the exclusions
+                                    the OWASP Core Rule Set maintains for each
+                                    application.
                                 </p>
 
                                 <InputError message={errors.waf_preset} />

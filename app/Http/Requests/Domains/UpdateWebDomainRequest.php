@@ -58,7 +58,7 @@ class UpdateWebDomainRequest extends FormRequest
             'hotlink_protection' => ['nullable', 'boolean'],
             'hotlink_allowed_hosts' => ['array', 'max:50'],
             'hotlink_allowed_hosts.*' => ['string', new ValidDomainName],
-            'waf_preset' => ['nullable', 'string', Rule::in(['none', 'wordpress'])],
+            'waf_preset' => ['nullable', 'string', Rule::in(WebDomain::WAF_PRESETS)],
             'waf_excluded_rules' => ['array', 'max:100'],
             'waf_excluded_rules.*' => ['integer', 'between:1,999999999'],
             'aliases' => ['array'],

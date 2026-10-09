@@ -80,3 +80,33 @@ test('an owner backs up, restores part of a backup with confirmation, and delete
 
     expect($account->backupDestination()->first()->bucket)->toBe('my-backups');
 });
+
+test('an owner restores from a file on their computer: it is uploaded and added to the backups', function () {
+    $node = Node::factory()->create(['name' => 'alpha']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $site = WebDomain::factory()->for($node)->create();
+    $account = $site->account;
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+
+    $file = sys_get_temp_dir().'/lesta-import-'.uniqid().'.tar.gz';
+    file_put_contents($file, gzencode(str_repeat('backup data ', 1000)));
+
+    $this->actingAs($owner);
+
+    visit(route('account-backups.index'))
+        ->assertSee('Restore from a copy')
+        ->assertButtonDisabled('[data-test="import-upload-button"]')
+        ->attach('#import_file', $file)
+        ->fill('#import_label', 'From my laptop')
+        ->click('[data-test="import-upload-button"]')
+        ->assertSee('From my laptop')
+        ->assertNoJavaScriptErrors();
+
+    unlink($file);
+
+    $backup = AccountBackup::sole();
+
+    expect($backup->kind)->toBe('imported')
+        ->and($backup->label)->toBe('From my laptop');
+});

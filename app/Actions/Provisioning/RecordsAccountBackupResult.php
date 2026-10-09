@@ -9,6 +9,7 @@ use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Models\AccountBackup;
 use App\Models\AccountBackupDownload;
+use App\Models\AccountBackupImport;
 use App\Models\ProvisioningOperation;
 use Illuminate\Support\Facades\Storage;
 
@@ -39,6 +40,8 @@ class RecordsAccountBackupResult
 
     private function recordCreate(AccountBackup $backup, ProvisioningOperation $operation): void
     {
+        $this->removeStagedImport($backup);
+
         if (in_array($operation->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true)) {
             $data = $operation->data ?? [];
 
@@ -70,6 +73,20 @@ class RecordsAccountBackupResult
 
             $this->cancelPendingRestore($backup, $message);
         }
+    }
+
+    /**
+     * An uploaded file is only kept until the node has fetched it, whatever the outcome.
+     */
+    private function removeStagedImport(AccountBackup $backup): void
+    {
+        $backup->imports()->each(function (AccountBackupImport $import): void {
+            if ($import->path !== null) {
+                Storage::disk('local')->delete($import->path);
+            }
+
+            $import->delete();
+        });
     }
 
     private function startPendingRestore(AccountBackup $safety): void

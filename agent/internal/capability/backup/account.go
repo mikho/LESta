@@ -131,6 +131,7 @@ type accountRequest struct {
 	UploadURL     string         `json:"upload_url,omitempty"`
 	Destination   *S3Destination `json:"destination,omitempty"`
 	ObjectKey     string         `json:"object_key,omitempty"`
+	SourceURL     string         `json:"source_url,omitempty"`
 }
 
 // accountResponse is the one JSON object the helper writes.
@@ -209,6 +210,8 @@ func applyAccount(ctx context.Context, cfg Config, req accountRequest) accountRe
 		return applyAccountDownload(ctx, cfg, req, artifact)
 	case "copy":
 		return applyAccountCopy(ctx, cfg, req, artifact)
+	case "import":
+		return applyAccountImport(ctx, cfg, req, artifact)
 	}
 
 	return accountError("unsupported_verb", "the verb must be create or restore")
@@ -532,6 +535,10 @@ func (c *BackupCapability) runAccountHelper(ctx context.Context, req accountRequ
 
 // applyAccountCreateOp is the daemon's half of an account backup create.
 func (c *BackupCapability) applyAccountCreateOp(ctx context.Context, op protocol.OperationEnvelope, payload Payload) (protocol.ResultEnvelope, error) {
+	if payload.SourceURL != nil || payload.ObjectKey != nil {
+		return c.applyAccountImportOp(ctx, op, payload)
+	}
+
 	dir := c.cfg.accountArtifactDir(payload.Account.Username)
 	artifact := filepath.Join(dir, op.ResourceID+".acct.enc")
 

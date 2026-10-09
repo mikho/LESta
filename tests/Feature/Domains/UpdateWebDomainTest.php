@@ -211,6 +211,23 @@ test('an owner can turn the WAF on and exclude rules, and the nginx update carri
     expect($operation->payload)->toMatchArray(['waf_mode' => 'detect', 'waf_excluded_rules' => [942100, 920350]]);
 });
 
+test('every firewall preset is accepted and carried to the node', function (string $preset) {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'app.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    $this->actingAs($owner)
+        ->put(route('domains.update', $webDomain), ['domain' => 'app.example.com', 'waf_mode' => 'detect', 'waf_preset' => $preset])
+        ->assertSessionHasNoErrors();
+
+    $operation = ProvisioningOperation::where('provisionable_id', $webDomain->id)->where('operation', ProvisioningVerb::Update)->latest('id')->first();
+
+    expect($webDomain->refresh()->waf_preset)->toBe($preset)
+        ->and($operation->payload)->toMatchArray(['waf_preset' => $preset]);
+})->with(WebDomain::WAF_PRESETS);
+
 test('the WAF mode and rule ids are validated', function (array $input, string $field) {
     $node = Node::factory()->create();
     NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
@@ -222,7 +239,7 @@ test('the WAF mode and rule ids are validated', function (array $input, string $
         ->assertSessionHasErrors($field);
 })->with([
     'unknown mode' => [['waf_mode' => 'paranoid'], 'waf_mode'],
-    'unknown preset' => [['waf_preset' => 'drupal'], 'waf_preset'],
+    'unknown preset' => [['waf_preset' => 'joomla'], 'waf_preset'],
     'text instead of an id' => [['waf_excluded_rules' => '942100; SecRuleEngine Off'], 'waf_excluded_rules.1'],
     'id out of range' => [['waf_excluded_rules' => '0'], 'waf_excluded_rules.0'],
 ]);

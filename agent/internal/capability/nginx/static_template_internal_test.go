@@ -477,3 +477,48 @@ func TestReplacedHtpasswdFileIsRemovedAfterTheGraceUnlessReusedAgain(t *testing.
 		t.Errorf("a file the live vhost references must stay: %v", err)
 	}
 }
+
+// TestWafCrsPresetsSwitchOnTheRuleSetsOwnExclusionsBeforeItLoads guards the
+// application presets: each sets the Core Rule Set's switch for one application,
+// and the switch comes before the shared rule file is loaded, because the rule
+// set decides at load order whether its phase 1 exclusions apply.
+func TestWafCrsPresetsSwitchOnTheRuleSetsOwnExclusionsBeforeItLoads(t *testing.T) {
+	for _, preset := range []string{"drupal", "nextcloud", "dokuwiki", "xenforo"} {
+		rendered, err := renderVhost(vhostData{ResourceID: "00000000-0000-0000-0000-000000000010", Domain: "app.example.test", IPAddress: "127.0.0.1", Port: 80, WafMode: "block", WafPreset: preset, WafRulesFile: "/etc/lesta/waf/main.conf"}, false)
+		if err != nil {
+			t.Fatalf("%s: rendering: %v", preset, err)
+		}
+
+		body := string(rendered)
+		switchAt := strings.Index(body, "setvar:tx.crs_exclusions_"+preset+"=1")
+		fileAt := strings.Index(body, "modsecurity_rules_file")
+
+		if switchAt < 0 || fileAt < 0 || switchAt > fileAt {
+			t.Errorf("%s: the switch must be set before the rule file loads:\n%s", preset, body)
+		}
+
+		if strings.Contains(body, "id:9000001") || strings.Contains(body, "SecRuleRemoveById") {
+			t.Errorf("%s: no site-wide or WordPress rules expected:\n%s", preset, body)
+		}
+	}
+
+	for _, preset := range []string{"none", "wordpress", ""} {
+		rendered, err := renderVhost(vhostData{ResourceID: "00000000-0000-0000-0000-000000000011", Domain: "app.example.test", IPAddress: "127.0.0.1", Port: 80, WafMode: "block", WafPreset: preset}, false)
+		if err != nil {
+			t.Fatalf("%q: rendering: %v", preset, err)
+		}
+
+		if strings.Contains(string(rendered), "crs_exclusions_") {
+			t.Errorf("preset %q must not switch on a Core Rule Set exclusion pack", preset)
+		}
+	}
+
+	off, err := renderVhost(vhostData{ResourceID: "00000000-0000-0000-0000-000000000012", Domain: "app.example.test", IPAddress: "127.0.0.1", Port: 80, WafMode: "off", WafPreset: "drupal"}, false)
+	if err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(string(off), "modsecurity") {
+		t.Errorf("a domain with the WAF off renders nothing of it")
+	}
+}

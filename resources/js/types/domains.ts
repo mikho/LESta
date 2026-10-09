@@ -27,7 +27,8 @@ export type WebDomain = {
     ssl_mode: SslMode;
     waf_mode: 'off' | 'detect' | 'block';
     waf_excluded_rules: number[];
-    waf_preset: 'none' | 'wordpress';
+    waf_preset:
+        'none' | 'wordpress' | 'drupal' | 'nextcloud' | 'dokuwiki' | 'xenforo';
     hotlink_protection: boolean;
     hotlink_allowed_hosts: string[];
     certificate_issued_at: string | null;

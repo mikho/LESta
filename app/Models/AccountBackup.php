@@ -28,7 +28,7 @@ use Illuminate\Support\Carbon;
  * @property int $account_id
  * @property int $node_id
  * @property string|null $label
- * @property string $kind manual, scheduled or before_restore
+ * @property string $kind manual, scheduled, before_restore or imported
  * @property string $encryption_key
  * @property list<string> $requested_parts
  * @property ProvisioningStatus $status
@@ -63,7 +63,7 @@ class AccountBackup extends Model
     /** How many backups of each kind are kept per account and node; the oldest beyond this are deleted. */
     public const int KEEP = 5;
 
-    public const array KEEP_BY_KIND = ['manual' => 5, 'scheduled' => 7, 'before_restore' => 3];
+    public const array KEEP_BY_KIND = ['manual' => 5, 'scheduled' => 7, 'before_restore' => 3, 'imported' => 3];
 
     public const array PARTS = ['files', 'databases', 'mail'];
 
@@ -120,6 +120,14 @@ class AccountBackup extends Model
         return $this->hasMany(AccountBackupDownload::class);
     }
 
+    /**
+     * @return HasMany<AccountBackupImport, $this>
+     */
+    public function imports(): HasMany
+    {
+        return $this->hasMany(AccountBackupImport::class);
+    }
+
     public function isComplete(): bool
     {
         return in_array($this->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true);
@@ -143,6 +151,24 @@ class AccountBackup extends Model
             'encryption_key' => $this->encryption_key,
             'account' => $scope + ['parts' => $this->requested_parts],
         ];
+    }
+
+    /**
+     * What the node needs to bring a backup file in as a sealed backup of this account: a fresh key
+     * and a source, either a one-time address on the control plane or an object in the account's
+     * own storage. The parts the file really holds are read from the file by the node.
+     *
+     * @param  array{username: string, web_resources: list<string>, mail_domains: list<string>, databases: list<string>}  $scope
+     * @param  array<string, mixed>  $source  source_url, or destination and object_key
+     * @return array<string, mixed>
+     */
+    public function toImportPayload(array $scope, array $source): array
+    {
+        return [
+            'label' => $this->label,
+            'encryption_key' => $this->encryption_key,
+            'account' => $scope + ['parts' => self::PARTS],
+        ] + $source;
     }
 
     /**

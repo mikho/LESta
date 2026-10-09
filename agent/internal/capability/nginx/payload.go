@@ -102,8 +102,10 @@ type Payload struct {
 	// are integers so nothing a tenant types ever reaches the config as text.
 	WafMode          string `json:"waf_mode"`
 	WafExcludedRules []int  `json:"waf_excluded_rules"`
-	// WafPreset is "", "none" or "wordpress": a fixed, built-in set of rule
-	// exclusions scoped to the CMS's admin and REST paths (see waf.tmpl).
+	// WafPreset is "", "none", "wordpress", "drupal", "nextcloud", "dokuwiki" or "xenforo": a fixed, built-in set of rule
+	// exclusions for one application: WordPress is scoped to its admin and REST
+	// paths by a rule of ours, the others switch on the Core Rule Set's own
+	// exclusion pack for that application (see waf.tmpl).
 	WafPreset string `json:"waf_preset"`
 	// HotlinkProtection, when true, makes image requests whose Referer is
 	// another site answer 403. HotlinkAllowedHosts are extra hostnames (and
@@ -250,9 +252,9 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	}
 
 	switch p.WafPreset {
-	case "", "none", "wordpress":
+	case "", "none", "wordpress", "drupal", "nextcloud", "dokuwiki", "xenforo":
 	default:
-		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none or wordpress", Field: "waf_preset"}
+		return Payload{}, &ValidationError{Code: "invalid_waf_preset", Message: "waf_preset must be none, wordpress, drupal, nextcloud, dokuwiki or xenforo", Field: "waf_preset"}
 	}
 
 	if len(p.ProtectedDirs) > maxProtectedDirs {

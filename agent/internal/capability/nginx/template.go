@@ -133,6 +133,20 @@ func (d vhostData) WafEnabled() bool {
 	return d.WafMode == "detect" || d.WafMode == "block"
 }
 
+// crsExclusionPresets are the presets that switch on the OWASP Core Rule Set's own,
+// maintained exclusion packs for one application (rules 9001xxx and following, shipped
+// with the rule set). WordPress is not among them: it has its own, narrower preset.
+var crsExclusionPresets = map[string]bool{"drupal": true, "nextcloud": true, "dokuwiki": true, "xenforo": true}
+
+// WafCrsExclusion is the Core Rule Set application name to switch on, or empty.
+func (d vhostData) WafCrsExclusion() string {
+	if crsExclusionPresets[d.WafPreset] {
+		return d.WafPreset
+	}
+
+	return ""
+}
+
 // WafEngine is the SecRuleEngine value for the domain's mode.
 func (d vhostData) WafEngine() string {
 	if d.WafMode == "block" {
