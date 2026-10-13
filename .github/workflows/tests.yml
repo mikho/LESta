@@ -151,7 +151,16 @@ jobs:
 
       - name: Test (nginx/bind9/apache/exim/dovecot/pebble not installed yet; real-capability suite self-skips)
         working-directory: agent
-        run: go test ./...
+        run: |
+          # The job log cannot be read without a token, so a failure is also written as annotations:
+          # they are part of the check run and visible through the API.
+          set -o pipefail
+          go test ./... 2>&1 | tee /tmp/gotest.log || {
+            grep -E '^(--- FAIL|FAIL|panic:)|_test.go:[0-9]+' /tmp/gotest.log | head -20 | while IFS= read -r line; do
+              echo "::error title=go test::${line}"
+            done
+            exit 1
+          }
 
       - name: Install nginx
         run: sudo apt-get update && sudo apt-get install -y nginx
@@ -1040,7 +1049,16 @@ jobs:
 
       - name: Real-capability agent tests against the installer-produced state
         working-directory: agent
-        run: go test ./...
+        run: |
+          # The job log cannot be read without a token, so a failure is also written as annotations:
+          # they are part of the check run and visible through the API.
+          set -o pipefail
+          go test ./... 2>&1 | tee /tmp/gotest.log || {
+            grep -E '^(--- FAIL|FAIL|panic:)|_test.go:[0-9]+' /tmp/gotest.log | head -20 | while IFS= read -r line; do
+              echo "::error title=go test::${line}"
+            done
+            exit 1
+          }
 
       - name: Diagnose agent test failure (only runs if the step above failed)
         if: failure()
@@ -1125,7 +1143,16 @@ jobs:
 
       - name: Real-capability agent tests against the installer-produced both-profile system (exercises apacheProductionConfig()'s port-8080 branch against a genuinely both-profiled node)
         working-directory: agent
-        run: go test ./...
+        run: |
+          # The job log cannot be read without a token, so a failure is also written as annotations:
+          # they are part of the check run and visible through the API.
+          set -o pipefail
+          go test ./... 2>&1 | tee /tmp/gotest.log || {
+            grep -E '^(--- FAIL|FAIL|panic:)|_test.go:[0-9]+' /tmp/gotest.log | head -20 | while IFS= read -r line; do
+              echo "::error title=go test::${line}"
+            done
+            exit 1
+          }
 
       - name: Diagnose a failure in this job (only runs if a step above failed)
         if: failure()
