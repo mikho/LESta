@@ -23,7 +23,8 @@
       "/var/lib/lesta/web/accounts",
       "/var/lib/lesta/statistics/offsets",
       "/var/lib/lesta/identity",
-      "/etc/sudoers.d/lesta-agent-daemon"
+      "/etc/sudoers.d/lesta-agent-daemon", "/etc/systemd/system/lesta-applier-tenant.service",
+      "/etc/systemd/system/lesta-applier-tenant.service.d"
     ],
     "read_only_roots": ["/etc/ssh/sshd_config"],
     "refused_roots": ["/etc/sudoers"]

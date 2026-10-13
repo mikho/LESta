@@ -32,6 +32,12 @@ type Config struct {
 	// root (identity.Config's own field of the same name). Production:
 	// /var/lib/lesta/web/accounts.
 	AccountsRoot string
+	// DropToAccount, when true, makes the privileged request run with the account's own filesystem
+	// identity even when it is applied in this process (no SudoBinary): that is the case inside the
+	// root applier, which has the same need as the sudo helper had, so a link a tenant plants in
+	// their site cannot be followed by root.
+	DropToAccount bool
+
 	// SudoBinary, when non-empty, routes every real filesystem mutation
 	// through this same binary's own "files-manager-apply" CLI mode as
 	// root (privileged.go) -- creating a new file/directory requires a

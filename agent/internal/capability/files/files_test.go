@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -505,5 +506,39 @@ func TestCreateRejectsAnAlreadyExistingPath(t *testing.T) {
 
 	if result.Errors[0].Code != "already_exists" {
 		t.Fatalf("expected code already_exists, got %q", result.Errors[0].Code)
+	}
+}
+
+func TestDropToAccountRunsTheRequestAsTheAccountAndRefusesAnUnknownOne(t *testing.T) {
+	current, err := user.Current()
+	if err != nil || !regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`).MatchString(current.Username) {
+		t.Skip("the current user's name is not a valid account name")
+	}
+
+	resourceID := newTestUUID()
+	accountsRoot, docroot := setupDocroot(t, current.Username, resourceID)
+
+	if err := os.WriteFile(filepath.Join(docroot, "hello.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	capability := files.New(files.Config{AccountsRoot: accountsRoot, DropToAccount: true})
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationObserve, resourceID, map[string]any{
+		"account_username": current.Username,
+		"path":             "hello.txt",
+	}))
+	requireStatus(t, "an account that exists", result, err, protocol.StatusApplied)
+
+	// An account with no system user is refused outright; nothing is done as root on its behalf.
+	ghostRoot, _ := setupDocroot(t, "no-such-system-user", resourceID)
+	ghost := files.New(files.Config{AccountsRoot: ghostRoot, DropToAccount: true})
+
+	result, err = ghost.Apply(context.Background(), newOp(protocol.OperationObserve, resourceID, map[string]any{
+		"account_username": "no-such-system-user",
+		"path":             "",
+	}))
+	if err != nil || result.Status == protocol.StatusApplied {
+		t.Fatalf("an unknown account must not be applied, got %q (%v)", result.Status, err)
 	}
 }

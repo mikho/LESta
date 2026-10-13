@@ -27,7 +27,7 @@ APPLIER_CAPABILITIES_PATH="/etc/lesta/applier-capabilities"
 # (see agent/cmd/lesta-agent/applier.go). The default instance applies the capabilities that write
 # configuration files; "identity" applies the one that edits the account database, whose sandbox
 # must be able to write /etc. applier_select_instance chooses which one the functions below act on.
-APPLIER_UNITS="lesta-applier lesta-applier-identity"
+APPLIER_UNITS="lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup"
 
 # applier_select_instance [name]: no name selects the default instance.
 applier_select_instance() {
@@ -209,4 +209,32 @@ applier_restart_if_enabled() {
 
         systemctl restart "${unit}" || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_restart_failed "/etc/systemd/system/${unit}.service" "systemctl restart ${unit} failed after installing a new agent binary generation"
     done
+}
+
+# applier_setup_tenant_instance installs and starts the "tenant" instance, which applies what works
+# on the tenants' own data: the file manager, cron and the usage measurement. It writes
+# /var/lib/lesta and /etc/cron.d, reads the tenants' files, and changes its filesystem identity to the
+# account's own (system calls in @privileged, CAP_SETUID and CAP_SETGID). Shared by the installers
+# whose capability it applies; the caller enables its own capabilities afterwards.
+applier_setup_tenant_instance() {
+    applier_select_instance tenant
+    applier_install_unit
+    applier_allow_paths tenant /var/lib/lesta /etc/cron.d
+    applier_allow_capabilities tenant CAP_SETUID CAP_SETGID
+    applier_allow_syscalls tenant @privileged
+    applier_start
+    applier_select_instance ""
+}
+
+# applier_setup_backup_instance installs and starts the "backup" instance. It reads all tenant data
+# and, unlike the tenant instance, may reach the network (a copy to the owner's storage, a download
+# to the control plane), which is why the two are separate processes.
+applier_setup_backup_instance() {
+    applier_select_instance backup
+    applier_install_unit
+    applier_allow_paths backup /var/lib/lesta
+    applier_allow_capabilities backup CAP_SETUID CAP_SETGID
+    applier_allow_syscalls backup @privileged
+    applier_start
+    applier_select_instance ""
 }

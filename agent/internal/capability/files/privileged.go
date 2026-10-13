@@ -387,6 +387,10 @@ func dispatchAsAccount(cfg Config, req applyRequest) applyResponse {
 // sudo cannot grant to an in-process Go syscall the way it can a separate
 // exec.Command invocation.
 func applyPrivileged(ctx context.Context, cfg Config, req applyRequest) (applyResponse, error) {
+	if cfg.DropToAccount {
+		return dispatchAsAccount(cfg, req), nil
+	}
+
 	if cfg.SudoBinary == "" || cfg.AgentBinaryPath == "" {
 		return dispatch(cfg, req), nil
 	}

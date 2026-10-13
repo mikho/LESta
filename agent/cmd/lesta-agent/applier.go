@@ -11,12 +11,17 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mikho/LESta/agent/internal/applier"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
+	"github.com/mikho/LESta/agent/internal/capability/backup"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
+	"github.com/mikho/LESta/agent/internal/capability/cron"
+	"github.com/mikho/LESta/agent/internal/capability/files"
 	"github.com/mikho/LESta/agent/internal/capability/identity"
 	"github.com/mikho/LESta/agent/internal/capability/mail"
+	"github.com/mikho/LESta/agent/internal/capability/metrics"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -29,7 +34,10 @@ import (
 // An instance is one applier process with its own socket and its own sandbox. The default instance
 // hosts the capabilities that write configuration files; the "identity" instance hosts the one that
 // edits the account database (/etc/passwd and friends), which needs write access to all of /etc and
-// would otherwise widen the sandbox of every other capability.
+// would otherwise widen the sandbox of every other capability. The "tenant" instance applies what
+// works on the tenants' own data (the file manager, cron, usage measurement), and "backup" the
+// one that can also reach the network, so a process that reads all tenant data is not the one
+// that can send it out.
 
 const (
 	// applierCapabilitiesPath lists, one per line, the capabilities the daemon hands to an applier
@@ -51,6 +59,8 @@ type applierInstance struct {
 	socket string
 	// hosted is the capabilities it applies.
 	hosted map[string]bool
+	// timeout bounds one operation; zero means the applier's default.
+	timeout time.Duration
 }
 
 var applierInstances = []applierInstance{
@@ -71,6 +81,25 @@ var applierInstances = []applierInstance{
 		hosted: map[string]bool{
 			systemAccountIdentityCapability: true,
 		},
+	},
+	{
+		name:   "tenant",
+		socket: applierSocketDir + "/applier-tenant.sock",
+		hosted: map[string]bool{
+			filesManagerCapability:  true,
+			schedulerCronCapability: true,
+			metricsUsageCapability:  true,
+		},
+		timeout: 15 * time.Minute,
+	},
+	{
+		name:   "backup",
+		socket: applierSocketDir + "/applier-backup.sock",
+		hosted: map[string]bool{
+			backupEncryptedArtifactsCapability: true,
+		},
+		// A backup or a restore of a large account takes a long time.
+		timeout: 3 * time.Hour,
 	},
 }
 
@@ -140,11 +169,51 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = mail.New(mailAppliedConfig())
 	case systemAccountIdentityCapability:
 		capability = identity.New(identityAppliedConfig())
+	case filesManagerCapability:
+		capability = files.New(filesAppliedConfig())
+	case schedulerCronCapability:
+		capability = cron.New(cronAppliedConfig())
+	case metricsUsageCapability:
+		capability = metrics.New(metricsProductionConfig())
+	case backupEncryptedArtifactsCapability:
+		capability = backup.New(backupAppliedConfig())
 	default:
 		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
 	}
 
 	return capability.Apply(ctx, op)
+}
+
+// filesAppliedConfig is the file manager's configuration for the applier: requests are applied in
+// this process, as the account (DropToAccount), where the sudo helper used to do the same.
+func filesAppliedConfig() files.Config {
+	cfg := filesManagerProductionConfig()
+	cfg.SudoBinary = ""
+	cfg.AgentBinaryPath = ""
+	cfg.DropToAccount = true
+
+	return cfg
+}
+
+// cronAppliedConfig is the cron configuration for the applier: the fragments, sidecars and account
+// directories are written in this process. AgentBinaryPath stays: it is written into the crontab
+// lines, which run the agent as the tenant's own user.
+func cronAppliedConfig() cron.Config {
+	cfg := cronProductionConfig()
+	cfg.SudoBinary = ""
+
+	return cfg
+}
+
+// backupAppliedConfig is the backup configuration for the applier: the databases are dumped and
+// loaded, and the tenants' files, mailboxes and cron state read and written, by this process
+// directly, because it already is root.
+func backupAppliedConfig() backup.Config {
+	cfg := backupProductionConfig()
+	cfg.SudoBinary = ""
+	cfg.AgentBinaryPath = ""
+
+	return cfg
 }
 
 // identityAppliedConfig is the identity configuration for the applier: accounts are created and
@@ -276,9 +345,10 @@ func runApplier(instanceName string) int {
 	defer stop()
 
 	server := &applier.Server{
-		Handler:     dispatchHosted,
-		Hosted:      instance.hosted,
-		AllowedUIDs: []uint32{uint32(uid)},
+		Handler:          dispatchHosted,
+		Hosted:           instance.hosted,
+		AllowedUIDs:      []uint32{uint32(uid)},
+		OperationTimeout: instance.timeout,
 		Logf: func(format string, args ...any) {
 			fmt.Fprintf(os.Stderr, format+"\n", args...)
 		},

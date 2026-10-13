@@ -193,7 +193,7 @@ agent_fail_selftest_with_rollback() {
         # below is reported either way).
         local applier_unit
 
-        for applier_unit in lesta-applier lesta-applier-identity; do
+        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
             if systemctl is-enabled "${applier_unit}" >/dev/null 2>&1; then
                 systemctl restart "${applier_unit}" >/dev/null 2>&1 || true
             fi

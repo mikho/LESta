@@ -67,6 +67,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/agent.sh
@@ -708,6 +710,12 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier (the tenant instance, see lib/applier.sh) writes the cron fragments, the
+    # per-account sidecars and the account directories, not the unprivileged daemon through sudo.
+    applier_setup_tenant_instance
+    applier_enable_capability "${SCHEDULER_CRON_CAPABILITY}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "root applier (tenant instance) installed and started; ${SCHEDULER_CRON_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${SCHEDULER_CRON_CAPABILITY}"

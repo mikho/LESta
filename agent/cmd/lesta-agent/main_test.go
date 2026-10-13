@@ -170,7 +170,7 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 
 func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
 	list := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(list, []byte("# comment\n backup.encrypted-artifacts.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(list, []byte("# comment\n tls.acme.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,13 +179,13 @@ func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
 	}
 
 	// Listed, but this build does not host it in the applier.
-	if appliedByApplierFrom(list, backupEncryptedArtifactsCapability) {
+	if appliedByApplierFrom(list, tlsAcmeCapability) {
 		t.Errorf("a capability the applier does not host must stay with the daemon, even if listed")
 	}
 
 	// Hosted, but not listed.
 	other := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(other, []byte("backup.encrypted-artifacts.v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(other, []byte("tls.acme.v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -72,6 +72,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/agent.sh
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
@@ -498,6 +500,14 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier (the backup instance, see lib/applier.sh) makes, restores and copies the
+    # backups: it dumps the databases and reads the tenants' data directly, so the daemon needs no
+    # sudo for any of it. It is a separate process from the other instances because it may reach
+    # the network.
+    applier_setup_backup_instance
+    applier_enable_capability "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-backup.service" "root applier (backup instance) installed and started; ${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}"

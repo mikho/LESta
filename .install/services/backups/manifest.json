@@ -9,5 +9,5 @@
   "packages": [],
   "ports": [],
   "artifacts": [],
-  "ownership": {"owned_roots": ["/var/lib/lesta/backups", "/etc/sudoers.d/lesta-backups"], "read_only_roots": [], "refused_roots": ["/home", "/etc/sudoers"]}
+  "ownership": {"owned_roots": ["/var/lib/lesta/backups", "/etc/sudoers.d/lesta-backups", "/etc/systemd/system/lesta-applier-backup.service", "/etc/systemd/system/lesta-applier-backup.service.d", "/etc/lesta/applier-capabilities"], "read_only_roots": [], "refused_roots": ["/home", "/etc/sudoers"]}
 }

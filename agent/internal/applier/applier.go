@@ -29,8 +29,10 @@ import (
 )
 
 const (
-	// MaxMessageBytes bounds one request or response.
-	MaxMessageBytes = 8 << 20
+	// MaxMessageBytes bounds one request or response. A file read through the file manager can
+	// come back as 25 MB of base64-encoded content, so the bound is well above that; the only peers
+	// are root and the daemon's own user.
+	MaxMessageBytes = 48 << 20
 	// DefaultOperationTimeout bounds one operation on the server when the client sets no earlier deadline.
 	DefaultOperationTimeout = 10 * time.Minute
 	// idleReadTimeout bounds how long the server waits for a client to send its request.
@@ -217,6 +219,9 @@ func (s *Server) safeHandle(ctx context.Context, op protocol.OperationEnvelope) 
 type Remote struct {
 	// SocketPath is the applier's unix socket.
 	SocketPath string
+	// Timeout bounds a call whose context has no deadline of its own; zero means
+	// DefaultOperationTimeout plus a minute. It must be longer than the server's.
+	Timeout time.Duration
 }
 
 // Apply sends op to the applier and returns its result. An error means no verdict was reached: the
@@ -233,7 +238,12 @@ func (r Remote) Apply(ctx context.Context, op protocol.OperationEnvelope) (proto
 
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		deadline = time.Now().Add(DefaultOperationTimeout + time.Minute)
+		timeout := r.Timeout
+		if timeout <= 0 {
+			timeout = DefaultOperationTimeout + time.Minute
+		}
+
+		deadline = time.Now().Add(timeout)
 	}
 
 	_ = conn.SetDeadline(deadline)

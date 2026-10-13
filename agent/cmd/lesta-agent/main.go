@@ -276,7 +276,9 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 	if appliedByApplier(op.Capability) {
 		instance, _ := applierInstanceFor(op.Capability)
 
-		return applier.Remote{SocketPath: instance.socket}.Apply(ctx, op)
+		// The client waits a little longer than the instance works, so the instance's own timeout
+		// is the one that fires and reports.
+		return applier.Remote{SocketPath: instance.socket, Timeout: instance.timeout + time.Minute}.Apply(ctx, op)
 	}
 
 	return dispatchDirect(ctx, op)

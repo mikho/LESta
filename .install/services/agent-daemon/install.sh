@@ -546,6 +546,20 @@ bootstrap_applier_identity() {
     log_info "bootstrap_applier_identity complete"
 }
 
+# The file manager and the usage measurement work on the tenants' own data and are applied by the
+# tenant instance of the root applier (shared with cron, whose installer also sets it up).
+bootstrap_applier_tenant() {
+    log_info "bootstrap_applier_tenant: installing the tenant applier instance"
+
+    applier_setup_tenant_instance
+    applier_enable_capability files.manager.v1
+    applier_enable_capability metrics.usage.v1
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "tenant applier instance installed and started; files.manager.v1 and metrics.usage.v1 are applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+
+    checkpoint_write bootstrap_applier_tenant "${MANIFEST_DIGEST}"
+    log_info "bootstrap_applier_tenant complete"
+}
+
 bootstrap_sftp_prerequisite() {
     log_info "bootstrap_sftp_prerequisite: preparing system.account-identity.v1's own real SFTP rendering targets"
 
@@ -765,6 +779,7 @@ main() {
     bootstrap_agent_daemon
     bootstrap_sftp_prerequisite
     bootstrap_applier_identity
+    bootstrap_applier_tenant
 
     checkpoint_remove
     release_write "${RELEASE_ID}" "${MANIFEST_DIGEST}"
