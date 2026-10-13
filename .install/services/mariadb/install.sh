@@ -1121,12 +1121,13 @@ CONF
     if ! out=$(mariadb --socket="${TENANT_SOCKET}" -u root <<ADMINSQL 2>&1
 CREATE OR REPLACE USER '${TENANT_ADMIN_USER}'@'127.0.0.1' IDENTIFIED BY '${admin_password}';
 GRANT ALL PRIVILEGES ON *.* TO '${TENANT_ADMIN_USER}'@'127.0.0.1' WITH GRANT OPTION;
--- Everything the capability does (create and drop a tenant's database and users, grant on one
+-- Everything the capability does (create and drop a tenant database and its users, grant on one
 -- database, read mysql.user) needs none of these, and each is a way out of the database: FILE reads
 -- and writes files as the database server (SELECT ... INTO OUTFILE, LOAD_FILE), SUPER and SET USER
--- act as other users and change the server, SHUTDOWN stops it, PROCESS reads every connection's
--- statements.
-REVOKE FILE, SUPER, SHUTDOWN, PROCESS, BINLOG ADMIN, BINLOG REPLAY, SET USER, FEDERATED ADMIN ON *.* FROM '${TENANT_ADMIN_USER}'@'127.0.0.1';
+-- act as other users and change the server, SHUTDOWN stops it, PROCESS reads the statements of
+-- every connection; CONNECTION ADMIN and READ_ONLY ADMIN change server settings, and the replication
+-- privileges read or redirect the binary log.
+REVOKE FILE, SUPER, SHUTDOWN, PROCESS, BINLOG ADMIN, BINLOG REPLAY, SET USER, FEDERATED ADMIN, CONNECTION ADMIN, READ_ONLY ADMIN, REPLICATION SLAVE ADMIN, REPLICATION MASTER ADMIN, REPLICATION SLAVE ON *.* FROM '${TENANT_ADMIN_USER}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 ADMINSQL
     ); then
