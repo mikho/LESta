@@ -490,8 +490,14 @@ install_cron() {
     # the daemon's own, already-owned-by-its-group data). Confirmed
     # empirically, same bug class as every other capability's own
     # StateRoot this phase.
-    install -d -m 0770 -o root -g lesta "${CRON_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0770 root:lesta"
+    #
+    # And 0771, not 0770: cron runs each job as the tenant's own user, and the wrapper
+    # (lesta-agent cron-run) reads that account's sidecar under accounts/<user>/ and appends to its
+    # execution log. The tenant is not in group lesta, so without the execute bit for others it cannot
+    # even reach its own directory and every job fails before running. Others get traverse-only (no
+    # listing); accounts/ below it is 0751 and each account's directory is its own group's.
+    install -d -m 0771 -o root -g lesta "${CRON_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0771 root:lesta (traverse-only for others, so a tenant's cron job can reach its own account directory)"
 
     install -d -m 0770 -o root -g lesta "${CRON_STATE_ROOT}/jobs" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
     add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0770 root:lesta"
