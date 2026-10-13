@@ -11,6 +11,7 @@
 #   applier_allow_paths <capability> <path>…  the directories that capability writes
 #   applier_allow_capabilities <capability> <CAP_…>…  any extra Linux capabilities it needs
 #   applier_allow_syscalls <capability> <@group>…  any extra system call groups it needs
+#   applier_allow_setid_modes <capability>  let it set setuid and setgid bits
 #   applier_start                             enable and (re)start the unit
 #   applier_enable_capability <capability>    the switch: the daemon now hands it to the applier
 #
@@ -161,6 +162,24 @@ applier_allow_syscalls() {
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-syscalls.conf" "failed to write the applier system call drop-in for ${capability}"
 }
 
+# applier_allow_setid_modes <capability>
+# Lets the applier set the setuid and setgid bits while it applies <capability> (the unit starts with
+# RestrictSUIDSGID=yes, which makes chmod with those bits fail with "operation not permitted" even for
+# root). Cron's per-account directories are setgid 2750 on purpose, and a restore gives back the modes
+# that a backup recorded.
+applier_allow_setid_modes() {
+    local capability="$1"
+
+    install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
+
+    printf '[Service]\nRestrictSUIDSGID=no\n' > "${APPLIER_DROPIN_DIR}/${capability}-setid.conf.tmp"
+    chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}-setid.conf.tmp"
+    chown root:root "${APPLIER_DROPIN_DIR}/${capability}-setid.conf.tmp"
+    mv -f "${APPLIER_DROPIN_DIR}/${capability}-setid.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-setid.conf" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-setid.conf" "failed to write the applier setid drop-in for ${capability}"
+}
+
 # applier_start enables the unit and restarts it so it runs the binary and drop-ins now on disk.
 applier_start() {
     # A failure here is a failed health check of the agent binary just installed (the applier is
@@ -222,6 +241,7 @@ applier_setup_tenant_instance() {
     applier_allow_paths tenant /var/lib/lesta /etc/cron.d
     applier_allow_capabilities tenant CAP_SETUID CAP_SETGID
     applier_allow_syscalls tenant @privileged
+    applier_allow_setid_modes tenant
     applier_start
     applier_select_instance ""
 }
@@ -235,6 +255,7 @@ applier_setup_backup_instance() {
     applier_allow_paths backup /var/lib/lesta
     applier_allow_capabilities backup CAP_SETUID CAP_SETGID
     applier_allow_syscalls backup @privileged
+    applier_allow_setid_modes backup
     applier_start
     applier_select_instance ""
 }
