@@ -89,8 +89,6 @@ SFTP_ACCOUNTS_ROOT="/var/lib/lesta/web/accounts"
 
 # Real absolute paths on Ubuntu 24.04/26.04, matching every other leaf
 # installer's own *_BINARY_PATH sudoers-rule convention.
-SSHD_BINARY_PATH="/usr/sbin/sshd"
-SYSTEMCTL_BINARY_PATH="/usr/bin/systemctl"
 SUDOERS_LESTA_AGENT_DAEMON_PATH="/etc/sudoers.d/lesta-agent-daemon"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
@@ -278,7 +276,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place (a no-op if node-health already installed it)"
     add_change "${AGENT_DAEMON_CAPABILITY}" would_enroll "/etc/lesta/agent/node-credential" "this node would exchange its enrollment token for a long-lived node credential against ${CONTROL_PLANE_URL}/agent/v1/enroll, unless a credential is already present"
-    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; ${SUDOERS_LESTA_AGENT_DAEMON_PATH} would be rendered and validated, scoping lesta-agent to run ${AGENT_BINARY_DEST} identity-useradd, ${AGENT_BINARY_DEST} identity-userdel, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, ${SYSTEMCTL_BINARY_PATH} reload ssh, and ${AGENT_BINARY_DEST} files-manager-apply as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${AGENT_DAEMON_CAPABILITY}" would_install "${DAEMON_UNIT_PATH}" "the lesta-agent-daemon systemd unit would be written, enabled, and started, then health-probed via systemctl; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }

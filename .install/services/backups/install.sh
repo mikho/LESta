@@ -97,8 +97,6 @@ BACKUPS_ARTIFACTS_ROOT="/var/lib/lesta/backups"
 # package ships mariadb-dump/mariadb as the real binaries; mysqldump/mysql
 # are compatibility symlinks this project never invokes directly -- see
 # agent/internal/capability/backup/dump.go's own mariadbDumpBinary()).
-MARIADB_DUMP_BINARY_PATH="/usr/bin/mariadb-dump"
-MARIADB_CLIENT_BINARY_PATH="/usr/bin/mariadb"
 # The two database sockets agent/cmd/lesta-agent/main.go's DatabaseDumpSockets names; keep in step.
 SUDOERS_LESTA_BACKUPS_PATH="/etc/sudoers.d/lesta-backups"
 
@@ -249,7 +247,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway backup artifact against the real, just-installed capability"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0770 root:lesta; ${SUDOERS_LESTA_BACKUPS_PATH} would be rendered and validated, scoping lesta-agent to run ${MARIADB_DUMP_BINARY_PATH} and ${MARIADB_CLIENT_BINARY_PATH} as root, nothing else. No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener of its own"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" would_install "" "${BACKUPS_ARTIFACTS_ROOT} would be created, mode 0770 root:lesta; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No package install, no daemon, no firewall phase: this capability is pure Go with no external binary or network listener of its own"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }

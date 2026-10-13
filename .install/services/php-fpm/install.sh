@@ -250,7 +250,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway PHP 8.3 pool against the real, just-installed php8.3-fpm"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" would_install "" "the ondrej/php PPA would be pinned; php${PHP_VERSIONS# } (space-separated: ${PHP_VERSIONS}) would be installed via apt-get; each version's own pool.d directory would be created, mode 0770 root:lesta, with its default www pool disabled; ${SUDOERS_LESTA_PHP_FPM_PATH} would be rendered and validated, scoping lesta-agent to run each version's own php-fpm -t and systemctl reload as root, nothing else. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" would_install "" "the ondrej/php PPA would be pinned; php${PHP_VERSIONS# } (space-separated: ${PHP_VERSIONS}) would be installed via apt-get; each version's own pool.d directory would be created, mode 0770 root:lesta, with its default www pool disabled; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }

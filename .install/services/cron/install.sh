@@ -267,7 +267,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway cron job against the real, just-installed cron, including a direct invocation of the cron-run wrapper"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; ${SUDOERS_LESTA_CRON_PATH} would be rendered and validated, scoping lesta-agent to cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state as root, nothing else; cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "the lesta-cron system user would be created; $(cron_would_install_note); ${FRAGMENT_DIR} and ${CRON_STATE_ROOT} would be created; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work); cron.service would be enabled and health-probed. No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -614,50 +614,8 @@ run_node_health_selftest() {
 
     log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 against the real sidecar"
 
-    # The create/delete round trip above already ran as lesta-agent
-    # (selftest_invoke_agent, lib/selftest.sh, via sudo -u), so it already
-    # genuinely exercises the sudoers rule -- this second, disposable
-    # resource_id goes further, verifying something the round trip's own
-    # status=applied check does not: that the fragment landed owned
-    # root:root specifically, the actual thing cron itself enforces before
-    # honoring a fragment at all, not just that some write happened.
-    local sudo_check_id sudo_check_path fragment_owner
-    sudo_check_id=$(selftest_new_uuid)
-    sudo_check_path="${FRAGMENT_DIR}/lesta-${sudo_check_id}"
-
-    if ! printf '* * * * * root true\n' | sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-install-fragment "${sudo_check_id}" >/dev/null 2>&1; then
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-install-fragment' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
-    fi
-
-    if [ ! -f "${sudo_check_path}" ]; then
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_missing "${sudo_check_path}" "lesta-agent's own sudo cron-install-fragment call exited 0 but no fragment was written"
-    fi
-
-    fragment_owner=$(stat -c '%U' "${sudo_check_path}" 2>/dev/null || true)
-    if [ "${fragment_owner}" != "root" ]; then
-        sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-remove-fragment "${sudo_check_id}" >/dev/null 2>&1 || true
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_write_wrong_owner "${sudo_check_path}" "fragment written via the lesta-agent sudo path is owned by ${fragment_owner:-unknown}, not root -- cron would refuse to honor it"
-    fi
-
-    if ! sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-remove-fragment "${sudo_check_id}" >/dev/null 2>&1; then
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_remove_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-remove-fragment' as itself, to clean up its own self-test fragment"
-    fi
-
-    if [ -f "${sudo_check_path}" ]; then
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_remove_left_file "${sudo_check_path}" "lesta-agent's own sudo cron-remove-fragment call exited 0 but the fragment still exists"
-    fi
-
-    if ! sudo -u lesta-agent sudo "${AGENT_BINARY_DEST}" cron-ensure-account-dir "${RUNNER_USER}" >/dev/null 2>&1; then
-        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
-        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_sudoers_ensure_account_dir_failed "${SUDOERS_LESTA_CRON_PATH}" "lesta-agent could not run 'sudo ${AGENT_BINARY_DEST} cron-ensure-account-dir' as itself -- the sudoers rule at ${SUDOERS_LESTA_CRON_PATH} is not granting what the real daemon needs"
-    fi
-
-    log_info "bootstrap_node_health self-test: cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state all work as lesta-agent, and the written fragment is genuinely owned root:root"
+    # The create/delete round trip above already ran as lesta-agent and went through the root applier,
+    # so it exercises the whole write path; the fragment ownership is checked by the applier's own tests.
 
     if ! run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}"; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_cleanup_failed "${FRAGMENT_DIR}" "self-test create succeeded but the throwaway resource could not be deleted afterward"

@@ -97,7 +97,6 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 # equivalent to nginx/install.sh's own NGINX_CONF_PATH/NGINX_LIVE_DIR.
 NAMED_CONF_PATH="/etc/bind/named.conf"
 BIND9_LIVE_DIR="/etc/bind/lesta.d"
-RNDC_BINARY_PATH="/usr/sbin/rndc"
 SUDOERS_LESTA_BIND9_PATH="/etc/sudoers.d/lesta-bind9"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
@@ -320,7 +319,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway zone against the real, just-installed bind9"
-    add_change dns.bind9.v1 would_install "${OFFLINE_BUNDLE}" "$(bind9_would_install_note); ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; ${SUDOERS_LESTA_BIND9_PATH} would be rendered and validated, scoping lesta-agent to run ${RNDC_BINARY_PATH} as root, nothing else; bind9 would be enabled, restarted, and health-probed"
+    add_change dns.bind9.v1 would_install "${OFFLINE_BUNDLE}" "$(bind9_would_install_note); ${BIND9_LIVE_DIR} and /var/lib/lesta/bind would be created; bind added to the lesta group; named's AppArmor profile would be extended to allow reading /var/lib/lesta/bind; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work); bind9 would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
