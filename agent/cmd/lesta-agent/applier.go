@@ -21,6 +21,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/files"
 	"github.com/mikho/LESta/agent/internal/capability/identity"
 	"github.com/mikho/LESta/agent/internal/capability/mail"
+	"github.com/mikho/LESta/agent/internal/capability/mariadb"
 	"github.com/mikho/LESta/agent/internal/capability/metrics"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
@@ -68,11 +69,12 @@ var applierInstances = []applierInstance{
 		name:   "",
 		socket: applierSocketDir + "/applier.sock",
 		hosted: map[string]bool{
-			dnsBind9Capability:     true,
-			webNginxCapability:     true,
-			webPhpFpmCapability:    true,
-			webApacheCapability:    true,
-			mailSmtpImapCapability: true,
+			dnsBind9Capability:       true,
+			webNginxCapability:       true,
+			webPhpFpmCapability:      true,
+			webApacheCapability:      true,
+			mailSmtpImapCapability:   true,
+			databaseTenantCapability: true,
 		},
 	},
 	{
@@ -167,6 +169,10 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = apache.New(apacheAppliedConfig())
 	case mailSmtpImapCapability:
 		capability = mail.New(mailAppliedConfig())
+	case databaseTenantCapability:
+		// The tenant database administrator's credential is read here, as root: it is a root-only
+		// file, and the unprivileged daemon never holds it.
+		capability = mariadb.New(mariadbProductionConfig())
 	case systemAccountIdentityCapability:
 		capability = identity.New(identityAppliedConfig())
 	case filesManagerCapability:

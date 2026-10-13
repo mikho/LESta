@@ -124,6 +124,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
 . "${INSTALL_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/applier.sh
+. "${INSTALL_ROOT}/lib/applier.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -375,7 +377,7 @@ emit_dry_run_result_and_exit() {
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, registering tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT}, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway tenant database against the real, just-installed tenant MariaDB instance"
     add_change database.control-plane.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); the default mariadb.service instance would be stopped, its stock ${CONTROL_PLANE_STOCK_DATADIR} content relocated to ${CONTROL_PLANE_DATADIR}, ${CONTROL_PLANE_CONF_FRAGMENT} written, and mariadb.service re-enabled and started; a dedicated least-privilege application account and ${CONTROL_PLANE_APP_CREDENTIALS_FILE} would be created; health would be probed with a real SELECT 1 round-trip"
-    add_change database.tenant.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account and ${TENANT_ADMIN_DEFAULTS_FILE} (mode 0640 root:lesta) would be created; an obsolete ${SUDOERS_LESTA_MARIADB_PATH} would be removed; health would be probed with a real SELECT 1 round-trip"
+    add_change database.tenant.v1 would_install "${OFFLINE_BUNDLE}" "$(mariadb_would_install_note); ${TENANT_CONF_FRAGMENT} would be written; ${TENANT_DATADIR} would be created empty and owned by mysql:mysql; mariadbd's AppArmor profile would be extended (if enforcing) to allow ${TENANT_DATADIR}; mariadb@tenant.service would be enabled and started; a dedicated admin account (without FILE, SUPER, SHUTDOWN and PROCESS) and ${TENANT_ADMIN_DEFAULTS_FILE} (mode 0600 root:root) would be created; an obsolete ${SUDOERS_LESTA_MARIADB_PATH} would be removed; health would be probed with a real SELECT 1 round-trip"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -1119,6 +1121,12 @@ CONF
     if ! out=$(mariadb --socket="${TENANT_SOCKET}" -u root <<ADMINSQL 2>&1
 CREATE OR REPLACE USER '${TENANT_ADMIN_USER}'@'127.0.0.1' IDENTIFIED BY '${admin_password}';
 GRANT ALL PRIVILEGES ON *.* TO '${TENANT_ADMIN_USER}'@'127.0.0.1' WITH GRANT OPTION;
+-- Everything the capability does (create and drop a tenant's database and users, grant on one
+-- database, read mysql.user) needs none of these, and each is a way out of the database: FILE reads
+-- and writes files as the database server (SELECT ... INTO OUTFILE, LOAD_FILE), SUPER and SET USER
+-- act as other users and change the server, SHUTDOWN stops it, PROCESS reads every connection's
+-- statements.
+REVOKE FILE, SUPER, SHUTDOWN, PROCESS, BINLOG ADMIN, BINLOG REPLAY, SET USER, FEDERATED ADMIN ON *.* FROM '${TENANT_ADMIN_USER}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 ADMINSQL
     ); then
@@ -1132,13 +1140,13 @@ ADMINSQL
 user=${TENANT_ADMIN_USER}
 password=${admin_password}
 DEFAULTS
-    # Readable by the agent's own group so the daemon runs the mariadb client as itself. This is
-    # a database account that only speaks SQL over TCP; it used to be root-only, which forced a
-    # sudo rule for the whole mariadb client, and the client can run shell commands (\\!, pager).
-    chmod 0640 "${TENANT_ADMIN_DEFAULTS_FILE}.tmp"
-    chown root:lesta "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${TENANT_ADMIN_DEFAULTS_FILE}" "failed to give group lesta read access to ${TENANT_ADMIN_DEFAULTS_FILE}"
+    # Root only. The mariadb capability is applied by the root applier, which reads this file; the
+    # unprivileged daemon never holds the database administrator's credential. (For a while it was
+    # readable by the agent's group so the daemon could run the client without sudo.)
+    chmod 0600 "${TENANT_ADMIN_DEFAULTS_FILE}.tmp"
+    chown root:root "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${TENANT_ADMIN_DEFAULTS_FILE}" "failed to make ${TENANT_ADMIN_DEFAULTS_FILE} root-only"
     mv -f "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" "${TENANT_ADMIN_DEFAULTS_FILE}"
-    add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0640 root:lesta, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
+    add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0600 root:root, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
 
     # --- sudoers: no longer needed ------------------------------------------
     #
@@ -1232,6 +1240,14 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
+
+    # The root applier applies this capability (see lib/applier.sh): it reads the administrator's
+    # credential file and runs the SQL, so the unprivileged daemon holds no database credential.
+    applier_install_unit
+    applier_allow_paths "${DATABASE_TENANT_CAPABILITY}" /var/lib/lesta
+    applier_start
+    applier_enable_capability "${DATABASE_TENANT_CAPABILITY}"
+    add_change "${DATABASE_TENANT_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DATABASE_TENANT_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${DATABASE_TENANT_CAPABILITY}"
