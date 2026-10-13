@@ -74,6 +74,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/agent.sh
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
@@ -98,8 +100,6 @@ BACKUPS_ARTIFACTS_ROOT="/var/lib/lesta/backups"
 MARIADB_DUMP_BINARY_PATH="/usr/bin/mariadb-dump"
 MARIADB_CLIENT_BINARY_PATH="/usr/bin/mariadb"
 # The two database sockets agent/cmd/lesta-agent/main.go's DatabaseDumpSockets names; keep in step.
-BACKUP_TENANT_SOCKET="/run/mysqld/mysqld.tenant.sock"
-BACKUP_CONTROL_PLANE_SOCKET="/run/mysqld/mysqld.sock"
 SUDOERS_LESTA_BACKUPS_PATH="/etc/sudoers.d/lesta-backups"
 
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
@@ -368,43 +368,12 @@ install_backups() {
     # empirically (0750 left the daemon's own user unable to even touch a
     # file here), same bug class already found and fixed this phase for
     # nginx/bind9/apache's own LiveDir.
-    install -d -m 0770 -o root -g lesta "${BACKUPS_ARTIFACTS_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BACKUPS_ARTIFACTS_ROOT}" "failed to create ${BACKUPS_ARTIFACTS_ROOT}"
+    ratchet_root_owned_dir "${BACKUPS_ARTIFACTS_ROOT}" 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BACKUPS_ARTIFACTS_ROOT}" "failed to create ${BACKUPS_ARTIFACTS_ROOT}"
     add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" ensured "${BACKUPS_ARTIFACTS_ROOT}" "artifacts directory present, mode 0770 root:lesta"
 
-    # --- sudoers: dumpSocket/restoreSocket's own real client invocations ----
-    #
-    # Confirmed deploying to a real node: dumpSocket/restoreSocket
-    # (agent/internal/capability/backup/dump.go, restore.go) authenticate
-    # against a live MariaDB instance's own unix socket via unix_socket
-    # auth -- the same local, no-password mechanism this project's own
-    # installer health checks already use -- which authenticates by checking
-    # that the *OS* user making the connection is literally named "root".
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, so it never passes that check by file permissions
-    # alone; sudo lets the client process itself run as real root instead.
-    # Pinned to the exact argv dump.go and restore.go build, for the two
-    # known database sockets, with no trailing wildcard. A wildcard here would
-    # let the daemon write a dump to any path (mariadb-dump --result-file) or
-    # pass any option. The restore client reads its SQL on stdin and the SQL
-    # client can run shell commands (\\!, pager), so a daemon that is
-    # compromised can still reach root through the restore; that needs the
-    # restore to stop using root's unix_socket login.
-    cat > "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${MARIADB_DUMP_BINARY_PATH} --socket\=${BACKUP_TENANT_SOCKET} -u root --all-databases --single-transaction --quick, ${MARIADB_DUMP_BINARY_PATH} --socket\=${BACKUP_CONTROL_PLANE_SOCKET} -u root --all-databases --single-transaction --quick, ${MARIADB_CLIENT_BINARY_PATH} --socket\=${BACKUP_TENANT_SOCKET} -u root, ${MARIADB_CLIENT_BINARY_PATH} --socket\=${BACKUP_CONTROL_PLANE_SOCKET} -u root, ${AGENT_BINARY_DEST} backup-account-apply, ${AGENT_BINARY_DEST} backup-archive-mail-state, ${AGENT_BINARY_DEST} backup-restore-mail-files
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_BACKUPS_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_BACKUPS_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_BACKUPS_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    # Same-directory rename: atomic, and sudo's own #includedir
-    # /etc/sudoers.d parsing only ever sees the final name.
-    mv "${SUDOERS_LESTA_BACKUPS_PATH}.tmp" "${SUDOERS_LESTA_BACKUPS_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_BACKUPS_PATH}" "failed to activate ${SUDOERS_LESTA_BACKUPS_PATH}"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "${SUDOERS_LESTA_BACKUPS_PATH}" "sudoers rule written and validated: lesta-agent may run ${MARIADB_DUMP_BINARY_PATH} and ${MARIADB_CLIENT_BINARY_PATH} only with the exact dump and restore arguments for the two known database sockets, and ${AGENT_BINARY_DEST} backup-account-apply (per-account backups, one JSON request on stdin), backup-archive-mail-state and backup-restore-mail-files (whole-node mail, which the mail user owns) as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_BACKUPS_PATH}"
 
     checkpoint_write install_backups "${MANIFEST_DIGEST}"
     log_info "install_backups complete"
@@ -506,8 +475,7 @@ bootstrap_node_health() {
     # sudo for any of it. It is a separate process from the other instances because it may reach
     # the network.
     applier_setup_backup_instance
-    applier_enable_capability "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}"
-    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-backup.service" "root applier (backup instance) installed and started; ${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-backup.service" "root applier (backup instance) installed and started; ${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${BACKUP_ENCRYPTED_ARTIFACTS_CAPABILITY}"

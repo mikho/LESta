@@ -74,6 +74,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/prepare-config.sh
 . "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -641,7 +643,7 @@ install_bind9() {
     # nginx/apache's own master-process pattern, so root:lesta stays
     # readable to it. Confirmed directly (root:root 0755 left the daemon's
     # own user unable to even touch a file here), not assumed.
-    install -d -m 0770 -o root -g lesta "${BIND9_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
+    ratchet_root_owned_dir "${BIND9_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${BIND9_LIVE_DIR}" "failed to create ${BIND9_LIVE_DIR}"
     add_change dns.bind9.v1 ensured "${BIND9_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
 
     if [ -z "$(find "${BIND9_LIVE_DIR}" -maxdepth 1 -name '*.conf' -print -quit 2>/dev/null)" ]; then
@@ -735,34 +737,12 @@ PLACEHOLDER
     # same reasoning as BIND9_LIVE_DIR above. Still readable to `bind`
     # (already a member of group lesta) for zone data after named drops
     # privilege -- widening only adds group write, removes nothing.
-    install -d -m 0770 -o root -g lesta /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
+    ratchet_root_owned_dir /var/lib/lesta/bind 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
     add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0770 root:lesta"
 
-    # --- sudoers: the real daemon's own rndc reload needs root too ----------
-    #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, confirmed directly deploying to a real node: rndc
-    # always needs to read /etc/bind/rndc.key (bind:bind 0640) to
-    # authenticate its own reload request, and lesta-agent is deliberately
-    # never added to the bind group (that would grant it everything bind
-    # can read, not just this one key). This rule scopes lesta-agent to
-    # running exactly "rndc reload" as root, nothing else: the only rndc
-    # command the daemon issues (bind9/reload.go). A wildcard here would also
-    # allow rndc's -c/-k/-s options and every control command.
-    cat > "${SUDOERS_LESTA_BIND9_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${RNDC_BINARY_PATH} reload
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_BIND9_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_BIND9_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_BIND9_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_BIND9_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_BIND9_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_BIND9_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    mv "${SUDOERS_LESTA_BIND9_PATH}.tmp" "${SUDOERS_LESTA_BIND9_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_BIND9_PATH}" "failed to activate ${SUDOERS_LESTA_BIND9_PATH}"
-    add_change dns.bind9.v1 installed "${SUDOERS_LESTA_BIND9_PATH}" "sudoers rule written and validated: lesta-agent may run ${RNDC_BINARY_PATH} as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_BIND9_PATH}"
 
     check_lesta_include_present "${NAMED_CONF_PATH}" "${BIND9_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
@@ -877,8 +857,7 @@ bootstrap_node_health() {
     applier_install_unit
     applier_allow_paths "${DNS_BIND9_CAPABILITY}" "${BIND9_LIVE_DIR}" /var/lib/lesta/bind
     applier_start
-    applier_enable_capability "${DNS_BIND9_CAPABILITY}"
-    add_change "${DNS_BIND9_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DNS_BIND9_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${DNS_BIND9_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DNS_BIND9_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${DNS_BIND9_CAPABILITY}"

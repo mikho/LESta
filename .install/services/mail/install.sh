@@ -113,6 +113,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/prepare-config.sh
 . "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -1094,7 +1096,7 @@ install_mail() {
     # delete, not just this installer's own root-invoked self-test -- same
     # bug class already found and fixed for every other capability's own
     # LiveDir/StateRoot this phase.
-    install -d -m 0770 -o root -g lesta "${DOVECOT_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
+    ratchet_root_owned_dir "${DOVECOT_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0770 root:lesta"
 
     mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
@@ -1236,14 +1238,14 @@ install_mail() {
     # mail install: every IMAP session and LMTP delivery failed with
     # "missing +x perm: /var/lib/lesta/mail" once authentication itself was
     # fixed.
-    install -d -m 0771 -o root -g lesta "${MAIL_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
+    ratchet_root_owned_dir "${MAIL_STATE_ROOT}" 0751 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${MAIL_STATE_ROOT}" "failed to create ${MAIL_STATE_ROOT}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${MAIL_STATE_ROOT}" "state root present, mode 0771 root:lesta (traverse-only for vmail)"
 
-    install -d -m 0770 -o root -g lesta "${EXIM_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_LIVE_DIR}" "failed to create ${EXIM_LIVE_DIR}"
-    install -d -m 0770 -o root -g lesta "${EXIM_DATA_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
+    ratchet_root_owned_dir "${EXIM_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_LIVE_DIR}" "failed to create ${EXIM_LIVE_DIR}"
+    ratchet_root_owned_dir "${EXIM_DATA_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${EXIM_DATA_DIR}" "lookup-data directory present, mode 0770 root:lesta"
 
-    install -d -m 0770 -o root -g lesta "${DKIM_KEY_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
+    ratchet_root_owned_dir "${DKIM_KEY_ROOT}" 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0770 root:lesta"
 
     # root:vmail 2770, not root:lesta 0770: Dovecot's LMTP delivery runs as
@@ -1256,36 +1258,17 @@ install_mail() {
     # vmail (which grants it nothing else: VMAIL_HOME is vmail:vmail 0700,
     # no group bits), and setgid makes every per-domain subdirectory the
     # agent creates inherit group vmail.
-    usermod -aG vmail lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG vmail lesta-agent failed"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "lesta-agent added to the vmail group, so it can write sieve scripts vmail itself can read"
+    # lesta-agent used to join group vmail to write the sieve scripts. The root applier writes them
+    # now (world-readable, so vmail can read them), and the membership is taken away, also on a node
+    # installed before.
+    ratchet_leave_group lesta-agent vmail
     install -d -m 2770 -o root -g vmail "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SIEVE_DIR}" "failed to create ${SIEVE_DIR}"
     chgrp -R vmail "${SIEVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" chgrp_failed "${SIEVE_DIR}" "failed to set group vmail under ${SIEVE_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${SIEVE_DIR}" "sieve script root present, mode 2770 root:vmail"
 
-    # --- sudoers: systemctl reload exim4/dovecot -----------------------------
-    #
-    # The real lesta-agent-daemon runs unprivileged, and both reloads need
-    # root: Exim's own pid file (/var/run/exim4/exim.pid) sits in a
-    # Debian-exim-only directory, and even with the pid an unprivileged
-    # process can't signal a root-owned Exim. Found on lesta-cp-01, this
-    # installer's first real (non-CI) run: the self-test's create failed with
-    # "reading exim pid file ...: permission denied", since every self-test
-    # runs as lesta-agent (Phase 60). mailProductionConfig routes both
-    # reloads through exactly these two commands, nothing else.
-    cat > "${SUDOERS_LESTA_MAIL_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload exim4, /usr/bin/systemctl reload dovecot
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_MAIL_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_MAIL_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_MAIL_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_MAIL_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_MAIL_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_MAIL_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    mv "${SUDOERS_LESTA_MAIL_PATH}.tmp" "${SUDOERS_LESTA_MAIL_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_MAIL_PATH}" "failed to activate ${SUDOERS_LESTA_MAIL_PATH}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${SUDOERS_LESTA_MAIL_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload exim4 and systemctl reload dovecot as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_MAIL_PATH}"
 
     systemctl enable exim4 || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable exim4 failed"
 
@@ -1474,8 +1457,7 @@ bootstrap_node_health() {
     applier_allow_capabilities "${MAIL_SMTP_IMAP_CAPABILITY}" CAP_SETUID CAP_SETGID
     applier_allow_syscalls "${MAIL_SMTP_IMAP_CAPABILITY}" @privileged
     applier_start
-    applier_enable_capability "${MAIL_SMTP_IMAP_CAPABILITY}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${MAIL_SMTP_IMAP_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${MAIL_SMTP_IMAP_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${MAIL_SMTP_IMAP_CAPABILITY}"

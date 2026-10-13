@@ -66,6 +66,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/daemon.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 
 BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
 NODE_HEALTH_MANIFEST="${INSTALL_ROOT}/services/node-health/manifest.json"
@@ -443,7 +445,7 @@ bootstrap_agent_daemon() {
     # tenant-database/web usage collection all share it) and this
     # installer already runs unconditionally on every node regardless of
     # which capabilities are chosen, exactly like daemon-state above.
-    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/statistics/offsets \
+    ratchet_root_owned_dir /var/lib/lesta/statistics/offsets 0750 lesta \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/statistics/offsets "failed to create /var/lib/lesta/statistics/offsets"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/statistics/offsets "metrics.usage.v1's own writable offset-bookkeeping directory present, mode 0750 lesta-agent:lesta"
 
@@ -456,7 +458,7 @@ bootstrap_agent_daemon() {
     # install.sh of its own to have created it. Created here for the same
     # reason as the two directories just above: this installer already
     # runs unconditionally on every node.
-    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/identity \
+    ratchet_root_owned_dir /var/lib/lesta/identity 0750 lesta \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/identity "failed to create /var/lib/lesta/identity"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/identity "system.account-identity.v1's own generation-history bookkeeping directory present, mode 0750 lesta-agent:lesta"
 
@@ -470,7 +472,7 @@ bootstrap_agent_daemon() {
     # the three directories just above: this installer already runs
     # unconditionally on every node, regardless of which capabilities are
     # chosen.
-    install -d -m 0750 -o lesta-agent -g lesta /var/lib/lesta/files-manager \
+    ratchet_root_owned_dir /var/lib/lesta/files-manager 0750 lesta \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/files-manager "failed to create /var/lib/lesta/files-manager"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured /var/lib/lesta/files-manager "files.manager.v1's own presence directory present, mode 0750 lesta-agent:lesta"
 
@@ -538,8 +540,7 @@ bootstrap_applier_identity() {
     applier_allow_capabilities system.account-identity.v1 CAP_SETUID CAP_SETGID
     applier_allow_syscalls system.account-identity.v1 @privileged
     applier_start
-    applier_enable_capability system.account-identity.v1
-    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "identity applier instance installed and started; system.account-identity.v1 is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "identity applier instance installed and started; system.account-identity.v1 is applied by it"
     applier_select_instance ""
 
     checkpoint_write bootstrap_applier_identity "${MANIFEST_DIGEST}"
@@ -552,9 +553,7 @@ bootstrap_applier_tenant() {
     log_info "bootstrap_applier_tenant: installing the tenant applier instance"
 
     applier_setup_tenant_instance
-    applier_enable_capability files.manager.v1
-    applier_enable_capability metrics.usage.v1
-    add_change "${AGENT_DAEMON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "tenant applier instance installed and started; files.manager.v1 and metrics.usage.v1 are applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "tenant applier instance installed and started; files.manager.v1 and metrics.usage.v1 are applied by it"
 
     checkpoint_write bootstrap_applier_tenant "${MANIFEST_DIGEST}"
     log_info "bootstrap_applier_tenant complete"
@@ -576,7 +575,7 @@ bootstrap_sftp_prerequisite() {
     # root before dropping privileges never cares about this directory's
     # own group-write bit, only OpenSSH's ChrootDirectory requirement
     # (SFTP_ACCOUNTS_ROOT, unaffected by this) does.
-    install -d -m 0770 -o root -g lesta "${SFTP_LESTA_LIVE_DIR}" \
+    ratchet_root_owned_dir "${SFTP_LESTA_LIVE_DIR}" 0755 root \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_LESTA_LIVE_DIR}" "failed to create ${SFTP_LESTA_LIVE_DIR}"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_LESTA_LIVE_DIR}" "per-account sshd Match-block directory present, mode 0770 root:lesta"
 
@@ -616,82 +615,9 @@ bootstrap_sftp_prerequisite() {
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${SFTP_ACCOUNTS_ROOT}" "failed to create ${SFTP_ACCOUNTS_ROOT}"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${SFTP_ACCOUNTS_ROOT}" "chroot accounts root present, mode 0755 root:root"
 
-    # --- sudoers: useradd/userdel/identity-ensure-chroot-tree/sshd/reload --
-    #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, confirmed directly against a real node, the hard
-    # way: a real tenant's own first CronJob create failed with "useradd:
-    # Permission denied" -- system.account-identity.v1's own useradd/userdel
-    # invocations (agent/internal/capability/identity/exec.go) had never
-    # been routed through sudo at all, unlike every other capability's own
-    # root-only actions this project already fixed. useradd/userdel always
-    # require root (they write /etc/passwd/etc/shadow/etc/group directly);
-    # there is no file-permission fix, only running the process itself as
-    # root. identity-ensure-chroot-tree grants a third, closely related
-    # action, found immediately after fixing the first two on the same real
-    # node: ensureChrootTree's own os.MkdirAll under SFTP_ACCOUNTS_ROOT and
-    # its two os.Chown calls (one to root:root, one to the tenant's own
-    # uid/gid) also require real root, which sudo cannot grant to an
-    # in-process Go syscall the way it can a separate exec.Command
-    # invocation -- routed instead through this same binary's own
-    # "identity-ensure-chroot-tree" CLI mode (privileged.go), the same
-    # self-re-exec shape cron's own cron-archive-state already established.
-    # sshd -t and systemctl reload ssh grant a fourth and fifth, found
-    # immediately after the first three on the same real node:
-    # validateCandidate's own `sshd -t` needs root to read the real host
-    # key files (0600, root-only) it falls back to when a candidate config
-    # names none explicitly; reload's own `systemctl reload ssh` needs root
-    # the same way every other systemd-unit mutation this project execs
-    # does. systemctl is scoped to exactly "reload ssh" args, never a bare
-    # wildcard: unlike every other binary in this rule, a wildcarded
-    # systemctl could restart/stop/mask arbitrary units, a real privilege
-    # escalation this rule must never grant. Always ensured, even on a
-    # re-run past the early-return below: this rule must exist before the
-    # very first real account identity is ever created, and re-rendering an
-    # already-identical file is a cheap, safe no-op.
-    #
-    # identity-write-authorized-keys grants a sixth action, found
-    # immediately after the first five on the same real node, attempting a
-    # real end-to-end SFTP login: sshd's own secure_path() safety check
-    # (confirmed directly via `sshd -d -d -d`) independently requires
-    # SFTP_AUTHORIZED_KEYS_DIR and every file in it be root-owned with no
-    # group/other write bit at all, which the real unprivileged
-    # lesta-agent-daemon could never satisfy writing directly -- routed
-    # through this same binary's own "identity-write-authorized-keys" CLI
-    # mode (privileged.go) the same way identity-ensure-chroot-tree is.
-    #
-    # files-manager-apply grants a seventh action: files.manager.v1's own
-    # create/update/delete verbs must land on disk owned by the tenant's own
-    # lesta-t{account_id} uid/gid, identical ownership to the SFTP path, but
-    # the unprivileged lesta-agent-daemon cannot chown to an arbitrary
-    # tenant uid it doesn't itself run as -- routed through this same
-    # binary's own "files-manager-apply" CLI mode (privileged.go) the same
-    # way the identity-* actions above are, with the request JSON piped over
-    # stdin rather than argv, since it can carry arbitrary file content.
-    # Deliberately no trailing " *" here, unlike identity-ensure-chroot-tree/
-    # identity-write-authorized-keys above: this subcommand is always
-    # invoked with zero further argv tokens (files.Config.command(), agent
-    # side), and found the hard way against a real node that sudo's own
-    # command-args glob requires a literal space before "*" to match
-    # against -- a trailing " *" never matches a bare, argument-less
-    # invocation, so lesta-agent was silently falling through to
-    # password-required and every real file-manager operation failed.
-    cat > "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${AGENT_BINARY_DEST} identity-useradd *, ${AGENT_BINARY_DEST} identity-userdel *, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree *, ${AGENT_BINARY_DEST} identity-write-authorized-keys *, ${SSHD_BINARY_PATH} -t -f *, ${SYSTEMCTL_BINARY_PATH} reload ssh, ${AGENT_BINARY_DEST} files-manager-apply
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_AGENT_DAEMON_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    # Same-directory rename: atomic, and sudo's own #includedir
-    # /etc/sudoers.d parsing only ever sees the final name.
-    mv "${SUDOERS_LESTA_AGENT_DAEMON_PATH}.tmp" "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "failed to activate ${SUDOERS_LESTA_AGENT_DAEMON_PATH}"
-    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${SUDOERS_LESTA_AGENT_DAEMON_PATH}" "sudoers rule written and validated: lesta-agent may run ${AGENT_BINARY_DEST} identity-useradd, ${AGENT_BINARY_DEST} identity-userdel, ${AGENT_BINARY_DEST} identity-ensure-chroot-tree, ${AGENT_BINARY_DEST} identity-write-authorized-keys, ${SSHD_BINARY_PATH} -t, ${SYSTEMCTL_BINARY_PATH} reload ssh, and ${AGENT_BINARY_DEST} files-manager-apply as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_AGENT_DAEMON_PATH}"
 
     if [ -f "${SFTP_LESTA_CONF_PATH}" ] && grep -qF "${SFTP_LESTA_LIVE_DIR}" "${SFTP_LESTA_CONF_PATH}"; then
         add_change "${AGENT_DAEMON_CAPABILITY}" verified "${SFTP_LESTA_CONF_PATH}" "already present from a prior apply"

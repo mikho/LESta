@@ -13,7 +13,6 @@
 #   applier_allow_syscalls <capability> <@group>…  any extra system call groups it needs
 #   applier_allow_setid_modes <capability>  let it set setuid and setgid bits
 #   applier_start                             enable and (re)start the unit
-#   applier_enable_capability <capability>    the switch: the daemon now hands it to the applier
 #
 # and, after swapping in a new agent binary, applier_restart_if_enabled before any self-test, so
 # the self-test runs against the new applier.
@@ -21,8 +20,6 @@
 # The unit is sandboxed: it can write only the paths the capabilities that moved behind it name
 # (one drop-in each), has no network beyond what the tools it runs need, and keeps only the
 # capabilities it uses.
-
-APPLIER_CAPABILITIES_PATH="/etc/lesta/applier-capabilities"
 
 # The applier runs as one or more instances, each its own process with its own sandbox and socket
 # (see agent/cmd/lesta-agent/applier.go). The default instance applies the capabilities that write
@@ -49,6 +46,10 @@ applier_select_instance() {
 applier_select_instance ""
 
 applier_install_unit() {
+    # An earlier version listed the capabilities the daemon handed to the applier; every capability an
+    # instance hosts is applied there now, so the list is gone.
+    rm -f /etc/lesta/applier-capabilities
+
     {
         printf '[Unit]\nDescription=LESta privileged applier %s (applies node configuration for the agent daemon)\n' "${APPLIER_UNIT_NAME}"
         printf 'After=local-fs.target\nBefore=lesta-agent-daemon.service\n\n'
@@ -199,21 +200,6 @@ applier_start() {
 
         sleep 0.1
     done
-}
-
-# applier_enable_capability <capability>
-# Adds the capability to the root-owned list the daemon reads, so it hands that capability to the
-# applier. Removing the line moves the capability back to the daemon.
-applier_enable_capability() {
-    local capability="$1"
-
-    if [ -f "${APPLIER_CAPABILITIES_PATH}" ] && grep -qxF "${capability}" "${APPLIER_CAPABILITIES_PATH}"; then
-        return 0
-    fi
-
-    printf '%s\n' "${capability}" >> "${APPLIER_CAPABILITIES_PATH}"
-    chmod 0644 "${APPLIER_CAPABILITIES_PATH}"
-    chown root:root "${APPLIER_CAPABILITIES_PATH}"
 }
 
 # applier_restart_if_enabled restarts every applier instance after a new agent binary was installed, so the

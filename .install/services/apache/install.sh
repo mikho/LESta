@@ -104,6 +104,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/prepare-config.sh
@@ -801,11 +803,11 @@ install_apache() {
     # below, which masked this for a long time by running privileged.
     # Confirmed directly (root:root 0755 left the daemon's own user unable
     # to even touch a file here), not assumed.
-    install -d -m 0770 -o root -g lesta "${APACHE_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
+    ratchet_root_owned_dir "${APACHE_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APACHE_LIVE_DIR}" "failed to create ${APACHE_LIVE_DIR}"
     # 0770, not 0750: generation.Store's own bookkeeping is written
     # directly into this StateRoot by the real unprivileged daemon too,
     # same reasoning as APACHE_LIVE_DIR just above.
-    install -d -m 0770 -o root -g lesta /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
+    ratchet_root_owned_dir /var/lib/lesta/apache 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
     add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
     add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0770 root:lesta"
 
@@ -868,29 +870,9 @@ LOGROTATE
     fi
     add_change web.apache.v1 validated "" "apache2ctl configtest passed"
 
-    # --- sudoers: systemctl reload apache2 -----------------------------------
-    #
-    # The real lesta-agent-daemon runs unprivileged and cannot signal the
-    # root-owned apache2 master; an unprivileged `apache2 -k graceful` then
-    # assumes apache isn't running and fails starting a second instance
-    # (AH00072). apacheProductionConfig routes reloads through exactly this
-    # command. A PHP domain's docroot sits under its account's root-owned
-    # chroot directory, so it is created through the agent's own
-    # nginx-ensure-docroot mode, exactly as nginx/install.sh allows it.
-    cat > "${SUDOERS_LESTA_APACHE_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: /usr/bin/systemctl reload apache2, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_APACHE_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_APACHE_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_APACHE_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_APACHE_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_APACHE_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_APACHE_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    mv "${SUDOERS_LESTA_APACHE_PATH}.tmp" "${SUDOERS_LESTA_APACHE_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_APACHE_PATH}" "failed to activate ${SUDOERS_LESTA_APACHE_PATH}"
-    add_change web.apache.v1 installed "${SUDOERS_LESTA_APACHE_PATH}" "sudoers rule written and validated: lesta-agent may run systemctl reload apache2 and the agent's own nginx-ensure-docroot mode as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_APACHE_PATH}"
 
     systemctl enable apache2 || apache_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable apache2 failed"
 
@@ -1022,8 +1004,7 @@ bootstrap_node_health() {
     applier_install_unit
     applier_allow_paths "${WEB_APACHE_CAPABILITY}" /etc/apache2 /var/lib/lesta /var/log/lesta /var/log/apache2 /var/run/apache2 /var/lock/apache2
     applier_start
-    applier_enable_capability "${WEB_APACHE_CAPABILITY}"
-    add_change "${WEB_APACHE_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_APACHE_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${WEB_APACHE_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_APACHE_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_APACHE_CAPABILITY}"

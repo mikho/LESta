@@ -72,6 +72,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/prepare-config.sh
 . "${INSTALL_ROOT}/lib/prepare-config.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -800,12 +802,12 @@ install_nginx() {
     # below, which masked this for a long time by running privileged.
     # Confirmed directly (root:root 0755 left the daemon's own user unable
     # to even touch a file here), not assumed.
-    install -d -m 0770 -o root -g lesta "${NGINX_LIVE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
+    ratchet_root_owned_dir "${NGINX_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LIVE_DIR}" "failed to create ${NGINX_LIVE_DIR}"
     # 0770, not 0750: generation.Store's own bookkeeping (manifests,
     # current/previous symlinks) is written directly into this StateRoot
     # by the real unprivileged daemon too, same reasoning as NGINX_LIVE_DIR
     # just above -- confirmed empirically, not assumed.
-    install -d -m 0770 -o root -g lesta /var/lib/lesta/nginx || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
+    ratchet_root_owned_dir /var/lib/lesta/nginx 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/nginx "failed to create /var/lib/lesta/nginx"
     add_change web.nginx.v1 ensured "${NGINX_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
     add_change web.nginx.v1 ensured /var/lib/lesta/nginx "state directory present, mode 0770 root:lesta"
 
@@ -824,8 +826,8 @@ install_nginx() {
     # tenants' own processes run as other users and must not read each other's
     # password hashes.
     if getent group www-data >/dev/null 2>&1; then
-        install -d -m 2750 -o lesta-agent -g www-data /etc/lesta/nginx-auth || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/nginx-auth "failed to create /etc/lesta/nginx-auth"
-        add_change web.nginx.v1 ensured /etc/lesta/nginx-auth "protected-directory password file directory present, mode 2750 lesta-agent:www-data"
+        ratchet_root_owned_dir /etc/lesta/nginx-auth 2750 www-data || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta/nginx-auth "failed to create /etc/lesta/nginx-auth"
+        add_change web.nginx.v1 ensured /etc/lesta/nginx-auth "protected-directory password file directory present, mode 2750 root:www-data"
     else
         add_change web.nginx.v1 skipped /etc/lesta/nginx-auth "no www-data group on this node, so protected directories are unavailable"
     fi
@@ -844,42 +846,9 @@ LOGROTATE
 
     install_waf_rules
 
-    # --- sudoers: the real daemon's own nginx -t/-s reload need root too -----
-    #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, confirmed directly deploying to a real node: nginx
-    # always re-parses and opens every TLS private key referenced anywhere
-    # in the whole merged config for both -t and -s reload, not just
-    # whatever this capability's own fragment is doing -- and a real,
-    # correctly root-protected key (any coexisting HTTPS vhost's own, not
-    # just one of this capability's own fragments) refuses to open for
-    # anything but root. This rule scopes lesta-agent to running exactly
-    # exactly the two nginx invocations the daemon makes (a reload of the
-    # live config, and a test of a synthetic config in a scratch directory)
-    # as root. Not a free wildcard: nginx can run arbitrary global directives
-    # with -g and load modules, so only these argument shapes are allowed.
-    # The test still takes any config path, so a compromised daemon could
-    # test (and so load) a config it wrote itself; closing that needs the
-    # validation to run unprivileged or the config to be rendered by root. It also grants this same binary's own
-    # "nginx-ensure-docroot" CLI mode (docroot.go), the same real-root
-    # requirement identity-ensure-chroot-tree already has and for the same
-    # reason: creating a PHP-enabled domain's own per-domain docroot
-    # directory inside that account's root-owned SFTP chroot tree, owned
-    # by the account's own uid/gid, needs real root.
-    cat > "${SUDOERS_LESTA_NGINX_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${NGINX_BINARY_PATH} -s reload -c ${NGINX_CONF_PATH}, ${NGINX_BINARY_PATH} -t -c *, ${AGENT_BINARY_DEST} nginx-ensure-docroot *
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_NGINX_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_NGINX_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_NGINX_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_NGINX_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_NGINX_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_NGINX_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    mv "${SUDOERS_LESTA_NGINX_PATH}.tmp" "${SUDOERS_LESTA_NGINX_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_NGINX_PATH}" "failed to activate ${SUDOERS_LESTA_NGINX_PATH}"
-    add_change web.nginx.v1 installed "${SUDOERS_LESTA_NGINX_PATH}" "sudoers rule written and validated: lesta-agent may run ${NGINX_BINARY_PATH} and ${AGENT_BINARY_DEST} nginx-ensure-docroot as root, nothing else"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_NGINX_PATH}"
 
     check_lesta_include_present "${NGINX_CONF_PATH}" "${NGINX_LIVE_DIR}/*.conf" "include" || include_status=$?
     if [ "${include_status}" -ne 0 ]; then
@@ -1007,8 +976,7 @@ bootstrap_node_health() {
     applier_allow_paths "${WEB_NGINX_CAPABILITY}" "${NGINX_LIVE_DIR}" /etc/lesta/nginx-auth /var/lib/lesta /var/log/lesta /var/log/nginx /var/lib/nginx
     applier_allow_capabilities "${WEB_NGINX_CAPABILITY}" CAP_NET_BIND_SERVICE
     applier_start
-    applier_enable_capability "${WEB_NGINX_CAPABILITY}"
-    add_change "${WEB_NGINX_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_NGINX_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${WEB_NGINX_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_NGINX_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_NGINX_CAPABILITY}"

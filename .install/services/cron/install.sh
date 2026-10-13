@@ -69,6 +69,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/agent.sh
@@ -496,10 +498,10 @@ install_cron() {
     # execution log. The tenant is not in group lesta, so without the execute bit for others it cannot
     # even reach its own directory and every job fails before running. Others get traverse-only (no
     # listing); accounts/ below it is 0751 and each account's directory is its own group's.
-    install -d -m 0771 -o root -g lesta "${CRON_STATE_ROOT}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0771 root:lesta (traverse-only for others, so a tenant's cron job can reach its own account directory)"
+    ratchet_root_owned_dir "${CRON_STATE_ROOT}" 0751 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}" "failed to create ${CRON_STATE_ROOT}"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}" "state root present, mode 0751 root:lesta (traverse-only for others, so a tenant cron job can reach its own account directory)"
 
-    install -d -m 0770 -o root -g lesta "${CRON_STATE_ROOT}/jobs" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
+    ratchet_root_owned_dir "${CRON_STATE_ROOT}/jobs" 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
     add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0770 root:lesta"
 
     # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar and
@@ -512,52 +514,9 @@ install_cron() {
     # self-test skip exercising that exact lazy-creation code path, which is
     # precisely what a real tenant account's own first cron job depends on.
 
-    # --- sudoers: the real root-only actions the real daemon needs ----------
-    #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user, confirmed directly deploying to a real node: cron
-    # itself refuses to honor any ${FRAGMENT_DIR} fragment not owned by
-    # root (a real, deliberate cron security check, not an oversight this
-    # installer could just widen around -- confirmed directly, not
-    # assumed); ensureAccountDir's own chown to a tenant-specific group
-    # requires root too; and each resource's own per-account JSON sidecar
-    # (StateRoot/accounts/<run_as>/jobs/sidecar/<id>.json) lives under a
-    # directory root:<run_as> mode 2750, deliberately never group-readable
-    # by the shared lesta group either -- found the same way, deploying to
-    # a real node, immediately after the first four of these five were
-    # already fixed. cron-archive-state grants a sixth, different kind of
-    # exception: backup.encrypted-artifacts.v1's own archive step (running
-    # as the same unprivileged lesta-agent-daemon) needs to read every
-    # account's own StateRoot/accounts/<run_as> tree to capture real tenant
-    # cron job content in a backup artifact, which the same root:<run_as>
-    # isolation above blocks just as completely -- found deploying to a
-    # real node while re-verifying backup.encrypted-artifacts.v1 itself.
-    # This rule scopes lesta-agent to running exactly six subcommands on
-    # this node's own fixed, vendored agent binary as root, nothing else --
-    # see agent/internal/capability/cron/privileged.go,
-    # agent/internal/capability/cron/archive.go, and
-    # cmd/lesta-agent/main.go's own dispatch for what each subcommand does
-    # and how its own arguments are re-validated on the other side of this
-    # privilege boundary, never trusted just because sudo let the call
-    # through. cron-archive-state takes no arguments at all (it always
-    # archives this node's own single, fixed StateRoot), so it is granted
-    # without a trailing wildcard.
-    cat > "${SUDOERS_LESTA_CRON_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${AGENT_BINARY_DEST} cron-install-fragment *, ${AGENT_BINARY_DEST} cron-remove-fragment *, ${AGENT_BINARY_DEST} cron-ensure-account-dir *, ${AGENT_BINARY_DEST} cron-install-sidecar *, ${AGENT_BINARY_DEST} cron-remove-sidecar *, ${AGENT_BINARY_DEST} cron-archive-state
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_CRON_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_CRON_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_CRON_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_CRON_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_CRON_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_CRON_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    # Same-directory rename: atomic, and sudo's own #includedir
-    # /etc/sudoers.d parsing only ever sees the final name.
-    mv "${SUDOERS_LESTA_CRON_PATH}.tmp" "${SUDOERS_LESTA_CRON_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_CRON_PATH}" "failed to activate ${SUDOERS_LESTA_CRON_PATH}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${SUDOERS_LESTA_CRON_PATH}" "sudoers rule written and validated: lesta-agent may run exactly cron-install-fragment/cron-remove-fragment/cron-ensure-account-dir/cron-install-sidecar/cron-remove-sidecar/cron-archive-state on ${AGENT_BINARY_DEST} as root"
+    # The daemon has no sudo rule any more: everything it used to run as root is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_CRON_PATH}"
 
     # --- enable + health-probe ------------------------------------------
     systemctl enable --now cron || fail_step "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable --now cron failed"
@@ -720,8 +679,7 @@ bootstrap_node_health() {
     # The root applier (the tenant instance, see lib/applier.sh) writes the cron fragments, the
     # per-account sidecars and the account directories, not the unprivileged daemon through sudo.
     applier_setup_tenant_instance
-    applier_enable_capability "${SCHEDULER_CRON_CAPABILITY}"
-    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "root applier (tenant instance) installed and started; ${SCHEDULER_CRON_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${SCHEDULER_CRON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "root applier (tenant instance) installed and started; ${SCHEDULER_CRON_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${SCHEDULER_CRON_CAPABILITY}"

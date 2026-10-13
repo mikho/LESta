@@ -168,33 +168,21 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 	}
 }
 
-func TestACapabilityGoesToTheApplierOnlyWhenHostedAndListed(t *testing.T) {
-	list := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(list, []byte("# comment\n tls.acme.v1 \ndns.bind9.v1\n"), 0o644); err != nil {
-		t.Fatal(err)
+func TestEveryHostedCapabilityIsAppliedByAnApplierAndTheRestStayWithTheDaemon(t *testing.T) {
+	// There is no switch any more: a capability an instance hosts is always applied there. The
+	// capability the applier does not host (acme) stays with the daemon.
+	for _, capability := range []string{
+		dnsBind9Capability, webNginxCapability, webPhpFpmCapability, webApacheCapability, mailSmtpImapCapability,
+		databaseTenantCapability, systemAccountIdentityCapability, filesManagerCapability, schedulerCronCapability,
+		metricsUsageCapability, backupEncryptedArtifactsCapability,
+	} {
+		if _, hosted := applierInstanceFor(capability); !hosted {
+			t.Errorf("%s must be applied by an applier instance", capability)
+		}
 	}
 
-	if !appliedByApplierFrom(list, dnsBind9Capability) {
-		t.Errorf("a hosted and listed capability must go to the applier")
-	}
-
-	// Listed, but this build does not host it in the applier.
-	if appliedByApplierFrom(list, tlsAcmeCapability) {
-		t.Errorf("a capability the applier does not host must stay with the daemon, even if listed")
-	}
-
-	// Hosted, but not listed.
-	other := filepath.Join(t.TempDir(), "applier-capabilities")
-	if err := os.WriteFile(other, []byte("tls.acme.v1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if appliedByApplierFrom(other, dnsBind9Capability) {
-		t.Errorf("a capability that is not listed must stay with the daemon")
-	}
-
-	if appliedByApplierFrom(filepath.Join(t.TempDir(), "missing"), dnsBind9Capability) {
-		t.Errorf("no list means nothing goes to the applier")
+	if _, hosted := applierInstanceFor(tlsAcmeCapability); hosted {
+		t.Errorf("tls.acme.v1 is not hosted by an applier yet")
 	}
 }
 

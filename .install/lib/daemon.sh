@@ -52,6 +52,29 @@ ExecStart=/var/lib/lesta/agent/bin/lesta-agent daemon
 Restart=on-failure
 RestartSec=5
 
+# The daemon only talks to the control plane, hands operations to the root applier over a unix socket
+# and reports. It holds no sudo rule and may change nothing on the machine except its own small state.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/lesta/agent/daemon-state
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
 [Install]
 WantedBy=multi-user.target
 UNIT

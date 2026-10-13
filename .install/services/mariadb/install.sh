@@ -126,6 +126,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/offline-bundle.sh
 . "${INSTALL_ROOT}/lib/offline-bundle.sh"
 # shellcheck source=../../lib/firewall.sh
@@ -1016,8 +1018,8 @@ install_mariadb_tenant() {
     # The agent (lesta-agent, group lesta) keeps database.tenant.v1's own
     # generation state here and cannot create it itself: the parent is
     # mysql:mysql 0755. Same root:lesta setgid shape as the lab node's.
-    install -d -m 2770 -o root -g lesta "${TENANT_AGENT_STATE_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${TENANT_AGENT_STATE_DIR}" "failed to create ${TENANT_AGENT_STATE_DIR}"
-    add_change database.tenant.v1 ensured "${TENANT_AGENT_STATE_DIR}" "agent state root present, mode 2770 root:lesta"
+    ratchet_root_owned_dir "${TENANT_AGENT_STATE_DIR}" 2750 lesta
+    add_change database.tenant.v1 ensured "${TENANT_AGENT_STATE_DIR}" "agent state root present, mode 2750 root:lesta"
 
     # --- [mysqld.tenant] config fragment: every instance-distinguishing key
     # explicitly set (see this file's own top comment for why omitting any
@@ -1247,8 +1249,7 @@ bootstrap_node_health() {
     applier_install_unit
     applier_allow_paths "${DATABASE_TENANT_CAPABILITY}" /var/lib/lesta
     applier_start
-    applier_enable_capability "${DATABASE_TENANT_CAPABILITY}"
-    add_change "${DATABASE_TENANT_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DATABASE_TENANT_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${DATABASE_TENANT_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DATABASE_TENANT_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${DATABASE_TENANT_CAPABILITY}"

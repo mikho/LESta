@@ -104,117 +104,9 @@ func main() {
 		os.Exit(cron.RunJob(cronProductionConfig(), os.Args[2], os.Args[3]))
 	}
 
-	// "cron-install-fragment"/"cron-remove-fragment"/"cron-ensure-account-dir"/
-	// "cron-install-sidecar"/"cron-remove-sidecar"/"cron-archive-state" are
-	// the six real root-only actions scheduler.account-cron.v1 needs (see
-	// cron.Config's own SudoBinary doc comment): never an OperationEnvelope
-	// from stdin, and never invoked directly by an operator -- only ever via
-	// the narrowly-scoped sudoers rule .install/services/cron/install.sh
-	// writes, which restricts the unprivileged lesta-agent-daemon to
-	// running exactly these six subcommands as root, nothing else.
-	// cron-archive-state is invoked by backup.encrypted-artifacts.v1's own
-	// archive step, not by cron itself -- see cron.ArchiveState's own doc
-	// comment.
-	if len(os.Args) >= 3 && os.Args[1] == "cron-install-fragment" {
-		os.Exit(cron.InstallFragment(cronProductionConfig(), os.Args[2], os.Stdin))
-	}
-
-	if len(os.Args) >= 3 && os.Args[1] == "cron-remove-fragment" {
-		os.Exit(cron.RemoveFragment(cronProductionConfig(), os.Args[2]))
-	}
-
-	if len(os.Args) >= 3 && os.Args[1] == "cron-ensure-account-dir" {
-		os.Exit(cron.EnsureAccountDir(cronProductionConfig(), os.Args[2]))
-	}
-
-	if len(os.Args) >= 4 && os.Args[1] == "cron-install-sidecar" {
-		os.Exit(cron.InstallSidecar(cronProductionConfig(), os.Args[2], os.Args[3], os.Stdin))
-	}
-
-	if len(os.Args) >= 4 && os.Args[1] == "cron-remove-sidecar" {
-		os.Exit(cron.RemoveSidecar(cronProductionConfig(), os.Args[2], os.Args[3]))
-	}
-
-	if len(os.Args) >= 2 && os.Args[1] == "cron-archive-state" {
-		os.Exit(cron.ArchiveState(cronProductionConfig(), os.Stdout))
-	}
-
-	// "identity-ensure-chroot-tree" is the one real root-only action
-	// system.account-identity.v1 needs beyond useradd/userdel (see
-	// identity.Config's own AgentBinaryPath doc comment): never an
-	// OperationEnvelope from stdin, and never invoked directly by an
-	// operator -- only ever via the narrowly-scoped sudoers rule
-	// agent-daemon/install.sh writes.
-	if len(os.Args) >= 3 && os.Args[1] == "identity-ensure-chroot-tree" {
-		os.Exit(identity.EnsureChrootTree(identityProductionConfig(), os.Args[2]))
-	}
-
-	// "identity-useradd" and "identity-userdel" are the only way the unprivileged daemon creates or
-	// removes an account's system user. They accept a per-account name only, so the daemon cannot
-	// be made to run useradd or userdel with other options or on other users.
-	if len(os.Args) >= 3 && os.Args[1] == "identity-useradd" {
-		os.Exit(identity.SystemUserAdd(identityProductionConfig(), os.Args[2]))
-	}
-
-	if len(os.Args) >= 3 && os.Args[1] == "identity-userdel" {
-		os.Exit(identity.SystemUserDel(identityProductionConfig(), os.Args[2]))
-	}
-
-	// "identity-write-authorized-keys" mirrors "identity-ensure-chroot-tree"
-	// exactly, for a second real root-only action system.account-identity.v1
-	// needs: sshd's own secure_path() safety check requires the centralized
-	// authorized_keys directory (and every file in it) be root-owned with
-	// no group/other write bit at all, which the real unprivileged
-	// lesta-agent-daemon can never satisfy writing directly (found directly
-	// deploying to a real node -- see identity.writeAuthorizedKeys's own
-	// doc comment). Content is read from stdin, never argv.
-	if len(os.Args) >= 3 && os.Args[1] == "identity-write-authorized-keys" {
-		os.Exit(identity.WriteAuthorizedKeys(identityProductionConfig(), os.Args[2], os.Stdin))
-	}
-
-	// "nginx-ensure-docroot" mirrors "identity-ensure-chroot-tree" exactly,
-	// one layer further down the same chroot tree: creating a PHP-enabled
-	// domain's own per-domain docroot directory, owned by that account's
-	// own uid/gid, requires real root the same way identity's own chroot
-	// tree creation does (see nginx.Config's own AgentBinaryPath doc
-	// comment).
-	if len(os.Args) >= 4 && os.Args[1] == "nginx-ensure-docroot" {
-		os.Exit(nginx.EnsureDocroot(nginxProductionConfig(), os.Args[2], os.Args[3]))
-	}
-
-	// "files-manager-apply" is files.manager.v1's own one real root-only
-	// action: creating a new file/directory in a tenant's own docroot
-	// requires a real chown to that account's own uid/gid, the same real
-	// constraint identity-ensure-chroot-tree/nginx-ensure-docroot already
-	// have. The whole request (verb, path, content) is one JSON object on
-	// stdin, never argv -- content can be arbitrarily large and paths are
-	// tenant-supplied.
-	if len(os.Args) >= 2 && os.Args[1] == "files-manager-apply" {
-		os.Exit(files.Apply(filesManagerProductionConfig(), os.Stdin, os.Stdout))
-	}
-
-	// "backup-account-apply" is the per-account mode of
-	// backup.encrypted-artifacts.v1: reading a tenant's folders and mailboxes
-	// and dumping or loading its databases needs root, so the daemon re-invokes
-	// this binary through sudo (scoped by the backups installer's sudoers rule)
-	// with one JSON request on stdin, the same pattern as files-manager-apply.
-	if len(os.Args) >= 2 && os.Args[1] == "backup-account-apply" {
-		os.Exit(backup.ApplyAccount(backupProductionConfig(), os.Stdin, os.Stdout))
-	}
-
-	// "backup-archive-mail-state" and "backup-restore-mail-files" are the two
-	// root-only actions the whole-node backup needs for mail: the virtual
-	// mailboxes are owned by the mail user, so the unprivileged daemon can
-	// neither read them to archive nor write them (and their ownership) back
-	// to restore. Same pattern as "cron-archive-state", scoped by the backups
-	// installer's sudoers rule. The restore request is a gzip tar on stdin.
-	if len(os.Args) >= 2 && os.Args[1] == "backup-archive-mail-state" {
-		os.Exit(backup.ArchiveMailState(backupProductionConfig(), os.Stdout))
-	}
-
-	if len(os.Args) >= 2 && os.Args[1] == "backup-restore-mail-files" {
-		os.Exit(backup.RestoreMailFiles(backupProductionConfig(), os.Stdin))
-	}
+	// There are no root-only helper modes here. The root-only work they used to do, run through
+	// sudo, is done by the root applier (see applier.go); the unprivileged daemon has no sudo rule
+	// and the binary no mode that would use one.
 
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process
@@ -270,12 +162,11 @@ func run(stdin *os.File, stdout *os.File) error {
 // it. Shared by run's own one-shot stdin/stdout path and the daemon's own operations.go,
 // so both routes to applying an OperationEnvelope pick a capability identically.
 func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
-	// A capability the applier has taken over is applied by the root applier, never here. The
-	// one-shot stdin mode (run), which the installers' self-tests use, goes the same way, so a
-	// self-test proves the path the daemon really takes.
-	if appliedByApplier(op.Capability) {
-		instance, _ := applierInstanceFor(op.Capability)
-
+	// A capability an applier instance hosts is applied there, as root, and never in this process:
+	// the daemon has no sudo rule and no write access to what the capability changes. The one-shot
+	// stdin mode (run), which the installers' self-tests use, goes the same way, so a self-test proves
+	// the path the daemon really takes.
+	if instance, hosted := applierInstanceFor(op.Capability); hosted {
 		// The client waits a little longer than the instance works, so the instance's own timeout
 		// is the one that fires and reports.
 		return applier.Remote{SocketPath: instance.socket, Timeout: instance.timeout + time.Minute}.Apply(ctx, op)

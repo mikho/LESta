@@ -15,7 +15,6 @@
       "/etc/systemd/system/lesta-agent-daemon.service",
       "/etc/systemd/system/lesta-applier-identity.service",
       "/etc/systemd/system/lesta-applier-identity.service.d",
-      "/etc/lesta/applier-capabilities",
       "/var/lib/lesta/agent/daemon-state",
       "/etc/ssh/sshd_config.d/00-lesta.conf",
       "/etc/ssh/sshd_config.d/lesta.d",

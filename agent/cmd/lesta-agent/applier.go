@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"os/user"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -41,11 +40,6 @@ import (
 // that can send it out.
 
 const (
-	// applierCapabilitiesPath lists, one per line, the capabilities the daemon hands to an applier
-	// instead of applying itself. Root-owned: it is the switch for moving a capability to the
-	// applier and back, and the installers write it. A capability on the list that this build does
-	// not host is ignored.
-	applierCapabilitiesPath = "/etc/lesta/applier-capabilities"
 	// applierUser is the only non-root user an applier serves.
 	applierUser = "lesta-agent"
 	// applierSocketDir holds the instances' sockets.
@@ -125,31 +119,6 @@ func applierInstanceNamed(name string) (applierInstance, bool) {
 	}
 
 	return applierInstance{}, false
-}
-
-// appliedByApplier reports whether the daemon must hand capability to an applier: this build hosts
-// it in one and the root-owned list names it.
-func appliedByApplier(capability string) bool {
-	return appliedByApplierFrom(applierCapabilitiesPath, capability)
-}
-
-func appliedByApplierFrom(listPath, capability string) bool {
-	if _, hosted := applierInstanceFor(capability); !hosted {
-		return false
-	}
-
-	raw, err := os.ReadFile(listPath)
-	if err != nil {
-		return false
-	}
-
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.TrimSpace(line) == capability {
-			return true
-		}
-	}
-
-	return false
 }
 
 // dispatchHosted applies op inside an applier, as root, for a capability that instance hosts. Each

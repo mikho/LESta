@@ -68,6 +68,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/result.sh"
 # shellcheck source=../../lib/applier.sh
 . "${INSTALL_ROOT}/lib/applier.sh"
+# shellcheck source=../../lib/ratchet.sh
+. "${INSTALL_ROOT}/lib/ratchet.sh"
 # shellcheck source=../../lib/agent.sh
 . "${INSTALL_ROOT}/lib/agent.sh"
 # shellcheck source=../../lib/selftest.sh
@@ -341,24 +343,10 @@ bootstrap_base() {
         add_change base.os.v1 verified /etc/group "group lesta-agent already exists"
     fi
 
-    # Every pool's own socket is listen.owner=<account username>,
-    # listen.group=www-data, listen.mode=0660 (pool.conf.tmpl): only that
-    # one account's own processes and www-data (nginx, serving real
-    # traffic) can connect. The running lesta-agent-daemon dials that same
-    # socket directly as its own post-create health check
-    # (agent/internal/capability/phpfpm/reload.go's own waitHealthy), as
-    # the unprivileged lesta-agent user -- neither the account's own user
-    # nor www-data, so that dial fails with EACCES unless lesta-agent is
-    # also, supplementarily, in www-data's own group. Root (this installer
-    # itself, and its own self-test's direct CLI invocation of the agent
-    # binary) never hits this: it bypasses the permission check entirely,
-    # which is exactly why the self-test alone never caught this.
-    if ! id -nG lesta-agent | tr ' ' '\n' | grep -qx www-data; then
-        usermod -a -G www-data lesta-agent || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed /etc/group "failed to add lesta-agent to www-data"
-        add_change base.os.v1 created /etc/group "added lesta-agent to the www-data group, so its own real post-create socket health check can dial a pool's own listen.group=www-data socket the same way nginx itself does"
-    else
-        add_change base.os.v1 verified /etc/group "lesta-agent already in the www-data group"
-    fi
+    # lesta-agent used to be in the www-data group so that its own post-create health check could dial
+    # a pool's socket (listen.group=www-data). The pool is applied, and that check made, by the root
+    # applier now, so the membership is taken away (also on a node installed before).
+    ratchet_leave_group lesta-agent www-data
 
     install -d -m 0751 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
@@ -531,7 +519,7 @@ install_php_fpm() {
         # group-writable" fix nginx's/bind9's/cron's own LiveDir/
         # StateRoot already needed, applied here from the start rather
         # than found the hard way a second time.
-        install -d -m 0770 -o root -g lesta "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" \
+        ratchet_root_owned_dir "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" 0755 root \
             || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" "failed to set ownership on ${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d"
         add_change "${WEB_PHP_FPM_CAPABILITY}" ensured "${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d" "pool.d directory present, mode 0770 root:lesta"
 
@@ -566,41 +554,13 @@ TMPFILES
     systemd-tmpfiles --create /etc/tmpfiles.d/lesta-php-fpm.conf >/dev/null 2>&1 || true
     add_change "${WEB_PHP_FPM_CAPABILITY}" installed /etc/tmpfiles.d/lesta-php-fpm.conf "systemd-tmpfiles rule written so ${PHP_SOCKET_ROOT} survives a reboot (/run is tmpfs)"
 
-    install -d -m 0750 -o lesta-agent -g lesta "${PHP_FPM_STATE_ROOT}" \
+    ratchet_root_owned_dir "${PHP_FPM_STATE_ROOT}" 0750 lesta \
         || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${PHP_FPM_STATE_ROOT}" "failed to create ${PHP_FPM_STATE_ROOT}"
     add_change "${WEB_PHP_FPM_CAPABILITY}" ensured "${PHP_FPM_STATE_ROOT}" "generation-history bookkeeping directory present, mode 0750 lesta-agent:lesta"
 
-    # --- sudoers: php-fpm<version> -t and systemctl reload php<version>-fpm
-    #
-    # The real lesta-agent-daemon systemd unit runs as the unprivileged
-    # lesta-agent user: validate's own `php-fpm<version> -t` needs to read
-    # every other tenant's own pool config on this node (not a secret this
-    # process should be trusted with directly), and reload's own
-    # `systemctl reload php<version>-fpm` needs root the same way every
-    # other systemd-unit mutation this project execs does. systemctl is
-    # scoped to the exact literal "reload php<version>-fpm" per version,
-    # never a wildcard at all -- a wildcarded systemctl could restart/
-    # stop/mask arbitrary units, a real privilege escalation this rule
-    # must never grant.
-    local sudoers_lines=""
-    for version in ${PHP_VERSIONS}; do
-        sudoers_lines="${sudoers_lines}/usr/sbin/php-fpm${version} -t *, /usr/bin/systemctl reload php${version}-fpm, "
-    done
-
-    cat > "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp" <<SUDOERSEOF
-lesta-agent ALL=(root) NOPASSWD: ${sudoers_lines%, }
-SUDOERSEOF
-    chmod 0440 "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp"
-    chown root:root "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp"
-
-    if ! visudo -c -f "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp" >/dev/null 2>&1; then
-        rm -f "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp"
-        fail_step "${EXIT_MUTATION_FAILURE}" sudoers_invalid "${SUDOERS_LESTA_PHP_FPM_PATH}" "visudo -c rejected the rendered ${SUDOERS_LESTA_PHP_FPM_PATH}; the candidate file was removed, the real one was never touched"
-    fi
-
-    mv "${SUDOERS_LESTA_PHP_FPM_PATH}.tmp" "${SUDOERS_LESTA_PHP_FPM_PATH}" \
-        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${SUDOERS_LESTA_PHP_FPM_PATH}" "failed to activate ${SUDOERS_LESTA_PHP_FPM_PATH}"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${SUDOERS_LESTA_PHP_FPM_PATH}" "sudoers rule written and validated: lesta-agent may run each version's own php-fpm -t and systemctl reload as root, nothing else"
+    # The daemon has no sudo rule any more: validating and reloading php-fpm is done by the root
+    # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.
+    ratchet_remove_sudoers "${SUDOERS_LESTA_PHP_FPM_PATH}"
 
     checkpoint_write install_php_fpm "${MANIFEST_DIGEST}"
     log_info "install_php_fpm complete"
@@ -691,8 +651,7 @@ bootstrap_node_health() {
     applier_install_unit
     applier_allow_paths "${WEB_PHP_FPM_CAPABILITY}" /etc/php /var/lib/lesta
     applier_start
-    applier_enable_capability "${WEB_PHP_FPM_CAPABILITY}"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_PHP_FPM_CAPABILITY} is applied by it (listed in ${APPLIER_CAPABILITIES_PATH})"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${WEB_PHP_FPM_CAPABILITY} is applied by it"
 
     run_node_health_selftest
     agent_restart_daemon_if_enabled "${WEB_PHP_FPM_CAPABILITY}"
