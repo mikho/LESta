@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
@@ -117,9 +118,17 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 	// keeps the synthetic config non-empty without affecting the verdict
 	// on the candidate itself.
 	if included == 0 && candidatePath == "" {
+		// The placeholder runs as whoever is validating, a user that always exists.
+		self, err := user.Current()
+		if err != nil {
+			cleanup()
+
+			return "", nil, fmt.Errorf("looking up the validating user: %w", err)
+		}
+
 		placeholder, err := renderPool(poolData{
 			ResourceID:      "lesta-validate-placeholder",
-			AccountUsername: "lesta-agent",
+			AccountUsername: self.Username,
 			SocketPath:      filepath.Join(tmpDir, "placeholder.sock"),
 			Docroot:         tmpDir,
 		})
