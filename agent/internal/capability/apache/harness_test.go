@@ -296,18 +296,6 @@ func (d *disposableApache) start(t *testing.T) {
 	}
 }
 
-// reload issues a real `-k graceful` against this disposable instance directly
-// (bypassing ApacheCapability), used by failure-semantics tests that need to
-// confirm the instance's own state independent of the capability under test.
-func (d *disposableApache) reload() error {
-	out, err := exec.Command(d.binary, d.args("-k", "graceful")...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, out)
-	}
-
-	return nil
-}
-
 func (d *disposableApache) stop() {
 	_ = exec.Command(d.binary, d.args("-k", "stop")...).Run()
 }

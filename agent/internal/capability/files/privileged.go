@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/user"
 	"regexp"
@@ -417,45 +416,4 @@ func applyPrivileged(ctx context.Context, cfg Config, req applyRequest) (applyRe
 	}
 
 	return resp, nil
-}
-
-// Apply is this CLI mode's own entry point (see cmd/lesta-agent/main.go's
-// own "files-manager-apply" dispatch), invoked only via the narrowly-scoped
-// sudoers rule agent-daemon/install.sh writes. Reads one JSON applyRequest
-// from r, writes one JSON applyResponse to w, and returns a process exit
-// code (0 only when the response's own OK is true).
-func Apply(cfg Config, r io.Reader, w io.Writer) int {
-	var req applyRequest
-
-	if err := json.NewDecoder(r).Decode(&req); err != nil {
-		fmt.Fprintln(os.Stderr, "files-manager-apply: decoding request:", err)
-
-		return 1
-	}
-
-	if !usernamePattern.MatchString(req.AccountUsername) {
-		fmt.Fprintf(os.Stderr, "files-manager-apply: %q is not a valid account_username\n", req.AccountUsername)
-
-		return 1
-	}
-
-	if !resourceIDPattern.MatchString(req.ResourceID) {
-		fmt.Fprintf(os.Stderr, "files-manager-apply: %q is not a valid resource id\n", req.ResourceID)
-
-		return 1
-	}
-
-	resp := dispatchAsAccount(cfg, req)
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		fmt.Fprintln(os.Stderr, "files-manager-apply: encoding response:", err)
-
-		return 1
-	}
-
-	if !resp.OK {
-		return 1
-	}
-
-	return 0
 }

@@ -163,30 +163,6 @@ type accountRestoreData struct {
 	Skipped  []string `json:"skipped,omitempty"`
 }
 
-// ApplyAccount is the "backup-account-apply" CLI mode: it reads one request from
-// stdin and writes one response to stdout, and always exits 0 for a handled
-// outcome (the response says whether it worked).
-func ApplyAccount(cfg Config, stdin io.Reader, stdout io.Writer) int {
-	var req accountRequest
-
-	dec := json.NewDecoder(io.LimitReader(stdin, 1<<20))
-	dec.DisallowUnknownFields()
-
-	var resp accountResponse
-
-	if err := dec.Decode(&req); err != nil {
-		resp = accountError("invalid_request", "the request could not be read")
-	} else {
-		resp = applyAccount(context.Background(), cfg, req)
-	}
-
-	if err := json.NewEncoder(stdout).Encode(resp); err != nil {
-		return 1
-	}
-
-	return 0
-}
-
 func applyAccount(ctx context.Context, cfg Config, req accountRequest) accountResponse {
 	if err := validateAccountPayload(&req.Account); err != nil {
 		return accountError("invalid_account", err.Error())

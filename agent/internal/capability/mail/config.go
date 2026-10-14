@@ -133,14 +133,6 @@ func (c Config) doveadmBinary() string {
 	return c.DoveadmBinary
 }
 
-func (c Config) doveconfBinary() string {
-	if c.DoveconfBinary == "" {
-		return "doveconf"
-	}
-
-	return c.DoveconfBinary
-}
-
 func (c Config) sievecBinary() string {
 	if c.SievecBinary == "" {
 		return "sievec"

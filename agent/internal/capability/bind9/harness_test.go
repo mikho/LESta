@@ -186,18 +186,6 @@ func (d *disposableBind9) start(t *testing.T) {
 	}
 }
 
-// reload issues a real `rndc reload` against this disposable instance
-// directly (bypassing Bind9Capability), used by tests that need to confirm
-// the instance's own state independent of the capability under test.
-func (d *disposableBind9) reload() error {
-	out, err := exec.Command("rndc", "-c", d.rndcConf, "reload").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, out)
-	}
-
-	return nil
-}
-
 // stop asks named to shut down and waits for it to actually exit before
 // returning. `rndc stop` itself is asynchronous: it returns as soon as the
 // control channel request completes, not once named has actually released

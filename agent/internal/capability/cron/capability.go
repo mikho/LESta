@@ -235,19 +235,6 @@ func renderFragment(cfg Config, payload Payload, resourceID string) []byte {
 		payload.RunAs, cfg.AgentBinaryPath, resourceID, payload.RunAs))
 }
 
-// sidecarPath returns this resource's own JSON sidecar path, keyed by
-// runAs: StateRoot/accounts/<run_as>/jobs/sidecar/<resource_id>.json. Per-
-// account, not a single shared StateRoot/jobs/sidecar/ directory, so the
-// account's own dedicated Linux user (as a member of its own same-named
-// primary group; see internal/capability/identity's own createSystemUser
-// doc comment) can read its own sidecar via a directory that is never
-// group-readable by the broader shared `lesta` group -- ensureAccountDir
-// creates/chowns/chmods StateRoot/accounts/<run_as> itself, root:<run_as>
-// mode 2750, the first time any resource is written under it.
-func (c *CronCapability) sidecarPath(runAs, resourceID string) string {
-	return sidecarPathFor(c.cfg.StateRoot, runAs, resourceID)
-}
-
 // recordGenerationAndBuildResult persists payload as this resource's next
 // generation's metadata (the full payload, including Command: this is
 // node-local bookkeeping under StateRoot, never the crontab fragment itself,

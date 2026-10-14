@@ -17,10 +17,6 @@ func (c *IdentityCapability) livePath(resourceID string) string {
 	return filepath.Join(c.cfg.SftpConfigDir, resourceID+".conf")
 }
 
-func (c *IdentityCapability) authorizedKeysPath(username string) string {
-	return filepath.Join(c.cfg.AuthorizedKeysDir, username)
-}
-
 // writeStaging renders content into resourceID's staging dotfile, returning
 // its path for validateCandidate and activateLive to use.
 func (c *IdentityCapability) writeStaging(resourceID string, content []byte) (string, error) {

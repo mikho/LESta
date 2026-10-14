@@ -134,18 +134,6 @@ func (d *disposableNginx) start(t *testing.T) {
 	}
 }
 
-// reload issues a real `-s reload` against this disposable instance directly
-// (bypassing NginxCapability), used by failure-semantics tests that need to
-// confirm the instance's own state independent of the capability under test.
-func (d *disposableNginx) reload() error {
-	out, err := exec.Command("nginx", d.args("-s", "reload")...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, out)
-	}
-
-	return nil
-}
-
 func (d *disposableNginx) stop() {
 	_ = exec.Command("nginx", d.args("-s", "stop")...).Run()
 }

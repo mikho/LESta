@@ -97,8 +97,6 @@ func domainPayload(domain string, antivirus, antispam, dkim bool, accounts []map
 	}
 }
 
-func strPtr(s string) *string { return &s }
-
 func randomPassword(t *testing.T) string {
 	t.Helper()
 
