@@ -76,11 +76,21 @@ func newDisposableMariaDB(t *testing.T) *disposableMariaDB {
 	errorLog := filepath.Join(prefix, "error.log")
 	port := freePort(t)
 
-	if out, err := exec.Command("mariadb-install-db",
+	// Each instance gets its own temporary directory: mariadbd removes stale #sql files from its
+	// tmpdir on start, which would delete a concurrently running instance's temporary tables.
+	scratchTmp := filepath.Join(prefix, "tmp")
+	if err := os.MkdirAll(scratchTmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	installDB := exec.Command("mariadb-install-db",
 		"--datadir="+dataDir,
 		"--auth-root-authentication-method=normal",
 		"--skip-test-db",
-	).CombinedOutput(); err != nil {
+	)
+	installDB.Env = append(os.Environ(), "TMPDIR="+scratchTmp)
+
+	if out, err := installDB.CombinedOutput(); err != nil {
 		t.Fatalf("mariadb-install-db: %v: %s", err, out)
 	}
 
@@ -94,6 +104,8 @@ func newDisposableMariaDB(t *testing.T) *disposableMariaDB {
 		"--skip-networking=0",
 		"--log-error="+errorLog,
 	)
+	cmd.Env = append(os.Environ(), "TMPDIR="+scratchTmp)
+
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting disposable mariadbd: %v", err)
 	}
