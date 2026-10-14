@@ -86,10 +86,14 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 		return "", nil, fmt.Errorf("listing live pools in %s: %w", poolDir, err)
 	}
 
+	included := 0
+
 	for _, f := range existing {
 		if filepath.Base(f) == excludeName {
 			continue
 		}
+
+		included++
 
 		if err := os.Symlink(f, filepath.Join(fragDir, filepath.Base(f))); err != nil {
 			cleanup()
@@ -112,7 +116,7 @@ func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePa
 	// syntax-only placeholder pool, never written to the real poolDir,
 	// keeps the synthetic config non-empty without affecting the verdict
 	// on the candidate itself.
-	if len(existing) == 0 && candidatePath == "" {
+	if included == 0 && candidatePath == "" {
 		placeholder, err := renderPool(poolData{
 			ResourceID:      "lesta-validate-placeholder",
 			AccountUsername: "lesta-agent",
