@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mikho/LESta/agent/internal/applier"
+	"github.com/mikho/LESta/agent/internal/capability/acme"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/backup"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
@@ -69,6 +70,7 @@ var applierInstances = []applierInstance{
 			webApacheCapability:      true,
 			mailSmtpImapCapability:   true,
 			databaseTenantCapability: true,
+			tlsAcmeCapability:        true,
 		},
 	},
 	{
@@ -142,6 +144,8 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		// The tenant database administrator's credential is read here, as root: it is a root-only
 		// file, and the unprivileged daemon never holds it.
 		capability = mariadb.New(mariadbProductionConfig())
+	case tlsAcmeCapability:
+		capability = acme.New(acmeProductionConfig())
 	case systemAccountIdentityCapability:
 		capability = identity.New(identityAppliedConfig())
 	case filesManagerCapability:

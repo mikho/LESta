@@ -169,20 +169,19 @@ func TestDaemonProductionConfigCapabilityStateRootsIsComplete(t *testing.T) {
 }
 
 func TestEveryHostedCapabilityIsAppliedByAnApplierAndTheRestStayWithTheDaemon(t *testing.T) {
-	// There is no switch any more: a capability an instance hosts is always applied there. The
-	// capability the applier does not host (acme) stays with the daemon.
+	// There is no switch any more: a capability an instance hosts is always applied there.
 	for _, capability := range []string{
 		dnsBind9Capability, webNginxCapability, webPhpFpmCapability, webApacheCapability, mailSmtpImapCapability,
 		databaseTenantCapability, systemAccountIdentityCapability, filesManagerCapability, schedulerCronCapability,
-		metricsUsageCapability, backupEncryptedArtifactsCapability,
+		metricsUsageCapability, backupEncryptedArtifactsCapability, tlsAcmeCapability,
 	} {
 		if _, hosted := applierInstanceFor(capability); !hosted {
 			t.Errorf("%s must be applied by an applier instance", capability)
 		}
 	}
 
-	if _, hosted := applierInstanceFor(tlsAcmeCapability); hosted {
-		t.Errorf("tls.acme.v1 is not hosted by an applier yet")
+	if _, hosted := applierInstanceFor(adminerCapability); hosted {
+		t.Errorf("%s has no capability implementation to host", adminerCapability)
 	}
 }
 
