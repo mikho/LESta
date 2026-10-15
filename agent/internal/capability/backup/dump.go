@@ -44,7 +44,7 @@ func mariadbDumpBinary() string {
 // A configured socket whose file doesn't exist on disk is skipped, not an
 // error: exactly like an empty StateRoots directory, it means that instance
 // simply isn't running on this node.
-func dumpDatabases(ctx context.Context, sudoBinary string, sockets map[string]string) (map[string][]byte, []string, error) {
+func dumpDatabases(ctx context.Context, sudoBinary string, sockets, defaultsFiles map[string]string) (map[string][]byte, []string, error) {
 	dumps := make(map[string][]byte, len(sockets))
 	included := make([]string, 0, len(sockets))
 
@@ -60,7 +60,7 @@ func dumpDatabases(ctx context.Context, sudoBinary string, sockets map[string]st
 			return nil, nil, fmt.Errorf("checking for %s's own socket at %s: %w", capability, socket, err)
 		}
 
-		dump, err := dumpSocket(ctx, sudoBinary, socket)
+		dump, err := dumpSocket(ctx, sudoBinary, socket, defaultsFiles[capability])
 		if err != nil {
 			return nil, nil, fmt.Errorf("dumping %s: %w", capability, err)
 		}
@@ -119,8 +119,11 @@ func discoverPresentDumpSockets(sockets map[string]string) []string {
 // connection is literally named "root" -- sudoBinary (empty in tests, real
 // "sudo" in production; see Config's own SudoBinary doc comment) is what
 // makes that true for the real unprivileged lesta-agent-daemon.
-func dumpSocket(ctx context.Context, sudoBinary, socketPath string) ([]byte, error) {
-	args := []string{"--socket=" + socketPath, "-u", "root", "--all-databases", "--single-transaction", "--quick"}
+//
+// defaultsFile, when set, is a MariaDB option file holding a read-only backup account for this
+// instance, and the dump logs in as that account instead of root over unix_socket.
+func dumpSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string) ([]byte, error) {
+	args := append(authArgs(defaultsFile, "--socket="+socketPath), "--all-databases", "--single-transaction", "--quick")
 
 	var cmd *exec.Cmd
 	if sudoBinary == "" {
@@ -138,4 +141,15 @@ func dumpSocket(ctx context.Context, sudoBinary, socketPath string) ([]byte, err
 	}
 
 	return stdout.Bytes(), nil
+}
+
+// authArgs returns the connection arguments for a MariaDB client or dump. With an option file it
+// logs in as the account in that file (the file option must come first); without one it logs in as
+// root over the unix socket, which only works for a process that already is root.
+func authArgs(defaultsFile string, connection ...string) []string {
+	if defaultsFile == "" {
+		return append(connection, "-u", "root")
+	}
+
+	return append([]string{"--defaults-extra-file=" + defaultsFile}, connection...)
 }

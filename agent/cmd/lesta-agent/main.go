@@ -670,7 +670,16 @@ func backupProductionConfig() backup.Config {
 			databaseTenantCapability:       "/run/mysqld/mysqld.tenant.sock",
 			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
-		VMailRoot: "/var/lib/lesta/mail/vmail",
+		// The read-only backup accounts the mariadb installer creates on each instance, and the
+		// tenant administrator used to load a per-account database. Whole-node restore still
+		// uses root over the socket.
+		DatabaseDumpDefaults: map[string]string{
+			databaseTenantCapability:       "/etc/lesta/mariadb-backup-tenant.cnf",
+			databaseControlPlaneCapability: "/etc/lesta/mariadb-backup-control-plane.cnf",
+		},
+		TenantRestoreDefaults: "/etc/lesta/mariadb-tenant-admin.cnf",
+		TenantRestorePort:     3307,
+		VMailRoot:             "/var/lib/lesta/mail/vmail",
 		// AccountsRoot backs per-account backups (the same chroot accounts
 		// root the files and nginx capabilities use).
 		AccountsRoot: "/var/lib/lesta/web/accounts",

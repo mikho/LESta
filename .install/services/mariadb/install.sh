@@ -157,6 +157,10 @@ TENANT_CONF_FRAGMENT="/etc/mysql/mariadb.conf.d/99-lesta-tenant.cnf"
 TENANT_ADMIN_DEFAULTS_FILE="/etc/lesta/mariadb-tenant-admin.cnf"
 SUDOERS_LESTA_MARIADB_PATH="/etc/sudoers.d/lesta-mariadb"
 TENANT_ADMIN_USER="lesta_agent"
+# Read-only account the backups use to dump each instance, one option file per instance, root only.
+BACKUP_USER="lesta_backup"
+BACKUP_TENANT_DEFAULTS_FILE="/etc/lesta/mariadb-backup-tenant.cnf"
+BACKUP_CONTROL_PLANE_DEFAULTS_FILE="/etc/lesta/mariadb-backup-control-plane.cnf"
 MARIADB_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
 MARIADB_SOURCES_LIST="/etc/apt/sources.list.d/mariadb.list"
 MARIADB_PINNED_SERIES="11.4"
@@ -823,6 +827,37 @@ HARDENSQL
     add_change "${instance}" installed "" "default test database, its PUBLIC grants and the anonymous users removed from the instance on ${socket}"
 }
 
+# mariadb_create_backup_account <socket> <defaults_file> <capability>
+# Creates the read-only account backups dump an instance with, and writes its root-only option file.
+# It can read every table but change nothing: a backup run that is subverted cannot alter data or
+# reach the server's files, unlike the root login over the unix socket it replaces. CREATE OR
+# REPLACE with a fresh password on every apply, for the same reason as the administrator account.
+mariadb_create_backup_account() {
+    local socket="$1" defaults_file="$2" capability="$3" backup_password out
+
+    backup_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+
+    if ! out=$(mariadb --socket="${socket}" -u root <<BACKUPSQL 2>&1
+CREATE OR REPLACE USER '${BACKUP_USER}'@'localhost' IDENTIFIED BY '${backup_password}';
+GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, SHOW DATABASES ON *.* TO '${BACKUP_USER}'@'localhost';
+FLUSH PRIVILEGES;
+BACKUPSQL
+    ); then
+        add_error mariadb_backup_account_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${socket}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+
+    cat > "${defaults_file}.tmp" <<DEFAULTS
+[client]
+user=${BACKUP_USER}
+password=${backup_password}
+DEFAULTS
+    chmod 0600 "${defaults_file}.tmp"
+    chown root:root "${defaults_file}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${defaults_file}" "failed to make ${defaults_file} root-only"
+    mv -f "${defaults_file}.tmp" "${defaults_file}"
+    add_change "${capability}" installed "${defaults_file}" "read-only backup account ${BACKUP_USER}@localhost (SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, SHOW DATABASES) and its option file, mode 0600 root:root"
+}
+
 # install_mariadb_control_plane relocates the default mariadb.service
 # instance (almost certainly already auto-started by the package's own
 # postinst against the stock /var/lib/mysql datadir) onto this project's own
@@ -989,6 +1024,8 @@ CREDS
     chmod 0600 "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp"
     chown root:root "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" 2>/dev/null || true
     mv -f "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" "${CONTROL_PLANE_APP_CREDENTIALS_FILE}"
+    mariadb_create_backup_account "${CONTROL_PLANE_SOCKET}" "${BACKUP_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
+
     add_change database.control-plane.v1 installed "${CONTROL_PLANE_APP_CREDENTIALS_FILE}" "Laravel .env-shaped DB_* credentials written, mode 0600 root:root (a root-only file, not encrypted at rest in any cryptographic sense); an operator merges its contents into their own Laravel .env by hand, since install.sh has no reliable way to locate a Laravel checkout's .env on an arbitrary node, the password itself is never logged"
 
     checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
@@ -1150,6 +1187,8 @@ DEFAULTS
     chown root:root "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${TENANT_ADMIN_DEFAULTS_FILE}" "failed to make ${TENANT_ADMIN_DEFAULTS_FILE} root-only"
     mv -f "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" "${TENANT_ADMIN_DEFAULTS_FILE}"
     add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0600 root:root, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
+
+    mariadb_create_backup_account "${TENANT_SOCKET}" "${BACKUP_TENANT_DEFAULTS_FILE}" database.tenant.v1
 
     # --- sudoers: no longer needed ------------------------------------------
     #

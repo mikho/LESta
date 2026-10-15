@@ -439,9 +439,8 @@ func (c Config) clientBinary() string {
 	return mariadbClientBinary()
 }
 
-// dumpOneDatabase writes a consistent dump of one named database to out. The
-// helper already runs as root, which the tenant instance's unix_socket login
-// requires.
+// dumpOneDatabase writes a consistent dump of one named database to out, as the read-only backup
+// account when the configuration names one, otherwise as root (the helper already is root).
 func dumpOneDatabase(ctx context.Context, cfg Config, socket, name, out string) error {
 	f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
@@ -452,7 +451,8 @@ func dumpOneDatabase(ctx context.Context, cfg Config, socket, name, out string) 
 
 	var stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, cfg.dumpBinary(), "-S", socket, "-u", "root", "--single-transaction", "--routines", "--triggers", "--events", "--databases", name)
+	args := append(authArgs(cfg.DatabaseDumpDefaults[databaseTenantCapability], "-S", socket), "--single-transaction", "--routines", "--triggers", "--events", "--databases", name)
+	cmd := exec.CommandContext(ctx, cfg.dumpBinary(), args...)
 	cmd.Stdout = f
 	cmd.Stderr = &stderr
 
@@ -467,7 +467,14 @@ func dumpOneDatabase(ctx context.Context, cfg Config, socket, name, out string) 
 func loadDatabase(ctx context.Context, cfg Config, socket string, sql io.Reader) error {
 	var stderr bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, cfg.clientBinary(), "-S", socket, "-u", "root")
+	// The tenant database administrator is defined for 127.0.0.1, so with its option file the
+	// connection goes over TCP; without one this is root over the unix socket.
+	args := authArgs(cfg.TenantRestoreDefaults, "-S", socket)
+	if cfg.TenantRestoreDefaults != "" {
+		args = authArgs(cfg.TenantRestoreDefaults, "--protocol=tcp", "--host=127.0.0.1", "--port="+strconv.Itoa(cfg.TenantRestorePort))
+	}
+
+	cmd := exec.CommandContext(ctx, cfg.clientBinary(), args...)
 	cmd.Stdin = sql
 	cmd.Stderr = &stderr
 

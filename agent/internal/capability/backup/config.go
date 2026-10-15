@@ -41,6 +41,17 @@ type Config struct {
 	// isn't running on this node, not an error -- mirroring StateRoots'
 	// own "absent = not present here" convention exactly.
 	DatabaseDumpSockets map[string]string
+	// DatabaseDumpDefaults maps the same capabilities to a MariaDB option file (root-only) holding a
+	// read-only backup account for that instance (SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES,
+	// SHOW DATABASES). Whole-node and per-account dumps log in as it. A missing entry means root over
+	// unix_socket, which is what the test instances use.
+	DatabaseDumpDefaults map[string]string
+	// TenantRestoreDefaults and TenantRestorePort name the tenant database administrator's option
+	// file and TCP port, used to load a per-account database dump. Empty means root over the socket.
+	// A whole-node restore still uses root: it rewrites the system schema, which no narrower account
+	// may do.
+	TenantRestoreDefaults string
+	TenantRestorePort     int
 
 	// VMailRoot is mail.smtp-imap.v1's own real Dovecot virtual-mailbox root
 	// (.install/services/mail/install.sh's own VMAIL_HOME, a subdirectory
