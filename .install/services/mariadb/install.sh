@@ -882,6 +882,8 @@ install_mariadb_control_plane() {
         mariadb_health_probe "${CONTROL_PLANE_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${CONTROL_PLANE_SOCKET}" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} did not succeed within 60s of enabling mariadb.service"
         add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
 
+        mariadb_create_backup_account "${CONTROL_PLANE_SOCKET}" "${BACKUP_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
+
         checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
         log_info "install_mariadb_control_plane complete (already-migrated rerun)"
         return 0
