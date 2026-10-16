@@ -45,6 +45,20 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
             Route::get('dns-zones', [DnsZoneController::class, 'index'])->name('dns-zones.index');
             Route::get('dns-zones/{dnsZone}', [DnsZoneController::class, 'show'])->name('dns-zones.show');
             Route::get('dns-zones/{dnsZone}/records', [DnsRecordController::class, 'index'])->name('dns-zones.records.index');
+            Route::get('dns-zones/{dnsZone}/records/{record}', [DnsRecordController::class, 'show'])->name('dns-zones.records.show');
+        });
+
+        Route::middleware('api.ability:dns:write')->group(function () {
+            Route::post('dns-zones', [DnsZoneController::class, 'store'])->middleware('api.idempotent')->name('dns-zones.store');
+            Route::patch('dns-zones/{dnsZone}', [DnsZoneController::class, 'update'])->name('dns-zones.update');
+            Route::delete('dns-zones/{dnsZone}', [DnsZoneController::class, 'destroy'])->name('dns-zones.destroy');
+            Route::post('dns-zones/{dnsZone}/suspend', [DnsZoneController::class, 'suspend'])->middleware('api.idempotent')->name('dns-zones.suspend');
+            Route::post('dns-zones/{dnsZone}/unsuspend', [DnsZoneController::class, 'unsuspend'])->middleware('api.idempotent')->name('dns-zones.unsuspend');
+            Route::post('dns-zones/{dnsZone}/records', [DnsRecordController::class, 'store'])->middleware('api.idempotent')->name('dns-zones.records.store');
+            Route::patch('dns-zones/{dnsZone}/records/{record}', [DnsRecordController::class, 'update'])->name('dns-zones.records.update');
+            Route::delete('dns-zones/{dnsZone}/records/{record}', [DnsRecordController::class, 'destroy'])->name('dns-zones.records.destroy');
+            Route::post('dns-zones/{dnsZone}/records/{record}/suspend', [DnsRecordController::class, 'suspend'])->middleware('api.idempotent')->name('dns-zones.records.suspend');
+            Route::post('dns-zones/{dnsZone}/records/{record}/unsuspend', [DnsRecordController::class, 'unsuspend'])->middleware('api.idempotent')->name('dns-zones.records.unsuspend');
         });
 
         Route::middleware('api.ability:mail:read')->group(function () {

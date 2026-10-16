@@ -2,38 +2,23 @@
 
 use App\Enums\ProvisioningStatus;
 use App\Models\Account;
-use App\Models\AccountNodeIdentity;
 use App\Models\ApiToken;
 use App\Models\AuditEvent;
 use App\Models\IdempotencyReceipt;
-use App\Models\IpAllocation;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
-use App\Models\Package;
 use App\Models\ProvisioningOperation;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\Artisan;
 
 /**
- * An account owner on a node that can host web domains, with a token holding $abilities.
- *
  * @param  list<string>  $abilities
  * @return array{0: Account, 1: ApiToken, 2: array<string, string>, 3: Node}
  */
 function writeApiOwner(array $abilities = ['web:read', 'web:write']): array
 {
-    $account = Account::factory()->for(Package::factory()->withLimit('web_domains', 5))->create();
-    $owner = Membership::factory()->for($account)->owner()->create()->user;
-    $node = Node::factory()->create();
-    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
-    IpAllocation::factory()->for($node)->create();
-    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
-
-    $plaintext = ApiToken::PREFIX.'write'.fake()->unique()->numerify('########');
-    $token = ApiToken::factory()->for($owner)->withPlaintext($plaintext)->create(['abilities' => $abilities]);
-
-    return [$account, $token, ['Authorization' => 'Bearer '.$plaintext], $node];
+    return apiWriteOwner($abilities, ['web.nginx.v1'], ['web_domains' => 5]);
 }
 
 function webDomainsPath(Account $account, string $suffix = ''): string

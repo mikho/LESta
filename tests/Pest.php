@@ -1,5 +1,13 @@
 <?php
 
+use App\Models\Account;
+use App\Models\AccountNodeIdentity;
+use App\Models\ApiToken;
+use App\Models\IpAllocation;
+use App\Models\Membership;
+use App\Models\Node;
+use App\Models\NodeCapability;
+use App\Models\Package;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -64,4 +72,38 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * An account owner whose account can place resources on one node, with an API token holding
+ * $abilities: the setup every API write test shares.
+ *
+ * @param  list<string>  $abilities
+ * @param  list<string>  $capabilities  the node's capabilities
+ * @param  array<string, int>  $limits  the account package's limits
+ * @return array{0: Account, 1: ApiToken, 2: array<string, string>, 3: Node}
+ */
+function apiWriteOwner(array $abilities, array $capabilities, array $limits): array
+{
+    $package = Package::factory();
+
+    foreach ($limits as $resource => $limit) {
+        $package = $package->withLimit($resource, $limit);
+    }
+
+    $account = Account::factory()->for($package)->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+
+    foreach ($capabilities as $capability) {
+        NodeCapability::factory()->for($node)->create(['capability' => $capability]);
+    }
+
+    IpAllocation::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+
+    $plaintext = ApiToken::PREFIX.'write'.fake()->unique()->numerify('########');
+    $token = ApiToken::factory()->for($owner)->withPlaintext($plaintext)->create(['abilities' => $abilities]);
+
+    return [$account, $token, ['Authorization' => 'Bearer '.$plaintext], $node];
 }
