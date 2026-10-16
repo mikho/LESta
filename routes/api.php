@@ -113,6 +113,12 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
             Route::get('backups/{accountBackup}', [AccountBackupController::class, 'show'])->name('backups.show');
         });
 
+        Route::middleware('api.ability:backups:write')->group(function () {
+            Route::post('backups', [AccountBackupController::class, 'store'])->middleware('api.idempotent')->name('backups.store');
+            Route::post('backups/{accountBackup}/restore', [AccountBackupController::class, 'restore'])->middleware('api.idempotent')->name('backups.restore');
+            Route::delete('backups/{accountBackup}', [AccountBackupController::class, 'destroy'])->name('backups.destroy');
+        });
+
         Route::middleware('api.ability:usage:read')->group(function () {
             Route::get('usage', [UsageController::class, 'index'])->name('usage.index');
             Route::get('usage/monthly', [UsageController::class, 'monthly'])->name('usage.monthly');
