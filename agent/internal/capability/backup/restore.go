@@ -127,7 +127,7 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 			continue
 		}
 
-		if err := restoreSocket(ctx, c.cfg.SudoBinary, socket, sql); err != nil {
+		if err := restoreSocket(ctx, c.cfg.SudoBinary, socket, c.cfg.DatabaseRestoreDefaults[capability], sql); err != nil {
 			return c.failed(op, "database_restore_failed", fmt.Sprintf("%s: %s", capability, err.Error()))
 		}
 
@@ -329,12 +329,17 @@ func mariadbClientBinary() string {
 //
 // sudoBinary: see dumpSocket's own doc comment on why unix_socket auth
 // needs this for the real unprivileged lesta-agent-daemon.
-func restoreSocket(ctx context.Context, sudoBinary, socketPath string, dumpSQL []byte) error {
+//
+// defaultsFile, when set, is the option file of the restore account for this instance, which logs
+// in instead of root. It may not be narrower than it is: the dump rewrites the system schema.
+func restoreSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string, dumpSQL []byte) error {
+	args := authArgs(defaultsFile, "--socket="+socketPath)
+
 	var cmd *exec.Cmd
 	if sudoBinary == "" {
-		cmd = exec.CommandContext(ctx, mariadbClientBinary(), "--socket="+socketPath, "-u", "root")
+		cmd = exec.CommandContext(ctx, mariadbClientBinary(), args...)
 	} else {
-		cmd = exec.CommandContext(ctx, sudoBinary, mariadbClientBinary(), "--socket="+socketPath, "-u", "root")
+		cmd = exec.CommandContext(ctx, sudoBinary, append([]string{mariadbClientBinary()}, args...)...)
 	}
 
 	cmd.Stdin = bytes.NewReader(dumpSQL)

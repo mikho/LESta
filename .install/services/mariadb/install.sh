@@ -161,6 +161,10 @@ TENANT_ADMIN_USER="lesta_agent"
 BACKUP_USER="lesta_backup"
 BACKUP_TENANT_DEFAULTS_FILE="/etc/lesta/mariadb-backup-tenant.cnf"
 BACKUP_CONTROL_PLANE_DEFAULTS_FILE="/etc/lesta/mariadb-backup-control-plane.cnf"
+# Account a whole-node restore loads a dump with.
+RESTORE_USER="lesta_restore"
+RESTORE_TENANT_DEFAULTS_FILE="/etc/lesta/mariadb-restore-tenant.cnf"
+RESTORE_CONTROL_PLANE_DEFAULTS_FILE="/etc/lesta/mariadb-restore-control-plane.cnf"
 MARIADB_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
 MARIADB_SOURCES_LIST="/etc/apt/sources.list.d/mariadb.list"
 MARIADB_PINNED_SERIES="11.4"
@@ -858,6 +862,39 @@ DEFAULTS
     add_change "${capability}" installed "${defaults_file}" "read-only backup account ${BACKUP_USER}@localhost (SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES, SHOW DATABASES) and its option file, mode 0600 root:root"
 }
 
+# mariadb_create_restore_account <socket> <defaults_file> <capability>
+# Creates the account a whole-node restore loads a dump with. A restore rewrites the system schema,
+# so it needs nearly every privilege: all of them except the ones that reach the server's files or
+# processes or change it (FILE, SUPER, SHUTDOWN, PROCESS, the binary log and replication ones). SET
+# USER stays, because the dump recreates mysql.user with its original definer and fails without it.
+# Only the root-only option file holds the password, and it is used by the backup applier alone.
+mariadb_create_restore_account() {
+    local socket="$1" defaults_file="$2" capability="$3" restore_password out
+
+    restore_password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+
+    if ! out=$(mariadb --socket="${socket}" -u root <<RESTORESQL 2>&1
+CREATE OR REPLACE USER '${RESTORE_USER}'@'localhost' IDENTIFIED BY '${restore_password}';
+GRANT ALL PRIVILEGES ON *.* TO '${RESTORE_USER}'@'localhost';
+REVOKE FILE, SUPER, SHUTDOWN, PROCESS, BINLOG ADMIN, BINLOG REPLAY, FEDERATED ADMIN, CONNECTION ADMIN, READ_ONLY ADMIN, REPLICATION SLAVE ADMIN, REPLICATION MASTER ADMIN, REPLICATION SLAVE ON *.* FROM '${RESTORE_USER}'@'localhost';
+FLUSH PRIVILEGES;
+RESTORESQL
+    ); then
+        add_error mariadb_restore_account_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${socket}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+
+    cat > "${defaults_file}.tmp" <<DEFAULTS
+[client]
+user=${RESTORE_USER}
+password=${restore_password}
+DEFAULTS
+    chmod 0600 "${defaults_file}.tmp"
+    chown root:root "${defaults_file}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${defaults_file}" "failed to make ${defaults_file} root-only"
+    mv -f "${defaults_file}.tmp" "${defaults_file}"
+    add_change "${capability}" installed "${defaults_file}" "restore account ${RESTORE_USER}@localhost (all privileges except FILE, SUPER, SHUTDOWN, PROCESS and the binary log and replication ones) and its option file, mode 0600 root:root"
+}
+
 # install_mariadb_control_plane relocates the default mariadb.service
 # instance (almost certainly already auto-started by the package's own
 # postinst against the stock /var/lib/mysql datadir) onto this project's own
@@ -883,6 +920,7 @@ install_mariadb_control_plane() {
         add_change database.control-plane.v1 healthy "" "a real SELECT 1 round-trip over ${CONTROL_PLANE_SOCKET} succeeded"
 
         mariadb_create_backup_account "${CONTROL_PLANE_SOCKET}" "${BACKUP_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
+    mariadb_create_restore_account "${CONTROL_PLANE_SOCKET}" "${RESTORE_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
 
         checkpoint_write install_mariadb_control_plane "${MANIFEST_DIGEST}"
         log_info "install_mariadb_control_plane complete (already-migrated rerun)"
@@ -1027,6 +1065,7 @@ CREDS
     chown root:root "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" 2>/dev/null || true
     mv -f "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" "${CONTROL_PLANE_APP_CREDENTIALS_FILE}"
     mariadb_create_backup_account "${CONTROL_PLANE_SOCKET}" "${BACKUP_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
+    mariadb_create_restore_account "${CONTROL_PLANE_SOCKET}" "${RESTORE_CONTROL_PLANE_DEFAULTS_FILE}" database.control-plane.v1
 
     add_change database.control-plane.v1 installed "${CONTROL_PLANE_APP_CREDENTIALS_FILE}" "Laravel .env-shaped DB_* credentials written, mode 0600 root:root (a root-only file, not encrypted at rest in any cryptographic sense); an operator merges its contents into their own Laravel .env by hand, since install.sh has no reliable way to locate a Laravel checkout's .env on an arbitrary node, the password itself is never logged"
 
@@ -1191,6 +1230,7 @@ DEFAULTS
     add_change database.tenant.v1 installed "${TENANT_ADMIN_DEFAULTS_FILE}" "--defaults-extra-file written, mode 0600 root:root, matching agent/cmd/lesta-agent/main.go's own mariadbProductionConfig().DefaultsExtraFile"
 
     mariadb_create_backup_account "${TENANT_SOCKET}" "${BACKUP_TENANT_DEFAULTS_FILE}" database.tenant.v1
+    mariadb_create_restore_account "${TENANT_SOCKET}" "${RESTORE_TENANT_DEFAULTS_FILE}" database.tenant.v1
 
     # --- sudoers: no longer needed ------------------------------------------
     #

@@ -65,3 +65,32 @@ func TestAccountDumpsAndLoadsLogInAsTheConfiguredAccounts(t *testing.T) {
 		}
 	}
 }
+
+func TestWholeNodeRestoreLogsInAsTheRestoreAccountNotRoot(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "args")
+
+	if err := os.WriteFile(filepath.Join(dir, "mariadb"), []byte("#!/bin/sh\necho \"$@\" > "+record+"\ncat > /dev/null\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := restoreSocket(context.Background(), "", "/run/t.sock", "/etc/lesta/restore.cnf", []byte("select 1;")); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ := os.ReadFile(record)
+	if got := strings.TrimSpace(string(raw)); got != "--defaults-extra-file=/etc/lesta/restore.cnf --socket=/run/t.sock" {
+		t.Errorf("restore arguments: %q", got)
+	}
+
+	if err := restoreSocket(context.Background(), "", "/run/t.sock", "", []byte("select 1;")); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ = os.ReadFile(record)
+	if got := strings.TrimSpace(string(raw)); got != "--socket=/run/t.sock -u root" {
+		t.Errorf("without a restore account the restore keeps the root login: %q", got)
+	}
+}

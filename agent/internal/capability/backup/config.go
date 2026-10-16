@@ -46,6 +46,11 @@ type Config struct {
 	// SHOW DATABASES). Whole-node and per-account dumps log in as it. A missing entry means root over
 	// unix_socket, which is what the test instances use.
 	DatabaseDumpDefaults map[string]string
+	// DatabaseRestoreDefaults maps the same capabilities to the option file of the restore account
+	// of that instance, used to load a whole-node dump. It has every privilege except the ones that
+	// reach the server's files or processes; it keeps SET USER, because the dump recreates the
+	// system schema's views with their original definers. A missing entry means root.
+	DatabaseRestoreDefaults map[string]string
 	// TenantRestoreDefaults and TenantRestorePort name the tenant database administrator's option
 	// file and TCP port, used to load a per-account database dump. Empty means root over the socket.
 	// A whole-node restore still uses root: it rewrites the system schema, which no narrower account

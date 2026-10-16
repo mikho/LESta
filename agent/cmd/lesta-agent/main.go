@@ -671,11 +671,15 @@ func backupProductionConfig() backup.Config {
 			databaseControlPlaneCapability: "/run/mysqld/mysqld.sock",
 		},
 		// The read-only backup accounts the mariadb installer creates on each instance, and the
-		// tenant administrator used to load a per-account database. Whole-node restore still
-		// uses root over the socket.
+		// tenant administrator used to load a per-account database. A whole-node restore logs in as
+		// the restore account.
 		DatabaseDumpDefaults: map[string]string{
 			databaseTenantCapability:       "/etc/lesta/mariadb-backup-tenant.cnf",
 			databaseControlPlaneCapability: "/etc/lesta/mariadb-backup-control-plane.cnf",
+		},
+		DatabaseRestoreDefaults: map[string]string{
+			databaseTenantCapability:       "/etc/lesta/mariadb-restore-tenant.cnf",
+			databaseControlPlaneCapability: "/etc/lesta/mariadb-restore-control-plane.cnf",
 		},
 		TenantRestoreDefaults: "/etc/lesta/mariadb-tenant-admin.cnf",
 		TenantRestorePort:     3307,
