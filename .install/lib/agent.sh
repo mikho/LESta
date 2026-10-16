@@ -118,6 +118,17 @@ agent_install_binary() {
     chown root:root "${AGENT_BINARY_DEST}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${AGENT_BINARY_DEST}" "failed to make the agent binary root-owned"
     mv -f "${AGENT_BINARY_DEST}.tmp" "${AGENT_BINARY_DEST}"
     add_change node.health.v1 installed "${AGENT_BINARY_DEST}" "agent binary copied from ${agent_binary_src}, sha256 verified against manifest, mode 0755 root:root"
+
+    # Every root applier instance runs this binary. Restart the installed ones now, so none keeps
+    # running the old generation (an installer only restarts the instance of its own capabilities,
+    # which left the others on the old code, and a new payload field was then refused by them).
+    local applier_unit
+
+    for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
+        if systemctl is-enabled "${applier_unit}" >/dev/null 2>&1; then
+            systemctl restart "${applier_unit}" >/dev/null 2>&1 || log_warn "agent_install_binary: could not restart ${applier_unit} onto the new agent generation"
+        fi
+    done
 }
 
 # agent_rollback_binary

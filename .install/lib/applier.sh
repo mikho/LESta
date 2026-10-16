@@ -14,7 +14,7 @@
 #   applier_allow_setid_modes <capability>  let it set setuid and setgid bits
 #   applier_start                             enable and (re)start the unit
 #
-# and, after swapping in a new agent binary, applier_restart_if_enabled before any self-test, so
+# and, after swapping in a new agent binary, agent_install_binary (lib/agent.sh) restarts every installed instance before any self-test, so
 # the self-test runs against the new applier.
 #
 # The unit is sandboxed: it can write only the paths the capabilities that moved behind it name
@@ -25,7 +25,6 @@
 # (see agent/cmd/lesta-agent/applier.go). The default instance applies the capabilities that write
 # configuration files; "identity" applies the one that edits the account database, whose sandbox
 # must be able to write /etc. applier_select_instance chooses which one the functions below act on.
-APPLIER_UNITS="lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup"
 
 # applier_select_instance [name]: no name selects the default instance.
 applier_select_instance() {
@@ -199,20 +198,6 @@ applier_start() {
         fi
 
         sleep 0.1
-    done
-}
-
-# applier_restart_if_enabled restarts every applier instance after a new agent binary was installed, so the
-# self-test that follows runs against the new applier. A no-op where it is not installed.
-applier_restart_if_enabled() {
-    local unit
-
-    for unit in ${APPLIER_UNITS}; do
-        if ! systemctl is-enabled "${unit}" >/dev/null 2>&1; then
-            continue
-        fi
-
-        systemctl restart "${unit}" || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_restart_failed "/etc/systemd/system/${unit}.service" "systemctl restart ${unit} failed after installing a new agent binary generation"
     done
 }
 
