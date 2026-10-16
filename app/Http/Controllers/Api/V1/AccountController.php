@@ -2,14 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\AccountResource;
 use App\Models\Account;
 use App\Models\ApiToken;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-class AccountController extends Controller
+class AccountController extends ApiController
 {
     /**
      * The accounts the token reaches: the user's own memberships, the accounts managed by a
@@ -27,11 +26,11 @@ class AccountController extends Controller
             ->whereHas('role', fn ($query) => $query->where('name', 'owner'))->pluck('account_id');
 
         $accounts = Account::query()
-            ->with('package')
+            ->with(['package', 'resellerAccount'])
             ->where(fn ($query) => $query->whereIn('id', $memberOf)->orWhereIn('reseller_account_id', $ownerOf))
             ->when($token->account_id !== null, fn ($query) => $query->whereKey($token->account_id))
             ->orderBy('id')
-            ->cursorPaginate(min((int) $request->integer('limit', 50), 100));
+            ->cursorPaginate($this->limit($request));
 
         return AccountResource::collection($accounts);
     }

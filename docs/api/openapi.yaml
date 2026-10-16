@@ -61,6 +61,513 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/web-domains:
+    get:
+      operationId: listWebDomains
+      summary: The account's web domains
+      description: Needs the web:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DomainFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDomain'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/web-domains/{webDomain}:
+    get:
+      operationId: getWebDomain
+      summary: One web domain
+      description: Needs the web:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/WebDomainId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/dns-zones:
+    get:
+      operationId: listDnsZones
+      summary: The account's DNS zones
+      description: Needs the dns:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DomainFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DnsZone'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/dns-zones/{dnsZone}:
+    get:
+      operationId: getDnsZone
+      summary: One DNS zone
+      description: Needs the dns:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/dns-zones/{dnsZone}/records:
+    get:
+      operationId: listDnsRecords
+      summary: A zone's records
+      description: Needs the dns:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DnsRecord'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/mail-domains:
+    get:
+      operationId: listMailDomains
+      summary: The account's mail domains
+      description: Needs the mail:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DomainFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MailDomain'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/mail-domains/{mailDomain}:
+    get:
+      operationId: getMailDomain
+      summary: One mail domain
+      description: Needs the mail:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/mail-domains/{mailDomain}/mailboxes:
+    get:
+      operationId: listMailboxes
+      summary: A mail domain's mailboxes
+      description: Needs the mail:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Mailbox'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/databases:
+    get:
+      operationId: listDatabases
+      summary: The account's databases
+      description: Needs the databases:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Database'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/databases/{database}:
+    get:
+      operationId: getDatabase
+      summary: One database
+      description: Needs the databases:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Database'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/cron-jobs:
+    get:
+      operationId: listCronJobs
+      summary: The account's cron jobs
+      description: Needs the cron:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CronJob'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/cron-jobs/{cronJob}:
+    get:
+      operationId: getCronJob
+      summary: One cron job, with its last 20 runs
+      description: Needs the cron:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CronJobId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/backups:
+    get:
+      operationId: listBackups
+      summary: The account's backups, newest first
+      description: Needs the backups:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Backup'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/backups/{backup}:
+    get:
+      operationId: getBackup
+      summary: One backup
+      description: Needs the backups:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/BackupId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Backup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/usage:
+    get:
+      operationId: listUsage
+      summary: Usage readings of the last 90 days, newest first
+      description: Needs the usage:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsageSnapshot'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{account}/usage/monthly:
+    get:
+      operationId: listMonthlyUsage
+      summary: Usage per resource and month, newest first
+      description: Needs the usage:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsageMonth'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     apiToken:
@@ -68,6 +575,68 @@ components:
       scheme: bearer
       description: A personal API token, starting with "lesta_".
   parameters:
+    AccountId:
+      name: account
+      in: path
+      required: true
+      description: The account's id from GET /accounts.
+      schema:
+        type: string
+    WebDomainId:
+      name: webDomain
+      in: path
+      required: true
+      description: The web domain's id.
+      schema:
+        type: string
+        format: uuid
+    DnsZoneId:
+      name: dnsZone
+      in: path
+      required: true
+      description: The DNS zone's id.
+      schema:
+        type: string
+        format: uuid
+    MailDomainId:
+      name: mailDomain
+      in: path
+      required: true
+      description: The mail domain's id.
+      schema:
+        type: string
+        format: uuid
+    DatabaseId:
+      name: database
+      in: path
+      required: true
+      description: The database's id.
+      schema:
+        type: string
+        format: uuid
+    CronJobId:
+      name: cronJob
+      in: path
+      required: true
+      description: The cron job's id.
+      schema:
+        type: string
+        format: uuid
+    BackupId:
+      name: backup
+      in: path
+      required: true
+      description: The backup's id.
+      schema:
+        type: string
+        format: uuid
+    DomainFilter:
+      name: filter[domain]
+      in: query
+      required: false
+      description: Only the resource with exactly this domain (case does not matter).
+      schema:
+        type: string
     Cursor:
       name: cursor
       in: query
@@ -86,6 +655,18 @@ components:
   responses:
     Unauthorized:
       description: The token is missing, unknown or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    Forbidden:
+      description: The token lacks the ability, is restricted to another account, or the user cannot see this account.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    NotFound:
+      description: No such resource in this account.
       content:
         application/json:
           schema:
@@ -131,9 +712,10 @@ components:
               type: array
               items:
                 type: string
-                enum: [web:read, web:write, dns:read, dns:write, mail:read, mail:write, databases:read, databases:write, cron:read, cron:write, backups:read, backups:write, admin:read, admin:write]
+                enum: [web:read, web:write, dns:read, dns:write, mail:read, mail:write, databases:read, databases:write, cron:read, cron:write, backups:read, backups:write, usage:read, admin:read, admin:write]
             account_id:
-              type: [integer, 'null']
+              type: [string, 'null']
+              description: The public id of the one account the token is restricted to.
             expires_at:
               type: string
               format: date-time
@@ -142,7 +724,8 @@ components:
       required: [id, name, contact_email, package, is_owner, reseller_account_id, suspended, created_at]
       properties:
         id:
-          type: integer
+          type: string
+          description: The account's public id, used in the account paths.
         name:
           type: string
         contact_email:
@@ -160,12 +743,372 @@ components:
         is_owner:
           type: boolean
         reseller_account_id:
-          type: [integer, 'null']
+          type: [string, 'null']
+          description: The public id of the reseller account that manages this one.
         suspended:
           type: boolean
         created_at:
           type: [string, 'null']
           format: date-time
+    Suspension:
+      type: object
+      required: [suspended, suspended_at, suspension_source]
+      properties:
+        suspended:
+          type: boolean
+        suspended_at:
+          type: [string, 'null']
+          format: date-time
+        suspension_source:
+          type: [string, 'null']
+          enum: [manual, cascade, null]
+          description: cascade when the account was suspended, manual when this resource itself was.
+    Provisioning:
+      description: The latest change sent to the node. Null when nothing was ever sent.
+      oneOf:
+        - type: 'null'
+        - type: object
+          required: [status, completed_at]
+          properties:
+            status:
+              type: string
+              enum: [pending, dispatched, applied, already_applied, rejected, failed, degraded]
+            completed_at:
+              type: [string, 'null']
+              format: date-time
+    WebDomain:
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, domain, aliases, web_template, web_server, php_version, ssl_mode, certificate, waf_mode, waf_preset, waf_excluded_rules, hotlink_protection, hotlink_allowed_hosts, provisioning, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            domain:
+              type: string
+            aliases:
+              type: array
+              items:
+                type: string
+            web_template:
+              type: string
+            web_server:
+              type: string
+            php_version:
+              type: [string, 'null']
+            ssl_mode:
+              type: string
+            certificate:
+              type: object
+              required: [issued_at, expires_at, last_error]
+              properties:
+                issued_at:
+                  type: [string, 'null']
+                  format: date-time
+                expires_at:
+                  type: [string, 'null']
+                  format: date-time
+                last_error:
+                  type: [string, 'null']
+            waf_mode:
+              type: string
+            waf_preset:
+              type: string
+            waf_excluded_rules:
+              type: array
+              items:
+                type: integer
+            hotlink_protection:
+              type: boolean
+            hotlink_allowed_hosts:
+              type: array
+              items:
+                type: string
+            provisioning:
+              $ref: '#/components/schemas/Provisioning'
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    DnsZone:
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, domain, ttl, records_count, provisioning, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            domain:
+              type: string
+            ttl:
+              type: integer
+            records_count:
+              type: integer
+            provisioning:
+              $ref: '#/components/schemas/Provisioning'
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    DnsRecord:
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, name, type, priority, value, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            type:
+              type: string
+            priority:
+              type: [integer, 'null']
+            value:
+              type: string
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    MailDomain:
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, domain, antivirus_enabled, antispam_enabled, dkim_enabled, dkim_selector, catchall_email, accounts_count, provisioning, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            domain:
+              type: string
+            antivirus_enabled:
+              type: boolean
+            antispam_enabled:
+              type: boolean
+            dkim_enabled:
+              type: boolean
+            dkim_selector:
+              type: string
+            catchall_email:
+              type: [string, 'null']
+            accounts_count:
+              type: integer
+              description: How many mailboxes the domain has.
+            provisioning:
+              $ref: '#/components/schemas/Provisioning'
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    Mailbox:
+      description: A mailbox. Never its password.
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, local_part, address, quota_mb, forward_to, forward_only, autoreply_enabled, autoreply_message, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            local_part:
+              type: string
+            address:
+              type: string
+            quota_mb:
+              type: [integer, 'null']
+            forward_to:
+              type: [string, 'null']
+            forward_only:
+              type: boolean
+            autoreply_enabled:
+              type: boolean
+            autoreply_message:
+              type: [string, 'null']
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    Database:
+      description: A customer database. Never its password.
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, label, database_name, database_user, provisioning, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            label:
+              type: string
+            database_name:
+              type: string
+            database_user:
+              type: string
+            provisioning:
+              $ref: '#/components/schemas/Provisioning'
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    CronJob:
+      allOf:
+        - $ref: '#/components/schemas/Suspension'
+        - type: object
+          required: [id, minute, hour, day_of_month, month, day_of_week, command, provisioning, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            minute:
+              type: string
+            hour:
+              type: string
+            day_of_month:
+              type: string
+            month:
+              type: string
+            day_of_week:
+              type: string
+            command:
+              type: string
+            provisioning:
+              $ref: '#/components/schemas/Provisioning'
+            executions:
+              description: Only when one cron job is fetched, the last 20 runs, newest first.
+              type: array
+              items:
+                type: object
+                required: [started_at, finished_at, exit_code, output]
+                properties:
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                  exit_code:
+                    type: integer
+                  output:
+                    type: string
+            created_at:
+              type: [string, 'null']
+              format: date-time
+    Backup:
+      description: An account backup. Never its encryption key.
+      type: object
+      required: [id, label, kind, node, status, error, parts, size_bytes, skipped, remote, last_restore, completed_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: [string, 'null']
+        kind:
+          type: string
+          enum: [manual, scheduled, before_restore, imported]
+        node:
+          type: string
+          description: The name of the node the backup was taken on.
+        status:
+          type: string
+          enum: [running, ready, failed]
+        error:
+          type: [string, 'null']
+        parts:
+          type: array
+          items:
+            type: string
+        size_bytes:
+          type: [integer, 'null']
+        skipped:
+          type: array
+          description: What the backup could not include, and why.
+        remote:
+          description: The copy to the account's own storage. Null when none was made.
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [status, key, at, error]
+              properties:
+                status:
+                  type: string
+                  enum: [copying, copied, failed]
+                key:
+                  type: [string, 'null']
+                at:
+                  type: [string, 'null']
+                  format: date-time
+                error:
+                  type: [string, 'null']
+        last_restore:
+          description: The latest restore from this backup. Null when it was never restored.
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [status, at, restored, skipped, error]
+              properties:
+                status:
+                  type: string
+                  enum: [running, applied, failed]
+                at:
+                  type: [string, 'null']
+                  format: date-time
+                restored:
+                  type: array
+                skipped:
+                  type: array
+                error:
+                  type: [string, 'null']
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    UsageResource:
+      type: object
+      required: [type, label]
+      properties:
+        type:
+          type: string
+          enum: [web_domain, mail_account, tenant_database, unknown]
+        label:
+          type: string
+    UsageSnapshot:
+      description: One collection cycle for one resource. Disk is the size at that moment; requests and bytes sent are what happened since the previous cycle.
+      type: object
+      required: [id, resource, disk_bytes, request_count, bytes_sent, collected_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        resource:
+          $ref: '#/components/schemas/UsageResource'
+        disk_bytes:
+          type: [integer, 'null']
+        request_count:
+          type: [integer, 'null']
+        bytes_sent:
+          type: [integer, 'null']
+        collected_at:
+          type: string
+          format: date-time
+    UsageMonth:
+      description: One month for one resource.
+      type: object
+      required: [id, resource, period, disk_bytes_last, request_count_sum, bytes_sent_sum]
+      properties:
+        id:
+          type: string
+          format: uuid
+        resource:
+          $ref: '#/components/schemas/UsageResource'
+        period:
+          type: string
+          description: The month, as YYYY-MM.
+        disk_bytes_last:
+          type: [integer, 'null']
+        request_count_sum:
+          type: [integer, 'null']
+        bytes_sent_sum:
+          type: [integer, 'null']
     CursorLinks:
       type: object
       properties:

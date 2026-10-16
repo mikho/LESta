@@ -8,7 +8,6 @@ use App\Actions\AccountBackups\DeleteAccountBackup;
 use App\Actions\AccountBackups\ResolvesAccountBackupScope;
 use App\Actions\AccountBackups\RestoreAccountBackup;
 use App\Concerns\ResolvesCurrentAccount;
-use App\Enums\ProvisioningStatus;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
 use App\Models\AccountBackup;
@@ -208,7 +207,7 @@ class AccountBackupController extends Controller
             'label' => $backup->label,
             'kind' => $backup->kind,
             'node' => $backup->node->name,
-            'status' => in_array($backup->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true) ? 'ready' : ($backup->status === ProvisioningStatus::Failed || $backup->status === ProvisioningStatus::Rejected || $backup->status === ProvisioningStatus::Degraded ? 'failed' : 'running'),
+            'status' => $backup->state(),
             'error' => $backup->error_message,
             'parts' => $backup->parts ?? $backup->requested_parts,
             'size_bytes' => $backup->size_bytes,

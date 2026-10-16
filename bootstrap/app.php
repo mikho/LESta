@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequireApiAbility;
@@ -8,6 +9,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -34,6 +37,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias(['api.ability' => RequireApiAbility::class]);
+
+        // The API token is checked first: the "api" rate limiter counts per token, and a caller
+        // without a valid token gets 401 before any account in the path is looked up. The ability
+        // check runs after route model binding, since it reads the bound account.
+        $middleware->prependToPriorityList(before: ThrottleRequests::class, prepend: AuthenticateApiToken::class);
+        $middleware->appendToPriorityList(after: SubstituteBindings::class, append: RequireApiAbility::class);
 
         // Which proxies are believed is set in AppServiceProvider from config('app.trusted_proxies')
         // (TRUSTED_PROXIES): the local machine by default, where nginx terminates TLS. Without

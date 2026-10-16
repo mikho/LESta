@@ -17,12 +17,12 @@ class AccountResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+            'id' => $this->public_id,
             'name' => $this->name,
             'contact_email' => $this->contact_email,
             'package' => $this->package === null ? null : ['id' => $this->package->id, 'name' => $this->package->name],
             'is_owner' => $request->user()->hasAccountRole($this->resource, 'owner'),
-            'reseller_account_id' => $this->reseller_account_id,
+            'reseller_account_id' => $this->resellerAccount?->public_id,
             'suspended' => $this->isSuspended(),
             'created_at' => $this->created_at?->toIso8601ZuluString(),
         ];

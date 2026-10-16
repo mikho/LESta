@@ -28,7 +28,7 @@ class UserResource extends JsonResource
                 'id' => $token->uuid,
                 'name' => $token->name,
                 'abilities' => $token->abilities,
-                'account_id' => $token->account_id,
+                'account_id' => $token->account?->public_id,
                 'expires_at' => $token->expires_at->toIso8601ZuluString(),
             ],
         ];

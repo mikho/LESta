@@ -5,12 +5,9 @@ namespace App\Http\Controllers\Usage;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
-use App\Models\MailAccount;
 use App\Models\Node;
-use App\Models\TenantDatabase;
 use App\Models\UsageSnapshot;
 use App\Models\UsageSnapshotRollup;
-use App\Models\WebDomain;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -110,8 +107,8 @@ class UsageSnapshotController extends Controller
     {
         return [
             'uuid' => $snapshot->uuid,
-            'resource_type' => $this->resourceType($snapshot),
-            'resource_label' => $this->resourceLabel($snapshot),
+            'resource_type' => $snapshot->resourceType(),
+            'resource_label' => $snapshot->resourceLabel(),
             'disk_bytes' => $snapshot->disk_bytes,
             'request_count' => $snapshot->request_count,
             'bytes_sent' => $snapshot->bytes_sent,
@@ -131,39 +128,13 @@ class UsageSnapshotController extends Controller
     {
         return [
             'uuid' => $rollup->uuid,
-            'resource_type' => $this->resourceType($rollup),
-            'resource_label' => $this->resourceLabel($rollup),
+            'resource_type' => $rollup->resourceType(),
+            'resource_label' => $rollup->resourceLabel(),
             'disk_bytes_last' => $rollup->disk_bytes_last,
             'request_count_sum' => $rollup->request_count_sum,
             'bytes_sent_sum' => $rollup->bytes_sent_sum,
             'period' => $rollup->period->toDateString(),
         ];
-    }
-
-    private function resourceType(UsageSnapshot|UsageSnapshotRollup $model): string
-    {
-        return match ($model->snapshotable_type) {
-            (new MailAccount)->getMorphClass() => 'mail_account',
-            (new TenantDatabase)->getMorphClass() => 'tenant_database',
-            (new WebDomain)->getMorphClass() => 'web_domain',
-            default => 'unknown',
-        };
-    }
-
-    private function resourceLabel(UsageSnapshot|UsageSnapshotRollup $model): string
-    {
-        $resource = $model->snapshotable;
-
-        if ($resource === null) {
-            return '(deleted resource)';
-        }
-
-        return match (true) {
-            $resource instanceof MailAccount => $resource->local_part.'@'.$resource->mailDomain?->domain,
-            $resource instanceof TenantDatabase => $resource->label ?? $resource->database_name,
-            $resource instanceof WebDomain => $resource->domain,
-            default => '(unknown resource)',
-        };
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\DescribesSnapshotable;
 use App\Concerns\HasUuid;
 use Database\Factories\UsageSnapshotRollupFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -42,7 +43,7 @@ use Illuminate\Support\Carbon;
 class UsageSnapshotRollup extends Model
 {
     /** @use HasFactory<UsageSnapshotRollupFactory> */
-    use HasFactory, HasUuid;
+    use DescribesSnapshotable, HasFactory, HasUuid;
 
     protected function casts(): array
     {

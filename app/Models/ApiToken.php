@@ -39,8 +39,8 @@ class ApiToken extends Model
     use HasFactory, HasUuid;
 
     /**
-     * Every ability a token can carry: read and write per resource family, and the platform-level
-     * admin pair only a platform user may choose.
+     * Every ability a token can carry: read and write per resource family, read for usage (which
+     * nothing writes), and the platform-level admin pair only a platform user may choose.
      */
     public const array ABILITIES = [
         'web:read', 'web:write',
@@ -49,6 +49,7 @@ class ApiToken extends Model
         'databases:read', 'databases:write',
         'cron:read', 'cron:write',
         'backups:read', 'backups:write',
+        'usage:read',
         'admin:read', 'admin:write',
     ];
 

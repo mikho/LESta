@@ -126,6 +126,14 @@ class Account extends Model
     }
 
     /**
+     * @return HasMany<AccountBackup, $this>
+     */
+    public function accountBackups(): HasMany
+    {
+        return $this->hasMany(AccountBackup::class);
+    }
+
+    /**
      * @return HasOne<AccountBackupSchedule, $this>
      */
     public function backupSchedule(): HasOne

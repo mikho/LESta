@@ -40,6 +40,7 @@ const FAMILIES: { key: string; label: string }[] = [
     { key: 'databases', label: 'Databases' },
     { key: 'cron', label: 'Cron jobs' },
     { key: 'backups', label: 'Backups' },
+    { key: 'usage', label: 'Usage' },
     { key: 'admin', label: 'Platform administration' },
 ];
 
@@ -166,24 +167,30 @@ export default function ApiTokens({
                                         <span className="w-48 text-sm text-muted-foreground">
                                             {family.label}
                                         </span>
-                                        {['read', 'write'].map((mode) => {
-                                            const ability = `${family.key}:${mode}`;
+                                        {['read', 'write']
+                                            .filter((mode) =>
+                                                abilities.includes(
+                                                    `${family.key}:${mode}`,
+                                                ),
+                                            )
+                                            .map((mode) => {
+                                                const ability = `${family.key}:${mode}`;
 
-                                            return (
-                                                <label
-                                                    key={ability}
-                                                    className="flex items-center gap-2 text-sm"
-                                                >
-                                                    <Checkbox
-                                                        name="abilities[]"
-                                                        value={ability}
-                                                    />
-                                                    {mode === 'read'
-                                                        ? 'Read'
-                                                        : 'Write'}
-                                                </label>
-                                            );
-                                        })}
+                                                return (
+                                                    <label
+                                                        key={ability}
+                                                        className="flex items-center gap-2 text-sm"
+                                                    >
+                                                        <Checkbox
+                                                            name="abilities[]"
+                                                            value={ability}
+                                                        />
+                                                        {mode === 'read'
+                                                            ? 'Read'
+                                                            : 'Write'}
+                                                    </label>
+                                                );
+                                            })}
                                     </div>
                                 ))}
                                 <InputError message={errors.abilities} />

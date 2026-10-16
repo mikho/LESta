@@ -133,6 +133,20 @@ class AccountBackup extends Model
         return in_array($this->status, [ProvisioningStatus::Applied, ProvisioningStatus::AlreadyApplied], true);
     }
 
+    /**
+     * The backup's state as the panel and the API show it.
+     *
+     * @return 'ready'|'failed'|'running'
+     */
+    public function state(): string
+    {
+        return match (true) {
+            $this->isComplete() => 'ready',
+            in_array($this->status, [ProvisioningStatus::Failed, ProvisioningStatus::Rejected, ProvisioningStatus::Degraded], true) => 'failed',
+            default => 'running',
+        };
+    }
+
     public function isRestoring(): bool
     {
         return $this->last_restore_status === 'running';

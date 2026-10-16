@@ -115,12 +115,13 @@ test('the accounts list holds what the user reaches and nothing else', function 
     ApiToken::factory()->for($owner)->withPlaintext('lesta_one')->create(['account_id' => $managed->id]);
 
     $ids = collect($this->getJson('/api/v1/accounts', ['Authorization' => 'Bearer lesta_all'])->assertOk()->json('data'))->pluck('id')->sort()->values()->all();
-    expect($ids)->toBe([$mine->account_id, $managed->id]);
+    expect($ids)->toBe(collect([$mine->account->public_id, $managed->public_id])->sort()->values()->all());
 
     $this->getJson('/api/v1/accounts', ['Authorization' => 'Bearer lesta_one'])
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.id', $managed->id)
+        ->assertJsonPath('data.0.id', $managed->public_id)
+        ->assertJsonPath('data.0.reseller_account_id', $mine->account->public_id)
         ->assertJsonPath('data.0.is_owner', true);
 });
 
