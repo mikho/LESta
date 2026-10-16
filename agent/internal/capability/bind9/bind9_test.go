@@ -148,6 +148,26 @@ func queryRcode(t *testing.T, port int, qname string) int {
 	return int(resp[3] & 0x0f)
 }
 
+// waitForZone blocks until named has finished the reload that followed the previous operation, seen
+// from outside as the zone being served (served) or refused (not served). A second rndc reload sent
+// while named is still busy with the first one can have its connection reset, which is named's
+// behaviour, not the capability's, so a test that chains operations lets each reload settle first.
+func waitForZone(t *testing.T, port int, qname string, served bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+
+	for time.Now().Before(deadline) {
+		if (queryRcode(t, port, qname) != rcodeRefused) == served {
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Fatalf("named did not settle: %s never became served=%v", qname, served)
+}
+
 const (
 	rcodeNoError  = 0
 	rcodeNXDomain = 3
@@ -408,6 +428,7 @@ func TestUpdateChangingRecordsChangesServedContent(t *testing.T) {
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1,
 		simplePayload(domain, []bind9.Record{{Name: "www", Type: "A", Value: "203.0.113.1"}}, false)))
 	requireApplied(t, "create", created, err)
+	waitForZone(t, d.Port, domain+".", true)
 
 	ctxQ, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -451,6 +472,7 @@ func TestSuspendExistingZoneRemovesStanzaAndRefuses(t *testing.T) {
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, simplePayload(domain, nil, false)))
 	requireApplied(t, "create", created, err)
+	waitForZone(t, d.Port, domain+".", true)
 
 	suspended, err := capability.Apply(ctx, newOp(protocol.OperationSuspend, resourceID, newTestUUID(), 2, simplePayload(domain, nil, true)))
 	requireApplied(t, "suspend", suspended, err)
@@ -491,9 +513,11 @@ func TestUnsuspendRestoresContent(t *testing.T) {
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, simplePayload(domain, records, false)))
 	requireApplied(t, "create", created, err)
+	waitForZone(t, d.Port, domain+".", true)
 
 	suspended, err := capability.Apply(ctx, newOp(protocol.OperationSuspend, resourceID, newTestUUID(), 2, simplePayload(domain, records, true)))
 	requireApplied(t, "suspend", suspended, err)
+	waitForZone(t, d.Port, domain+".", false)
 
 	unsuspended, err := capability.Apply(ctx, newOp(protocol.OperationUnsuspend, resourceID, newTestUUID(), 3, simplePayload(domain, records, false)))
 	requireApplied(t, "unsuspend", unsuspended, err)
@@ -526,6 +550,7 @@ func TestPerRecordSuspendOnlyServesNonSuspended(t *testing.T) {
 			{Name: "inactive", Type: "A", Value: "203.0.113.21"},
 		}, false)))
 	requireApplied(t, "create", created, err)
+	waitForZone(t, d.Port, domain+".", true)
 
 	updated, err := capability.Apply(ctx, newOp(protocol.OperationUpdate, resourceID, newTestUUID(), 2,
 		simplePayload(domain, []bind9.Record{
@@ -564,6 +589,7 @@ func TestDeleteRemovesStanzaAndObserveAfterwardsReportsApplied(t *testing.T) {
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, simplePayload(domain, nil, false)))
 	requireApplied(t, "create", created, err)
+	waitForZone(t, d.Port, domain+".", true)
 
 	deleted, err := capability.Apply(ctx, newOp(protocol.OperationDelete, resourceID, newTestUUID(), 2, simplePayload(domain, nil, false)))
 	requireApplied(t, "delete", deleted, err)
