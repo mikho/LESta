@@ -1,6 +1,6 @@
 # LESta API Guide
 
-The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading everything an account has, and changing web domains. Changing the other resources comes next (see Chapter 6).
+The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading everything an account has, and changing it.
 
 ---
 
@@ -147,14 +147,22 @@ A call that changes nothing (suspending what is already suspended) answers `200`
 
 A suspended account can be read but not changed (`403`). The same rules as in the panel apply: only an account's owner changes it, the package limits hold, and every change is in the audit log, marked with the token it came through.
 
-**Web domains** (ability `web:write`):
+Every area has the same calls: `POST` on the list creates, `PATCH` on one changes the fields you send and keeps the rest, `DELETE` deletes, and `POST .../suspend` and `.../unsuspend` take it offline and back. Each needs the area's write ability.
 
-| Call                                           | What it does                                                                                                                                                                                      |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /web-domains`                            | Creates a domain. `domain` is required; `aliases`, `web_server` (`nginx` or `apache`), `php_version`, `ssl_mode` (`none`, `manual`, `lets_encrypt`) and `web_template` are optional.              |
-| `PATCH /web-domains/{id}`                      | Changes the fields you send and keeps the rest. Sending `aliases` replaces them all. Also takes `waf_mode`, `waf_preset`, `waf_excluded_rules`, `hotlink_protection` and `hotlink_allowed_hosts`. |
-| `POST /web-domains/{id}/suspend`, `/unsuspend` | Takes the site offline, or back.                                                                                                                                                                  |
-| `DELETE /web-domains/{id}`                     | Deletes the domain; the server stops serving it.                                                                                                                                                  |
+| Area (ability)                                | Create with                                                                                                                                       | Change with                                                                                                                                       | Also                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `/web-domains` (`web:write`)                  | `domain`; optional `aliases`, `web_server` (`nginx`, `apache`), `php_version`, `ssl_mode` (`none`, `manual`, `lets_encrypt`), `web_template`      | the same, plus `waf_mode`, `waf_preset`, `waf_excluded_rules`, `hotlink_protection`, `hotlink_allowed_hosts`; sending `aliases` replaces them all |                                               |
+| `/dns-zones` (`dns:write`)                    | `domain`; optional `ttl` (60 to 604800)                                                                                                           | `domain`, `ttl`                                                                                                                                   |                                               |
+| `/dns-zones/{id}/records` (`dns:write`)       | `name` (`@` for the zone itself), `type` (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `NS`, `SRV`, `CAA`, `PTR`), `value`; `priority` for `MX` and `SRV`   | the same fields                                                                                                                                   | `GET` one record                              |
+| `/mail-domains` (`mail:write`)                | `domain`; optional `antivirus_enabled`, `antispam_enabled`, `dkim_enabled`                                                                        | the same, plus `catchall_email` (a mailbox on the domain, or null)                                                                                | Deleting removes its mailboxes                |
+| `/mail-domains/{id}/mailboxes` (`mail:write`) | `local_part`; optional `quota_mb`, `forward_to`, `forward_only`, `autoreply_enabled`, `autoreply_message`                                         | the same, except `local_part`                                                                                                                     | `GET` one mailbox; `POST .../rotate-password` |
+| `/databases` (`databases:write`)              | `label` (lower case letters, digits and `_`, starting with a letter)                                                                              | cannot be changed                                                                                                                                 | `POST .../rotate-password`                    |
+| `/cron-jobs` (`cron:write`)                   | `command`; optional `minute`, `hour`, `day_of_month`, `month`, `day_of_week` (`*` when left out)                                                  | any of them                                                                                                                                       |                                               |
+| `/backups` (`backups:write`)                  | `parts` (`files`, `databases`, `mail`); `node` (the node's name, as backups show it) when the account has data on more than one; optional `label` | cannot be changed                                                                                                                                 | `POST .../restore`                            |
+
+**Passwords.** Creating a mailbox or a database, and `rotate-password`, answer with `data.password`. It is shown in that answer only and never again; store it right away. If that answer is lost, rotate the password.
+
+**Restoring a backup** needs `parts` and `"confirm": true`, since it overwrites the current data of those parts. A backup of the current data is taken first and the restore runs after it, so the answer has no operation: its `Location` is the backup, and `last_restore.status` shows how it goes (`running`, then `applied` or `failed`). A backup that is still running cannot be restored.
 
 ```
 curl -X POST -H "Authorization: Bearer lesta_..." \
@@ -166,7 +174,7 @@ curl -X POST -H "Authorization: Bearer lesta_..." \
 
 ### Retrying safely
 
-Send an `Idempotency-Key` header (any 1 to 255 printable characters, unique per change) with every `POST`. If the answer is lost and you send the same request with the same key again, you get the first answer back (marked `Idempotent-Replayed: true`) and nothing is created twice. Keys are kept 24 hours, per token. Only successful answers are kept, so after a `422` you can fix the request and send it with the same key. `PATCH` and `DELETE` are safe to repeat as they are.
+Send an `Idempotency-Key` header (any 1 to 255 printable characters, unique per change) with every `POST`. If the answer is lost and you send the same request with the same key again, you get the first answer back (marked `Idempotent-Replayed: true`) and nothing is created twice. Keys are kept 24 hours, per token. Only successful answers are kept, so after a `422` you can fix the request and send it with the same key. A replayed answer never repeats a password (`data.password` is null in it, and the password was never stored); rotate it if the first answer was lost. `PATCH` and `DELETE` are safe to repeat as they are.
 
 ---
 
@@ -186,6 +194,6 @@ The API is built in steps. Each step will be added to this guide and to `docs/ap
 
 1. **Done:** tokens, `GET /user`, `GET /accounts`.
 2. **Done:** reading everything an account has: web domains, DNS zones and records, mail domains and mailboxes, databases, cron jobs, backups, usage.
-3. **In progress:** creating, changing, suspending and deleting. Done for web domains, with `202 Accepted`, operations and `Idempotency-Key`. **Next:** DNS, mail, databases, cron jobs and backups.
-4. The platform administration endpoints (accounts, packages, nodes, whole-node backups), for tokens with the Platform administration abilities.
+3. **Done:** creating, changing, suspending and deleting everything an account has, with `202 Accepted`, operations and `Idempotency-Key`.
+4. **Next:** the platform administration endpoints (accounts, packages, nodes, whole-node backups), for tokens with the Platform administration abilities.
 5. Checking every response against the OpenAPI description in the test suite, and the description shown here in the documentation.

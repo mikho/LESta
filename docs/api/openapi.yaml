@@ -442,6 +442,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createDnsZone
+      summary: Create a DNS zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsZoneCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/dns-zones/{dnsZone}:
     get:
       operationId: getDnsZone
@@ -469,6 +513,188 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateDnsZone
+      summary: Change a DNS zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsZoneUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteDnsZone
+      summary: Delete a DNS zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/dns-zones/{dnsZone}/suspend:
+    post:
+      operationId: suspendDnsZone
+      summary: Suspend a DNS zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/dns-zones/{dnsZone}/unsuspend:
+    post:
+      operationId: unsuspendDnsZone
+      summary: Unsuspend a DNS zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsZone'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/dns-zones/{dnsZone}/records:
     get:
       operationId: listDnsRecords
@@ -504,6 +730,265 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createDnsRecord
+      summary: Add a record to a zone
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsRecordCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/dns-zones/{dnsZone}/records/{record}:
+    get:
+      operationId: getDnsRecord
+      summary: One record
+      description: Needs the dns:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/DnsRecordId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateDnsRecord
+      summary: Change a record
+      description: Needs the dns:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/DnsRecordId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsRecordUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteDnsRecord
+      summary: Delete a record
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/DnsRecordId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/dns-zones/{dnsZone}/records/{record}/suspend:
+    post:
+      operationId: suspendDnsRecord
+      summary: Suspend a record
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/DnsRecordId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/dns-zones/{dnsZone}/records/{record}/unsuspend:
+    post:
+      operationId: unsuspendDnsRecord
+      summary: Unsuspend a record
+      description: Needs the dns:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DnsZoneId'
+        - $ref: '#/components/parameters/DnsRecordId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DnsRecord'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/mail-domains:
     get:
       operationId: listMailDomains
@@ -539,6 +1024,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createMailDomain
+      summary: Create a mail domain
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MailDomainCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/mail-domains/{mailDomain}:
     get:
       operationId: getMailDomain
@@ -566,6 +1095,188 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateMailDomain
+      summary: Change a mail domain
+      description: Needs the mail:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MailDomainUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteMailDomain
+      summary: Delete a mail domain and its mailboxes
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/suspend:
+    post:
+      operationId: suspendMailDomain
+      summary: Suspend a mail domain
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/unsuspend:
+    post:
+      operationId: unsuspendMailDomain
+      summary: Unsuspend a mail domain
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/mail-domains/{mailDomain}/mailboxes:
     get:
       operationId: listMailboxes
@@ -601,6 +1312,306 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createMailbox
+      summary: Add a mailbox
+      description: Needs the mail:write ability. Refused (403) while the account is suspended. The answer holds the password, once; a replayed answer has password null.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MailboxCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailboxWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/mailboxes/{mailbox}:
+    get:
+      operationId: getMailbox
+      summary: One mailbox
+      description: Needs the mail:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateMailbox
+      summary: Change a mailbox
+      description: Needs the mail:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MailboxUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteMailbox
+      summary: Delete a mailbox
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/mailboxes/{mailbox}/suspend:
+    post:
+      operationId: suspendMailbox
+      summary: Suspend a mailbox
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/mailboxes/{mailbox}/unsuspend:
+    post:
+      operationId: unsuspendMailbox
+      summary: Unsuspend a mailbox
+      description: Needs the mail:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Mailbox'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/mail-domains/{mailDomain}/mailboxes/{mailbox}/rotate-password:
+    post:
+      operationId: rotateMailboxPassword
+      summary: Give a mailbox a new password
+      description: Needs the mail:write ability. Refused (403) while the account is suspended. The answer holds the new password, once.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/MailDomainId'
+        - $ref: '#/components/parameters/MailboxId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MailboxWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/databases:
     get:
       operationId: listDatabases
@@ -635,6 +1646,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createDatabase
+      summary: Create a database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended. The answer holds the database user's password, once; a replayed answer has password null.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/databases/{database}:
     get:
       operationId: getDatabase
@@ -662,6 +1717,186 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    delete:
+      operationId: deleteDatabase
+      summary: Delete a database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/suspend:
+    post:
+      operationId: suspendDatabase
+      summary: Suspend a database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Database'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Database'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/unsuspend:
+    post:
+      operationId: unsuspendDatabase
+      summary: Unsuspend a database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Database'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Database'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/rotate-password:
+    post:
+      operationId: rotateDatabasePassword
+      summary: Give the database user a new password
+      description: Needs the databases:write ability. Refused (403) while the account is suspended. The answer holds the new password, once.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/cron-jobs:
     get:
       operationId: listCronJobs
@@ -696,6 +1931,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createCronJob
+      summary: Create a cron job
+      description: Needs the cron:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronJobCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/cron-jobs/{cronJob}:
     get:
       operationId: getCronJob
@@ -723,6 +2002,188 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateCronJob
+      summary: Change a cron job
+      description: Needs the cron:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CronJobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CronJobUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteCronJob
+      summary: Delete a cron job
+      description: Needs the cron:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CronJobId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/cron-jobs/{cronJob}/suspend:
+    post:
+      operationId: suspendCronJob
+      summary: Suspend a cron job
+      description: Needs the cron:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CronJobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/cron-jobs/{cronJob}/unsuspend:
+    post:
+      operationId: unsuspendCronJob
+      summary: Unsuspend a cron job
+      description: Needs the cron:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CronJobId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CronJob'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/backups:
     get:
       operationId: listBackups
@@ -757,6 +2218,50 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createBackup
+      summary: Back up the account on one node
+      description: Needs the backups:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Backup'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/backups/{backup}:
     get:
       operationId: getBackup
@@ -784,6 +2289,88 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    delete:
+      operationId: deleteBackup
+      summary: Delete a backup
+      description: Needs the backups:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/BackupId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/backups/{backup}/restore:
+    post:
+      operationId: restoreBackup
+      summary: Restore parts of a backup over the current data
+      description: Needs the backups:write ability. Refused (403) while the account is suspended. A backup of the current data is taken first and the restore runs after it, so operation is null and Location is the backup; follow last_restore.status.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/BackupId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRestore'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Backup'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/usage:
     get:
       operationId: listUsage
@@ -922,6 +2509,22 @@ components:
       in: path
       required: true
       description: The backup's id.
+      schema:
+        type: string
+        format: uuid
+    DnsRecordId:
+      name: record
+      in: path
+      required: true
+      description: The record's id.
+      schema:
+        type: string
+        format: uuid
+    MailboxId:
+      name: mailbox
+      in: path
+      required: true
+      description: The mailbox's id.
       schema:
         type: string
         format: uuid
@@ -1184,6 +2787,193 @@ components:
           type: array
           items:
             type: string
+    DnsZoneCreate:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+        ttl:
+          type: integer
+          minimum: 60
+          maximum: 604800
+    DnsZoneUpdate:
+      type: object
+      properties:
+        domain:
+          type: string
+        ttl:
+          type: integer
+          minimum: 60
+          maximum: 604800
+    DnsRecordCreate:
+      type: object
+      required: [name, type, value]
+      properties:
+        name:
+          type: string
+          description: The name inside the zone, for example www, or @ for the zone itself.
+        type:
+          type: string
+          enum: [A, AAAA, CNAME, MX, TXT, NS, SRV, CAA, PTR]
+        priority:
+          type: [integer, 'null']
+          description: Required for MX and SRV, ignored otherwise.
+        value:
+          type: string
+    DnsRecordUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [A, AAAA, CNAME, MX, TXT, NS, SRV, CAA, PTR]
+        priority:
+          type: [integer, 'null']
+        value:
+          type: string
+    MailDomainCreate:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+        antivirus_enabled:
+          type: boolean
+        antispam_enabled:
+          type: boolean
+        dkim_enabled:
+          type: boolean
+    MailDomainUpdate:
+      type: object
+      properties:
+        antivirus_enabled:
+          type: boolean
+        antispam_enabled:
+          type: boolean
+        dkim_enabled:
+          type: boolean
+        catchall_email:
+          type: [string, 'null']
+          description: A mailbox on this domain that gets mail for unknown addresses, or null for none.
+    MailboxCreate:
+      type: object
+      required: [local_part]
+      properties:
+        local_part:
+          type: string
+        quota_mb:
+          type: [integer, 'null']
+        forward_to:
+          type: [string, 'null']
+        forward_only:
+          type: boolean
+        autoreply_enabled:
+          type: boolean
+        autoreply_message:
+          type: [string, 'null']
+    MailboxUpdate:
+      type: object
+      properties:
+        quota_mb:
+          type: [integer, 'null']
+        forward_to:
+          type: [string, 'null']
+        forward_only:
+          type: boolean
+        autoreply_enabled:
+          type: boolean
+        autoreply_message:
+          type: [string, 'null']
+    MailboxWithPassword:
+      allOf:
+        - $ref: '#/components/schemas/Mailbox'
+        - type: object
+          required: [password]
+          properties:
+            password:
+              type: [string, 'null']
+              description: Shown in this answer only. Null in a replayed answer.
+    DatabaseCreate:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,32}$'
+    DatabaseWithPassword:
+      allOf:
+        - $ref: '#/components/schemas/Database'
+        - type: object
+          required: [password]
+          properties:
+            password:
+              type: [string, 'null']
+              description: Shown in this answer only. Null in a replayed answer.
+    CronJobCreate:
+      type: object
+      required: [command]
+      properties:
+        minute:
+          type: string
+        hour:
+          type: string
+        day_of_month:
+          type: string
+        month:
+          type: string
+        day_of_week:
+          type: string
+        command:
+          type: string
+          maxLength: 1024
+    CronJobUpdate:
+      type: object
+      properties:
+        minute:
+          type: string
+        hour:
+          type: string
+        day_of_month:
+          type: string
+        month:
+          type: string
+        day_of_week:
+          type: string
+        command:
+          type: string
+          maxLength: 1024
+    BackupCreate:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [files, databases, mail]
+        node:
+          type: string
+          description: The node's name, as backups show it. May be left out when the account has data on one node only.
+        label:
+          type: [string, 'null']
+          maxLength: 100
+    BackupRestore:
+      type: object
+      required: [parts, confirm]
+      properties:
+        parts:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [files, databases, mail]
+        confirm:
+          type: boolean
+          const: true
+          description: The restore overwrites the current data of these parts.
     Suspension:
       type: object
       required: [suspended, suspended_at, suspension_source]
