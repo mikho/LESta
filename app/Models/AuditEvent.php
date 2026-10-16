@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string|null $actor_type
  * @property int|string|null $actor_id
+ * @property int|null $api_token_id
  * @property string $auditable_type
  * @property int|string $auditable_id
  * @property string $action
@@ -78,19 +79,42 @@ class AuditEvent extends Model
     protected static function booted(): void
     {
         static::creating(function (self $event): void {
-            $previousHash = static::query()->orderByDesc('id')->value('hash');
+            // A change made through the API is stamped with the token it came through, and noted
+            // on the request so the API can answer with the change's operation id.
+            $token = request()->attributes->get('api_token');
 
-            $event->previous_hash = $previousHash;
-            $event->hash = hash('sha256', implode('|', [
-                (string) $previousHash,
-                (string) $event->actor_type,
-                (string) $event->actor_id,
-                (string) $event->auditable_type,
-                (string) $event->auditable_id,
-                (string) $event->action,
-                (string) $event->correlation_id,
-                (string) ($event->getAttributes()['metadata'] ?? null),
-            ]));
+            if ($token instanceof ApiToken) {
+                $event->api_token_id ??= $token->id;
+                request()->attributes->set('api_audit_events', [...request()->attributes->get('api_audit_events', []), $event]);
+            }
+
+            $event->previous_hash = static::query()->orderByDesc('id')->value('hash');
+            $event->hash = $event->chainHash($event->previous_hash);
         });
+    }
+
+    /**
+     * The row's hash in the chain, from the previous row's hash and this row's own fields. Shared
+     * with audit:verify-chain. The API token id is part of it only when set, so rows written before
+     * the column existed still verify.
+     */
+    public function chainHash(?string $previousHash): string
+    {
+        $fields = [
+            (string) $previousHash,
+            (string) $this->actor_type,
+            (string) $this->actor_id,
+            (string) $this->auditable_type,
+            (string) $this->auditable_id,
+            (string) $this->action,
+            (string) $this->correlation_id,
+            (string) ($this->getAttributes()['metadata'] ?? null),
+        ];
+
+        if ($this->api_token_id !== null) {
+            $fields[] = 'api_token:'.$this->api_token_id;
+        }
+
+        return hash('sha256', implode('|', $fields));
     }
 }

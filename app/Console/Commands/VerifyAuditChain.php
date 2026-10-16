@@ -41,16 +41,7 @@ class VerifyAuditChain extends Command
             foreach ($events as $event) {
                 $checked++;
 
-                $expectedHash = hash('sha256', implode('|', [
-                    (string) $previousHash,
-                    (string) $event->actor_type,
-                    (string) $event->actor_id,
-                    (string) $event->auditable_type,
-                    (string) $event->auditable_id,
-                    (string) $event->action,
-                    (string) $event->correlation_id,
-                    (string) ($event->getAttributes()['metadata'] ?? null),
-                ]));
+                $expectedHash = $event->chainHash($previousHash);
 
                 if ($event->previous_hash !== $previousHash || $event->hash !== $expectedHash) {
                     $brokenAt = $event->id;

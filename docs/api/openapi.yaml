@@ -61,6 +61,35 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+  /operations/{operation}:
+    get:
+      operationId: getOperation
+      summary: A change this token made, and how far the nodes are with it
+      description: Only changes made through this token are found; another token's or the panel's are a 404.
+      parameters:
+        - name: operation
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Operation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
   /accounts/{account}/web-domains:
     get:
       operationId: listWebDomains
@@ -96,6 +125,63 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createWebDomain
+      summary: Create a web domain
+      description: Needs the web:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebDomainCreate'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the operation in Location.
+          headers:
+            Location:
+              description: The operation's address.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/web-domains/{webDomain}:
     get:
       operationId: getWebDomain
@@ -123,6 +209,204 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateWebDomain
+      summary: Change a web domain
+      description: Needs the web:write ability. Refused (403) while the account is suspended. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/WebDomainId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebDomainUpdate'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the operation in Location.
+          headers:
+            Location:
+              description: The operation's address.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteWebDomain
+      summary: Delete a web domain
+      description: Needs the web:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/WebDomainId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the operation in Location.
+          headers:
+            Location:
+              description: The operation's address.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/web-domains/{webDomain}/suspend:
+    post:
+      operationId: suspendWebDomain
+      summary: Suspend a web domain
+      description: Needs the web:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/WebDomainId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the operation in Location.
+          headers:
+            Location:
+              description: The operation's address.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/web-domains/{webDomain}/unsuspend:
+    post:
+      operationId: unsuspendWebDomain
+      summary: Unsuspend a web domain
+      description: Needs the web:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/WebDomainId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Nothing to change (for example, already suspended).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    type: 'null'
+        '202':
+          description: Accepted. The nodes apply the change next; poll the operation in Location.
+          headers:
+            Location:
+              description: The operation's address.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebDomain'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/dns-zones:
     get:
       operationId: listDnsZones
@@ -575,6 +859,17 @@ components:
       scheme: bearer
       description: A personal API token, starting with "lesta_".
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >
+        Any 1 to 255 printable characters. A retry with the same key and the same request gets the
+        first answer again (with Idempotent-Replayed true) instead of running twice; kept 24 hours,
+        per token. Only successful answers are kept.
+      schema:
+        type: string
+        maxLength: 255
     AccountId:
       name: account
       in: path
@@ -671,6 +966,34 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Message'
+    Invalid:
+      description: The input is invalid, or a package limit is reached.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+    IdempotencyConflict:
+      description: The Idempotency-Key was used with another request, or that request is still running.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    NoCapacity:
+      description: No server can take the resource right now.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
     TooManyRequests:
       description: Too many requests, or too many failed tokens from this address.
       headers:
@@ -750,6 +1073,117 @@ components:
         created_at:
           type: [string, 'null']
           format: date-time
+    OperationRef:
+      type: object
+      required: [id, status, url]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, applied, failed]
+        url:
+          type: string
+    Operation:
+      type: object
+      required: [id, action, status, steps, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          description: What was done, for example web_domain.created.
+        status:
+          type: string
+          enum: [pending, applied, failed]
+          description: failed when any step failed, pending while any step is on its way, applied when all are done.
+        steps:
+          type: array
+          items:
+            type: object
+            required: [capability, verb, status, errors, completed_at]
+            properties:
+              capability:
+                type: string
+              verb:
+                type: string
+                enum: [create, update, delete]
+              status:
+                type: string
+                enum: [pending, dispatched, applied, already_applied, rejected, failed, degraded]
+              errors:
+                type: array
+                items:
+                  type: object
+                  required: [code, message]
+                  properties:
+                    code:
+                      type: string
+                    message:
+                      type: string
+              completed_at:
+                type: [string, 'null']
+                format: date-time
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    WebDomainCreate:
+      type: object
+      required: [domain]
+      properties:
+        domain:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        web_template:
+          type: string
+        web_server:
+          type: string
+          enum: [nginx, apache]
+        php_version:
+          type: [string, 'null']
+        ssl_mode:
+          type: string
+          enum: [none, manual, lets_encrypt]
+    WebDomainUpdate:
+      type: object
+      properties:
+        domain:
+          type: string
+        aliases:
+          type: array
+          description: Replaces all aliases.
+          items:
+            type: string
+        web_template:
+          type: string
+        web_server:
+          type: string
+          enum: [nginx, apache]
+        php_version:
+          type: [string, 'null']
+        ssl_mode:
+          type: string
+          enum: [none, manual, lets_encrypt]
+        waf_mode:
+          type: string
+          enum: ['off', detect, block]
+        waf_preset:
+          type: string
+        waf_excluded_rules:
+          type: array
+          items:
+            type: integer
+        hotlink_protection:
+          type: boolean
+        hotlink_allowed_hosts:
+          type: array
+          items:
+            type: string
     Suspension:
       type: object
       required: [suspended, suspended_at, suspension_source]

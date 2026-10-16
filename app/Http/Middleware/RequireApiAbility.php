@@ -11,7 +11,8 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Refuses a request whose API token lacks the ability the route names (for example
  * "api.ability:web:read"), or that addresses an account the token is restricted away from. The
- * policy check in the Action or controller still runs afterwards: this only narrows.
+ * policy check in the Action or controller still runs afterwards: this only narrows. A suspended
+ * account can be read but not changed.
  */
 class RequireApiAbility
 {
@@ -30,6 +31,10 @@ class RequireApiAbility
 
         if ($account instanceof Account && ! $token->reaches($account)) {
             abort(403, 'This token is restricted to another account.');
+        }
+
+        if ($account instanceof Account && str_ends_with($ability, ':write') && $account->isSuspended()) {
+            abort(403, 'This account is suspended.');
         }
 
         return $next($request);

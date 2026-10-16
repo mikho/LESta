@@ -1,6 +1,6 @@
 # LESta API Guide
 
-The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, and reading everything an account has. Changing things through the API comes next (see Chapter 6).
+The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading everything an account has, and changing web domains. Changing the other resources comes next (see Chapter 6).
 
 ---
 
@@ -50,8 +50,11 @@ A token in the query string is not accepted. The API keeps no session and sets n
 - `401`: the token is missing, unknown, revoked or expired. This is checked first, before anything in the address is looked up.
 - `403`: the token lacks the ability for this call, it is restricted to another account, or you are not a member of the account in the address.
 - `404`: the resource does not exist, or it belongs to another account than the one in the address.
-- `422`: the input is invalid; the field errors are under `errors`, in the same shape the panel uses.
+- `202`: a change was accepted; the nodes apply it next (see "Changing things" below).
+- `409`: the `Idempotency-Key` was already used with another request, or that request is still running.
+- `422`: the input is invalid, or a package limit is reached; the field errors are under `errors`, in the same shape the panel uses.
 - `429`: too many requests (see below), with a `Retry-After` header in seconds.
+- `503`: no server can take the resource right now (for example, no node offers the web server you asked for).
 
 Errors carry a human-readable `message`.
 
@@ -131,6 +134,40 @@ curl -H "Authorization: Bearer lesta_..." \
      "https://panel.example.com/api/v1/accounts/ZQucS8keP4J7/web-domains?limit=20"
 ```
 
+### Changing things
+
+A change is checked and saved at once, then carried out on the server by the node a moment later. So a write answers **`202 Accepted`** with:
+
+- `data`: the resource as it is now saved (null after a delete),
+- `operation`: its `id`, its `status` (`pending`, `applied` or `failed`) and its `url`, also sent in the `Location` header.
+
+Poll `GET /api/v1/operations/{id}` until `status` is `applied` or `failed`. A failed operation lists, per step, the node's error `code` and `message`. You only find the operations your own token made.
+
+A call that changes nothing (suspending what is already suspended) answers `200` with `operation` null.
+
+A suspended account can be read but not changed (`403`). The same rules as in the panel apply: only an account's owner changes it, the package limits hold, and every change is in the audit log, marked with the token it came through.
+
+**Web domains** (ability `web:write`):
+
+| Call                                           | What it does                                                                                                                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /web-domains`                            | Creates a domain. `domain` is required; `aliases`, `web_server` (`nginx` or `apache`), `php_version`, `ssl_mode` (`none`, `manual`, `lets_encrypt`) and `web_template` are optional.              |
+| `PATCH /web-domains/{id}`                      | Changes the fields you send and keeps the rest. Sending `aliases` replaces them all. Also takes `waf_mode`, `waf_preset`, `waf_excluded_rules`, `hotlink_protection` and `hotlink_allowed_hosts`. |
+| `POST /web-domains/{id}/suspend`, `/unsuspend` | Takes the site offline, or back.                                                                                                                                                                  |
+| `DELETE /web-domains/{id}`                     | Deletes the domain; the server stops serving it.                                                                                                                                                  |
+
+```
+curl -X POST -H "Authorization: Bearer lesta_..." \
+     -H "Accept: application/json" -H "Content-Type: application/json" \
+     -H "Idempotency-Key: create-shop-2026-10-16" \
+     -d '{"domain": "shop.example.com", "aliases": ["www.shop.example.com"]}' \
+     "https://panel.example.com/api/v1/accounts/ZQucS8keP4J7/web-domains"
+```
+
+### Retrying safely
+
+Send an `Idempotency-Key` header (any 1 to 255 printable characters, unique per change) with every `POST`. If the answer is lost and you send the same request with the same key again, you get the first answer back (marked `Idempotent-Replayed: true`) and nothing is created twice. Keys are kept 24 hours, per token. Only successful answers are kept, so after a `422` you can fix the request and send it with the same key. `PATCH` and `DELETE` are safe to repeat as they are.
+
 ---
 
 ## Chapter 5: Good practice
@@ -149,6 +186,6 @@ The API is built in steps. Each step will be added to this guide and to `docs/ap
 
 1. **Done:** tokens, `GET /user`, `GET /accounts`.
 2. **Done:** reading everything an account has: web domains, DNS zones and records, mail domains and mailboxes, databases, cron jobs, backups, usage.
-3. **Next:** creating, changing, suspending and deleting those. Changes to a server are applied by the node a moment later, so a write will answer `202 Accepted` with the resource in a pending state, and an operation you can poll. Writes will accept an `Idempotency-Key` header, so a script that retries after a timeout never creates something twice.
+3. **In progress:** creating, changing, suspending and deleting. Done for web domains, with `202 Accepted`, operations and `Idempotency-Key`. **Next:** DNS, mail, databases, cron jobs and backups.
 4. The platform administration endpoints (accounts, packages, nodes, whole-node backups), for tokens with the Platform administration abilities.
 5. Checking every response against the OpenAPI description in the test suite, and the description shown here in the documentation.

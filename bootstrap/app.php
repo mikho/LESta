@@ -1,6 +1,17 @@
 <?php
 
+use App\Exceptions\NoBackupCapableNodeAvailableException;
+use App\Exceptions\NoCronCapableNodeAvailableException;
+use App\Exceptions\NoDnsCapableNodeAvailableException;
+use App\Exceptions\NoIpAllocationAvailableException;
+use App\Exceptions\NoMailCapableNodeAvailableException;
+use App\Exceptions\NoPhpCapableNodeAvailableException;
+use App\Exceptions\NoTenantDatabaseCapableNodeAvailableException;
+use App\Exceptions\NoWebCapableNodeAvailableException;
+use App\Exceptions\PackageQuotaExceededException;
+use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Middleware\AuthenticateApiToken;
+use App\Http\Middleware\HandleApiIdempotencyKey;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequireApiAbility;
@@ -36,7 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: '',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['api.ability' => RequireApiAbility::class]);
+        $middleware->alias(['api.ability' => RequireApiAbility::class, 'api.idempotent' => HandleApiIdempotencyKey::class]);
 
         // The API token is checked first: the "api" rate limiter counts per token, and a caller
         // without a valid token gets 401 before any account in the path is looked up. The ability
@@ -68,4 +79,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // The API answers the Actions' own refusals instead of a 500: a package limit is the
+        // client's to resolve (422), no node able to take the resource is the platform's (503).
+        $exceptions->render(function (ResourceQuotaExceededException|PackageQuotaExceededException $e, Request $request) {
+            return $request->is('api/*') ? response()->json(['message' => $e->getMessage()], 422) : null;
+        });
+        $exceptions->render(function (NoWebCapableNodeAvailableException|NoPhpCapableNodeAvailableException|NoIpAllocationAvailableException|NoDnsCapableNodeAvailableException|NoMailCapableNodeAvailableException|NoTenantDatabaseCapableNodeAvailableException|NoCronCapableNodeAvailableException|NoBackupCapableNodeAvailableException $e, Request $request) {
+            return $request->is('api/*') ? response()->json(['message' => 'No server can take this right now. Try again later or contact your provider.'], 503) : null;
+        });
     })->create();

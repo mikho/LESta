@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\IdempotencyReceipt;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -21,3 +22,4 @@ Schedule::command('account-backups:prune-downloads')->everyFifteenMinutes()->wit
 Schedule::command('mail:rotate-dkim-selectors')->daily()->withoutOverlapping();
 Schedule::command('mail:promote-pending-dkim-selectors')->hourly()->withoutOverlapping();
 Schedule::command('mail:retire-old-dkim-selectors')->hourly()->withoutOverlapping();
+Schedule::command('model:prune', ['--model' => [IdempotencyReceipt::class]])->daily()->withoutOverlapping();

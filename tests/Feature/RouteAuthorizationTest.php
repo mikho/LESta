@@ -24,6 +24,7 @@ const SELF_SCOPED_ROUTES = [
     'logout',
     'api.v1.user', // the token's own user
     'api.v1.accounts.index', // lists only the accounts the token's user reaches, see AccountController
+    'api.v1.operations.show', // only a change this very token made, see OperationController
 ];
 
 function methodSource(ReflectionMethod $method): string

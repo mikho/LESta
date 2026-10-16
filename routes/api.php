@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\DnsRecordController;
 use App\Http\Controllers\Api\V1\DnsZoneController;
 use App\Http\Controllers\Api\V1\MailAccountController;
 use App\Http\Controllers\Api\V1\MailDomainController;
+use App\Http\Controllers\Api\V1\OperationController;
 use App\Http\Controllers\Api\V1\TenantDatabaseController;
 use App\Http\Controllers\Api\V1\UsageController;
 use App\Http\Controllers\Api\V1\UserController;
@@ -22,6 +23,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::class, 'throttle:api'])->group(function () {
     Route::get('user', [UserController::class, 'show'])->name('user');
     Route::get('accounts', [AccountController::class, 'index'])->name('accounts.index');
+    Route::get('operations/{operation}', [OperationController::class, 'show'])->whereUuid('operation')->name('operations.show');
 
     // One account's resources. Scoped bindings: a domain, zone or backup is found only within the
     // account in the path, so another account's id is a 404.
@@ -29,6 +31,14 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
         Route::middleware('api.ability:web:read')->group(function () {
             Route::get('web-domains', [WebDomainController::class, 'index'])->name('web-domains.index');
             Route::get('web-domains/{webDomain}', [WebDomainController::class, 'show'])->name('web-domains.show');
+        });
+
+        Route::middleware('api.ability:web:write')->group(function () {
+            Route::post('web-domains', [WebDomainController::class, 'store'])->middleware('api.idempotent')->name('web-domains.store');
+            Route::patch('web-domains/{webDomain}', [WebDomainController::class, 'update'])->name('web-domains.update');
+            Route::delete('web-domains/{webDomain}', [WebDomainController::class, 'destroy'])->name('web-domains.destroy');
+            Route::post('web-domains/{webDomain}/suspend', [WebDomainController::class, 'suspend'])->middleware('api.idempotent')->name('web-domains.suspend');
+            Route::post('web-domains/{webDomain}/unsuspend', [WebDomainController::class, 'unsuspend'])->middleware('api.idempotent')->name('web-domains.unsuspend');
         });
 
         Route::middleware('api.ability:dns:read')->group(function () {
