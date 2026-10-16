@@ -80,6 +80,8 @@ agent_install_binary() {
         fail_step "${EXIT_VERIFICATION_FAILURE}" artifact_not_declared "${node_health_manifest}" "node-health manifest has no ${AGENT_ARTIFACT_NAME} artifacts[] entry"
     fi
 
+    local generation_swap=0
+
     if [ -f "${AGENT_BINARY_DEST}" ]; then
         dest_sha256=$(compute_sha256 "${AGENT_BINARY_DEST}")
 
@@ -91,6 +93,8 @@ agent_install_binary() {
             log_info "agent_install_binary: ${AGENT_BINARY_DEST} already at the target generation (sha256 ${expected_sha256}); no-op"
             return 0
         fi
+
+        generation_swap=1
 
         # A real generation swap, not a fresh install onto an empty
         # destination: back up the currently-installed binary first, using
@@ -122,13 +126,17 @@ agent_install_binary() {
     # Every root applier instance runs this binary. Restart the installed ones now, so none keeps
     # running the old generation (an installer only restarts the instance of its own capabilities,
     # which left the others on the old code, and a new payload field was then refused by them).
+    # Only on a real swap: a first install has nothing running yet, and units left over from an
+    # earlier install may not be startable until their own installer has run.
     local applier_unit
 
-    for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
-        if systemctl is-enabled "${applier_unit}" >/dev/null 2>&1; then
-            systemctl restart "${applier_unit}" >/dev/null 2>&1 || log_warn "agent_install_binary: could not restart ${applier_unit} onto the new agent generation"
-        fi
-    done
+    if [ "${generation_swap}" -eq 1 ]; then
+        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
+            if systemctl is-active "${applier_unit}" >/dev/null 2>&1; then
+                systemctl restart "${applier_unit}" >/dev/null 2>&1 || log_warn "agent_install_binary: could not restart ${applier_unit} onto the new agent generation"
+            fi
+        done
+    fi
 }
 
 # agent_rollback_binary
