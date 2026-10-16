@@ -50,7 +50,9 @@ class DashboardController extends Controller
      */
     private function presentNodeStatus(User $user): ?array
     {
-        if ($user->can('viewAny', Node::class)) {
+        // nodes.view_any, not the policy's viewAny: that also passes for a node admin, who sees only
+        // their granted nodes below.
+        if ($user->hasPermission('nodes.view_any')) {
             $nodes = Node::query()->with('capabilities')->orderBy('name')->get();
         } elseif ($user->nodeAdminGrants()->exists()) {
             $nodes = Node::query()->with('capabilities')->whereIn('id', $user->nodeAdminGrants()->pluck('node_id'))->orderBy('name')->get();

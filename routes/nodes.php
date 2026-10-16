@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Nodes\NodeCapabilityController;
 use App\Http\Controllers\Nodes\NodeController;
+use App\Http\Controllers\Nodes\NodeServiceController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -25,6 +26,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('nodes/{node}/capabilities/{nodeCapability}/suspend', [NodeCapabilityController::class, 'suspend'])->name('nodes.capabilities.suspend');
     Route::post('nodes/{node}/capabilities/{nodeCapability}/unsuspend', [NodeCapabilityController::class, 'unsuspend'])->name('nodes.capabilities.unsuspend');
     Route::post('nodes/{node}/capabilities/{nodeCapability}/status', [NodeCapabilityController::class, 'updateStatus'])->name('nodes.capabilities.update-status');
+
+    Route::post('nodes/{node}/services/{unit}/{action}', [NodeServiceController::class, 'store'])
+        ->where(['unit' => '[a-z0-9@._-]+', 'action' => 'start|stop|restart'])
+        ->middleware('throttle:30,1')
+        ->name('nodes.services.control');
 
     Route::delete('nodes/{node}/identities/{accountNodeIdentity}', [NodeController::class, 'destroyOrphanedIdentity'])->name('nodes.identities.destroy');
 });

@@ -54,6 +54,14 @@ export type NodeTools = {
     adminer: { declared: boolean; available: boolean };
 };
 
+export type NodeService = {
+    name: string;
+    state: string;
+    controllable: boolean;
+    pending_action: 'start' | 'stop' | 'restart' | null;
+    dependents: string | null;
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -69,6 +77,7 @@ export type Node = {
     backups_scheduled?: boolean;
     capabilities_count?: number;
     capabilities?: NodeCapability[];
+    services?: NodeService[];
     recent_operations?: NodeProvisioningOperation[];
     orphaned_identities?: OrphanedAccountNodeIdentity[];
     admin_grants?: NodeAdminGrant[];

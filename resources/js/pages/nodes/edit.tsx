@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
+import NodeServiceController from '@/actions/App/Http/Controllers/Nodes/NodeServiceController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -731,6 +732,149 @@ function ToolsAddress({ node }: { node: Node }) {
     );
 }
 
+/**
+ * The services the node last reported, with start, stop and restart for the ones the panel may
+ * control (the customer-facing services; the node's own LESta units, ssh and the control plane's
+ * database are only shown). The node's root applier runs the action; the state updates when the
+ * node reports back.
+ */
+function ServicesSection({ node }: { node: Node }) {
+    const services = node.services ?? [];
+    const [busy, setBusy] = useState<string | null>(null);
+
+    function control(
+        service: NonNullable<Node['services']>[number],
+        action: 'start' | 'stop' | 'restart',
+    ) {
+        if (action === 'stop') {
+            const impact = service.dependents
+                ? ` ${service.dependents} on this node will stop working until it is started again.`
+                : '';
+
+            if (
+                !window.confirm(
+                    `Stop ${service.name} on ${node.name}?${impact}`,
+                )
+            ) {
+                return;
+            }
+        }
+
+        setBusy(service.name);
+        router.post(
+            NodeServiceController.store.url({
+                node: node.uuid,
+                unit: service.name,
+                action,
+            }),
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setBusy(null),
+            },
+        );
+    }
+
+    return (
+        <div className="space-y-4 rounded-lg border p-4">
+            <Heading
+                variant="small"
+                title="Services"
+                description="As the node last reported them. Starting, stopping and restarting is done on the node by its root applier."
+            />
+
+            {services.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                    The node has not reported its services yet.
+                </p>
+            ) : (
+                <ul className="divide-y rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                    {services.map((service) => {
+                        const up = service.state === 'active';
+                        const pending =
+                            service.pending_action !== null ||
+                            busy === service.name;
+
+                        return (
+                            <li
+                                key={service.name}
+                                className="flex flex-wrap items-center justify-between gap-3 px-4 py-2"
+                            >
+                                <div className="flex min-w-0 items-center gap-2 text-sm">
+                                    <span
+                                        aria-hidden
+                                        className={`inline-block size-2 shrink-0 rounded-full ${up ? 'bg-green-500' : 'bg-red-500'}`}
+                                    />
+                                    <span className="font-medium">
+                                        {service.name}
+                                    </span>
+                                    <span
+                                        className={
+                                            up
+                                                ? 'text-muted-foreground'
+                                                : 'text-red-600 dark:text-red-400'
+                                        }
+                                    >
+                                        {service.state}
+                                    </span>
+                                    {service.pending_action && (
+                                        <span className="text-xs text-muted-foreground">
+                                            ({service.pending_action} requested)
+                                        </span>
+                                    )}
+                                </div>
+
+                                {service.controllable ? (
+                                    <div className="flex gap-2">
+                                        {!up && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={pending}
+                                                onClick={() =>
+                                                    control(service, 'start')
+                                                }
+                                            >
+                                                Start
+                                            </Button>
+                                        )}
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={pending}
+                                            onClick={() =>
+                                                control(service, 'restart')
+                                            }
+                                        >
+                                            Restart
+                                        </Button>
+                                        {up && (
+                                            <Button
+                                                size="sm"
+                                                variant="destructive"
+                                                disabled={pending}
+                                                onClick={() =>
+                                                    control(service, 'stop')
+                                                }
+                                            >
+                                                Stop
+                                            </Button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                        Not controlled from the panel
+                                    </span>
+                                )}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </div>
+    );
+}
+
 export default function Edit({
     node,
     canManageAdminGrants,
@@ -877,6 +1021,8 @@ export default function Edit({
                 </div>
 
                 <ToolsAddress node={node} />
+
+                <ServicesSection node={node} />
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex items-center justify-between gap-4">

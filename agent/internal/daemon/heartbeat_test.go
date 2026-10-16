@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -217,5 +218,34 @@ func TestCapabilityHealthWithoutSystemdKeepsPresenceAndReportsNoServices(t *test
 
 	if len(capabilities) != 1 || capabilities[0].HealthState != "healthy" || services != nil {
 		t.Errorf("capabilities %+v services %+v, want present-means-healthy and no services", capabilities, services)
+	}
+}
+
+func TestAPhpVersionWithoutAPoolIsNotReported(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "php")
+
+	for _, d := range []string{"8.3/fpm/pool.d", "8.1/fpm/pool.d"} {
+		if err := os.MkdirAll(filepath.Join(base, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(base, "8.3/fpm/pool.d/site.conf"), []byte("[site]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(base, "8.1/fpm/pool.d/www.conf.disabled-by-lesta"), []byte("[www]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := withoutUnusedPhpVersions([]string{"nginx", "php8.1-fpm", "php8.2-fpm", "php8.3-fpm"}, base)
+
+	if strings.Join(got, " ") != "nginx php8.3-fpm" {
+		t.Errorf("units = %v, want nginx and the one PHP version with a pool", got)
+	}
+
+	if strings.Join(withoutUnusedPhpVersions([]string{"php8.1-fpm"}, ""), " ") != "php8.1-fpm" {
+		t.Errorf("without a pool base nothing is filtered")
 	}
 }

@@ -15,6 +15,7 @@ use App\Actions\Nodes\UnsuspendNode;
 use App\Actions\Nodes\UpdateNode;
 use App\Actions\Nodes\UpdateNodeScheduledBackups;
 use App\Enums\NodeCapabilityType;
+use App\Enums\ProvisioningStatus;
 use App\Exceptions\NoIpAllocationAvailableException;
 use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Http\Controllers\Controller;
@@ -23,10 +24,15 @@ use App\Http\Requests\Nodes\StoreNodeRequest;
 use App\Http\Requests\Nodes\StoreNodeToolsDomainRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
 use App\Models\AccountNodeIdentity;
+use App\Models\CronJob;
+use App\Models\DnsZone;
+use App\Models\MailDomain;
 use App\Models\Node;
 use App\Models\NodeAdminGrant;
 use App\Models\NodeCapability;
+use App\Models\NodeServiceAction;
 use App\Models\ProvisioningOperation;
+use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
@@ -347,6 +353,7 @@ class NodeController extends Controller
             'suspension_source' => $node->suspension_source?->value,
             'backups_scheduled' => $node->backups_scheduled,
             'tools' => $this->presentTools($node),
+            'services' => $this->presentServices($node),
             'capabilities' => $node->capabilities
                 ->map(fn (NodeCapability $capability): array => $this->presentCapability($node, $capability))
                 ->all(),
@@ -360,6 +367,54 @@ class NodeController extends Controller
                 ->map(fn (NodeAdminGrant $grant): array => $this->presentAdminGrant($grant))
                 ->all(),
         ];
+    }
+
+    /**
+     * The services the node last reported, whether each can be controlled from here, a start, stop
+     * or restart still on its way, and how many customer resources on this node depend on it (shown
+     * before a stop).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function presentServices(Node $node): array
+    {
+        $pending = NodeServiceAction::query()
+            ->where('node_id', $node->id)
+            ->whereHas('latestProvisioningOperation', fn ($query) => $query->whereIn('status', [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched]))
+            ->get(['unit', 'action'])
+            ->keyBy('unit');
+
+        return collect($node->service_states ?? [])->map(fn (array $service): array => [
+            'name' => $service['name'],
+            'state' => $service['state'],
+            'controllable' => NodeServiceAction::isControllable($service['name']),
+            'pending_action' => $pending->get($service['name'])?->action,
+            'dependents' => $this->serviceDependents($node, $service['name']),
+        ])->values()->all();
+    }
+
+    /**
+     * What on this node stops working while $unit is down, as a short sentence, or null.
+     */
+    private function serviceDependents(Node $node, string $unit): ?string
+    {
+        $count = match (true) {
+            $unit === 'nginx', $unit === 'apache2' => [WebDomain::query()->where('node_id', $node->id)->count(), 'web domain', 'web domains'],
+            (bool) preg_match('/^php([0-9.]+)-fpm$/', $unit, $m) => [WebDomain::query()->where('node_id', $node->id)->where('php_version', $m[1])->count(), 'web domain using PHP '.$m[1], 'web domains using PHP '.$m[1]],
+            $unit === 'named' => [DnsZone::query()->where('node_id', $node->id)->count(), 'DNS zone', 'DNS zones'],
+            $unit === 'mariadb@tenant' => [TenantDatabase::query()->where('node_id', $node->id)->count(), 'database', 'databases'],
+            $unit === 'cron' => [CronJob::query()->where('node_id', $node->id)->count(), 'cron job', 'cron jobs'],
+            $unit === 'exim4', $unit === 'dovecot' => [MailDomain::query()->where('node_id', $node->id)->count(), 'mail domain', 'mail domains'],
+            default => null,
+        };
+
+        if ($count === null) {
+            return null;
+        }
+
+        [$n, $one, $many] = $count;
+
+        return $n === 1 ? "1 {$one}" : "{$n} {$many}";
     }
 
     /**

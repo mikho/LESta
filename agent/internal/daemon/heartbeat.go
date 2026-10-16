@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -149,6 +151,8 @@ func capabilityHealth(cfg *Config) ([]capabilityStatus, []serviceStatus) {
 		wanted = append(wanted, cfg.CapabilityUnits[status.Capability]...)
 	}
 
+	wanted = withoutUnusedPhpVersions(wanted, cfg.PhpPoolBase)
+
 	states, err := unitStates(cfg.SystemctlBinary, wanted)
 	if err != nil {
 		return present, nil
@@ -170,6 +174,31 @@ func capabilityHealth(cfg *Config) ([]capabilityStatus, []serviceStatus) {
 	sort.Slice(services, func(a, b int) bool { return services[a].Name < services[b].Name })
 
 	return present, services
+}
+
+var phpFpmUnit = regexp.MustCompile(`^php([0-9]+\.[0-9]+)-fpm$`)
+
+// withoutUnusedPhpVersions drops php<version>-fpm units whose version has no pool file, so a PHP
+// version that is installed but serves no site is neither listed nor counted as down.
+func withoutUnusedPhpVersions(units []string, poolBase string) []string {
+	if poolBase == "" {
+		return units
+	}
+
+	kept := make([]string, 0, len(units))
+
+	for _, unit := range units {
+		if m := phpFpmUnit.FindStringSubmatch(unit); m != nil {
+			pools, _ := filepath.Glob(filepath.Join(poolBase, m[1], "fpm", "pool.d", "*.conf"))
+			if len(pools) == 0 {
+				continue
+			}
+		}
+
+		kept = append(kept, unit)
+	}
+
+	return kept
 }
 
 // unitStates asks systemd, in one call, for the active state of every named unit that exists

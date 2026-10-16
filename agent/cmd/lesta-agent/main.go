@@ -49,6 +49,7 @@ const (
 	webApacheCapability      = "web.apache.v1"
 	webPhpFpmCapability      = "web.php-fpm.v1"
 	tlsAcmeCapability        = "tls.acme.v1"
+	serviceControlCapability = "node.service-control.v1"
 	databaseTenantCapability = "database.tenant.v1"
 	// databaseControlPlaneCapability has no Go capability dispatch case at
 	// all (it is this application's own database, not a capability the
@@ -898,7 +899,8 @@ func daemonProductionConfig() daemon.Config {
 			schedulerCronCapability:  {"cron"},
 			mailSmtpImapCapability:   {"exim4", "dovecot"},
 		},
-		CoreUnits: []string{"lesta-applier", "lesta-applier-identity", "lesta-applier-tenant", "lesta-applier-backup", "lesta-firewall", "mariadb", "ssh"},
+		PhpPoolBase: "/etc/php",
+		CoreUnits:   []string{"lesta-applier", "lesta-applier-identity", "lesta-applier-tenant", "lesta-applier-backup", "lesta-firewall", "mariadb", "ssh"},
 	}
 }
 

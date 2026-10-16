@@ -25,6 +25,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/metrics"
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
+	"github.com/mikho/LESta/agent/internal/capability/servicecontrol"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -71,6 +72,7 @@ var applierInstances = []applierInstance{
 			mailSmtpImapCapability:   true,
 			databaseTenantCapability: true,
 			tlsAcmeCapability:        true,
+			serviceControlCapability: true,
 		},
 	},
 	{
@@ -146,6 +148,8 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = mariadb.New(mariadbProductionConfig())
 	case tlsAcmeCapability:
 		capability = acme.New(acmeProductionConfig())
+	case serviceControlCapability:
+		capability = servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits})
 	case systemAccountIdentityCapability:
 		capability = identity.New(identityAppliedConfig())
 	case filesManagerCapability:

@@ -84,6 +84,10 @@ type Config struct {
 	// SystemctlBinary is the systemctl the service states are read with; empty means "systemctl"
 	// (tests point it at a stand-in).
 	SystemctlBinary string
+	// PhpPoolBase is where each PHP version keeps its FastCGI pools (<base>/<version>/fpm/pool.d).
+	// A php<version>-fpm unit is only reported while that version has a pool: an installed PHP
+	// version no site uses is not a service of this node. Empty means every listed unit is reported.
+	PhpPoolBase string
 	// FileOpsPollInterval is how long the dedicated files.manager.v1 fast
 	// lane (fileops.go) sleeps between polls of
 	// <ControlPlaneURL>/agent/v1/file-operations/poll -- a second,
