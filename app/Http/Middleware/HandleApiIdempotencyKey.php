@@ -9,6 +9,7 @@ use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -18,6 +19,10 @@ use Symfony\Component\HttpFoundation\Response;
  * same key with another request is refused (409), as is a retry while the first is still running.
  * A response that is not a success is not kept, so the client may fix the request and retry with
  * the same key. Requests without the header are not affected.
+ *
+ * A route whose answer holds a secret (a new mailbox's password) names those fields as middleware
+ * parameters ("api.idempotent:data.password"): they are blanked in the kept copy, so a replay
+ * never repeats the secret and no secret is stored.
  */
 class HandleApiIdempotencyKey
 {
@@ -29,7 +34,7 @@ class HandleApiIdempotencyKey
     /**
      * @param  Closure(Request): (Response)  $next
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string ...$secretFields): Response
     {
         $key = $request->header('Idempotency-Key');
         $token = $request->attributes->get('api_token');
@@ -56,11 +61,19 @@ class HandleApiIdempotencyKey
         $claimed = IdempotencyReceipt::query()->where('scope', $scope)->where('idempotency_key', $key)->first();
 
         if ($response->isSuccessful() && $claimed !== null) {
+            $body = json_decode((string) $response->getContent(), true);
+
+            foreach ($secretFields as $field) {
+                if (is_array($body) && Arr::has($body, $field)) {
+                    Arr::set($body, $field, null);
+                }
+            }
+
             $claimed->forceFill([
                 'status' => IdempotencyReceiptStatus::Completed,
                 'response' => [
                     'status' => $response->getStatusCode(),
-                    'body' => json_decode((string) $response->getContent(), true),
+                    'body' => $body,
                     'location' => $response->headers->get('Location'),
                 ],
             ])->save();

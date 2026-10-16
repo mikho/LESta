@@ -147,6 +147,17 @@ class MailDomain extends Model
     }
 
     /**
+     * The same mailboxes as accounts(), under the name the API's {mailbox} route parameter is
+     * resolved through when route bindings are scoped.
+     *
+     * @return HasMany<MailAccount, $this>
+     */
+    public function mailboxes(): HasMany
+    {
+        return $this->accounts();
+    }
+
+    /**
      * The single most recent provisioning operation for this domain. `MorphMany::latestOfMany()`
      * does not exist in this Laravel version (only `HasOne`/`MorphOne`/`HasOneThrough` support
      * the "of many" relation subquery); `morphOne()->latestOfMany()` is the idiomatic equivalent.

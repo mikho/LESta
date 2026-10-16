@@ -24,9 +24,12 @@ abstract class ApiController extends Controller
     /**
      * The answer to a write: 202 with the resource (null once deleted) and the operation that
      * carries the change to the nodes, whose address is in Location. 200 with the resource when the
-     * call changed nothing (suspending what is already suspended).
+     * call changed nothing (suspending what is already suspended). $once is added to the resource
+     * for this answer only: a password that is shown once.
+     *
+     * @param  array<string, mixed>  $once
      */
-    protected function accepted(Request $request, Model $subject, ?JsonResource $resource): JsonResponse
+    protected function accepted(Request $request, Model $subject, ?JsonResource $resource, array $once = []): JsonResponse
     {
         // From the application's request, where AuditEvent notes them: a form request carries a
         // copy of the attributes taken before the Action ran.
@@ -35,15 +38,17 @@ abstract class ApiController extends Controller
 
         $event = collect($events)->last(fn (AuditEvent $event): bool => $event->auditable_type === $subject->getMorphClass() && (string) $event->auditable_id === (string) $subject->getKey());
 
+        $data = $resource === null ? null : [...$resource->resolve($request), ...$once];
+
         if ($event === null) {
-            return response()->json(['data' => $resource?->resolve($request), 'operation' => null]);
+            return response()->json(['data' => $data, 'operation' => null]);
         }
 
         $operations = ProvisioningOperation::query()->where('correlation_id', $event->correlation_id)->get();
         $url = route('api.v1.operations.show', $event->correlation_id);
 
         return response()->json([
-            'data' => $resource?->resolve($request),
+            'data' => $data,
             'operation' => ['id' => $event->correlation_id, 'status' => OperationResource::aggregateStatus($operations), 'url' => $url],
         ], 202, ['Location' => $url]);
     }

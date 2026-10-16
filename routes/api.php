@@ -65,6 +65,21 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
             Route::get('mail-domains', [MailDomainController::class, 'index'])->name('mail-domains.index');
             Route::get('mail-domains/{mailDomain}', [MailDomainController::class, 'show'])->name('mail-domains.show');
             Route::get('mail-domains/{mailDomain}/mailboxes', [MailAccountController::class, 'index'])->name('mail-domains.mailboxes.index');
+            Route::get('mail-domains/{mailDomain}/mailboxes/{mailbox}', [MailAccountController::class, 'show'])->name('mail-domains.mailboxes.show');
+        });
+
+        Route::middleware('api.ability:mail:write')->group(function () {
+            Route::post('mail-domains', [MailDomainController::class, 'store'])->middleware('api.idempotent')->name('mail-domains.store');
+            Route::patch('mail-domains/{mailDomain}', [MailDomainController::class, 'update'])->name('mail-domains.update');
+            Route::delete('mail-domains/{mailDomain}', [MailDomainController::class, 'destroy'])->name('mail-domains.destroy');
+            Route::post('mail-domains/{mailDomain}/suspend', [MailDomainController::class, 'suspend'])->middleware('api.idempotent')->name('mail-domains.suspend');
+            Route::post('mail-domains/{mailDomain}/unsuspend', [MailDomainController::class, 'unsuspend'])->middleware('api.idempotent')->name('mail-domains.unsuspend');
+            Route::post('mail-domains/{mailDomain}/mailboxes', [MailAccountController::class, 'store'])->middleware('api.idempotent:data.password')->name('mail-domains.mailboxes.store');
+            Route::patch('mail-domains/{mailDomain}/mailboxes/{mailbox}', [MailAccountController::class, 'update'])->name('mail-domains.mailboxes.update');
+            Route::delete('mail-domains/{mailDomain}/mailboxes/{mailbox}', [MailAccountController::class, 'destroy'])->name('mail-domains.mailboxes.destroy');
+            Route::post('mail-domains/{mailDomain}/mailboxes/{mailbox}/suspend', [MailAccountController::class, 'suspend'])->middleware('api.idempotent')->name('mail-domains.mailboxes.suspend');
+            Route::post('mail-domains/{mailDomain}/mailboxes/{mailbox}/unsuspend', [MailAccountController::class, 'unsuspend'])->middleware('api.idempotent')->name('mail-domains.mailboxes.unsuspend');
+            Route::post('mail-domains/{mailDomain}/mailboxes/{mailbox}/rotate-password', [MailAccountController::class, 'rotatePassword'])->middleware('api.idempotent:data.password')->name('mail-domains.mailboxes.rotate-password');
         });
 
         Route::middleware('api.ability:databases:read')->group(function () {
