@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AuthenticateApiToken;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Routing\Route as LaravelRoute;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +22,8 @@ const SELF_SCOPED_ROUTES = [
     'docs.show', 'docs.index', 'docs.chapter', // the installation guides, the same for everyone
     'verification.notice', 'verification.send', 'verification.verify',
     'logout',
+    'api.v1.user', // the token's own user
+    'api.v1.accounts.index', // lists only the accounts the token's user reaches, see AccountController
 ];
 
 function methodSource(ReflectionMethod $method): string
@@ -114,7 +117,7 @@ test('every signed-in controller route is authorized by itself or by what it cal
     foreach (Route::getRoutes() as $route) {
         $middleware = $route->gatherMiddleware();
 
-        $signedIn = collect($middleware)->contains(fn ($m) => is_string($m) && ($m === 'auth' || str_starts_with($m, 'auth:')));
+        $signedIn = collect($middleware)->contains(fn ($m) => is_string($m) && ($m === 'auth' || str_starts_with($m, 'auth:') || $m === AuthenticateApiToken::class));
 
         if (! $signedIn || ! is_string($route->getName()) && $route->getName() !== null) {
             continue;

@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequireApiAbility;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -24,12 +25,16 @@ return Application::configure(basePath: dirname(__DIR__))
             __DIR__.'/../routes/agent.php',
             __DIR__.'/../routes/internal-adminer.php',
             __DIR__.'/../routes/internal-webmail.php',
+            // The public API carries its own "api/v1" prefix like the others.
+            __DIR__.'/../routes/api.php',
         ],
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         apiPrefix: '',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias(['api.ability' => RequireApiAbility::class]);
+
         // Which proxies are believed is set in AppServiceProvider from config('app.trusted_proxies')
         // (TRUSTED_PROXIES): the local machine by default, where nginx terminates TLS. Without
         // trusting that hop, $request->secure() would evaluate the internal nginx->php-fpm hop

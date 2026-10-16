@@ -87,6 +87,19 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(120)->by($request->bearerToken() ?? $request->ip());
         });
 
+        // The public API: per token, reads and writes counted apart, and per user across all of
+        // their tokens twice that. AuthenticateApiToken runs first, so the token is known here.
+        RateLimiter::for('api', function (Request $request) {
+            $token = $request->attributes->get('api_token');
+            $kind = $request->isMethodSafe() ? 'read' : 'write';
+            $perMinute = $kind === 'read' ? 120 : 30;
+
+            return [
+                Limit::perMinute($perMinute)->by("api:{$kind}:token:{$token?->id}"),
+                Limit::perMinute($perMinute * 2)->by("api:{$kind}:user:{$token?->user_id}"),
+            ];
+        });
+
         RateLimiter::for('agent-enroll', function (Request $request) {
             return Limit::perMinute(5)->by($request->ip());
         });

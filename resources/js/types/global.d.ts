@@ -21,6 +21,7 @@ declare module '@inertiajs/core' {
             toast?: FlashToast;
             generatedPassword?: GeneratedTenantDatabasePassword;
             enrollmentToken?: string;
+            createdToken?: string;
         };
     }
 }

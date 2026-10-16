@@ -66,6 +66,14 @@ class User extends Authenticatable implements PasskeyUser
     }
 
     /**
+     * @return HasMany<ApiToken, $this>
+     */
+    public function apiTokens(): HasMany
+    {
+        return $this->hasMany(ApiToken::class);
+    }
+
+    /**
      * @return HasMany<Membership, $this>
      */
     public function memberships(): HasMany
@@ -84,6 +92,15 @@ class User extends Authenticatable implements PasskeyUser
     public function isPlatformUser(): bool
     {
         return $this->rememberAuthorizationCheck('isPlatformUser', fn (): bool => $this->memberships()->whereNull('account_id')->exists());
+    }
+
+    /**
+     * Whether this user is the owner of at least one account through a direct membership.
+     */
+    public function ownsAnyAccount(): bool
+    {
+        return $this->rememberAuthorizationCheck('ownsAnyAccount', fn (): bool => $this->memberships()->whereNotNull('account_id')
+            ->whereHas('role', fn ($query) => $query->where('name', 'owner'))->exists());
     }
 
     public function isProviderAdmin(): bool

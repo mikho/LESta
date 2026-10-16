@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: LESta API
+  version: v1
+  description: >
+    The LESta panel's public API. Every call acts as the user who owns the API token, narrowed by the
+    token's abilities and, optionally, to one account. Tokens are created under Settings, API tokens,
+    and are sent only in the Authorization header. See the vault note "Tenant and Admin API Design".
+servers:
+  - url: /api/v1
+security:
+  - apiToken: []
+paths:
+  /user:
+    get:
+      operationId: getUser
+      summary: The token's user and the token itself
+      responses:
+        '200':
+          description: The user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts:
+    get:
+      operationId: listAccounts
+      summary: The accounts the token reaches
+      description: >
+        The user's own accounts, the accounts managed by a reseller account the user owns, and only
+        the one account when the token is restricted to it.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+components:
+  securitySchemes:
+    apiToken:
+      type: http
+      scheme: bearer
+      description: A personal API token, starting with "lesta_".
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+  responses:
+    Unauthorized:
+      description: The token is missing, unknown or expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+    TooManyRequests:
+      description: Too many requests, or too many failed tokens from this address.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Message'
+  schemas:
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    User:
+      type: object
+      required: [id, name, email, token]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        token:
+          type: object
+          required: [id, name, abilities, account_id, expires_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            abilities:
+              type: array
+              items:
+                type: string
+                enum: [web:read, web:write, dns:read, dns:write, mail:read, mail:write, databases:read, databases:write, cron:read, cron:write, backups:read, backups:write, admin:read, admin:write]
+            account_id:
+              type: [integer, 'null']
+            expires_at:
+              type: string
+              format: date-time
+    Account:
+      type: object
+      required: [id, name, contact_email, package, is_owner, reseller_account_id, suspended, created_at]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        contact_email:
+          type: [string, 'null']
+        package:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, name]
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+        is_owner:
+          type: boolean
+        reseller_account_id:
+          type: [integer, 'null']
+        suspended:
+          type: boolean
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    CursorLinks:
+      type: object
+      properties:
+        first:
+          type: [string, 'null']
+        last:
+          type: [string, 'null']
+        prev:
+          type: [string, 'null']
+        next:
+          type: [string, 'null']
+    CursorMeta:
+      type: object
+      properties:
+        path:
+          type: string
+        per_page:
+          type: integer
+        next_cursor:
+          type: [string, 'null']
+        prev_cursor:
+          type: [string, 'null']

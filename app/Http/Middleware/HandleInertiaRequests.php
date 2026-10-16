@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ApiToken;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -55,6 +56,8 @@ class HandleInertiaRequests extends Middleware
                 // banner every page needs while it's active, and the admin's own name to return
                 // to via App\Actions\Support\StopImpersonation.
                 'impersonating' => $this->impersonating($request),
+                // Account owners and platform users may create API tokens (ApiTokenPolicy).
+                'can_use_api_tokens' => $request->user()?->can('create', ApiToken::class) ?? false,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

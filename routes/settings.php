@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Settings\ApiTokenController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -24,6 +25,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('user-password.update');
 
     Route::inertia('settings/appearance', 'settings/appearance')->name('appearance.edit');
+
+    // Creating a token asks for the password again, like the security page.
+    Route::get('settings/api-tokens', [ApiTokenController::class, 'index'])
+        ->middleware(RequirePassword::class)
+        ->name('api-tokens.index');
+    Route::post('settings/api-tokens', [ApiTokenController::class, 'store'])
+        ->middleware([RequirePassword::class, 'throttle:10,1'])
+        ->name('api-tokens.store');
+    Route::delete('settings/api-tokens/{apiToken}', [ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
 });
 
 Route::get('.well-known/passkey-endpoints', function () {
