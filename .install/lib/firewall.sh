@@ -188,8 +188,11 @@ firewall_render_and_apply() {
     mv -f "${FIREWALL_UNIT_PATH}.tmp" "${FIREWALL_UNIT_PATH}"
 
     systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "${FIREWALL_UNIT_PATH}" "systemctl daemon-reload failed"
-    systemctl enable lesta-firewall.service >/dev/null || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_enable_failed "${FIREWALL_UNIT_PATH}" "systemctl enable lesta-firewall.service failed"
-    add_change firewall.baseline.v1 enabled "${FIREWALL_UNIT_PATH}" "systemd oneshot unit installed and enabled for boot-time reload"
+    # --now as well: the rules were just loaded directly, and starting the unit (loading the same
+    # file again, which is safe: it declares the table and flushes the chain) makes its state match,
+    # so the admin dashboard does not show the firewall as down on a node that was never rebooted.
+    systemctl enable --now lesta-firewall.service >/dev/null 2>&1 || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_enable_failed "${FIREWALL_UNIT_PATH}" "systemctl enable --now lesta-firewall.service failed"
+    add_change firewall.baseline.v1 enabled "${FIREWALL_UNIT_PATH}" "systemd oneshot unit installed, enabled for boot-time reload and started"
 }
 
 # bootstrap_firewall_baseline <service_id> <manifest_file>
