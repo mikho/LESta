@@ -234,7 +234,7 @@ func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.Operat
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if err := writeAuthorizedKeysPrivileged(c.cfg, payload.Username, []byte{}); err != nil {
+	if err := removeAuthorizedKeys(c.cfg, payload.Username); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -269,6 +269,13 @@ func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.Operat
 
 	if healthErr := c.waitHealthy(ctx); healthErr != nil {
 		return c.recoverFromFailure(ctx, op, true, "health_check_failed", healthErr.Error())
+	}
+
+	// Last, once nothing can roll the delete back: the files cannot be put back.
+	if payload.PurgeData {
+		if err := removeChrootTree(c.cfg, payload.Username); err != nil {
+			return c.failed(op, "purge_failed", err.Error())
+		}
 	}
 
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)

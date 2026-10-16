@@ -2,12 +2,14 @@
 
 use App\Actions\Accounts\DeleteAccount;
 use App\Models\Account;
+use App\Models\AccountBackup;
 use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\CronJob;
 use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
+use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\WebDomain;
 
@@ -61,4 +63,23 @@ test('deleting an account with a real tenant database or cron job no longer thro
     expect(Account::find($accountId))->toBeNull()
         ->and(TenantDatabase::find($tenantDatabase->id))->toBeNull()
         ->and(CronJob::find($cronJob->id))->toBeNull();
+});
+
+test('deleting an account records the removal of its sealed backups and tells the node to purge its files', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'backup.encrypted-artifacts.v1']);
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $identity = AccountNodeIdentity::factory()->for($account)->for($node)->create(['system_username' => 'lesta-t'.$account->id]);
+    $backup = AccountBackup::factory()->completed()->for($account)->for($node)->create();
+
+    app(DeleteAccount::class)->handle($owner, $account);
+
+    $backupDelete = ProvisioningOperation::where('provisionable_type', $backup->getMorphClass())->where('provisionable_id', $backup->id)->where('operation', 'delete')->first();
+    $identityDelete = ProvisioningOperation::where('provisionable_type', $identity->getMorphClass())->where('provisionable_id', $identity->id)->where('operation', 'delete')->first();
+
+    expect(AccountBackup::find($backup->id))->toBeNull()
+        ->and($backupDelete?->capability)->toBe('backup.encrypted-artifacts.v1')
+        ->and($backupDelete?->payload)->toBe(['artifact_path' => $backup->artifact_path])
+        ->and($identityDelete?->payload)->toMatchArray(['username' => 'lesta-t'.$account->id, 'purge_data' => true]);
 });

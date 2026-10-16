@@ -240,7 +240,18 @@ func (c *BackupCapability) applyDelete(op protocol.OperationEnvelope) (protocol.
 		return c.failed(op, "artifact_remove_failed", err.Error())
 	}
 
+	c.removeEmptyAccountDir(cleaned)
+
 	return c.buildResult(op, protocol.StatusApplied, nil), nil
+}
+
+// removeEmptyAccountDir removes <ArtifactsRoot>/accounts/<user> once its last archive is gone. Remove
+// only deletes an empty directory, so an account that still has archives keeps its directory.
+func (c *BackupCapability) removeEmptyAccountDir(artifactPath string) {
+	dir := filepath.Dir(artifactPath)
+	if filepath.Dir(dir) == filepath.Join(c.cfg.ArtifactsRoot, "accounts") {
+		_ = os.Remove(dir)
+	}
 }
 
 // applyObserve reads the sealed (still AES-256-GCM encrypted) bytes of the

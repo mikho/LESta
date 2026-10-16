@@ -2,6 +2,7 @@
 
 namespace App\Actions\Accounts;
 
+use App\Actions\AccountBackups\DeleteAccountBackup;
 use App\Actions\CronJobs\DeleteCronJob;
 use App\Actions\Dns\DeleteDnsZone;
 use App\Actions\Domains\DeleteWebDomain;
@@ -10,6 +11,7 @@ use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\TenantDatabases\DeleteTenantDatabase;
 use App\Enums\ProvisioningVerb;
 use App\Models\Account;
+use App\Models\AccountBackup;
 use App\Models\AccountNodeIdentity;
 use App\Models\AuditEvent;
 use App\Models\CronJob;
@@ -56,6 +58,11 @@ class DeleteAccount
 
             $account->cronJobs()->get()->each(fn (CronJob $j) => app(DeleteCronJob::class)->handle($actor, $j));
 
+            // Its sealed backups go with it: the row would cascade away, but the archive on the node
+            // stays unless a delete is recorded for it. Copies the owner sent to their own storage
+            // are not ours to remove.
+            AccountBackup::query()->where('account_id', $account->id)->get()->each(fn (AccountBackup $backup) => app(DeleteAccountBackup::class)->handleSystemInitiated($backup));
+
             // account_node_identities.account_id is restrictOnDelete too. Deleted last: every
             // resource above resolves its node-side username from this identity while being
             // deleted. Each records its own delete so the node removes the system user, the same
@@ -65,7 +72,8 @@ class DeleteAccount
                     $identity,
                     'system.account-identity.v1',
                     ProvisioningVerb::Delete,
-                    $identity->toProvisioningPayload(),
+                    // purge_data: the account is gone, so its files on the node go with its user.
+                    [...$identity->toProvisioningPayload(), 'purge_data' => true],
                     (string) Str::uuid(),
                     $identity->desired_state_version,
                 );

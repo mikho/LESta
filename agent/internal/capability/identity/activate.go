@@ -124,3 +124,14 @@ func writeAuthorizedKeys(cfg Config, username string, content []byte) error {
 
 	return nil
 }
+
+// removeAuthorizedKeys deletes username's centralized authorized_keys file, once the account has no
+// user on this node any more. An already-absent file is not an error.
+func removeAuthorizedKeys(cfg Config, username string) error {
+	err := os.Remove(filepath.Join(cfg.AuthorizedKeysDir, username))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing authorized_keys for %s: %w", username, err)
+	}
+
+	return nil
+}

@@ -94,3 +94,40 @@ func TestWholeNodeRestoreLogsInAsTheRestoreAccountNotRoot(t *testing.T) {
 		t.Errorf("without a restore account the restore keeps the root login: %q", got)
 	}
 }
+
+func TestAnAccountsBackupDirectoryGoesWithItsLastArchive(t *testing.T) {
+	root := t.TempDir()
+	capability := &BackupCapability{cfg: Config{ArtifactsRoot: root}}
+
+	dir := filepath.Join(root, "accounts", "lesta-t4")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	first := filepath.Join(dir, "a.acct.enc")
+	second := filepath.Join(dir, "b.acct.enc")
+
+	for _, f := range []string{first, second} {
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_ = os.Remove(first)
+	capability.removeEmptyAccountDir(first)
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("an account with another archive keeps its directory: %v", err)
+	}
+
+	_ = os.Remove(second)
+	capability.removeEmptyAccountDir(second)
+
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the emptied directory must go: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "accounts")); err != nil {
+		t.Fatalf("only the account's directory goes: %v", err)
+	}
+}

@@ -74,3 +74,24 @@ func ensureChrootTree(cfg Config, username string) error {
 func chrootRoot(cfg Config, username string) string {
 	return filepath.Join(cfg.AccountsRoot, username)
 }
+
+// removeChrootTree deletes username's whole chroot tree, its site files included. Run after the
+// user is gone, so nothing is writing to it. username has the shape usernamePattern allows (no
+// separators), and the tree must sit directly under AccountsRoot, so this cannot reach outside it.
+// A symlink inside the tree is removed as a link, never followed.
+func removeChrootTree(cfg Config, username string) error {
+	if cfg.AccountsRoot == "" || !usernamePattern.MatchString(username) {
+		return fmt.Errorf("refusing to remove the chroot tree of %q under %q", username, cfg.AccountsRoot)
+	}
+
+	root := chrootRoot(cfg, username)
+	if filepath.Dir(root) != filepath.Clean(cfg.AccountsRoot) {
+		return fmt.Errorf("chroot tree %s is not directly under %s", root, cfg.AccountsRoot)
+	}
+
+	if err := os.RemoveAll(root); err != nil {
+		return fmt.Errorf("removing chroot tree %s: %w", root, err)
+	}
+
+	return nil
+}

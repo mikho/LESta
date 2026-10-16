@@ -41,6 +41,10 @@ var sshPublicKeyPattern = regexp.MustCompile(`^(ssh-ed25519|ssh-rsa|ecdsa-sha2-n
 type Payload struct {
 	Username     string  `json:"username"`
 	SshPublicKey *string `json:"ssh_public_key"`
+	// PurgeData, only meaningful on delete, also removes the account's files (its whole chroot
+	// tree) from the node. The control plane sets it when the account itself is deleted; an
+	// identity deleted on its own, because the account has nothing left on this node, keeps them.
+	PurgeData bool `json:"purge_data,omitempty"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,

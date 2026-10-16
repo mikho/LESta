@@ -219,6 +219,14 @@ func TestCreateAndDeleteRoundTripAgainstARealSystemUser(t *testing.T) {
 		t.Fatalf("expected the live Match block to be removed after delete, stat error: %v", err)
 	}
 
+	if _, err := os.Stat(filepath.Join(sshd.Config.AuthorizedKeysDir, username)); !os.IsNotExist(err) {
+		t.Fatalf("expected the authorized_keys file to be removed after delete, stat error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(sshd.Config.AccountsRoot, username, "public")); err != nil {
+		t.Fatalf("a plain delete keeps the account's files: %v", err)
+	}
+
 	deletedAgain, err := capability.Apply(context.Background(), newOp(protocol.OperationDelete, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
 	requireStatus(t, "delete again (idempotent)", deletedAgain, err, protocol.StatusApplied)
@@ -336,5 +344,44 @@ func TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot(t *te
 	}
 	if string(uploadedOnDisk) != uploadContent {
 		t.Fatalf("the file landed on disk, but with wrong content: got %q, want %q", uploadedOnDisk, uploadContent)
+	}
+}
+
+func TestDeleteWithPurgeDataRemovesTheAccountsFilesToo(t *testing.T) {
+	requireRootAndUseradd(t)
+	requireRealSshd(t)
+
+	sshd := newDisposableSshd(t)
+	capability := identity.New(sshd.reloadConfig())
+	resourceID := newTestUUID()
+	username := "lestapurge" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+
+	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
+		map[string]any{"username": username}))
+	requireStatus(t, "create", created, err, protocol.StatusApplied)
+
+	t.Cleanup(func() {
+		_ = exec.Command("userdel", username).Run()
+	})
+
+	site := filepath.Join(sshd.Config.AccountsRoot, username, "domains", "x", "public")
+	if err := os.MkdirAll(site, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(site, "index.html"), []byte("site"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := capability.Apply(context.Background(), newOp(protocol.OperationDelete, resourceID, newTestUUID(),
+		map[string]any{"username": username, "purge_data": true}))
+	requireStatus(t, "delete with purge", deleted, err, protocol.StatusApplied)
+
+	if _, err := os.Stat(filepath.Join(sshd.Config.AccountsRoot, username)); !os.IsNotExist(err) {
+		t.Fatalf("the chroot tree must be gone after a purge: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(sshd.Config.AuthorizedKeysDir, username)); !os.IsNotExist(err) {
+		t.Fatalf("the authorized_keys file must be gone: %v", err)
 	}
 }
