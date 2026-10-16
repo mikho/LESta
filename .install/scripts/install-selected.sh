@@ -285,7 +285,9 @@ validate_args() {
     fi
 
     if [ -n "${REMOVE}" ]; then
-        [ -z "${SERVICES_RAW}" ] && [ "${PRUNE}" -eq 0 ] || fail_invocation "--remove is used on its own, not with --services or --prune"
+        if [ -n "${SERVICES_RAW}" ] || [ "${PRUNE}" -ne 0 ]; then
+            fail_invocation "--remove is used on its own, not with --services or --prune"
+        fi
         case " ${SERVICES_ALL} " in
             *" ${REMOVE} "*) ;;
             *) fail_invocation "unknown service in --remove: ${REMOVE} (must be one of: ${SERVICES_ALL})" ;;
