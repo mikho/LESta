@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
 	"github.com/mikho/LESta/agent/internal/capability/servicecontrol"
+	"github.com/mikho/LESta/agent/internal/capability/serviceuninstall"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -101,6 +104,29 @@ var applierInstances = []applierInstance{
 		// A backup or a restore of a large account takes a long time.
 		timeout: 3 * time.Hour,
 	},
+	{
+		// The one instance without a file-system sandbox: removing a service purges packages and
+		// deletes its configuration. It hosts nothing else.
+		name:   "maintenance",
+		socket: applierSocketDir + "/applier-maintenance.sock",
+		hosted: map[string]bool{
+			serviceUninstallCapability: true,
+		},
+		timeout: 30 * time.Minute,
+	},
+}
+
+// installerScript is the node's installer orchestrator: the .install directory recorded by the
+// agent-daemon installer in /etc/lesta/installer-root (an install fetched to another --dest), or
+// the default /opt/lesta/.install.
+func installerScript() string {
+	root := "/opt/lesta/.install"
+
+	if raw, err := os.ReadFile("/etc/lesta/installer-root"); err == nil && strings.TrimSpace(string(raw)) != "" {
+		root = strings.TrimSpace(string(raw))
+	}
+
+	return filepath.Join(root, "scripts", "install-selected.sh")
 }
 
 // applierInstanceFor returns the instance that hosts capability.
@@ -148,6 +174,8 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		capability = mariadb.New(mariadbProductionConfig())
 	case tlsAcmeCapability:
 		capability = acme.New(acmeProductionConfig())
+	case serviceUninstallCapability:
+		capability = serviceuninstall.New(serviceuninstall.Config{Installer: installerScript()})
 	case serviceControlCapability:
 		capability = servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits})
 	case systemAccountIdentityCapability:

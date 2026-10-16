@@ -875,6 +875,145 @@ function ServicesSection({ node }: { node: Node }) {
     );
 }
 
+/**
+ * Removing one LESta service from the node (owner's decision: refused while customer resources on
+ * the node use it or another installed service needs it). The node's maintenance applier runs the
+ * installer's remove mode; a stateful service's data is moved aside on the node, never deleted.
+ */
+function UninstallServiceDialog({
+    node,
+    service,
+}: {
+    node: Node;
+    service: NonNullable<Node['installed_services']>[number];
+}) {
+    const [open, setOpen] = useState(false);
+    const [confirm, setConfirm] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [processing, setProcessing] = useState(false);
+
+    function submit() {
+        setProcessing(true);
+        router.delete(
+            NodeServiceController.destroy.url({
+                node: node.uuid,
+                service: service.name,
+            }),
+            {
+                data: { confirm },
+                preserveScroll: true,
+                onSuccess: () => setOpen(false),
+                onError: (errors) =>
+                    setError(errors.confirm ?? errors.service ?? null),
+                onFinish: () => setProcessing(false),
+            },
+        );
+    }
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(next) => {
+                setOpen(next);
+                setConfirm('');
+                setError(null);
+            }}
+        >
+            <DialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                    Uninstall
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogTitle>
+                    Uninstall {service.name} from {node.name}?
+                </DialogTitle>
+                <DialogDescription>
+                    Its services are stopped, its packages purged and its
+                    configuration deleted on the node.
+                    {service.stateful &&
+                        ' Its data is moved aside on the node, not deleted, so it can be recovered by hand.'}{' '}
+                    Type the node name to confirm.
+                </DialogDescription>
+                <Input
+                    value={confirm}
+                    onChange={(event) => setConfirm(event.target.value)}
+                    placeholder={node.name}
+                    aria-label="Node name"
+                />
+                <InputError message={error ?? undefined} />
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button variant="secondary">Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        variant="destructive"
+                        disabled={confirm !== node.name || processing}
+                        onClick={submit}
+                    >
+                        Uninstall {service.name}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function InstalledServicesSection({ node }: { node: Node }) {
+    const services = node.installed_services ?? [];
+
+    if (services.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="space-y-4 rounded-lg border p-4">
+            <Heading
+                variant="small"
+                title="Installed services"
+                description="Remove a service from this node. It can only go once nothing on the node uses it."
+            />
+
+            <ul className="divide-y rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                {services.map((service) => (
+                    <li
+                        key={service.name}
+                        className="flex flex-wrap items-center justify-between gap-3 px-4 py-2"
+                    >
+                        <div className="min-w-0 text-sm">
+                            <p className="font-medium">{service.name}</p>
+                            {service.removing && (
+                                <p className="text-xs text-muted-foreground">
+                                    Being removed...
+                                </p>
+                            )}
+                            {!service.removing &&
+                                service.blockers.length > 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Cannot be removed:{' '}
+                                        {service.blockers.join('; ')}
+                                    </p>
+                                )}
+                            {service.last_error && (
+                                <p className="text-xs text-red-600 dark:text-red-400">
+                                    Last removal failed: {service.last_error}
+                                </p>
+                            )}
+                        </div>
+
+                        {!service.removing && service.blockers.length === 0 && (
+                            <UninstallServiceDialog
+                                node={node}
+                                service={service}
+                            />
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
 export default function Edit({
     node,
     canManageAdminGrants,
@@ -1023,6 +1162,8 @@ export default function Edit({
                 <ToolsAddress node={node} />
 
                 <ServicesSection node={node} />
+
+                <InstalledServicesSection node={node} />
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex items-center justify-between gap-4">

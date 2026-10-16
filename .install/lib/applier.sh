@@ -67,6 +67,20 @@ RuntimeDirectory=lesta
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 UMask=0022
+UNIT
+        if [ "${APPLIER_UNSANDBOXED:-0}" = "1" ]; then
+            cat <<'UNIT'
+
+# No file-system sandbox: this instance only removes a LESta service (node.service-uninstall.v1),
+# which purges packages and deletes configuration anywhere on the system. It can do nothing else.
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        else
+            cat <<'UNIT'
 
 # Sandbox. ReadWritePaths is extended per capability by a drop-in (applier_allow_paths).
 NoNewPrivileges=yes
@@ -91,6 +105,7 @@ CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH 
 [Install]
 WantedBy=multi-user.target
 UNIT
+        fi
     } > "${APPLIER_UNIT_PATH}.tmp"
     chmod 0644 "${APPLIER_UNIT_PATH}.tmp"
     chown root:root "${APPLIER_UNIT_PATH}.tmp"
@@ -199,6 +214,27 @@ applier_start() {
 
         sleep 0.1
     done
+}
+
+# applier_setup_maintenance_instance installs and starts the "maintenance" instance, the one root
+# instance without a file-system sandbox. It applies only node.service-uninstall.v1: removing one
+# LESta service, asked for in the panel, by running this installer's own remove mode. The installer
+# root it runs is recorded in /etc/lesta/installer-root (root-only writable) so a --dest install is
+# found; the capability refuses an installer that anyone but root could have changed.
+applier_setup_maintenance_instance() {
+    install -d -m 0755 -o root -g root /etc/lesta 2>/dev/null || true
+    printf '%s\n' "${INSTALL_ROOT}" > /etc/lesta/installer-root.tmp
+    chmod 0644 /etc/lesta/installer-root.tmp
+    chown root:root /etc/lesta/installer-root.tmp
+    mv -f /etc/lesta/installer-root.tmp /etc/lesta/installer-root \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed /etc/lesta/installer-root "failed to record the installer root"
+
+    applier_select_instance maintenance
+    APPLIER_UNSANDBOXED=1
+    applier_install_unit
+    APPLIER_UNSANDBOXED=0
+    applier_start
+    applier_select_instance ""
 }
 
 # applier_setup_tenant_instance installs and starts the "tenant" instance, which applies what works

@@ -131,7 +131,7 @@ agent_install_binary() {
     local applier_unit
 
     if [ "${generation_swap}" -eq 1 ]; then
-        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
+        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup lesta-applier-maintenance; do
             if systemctl is-active "${applier_unit}" >/dev/null 2>&1; then
                 systemctl restart "${applier_unit}" >/dev/null 2>&1 || log_warn "agent_install_binary: could not restart ${applier_unit} onto the new agent generation"
             fi
@@ -212,7 +212,7 @@ agent_fail_selftest_with_rollback() {
         # below is reported either way).
         local applier_unit
 
-        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup; do
+        for applier_unit in lesta-applier lesta-applier-identity lesta-applier-tenant lesta-applier-backup lesta-applier-maintenance; do
             if systemctl is-enabled "${applier_unit}" >/dev/null 2>&1; then
                 systemctl restart "${applier_unit}" >/dev/null 2>&1 || true
             fi

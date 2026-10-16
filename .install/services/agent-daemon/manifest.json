@@ -10,6 +10,8 @@
   "artifacts": [],
   "ownership": {
     "owned_roots": [
+      "/etc/systemd/system/lesta-applier-maintenance.service",
+      "/etc/lesta/installer-root",
       "/etc/lesta/agent/node-credential",
       "/etc/lesta/agent/daemon-config.json",
       "/etc/systemd/system/lesta-agent-daemon.service",

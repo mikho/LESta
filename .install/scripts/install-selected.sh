@@ -68,6 +68,7 @@ BASE_MANIFEST="${INSTALL_ROOT}/base/manifest.json"
 MODE=""
 YES=0
 PRUNE=0
+REMOVE=""
 SERVICES_RAW=""
 SELECTED=""
 WEB_SERVER=""
@@ -146,6 +147,13 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
                                 owns. Valid with both --dry-run (report
                                 only) and --apply (acts). Never implied by
                                 plain --apply.
+  --remove <svc>               Remove this one LESta service from the node
+                                (its units, packages, firewall ports and owned
+                                roots; a stateful service's data is moved
+                                aside, never deleted). Refused while another
+                                service present on the node depends on it.
+                                Used instead of --services. The panel's
+                                uninstall runs this.
   --confirm-data-loss <svc>    Required once per stateful service (mariadb,
                                 mail, backups, webmail) that --prune --apply would
                                 remove, i.e. one that is currently present but
@@ -191,6 +199,11 @@ parse_args() {
             --prune)
                 PRUNE=1
                 shift
+                ;;
+            --remove)
+                [ "$#" -ge 2 ] || fail_invocation "--remove requires an argument"
+                REMOVE="$2"
+                shift 2
                 ;;
             --services)
                 [ "$#" -ge 2 ] || fail_invocation "--services requires an argument"
@@ -269,6 +282,15 @@ validate_args() {
 
     if [ "${MODE}" = "apply" ] && [ "${YES}" -ne 1 ]; then
         fail_invocation "--apply requires --yes"
+    fi
+
+    if [ -n "${REMOVE}" ]; then
+        [ -z "${SERVICES_RAW}" ] && [ "${PRUNE}" -eq 0 ] || fail_invocation "--remove is used on its own, not with --services or --prune"
+        case " ${SERVICES_ALL} " in
+            *" ${REMOVE} "*) ;;
+            *) fail_invocation "unknown service in --remove: ${REMOVE} (must be one of: ${SERVICES_ALL})" ;;
+        esac
+        return 0
     fi
 
     [ -n "${SERVICES_RAW}" ] || fail_invocation "--services is required with --dry-run/--apply"
@@ -500,6 +522,15 @@ ARGS
 dropped_services() {
     local svc
 
+    # --remove names the one service to drop.
+    if [ -n "${REMOVE}" ]; then
+        if uninstall_service_present "${REMOVE}"; then
+            printf '%s\n' "${REMOVE}"
+        fi
+
+        return 0
+    fi
+
     for svc in ${SERVICES_ALL}; do
         service_is_selected "${svc}" && continue
         if uninstall_service_present "${svc}"; then
@@ -514,6 +545,31 @@ dropped_services() {
     # plain assignment, confirmed directly (not assumed) via the exact same
     # bare-trailing-for-loop shape capability_provider had above.
     return 0
+}
+
+# remove_refuse_if_required -> fails closed when another service present on this node depends on a
+# capability only REMOVE provides (mail needs nginx and bind9, Adminer and webmail need php-fpm,
+# ...): removing it would break that service.
+remove_refuse_if_required() {
+    local svc token provider needed_by=""
+
+    for svc in ${SERVICES_ALL}; do
+        [ "${svc}" = "${REMOVE}" ] && continue
+        uninstall_service_present "${svc}" || continue
+
+        for token in $(manifest_extract_array "$(svc_manifest "${svc}")" depends_on); do
+            provider=$(capability_provider "${token}")
+            if [ "${provider}" = "${REMOVE}" ]; then
+                needed_by=$(append_line "${needed_by}" "${svc}")
+                break
+            fi
+        done
+    done
+
+    if [ -n "${needed_by}" ]; then
+        add_error still_required "${REMOVE} is needed by $(printf '%s' "${needed_by}" | tr '\n' ' ' | sed 's/ $//') on this node; remove that first" ""
+        emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"
+    fi
 }
 
 run_prune() {
@@ -689,6 +745,27 @@ main() {
     run_install_cleanup_trap
 
     run_preflight
+
+    if [ -n "${REMOVE}" ]; then
+        if [ "${MODE}" = "apply" ]; then
+            getent group lesta >/dev/null 2>&1 || groupadd --system lesta
+            log_init
+        fi
+        log_info "install-selected: run_id=${RUN_ID} mode=${MODE} remove=${REMOVE}"
+
+        remove_refuse_if_required
+
+        if ! uninstall_service_present "${REMOVE}"; then
+            add_change "${REMOVE}" already_absent "" "${REMOVE} is not present on this node"
+        fi
+
+        run_prune
+
+        if [ "${MODE}" = "apply" ]; then
+            emit_result_and_exit applied "${EXIT_OK}"
+        fi
+        emit_result_and_exit would_change "${EXIT_OK}"
+    fi
 
     resolve_order
 

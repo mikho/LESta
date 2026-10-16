@@ -50,7 +50,9 @@ const (
 	webPhpFpmCapability      = "web.php-fpm.v1"
 	tlsAcmeCapability        = "tls.acme.v1"
 	serviceControlCapability = "node.service-control.v1"
-	databaseTenantCapability = "database.tenant.v1"
+	// serviceUninstallCapability removes one LESta service from the node (the maintenance applier).
+	serviceUninstallCapability = "node.service-uninstall.v1"
+	databaseTenantCapability   = "database.tenant.v1"
 	// databaseControlPlaneCapability has no Go capability dispatch case at
 	// all (it is this application's own database, not a capability the
 	// agent manages on a tenant's behalf, per mariadb/install.sh's own doc

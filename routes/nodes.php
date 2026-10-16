@@ -31,6 +31,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->where(['unit' => '[a-z0-9@._-]+', 'action' => 'start|stop|restart'])
         ->middleware('throttle:30,1')
         ->name('nodes.services.control');
+    Route::delete('nodes/{node}/installed-services/{service}', [NodeServiceController::class, 'destroy'])
+        ->where('service', '[a-z0-9-]+')
+        ->middleware('throttle:10,1')
+        ->name('nodes.installed-services.destroy');
 
     Route::delete('nodes/{node}/identities/{accountNodeIdentity}', [NodeController::class, 'destroyOrphanedIdentity'])->name('nodes.identities.destroy');
 });

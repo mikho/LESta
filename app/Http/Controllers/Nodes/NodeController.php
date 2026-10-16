@@ -9,6 +9,7 @@ use App\Actions\Nodes\DeleteNode;
 use App\Actions\Nodes\EnsureNodeToolsDomain;
 use App\Actions\Nodes\GrantNodeAdmin;
 use App\Actions\Nodes\IssueNodeEnrollmentToken;
+use App\Actions\Nodes\ResolvesNodeServiceRemoval;
 use App\Actions\Nodes\RevokeNodeAdminGrant;
 use App\Actions\Nodes\SuspendNode;
 use App\Actions\Nodes\UnsuspendNode;
@@ -354,6 +355,7 @@ class NodeController extends Controller
             'backups_scheduled' => $node->backups_scheduled,
             'tools' => $this->presentTools($node),
             'services' => $this->presentServices($node),
+            'installed_services' => $this->presentInstalledServices($node),
             'capabilities' => $node->capabilities
                 ->map(fn (NodeCapability $capability): array => $this->presentCapability($node, $capability))
                 ->all(),
@@ -380,6 +382,7 @@ class NodeController extends Controller
     {
         $pending = NodeServiceAction::query()
             ->where('node_id', $node->id)
+            ->where('action', '!=', 'uninstall')
             ->whereHas('latestProvisioningOperation', fn ($query) => $query->whereIn('status', [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched]))
             ->get(['unit', 'action'])
             ->keyBy('unit');
@@ -391,6 +394,41 @@ class NodeController extends Controller
             'pending_action' => $pending->get($service['name'])?->action,
             'dependents' => $this->serviceDependents($node, $service['name']),
         ])->values()->all();
+    }
+
+    /**
+     * The LESta services on the node that the panel may remove, what blocks removing each, a removal
+     * on its way, and the error of the last one that failed.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function presentInstalledServices(Node $node): array
+    {
+        $removal = app(ResolvesNodeServiceRemoval::class);
+
+        $latest = NodeServiceAction::query()
+            ->where('node_id', $node->id)
+            ->where('action', 'uninstall')
+            ->with('latestProvisioningOperation')
+            ->latest('id')
+            ->get()
+            ->unique('unit')
+            ->keyBy('unit');
+
+        return array_map(function (string $service) use ($node, $removal, $latest): array {
+            $operation = $latest->get($service)?->latestProvisioningOperation;
+            $status = $operation?->status;
+
+            return [
+                'name' => $service,
+                'stateful' => in_array($service, ResolvesNodeServiceRemoval::STATEFUL, true),
+                'blockers' => $removal->blockers($node, $service),
+                'removing' => in_array($status, [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched], true),
+                'last_error' => in_array($status, [ProvisioningStatus::Failed, ProvisioningStatus::Rejected], true)
+                    ? collect($operation->errors ?? [])->pluck('message')->implode(' ')
+                    : null,
+            ];
+        }, $removal->installed($node));
     }
 
     /**

@@ -173,7 +173,7 @@ func TestEveryHostedCapabilityIsAppliedByAnApplierAndTheRestStayWithTheDaemon(t 
 	for _, capability := range []string{
 		dnsBind9Capability, webNginxCapability, webPhpFpmCapability, webApacheCapability, mailSmtpImapCapability,
 		databaseTenantCapability, systemAccountIdentityCapability, filesManagerCapability, schedulerCronCapability,
-		metricsUsageCapability, backupEncryptedArtifactsCapability, tlsAcmeCapability, serviceControlCapability,
+		metricsUsageCapability, backupEncryptedArtifactsCapability, tlsAcmeCapability, serviceControlCapability, serviceUninstallCapability,
 	} {
 		if _, hosted := applierInstanceFor(capability); !hosted {
 			t.Errorf("%s must be applied by an applier instance", capability)

@@ -545,6 +545,18 @@ bootstrap_applier_identity() {
     log_info "bootstrap_applier_identity complete"
 }
 
+# Removing a service from the panel runs this installer's own remove mode in the maintenance
+# instance of the root applier, the one instance without a file-system sandbox.
+bootstrap_applier_maintenance() {
+    log_info "bootstrap_applier_maintenance: installing the maintenance applier instance"
+
+    applier_setup_maintenance_instance
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-maintenance.service" "maintenance applier instance installed and started; node.service-uninstall.v1 is applied by it"
+
+    checkpoint_write bootstrap_applier_maintenance "${MANIFEST_DIGEST}"
+    log_info "bootstrap_applier_maintenance complete"
+}
+
 # The file manager and the usage measurement work on the tenants' own data and are applied by the
 # tenant instance of the root applier (shared with cron, whose installer also sets it up).
 bootstrap_applier_tenant() {
@@ -704,6 +716,7 @@ main() {
     bootstrap_sftp_prerequisite
     bootstrap_applier_identity
     bootstrap_applier_tenant
+    bootstrap_applier_maintenance
 
     checkpoint_remove
     release_write "${RELEASE_ID}" "${MANIFEST_DIGEST}"

@@ -21,7 +21,7 @@ use Illuminate\Support\Carbon;
  * @property int $node_id
  * @property int|null $user_id
  * @property string $unit
- * @property string $action start, stop or restart
+ * @property string $action start, stop, restart, or uninstall (unit is then an installer service)
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -32,6 +32,9 @@ class NodeServiceAction extends Model
     use HasFactory, HasUuid;
 
     public const string CAPABILITY = 'node.service-control.v1';
+
+    /** Removing a whole LESta service (the node's maintenance applier); unit then holds the service. */
+    public const string UNINSTALL_CAPABILITY = 'node.service-uninstall.v1';
 
     public const array ACTIONS = ['start', 'stop', 'restart'];
 

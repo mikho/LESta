@@ -62,6 +62,14 @@ export type NodeService = {
     dependents: string | null;
 };
 
+export type InstalledNodeService = {
+    name: string;
+    stateful: boolean;
+    blockers: string[];
+    removing: boolean;
+    last_error: string | null;
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -78,6 +86,7 @@ export type Node = {
     capabilities_count?: number;
     capabilities?: NodeCapability[];
     services?: NodeService[];
+    installed_services?: InstalledNodeService[];
     recent_operations?: NodeProvisioningOperation[];
     orphaned_identities?: OrphanedAccountNodeIdentity[];
     admin_grants?: NodeAdminGrant[];

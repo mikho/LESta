@@ -22,6 +22,7 @@ class CompletesProvisioningOperation
         private CascadesRestoreIntoResync $cascadesRestoreIntoResync,
         private RecordsAccountBackupResult $recordsAccountBackupResult,
         private RecordsNodeServiceState $recordsNodeServiceState,
+        private RecordsNodeServiceRemoval $recordsNodeServiceRemoval,
     ) {}
 
     public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
@@ -44,5 +45,6 @@ class CompletesProvisioningOperation
         $this->cascadesRestoreIntoResync->handle($operation);
         $this->recordsAccountBackupResult->handle($operation);
         $this->recordsNodeServiceState->handle($operation);
+        $this->recordsNodeServiceRemoval->handle($operation);
     }
 }
