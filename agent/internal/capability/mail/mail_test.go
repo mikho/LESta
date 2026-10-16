@@ -105,6 +105,30 @@ func randomPassword(t *testing.T) string {
 
 // --- real network confirmation helpers (bypass MailCapability entirely) --
 
+// dialExim connects to the disposable Exim, waiting up to ten seconds for it to listen again: an
+// apply ends with a reload, and Exim re-executes itself on SIGHUP, so its port is closed for a moment
+// right after the capability returns. A probe sent in that moment gets "connection refused", which is
+// Exim's restart, not the capability's result.
+func dialExim(t *testing.T, port int) net.Conn {
+	t.Helper()
+
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	deadline := time.Now().Add(10 * time.Second)
+
+	for {
+		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+		if err == nil {
+			return conn
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("dialing disposable exim: %v", err)
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // probeRcpt performs one real SMTP session against the disposable exim
 // instance and returns the RCPT TO response code, entirely independent of
 // MailCapability's own internal logic: this is what actually proves an
@@ -112,10 +136,7 @@ func randomPassword(t *testing.T) string {
 func probeRcpt(t *testing.T, port int, rcptAddress string) int {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 5*time.Second)
-	if err != nil {
-		t.Fatalf("dialing disposable exim: %v", err)
-	}
+	conn := dialExim(t, port)
 	defer conn.Close()
 
 	tp := textproto.NewConn(conn)
