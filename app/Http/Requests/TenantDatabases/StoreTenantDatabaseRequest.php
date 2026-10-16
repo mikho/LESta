@@ -34,8 +34,17 @@ class StoreTenantDatabaseRequest extends FormRequest
      * matching this app's existing per-controller-request convention (no shared account-
      * resolution helper exists for DnsZone's own Store/Update requests either).
      */
+    /**
+     * The API names the account in its path; the panel acts on the user's own account.
+     */
     private function resolveAccount(): Account
     {
+        $routeAccount = $this->route('account');
+
+        if ($routeAccount instanceof Account) {
+            return $routeAccount;
+        }
+
         /** @var Account */
         return $this->user()->memberships()->whereNotNull('account_id')->with('account')->firstOrFail()->account;
     }

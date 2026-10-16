@@ -87,9 +87,25 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
             Route::get('databases/{tenantDatabase}', [TenantDatabaseController::class, 'show'])->name('databases.show');
         });
 
+        Route::middleware('api.ability:databases:write')->group(function () {
+            Route::post('databases', [TenantDatabaseController::class, 'store'])->middleware('api.idempotent:data.password')->name('databases.store');
+            Route::delete('databases/{tenantDatabase}', [TenantDatabaseController::class, 'destroy'])->name('databases.destroy');
+            Route::post('databases/{tenantDatabase}/suspend', [TenantDatabaseController::class, 'suspend'])->middleware('api.idempotent')->name('databases.suspend');
+            Route::post('databases/{tenantDatabase}/unsuspend', [TenantDatabaseController::class, 'unsuspend'])->middleware('api.idempotent')->name('databases.unsuspend');
+            Route::post('databases/{tenantDatabase}/rotate-password', [TenantDatabaseController::class, 'rotatePassword'])->middleware('api.idempotent:data.password')->name('databases.rotate-password');
+        });
+
         Route::middleware('api.ability:cron:read')->group(function () {
             Route::get('cron-jobs', [CronJobController::class, 'index'])->name('cron-jobs.index');
             Route::get('cron-jobs/{cronJob}', [CronJobController::class, 'show'])->name('cron-jobs.show');
+        });
+
+        Route::middleware('api.ability:cron:write')->group(function () {
+            Route::post('cron-jobs', [CronJobController::class, 'store'])->middleware('api.idempotent')->name('cron-jobs.store');
+            Route::patch('cron-jobs/{cronJob}', [CronJobController::class, 'update'])->name('cron-jobs.update');
+            Route::delete('cron-jobs/{cronJob}', [CronJobController::class, 'destroy'])->name('cron-jobs.destroy');
+            Route::post('cron-jobs/{cronJob}/suspend', [CronJobController::class, 'suspend'])->middleware('api.idempotent')->name('cron-jobs.suspend');
+            Route::post('cron-jobs/{cronJob}/unsuspend', [CronJobController::class, 'unsuspend'])->middleware('api.idempotent')->name('cron-jobs.unsuspend');
         });
 
         Route::middleware('api.ability:backups:read')->group(function () {
