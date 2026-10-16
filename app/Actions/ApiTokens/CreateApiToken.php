@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
 class CreateApiToken
 {
     /**
-     * @param  array{name: string, abilities: list<string>, account_id?: int|null, expires_in_days?: int|null}  $data
+     * @param  array<string, mixed>  $data  Expected shape: array{name: string, abilities: list<string>, account_id?: int|null, expires_in_days?: int|null}
      * @return array{0: ApiToken, 1: string} the token and its plaintext, shown once
      */
     public function handle(User $actor, array $data): array
@@ -35,7 +35,7 @@ class CreateApiToken
         $account = null;
 
         if (($data['account_id'] ?? null) !== null) {
-            $account = Account::query()->find($data['account_id']);
+            $account = Account::query()->whereKey($data['account_id'])->first();
 
             if ($account === null || ! $actor->hasAccountRole($account, 'owner')) {
                 throw ValidationException::withMessages(['account_id' => __('You can only restrict a token to an account you own.')]);
