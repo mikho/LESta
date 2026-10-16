@@ -50,13 +50,29 @@ Do this in the LESta admin app first, before touching the server:
     ```
     Both produce the exact same one-time, 30-minute token. The raw token is shown/printed exactly once; issue a new one if it's lost.
 3. **On the node**, run the agent daemon installer with that token:
+
     ```
     .install/services/agent-daemon/install.sh --apply --yes \
         --node-uuid <node_uuid> \
         --enrollment-token <token> \
         --control-plane-url https://your-lesta-domain.example
     ```
-    This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness and capabilities back to LESta from here on.
+
+    This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness, capabilities and service states back to LESta from here on.
+
+    The node must be able to resolve the panel's hostname and trust its TLS certificate. With a private certificate authority, install its certificate on the node first (`/usr/local/share/ca-certificates/`, then `update-ca-certificates`); otherwise enrollment fails with `enrollment_failed`.
+
+**How the agent runs on the node.** The daemon (`lesta-agent-daemon`) runs as the unprivileged user `lesta-agent`, in a tight systemd sandbox, with no sudo rule and no write access to any live configuration. It only talks to the panel and hands each operation to a **root applier** over a local socket. The appliers are the same binary run as root, each in its own sandbox and each applying only its own capabilities:
+
+| Unit                        | Applies                                                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `lesta-applier`             | nginx, Apache, PHP-FPM, BIND, mail, the tenant database, certificates, service start/stop/restart                           |
+| `lesta-applier-identity`    | the per-account system users and SFTP set-up                                                                                |
+| `lesta-applier-tenant`      | the file manager, cron and usage measurement (work on tenants' own files)                                                   |
+| `lesta-applier-backup`      | backups and restores                                                                                                        |
+| `lesta-applier-maintenance` | uninstalling a service from the panel; the only one without a file-system sandbox, since removing a service purges packages |
+
+The daemon installer sets up the identity, tenant and maintenance appliers; each service's installer sets up the applier it needs. Installing a new agent binary restarts every applier that is running, so no part keeps the old version. The maintenance applier runs this installer's own remove mode from the directory recorded in `/etc/lesta/installer-root` (where the daemon installer was run from) and refuses to run it if anyone but root could have changed it.
 
 This step alone doesn't give the node any real capability yet — it just makes the node exist and check in. Everything below adds an actual service.
 
@@ -134,7 +150,7 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 
 ---
 
-## Chapter 6: Removing services (`--prune`)
+## Chapter 6: Removing services (`--prune` and `--remove`)
 
 > **This is a destructive operation. Read this whole chapter before using it.**
 
@@ -153,6 +169,17 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 **Dropping `php-fpm`, `adminer` or `webmail` never removes PHP itself.** On a single-node install, the LESta application may run on the same php-fpm, and the PHP extensions these add are shared with every site's own PHP pool. So dropping `php-fpm` removes only LESta's own per-site pools and its own state, and dropping `adminer` or `webmail` removes only their own pool and files; php-fpm keeps running and is reloaded.
 
 **After a real removal, remove the capability from the node in the admin app yourself.** `--prune` has no path back into Laravel's own database, so go to `Nodes → [your node] → Capabilities` and reset the corresponding entry back to Not installed by hand (Admin Guide, Chapter 5).
+
+### Removing one service: `--remove`
+
+`install-selected.sh --remove <service>` removes exactly one service, with the same removal steps as `--prune` (and the same `--confirm-data-loss <service>` rule for a service holding data). It needs no `--services` list. It refuses, with exit code `12` and `still_required`, while another service present on the node depends on it (mail needs nginx and bind9; adminer needs php-fpm and nginx; webmail needs mail, php-fpm and nginx), and reports `already_absent` when the service is not there:
+
+```
+sudo .install/scripts/install-selected.sh --dry-run --remove cron
+sudo .install/scripts/install-selected.sh --apply --yes --remove mariadb --confirm-data-loss mariadb
+```
+
+**From the panel.** `Nodes → [your node] → Installed services → Uninstall` runs exactly this on the node, through the maintenance applier (Admin Guide, Chapter 5). The panel refuses first while customers still use the service, confirms data loss for you on the four services that hold data, and removes the node's capabilities for the service by itself once the node reports success.
 
 Example — a node currently running nginx, bind9, and mariadb, dropping bind9 and the mariadb tenant instance, keeping only nginx:
 
@@ -192,9 +219,12 @@ Running `install.sh --apply` on the node (directly, or via `install-selected.sh`
 | `cron/install.sh`                                      | `scheduler.account-cron.v1`                                                                                                                              |
 | `mail/install.sh`                                      | `mail.smtp-imap.v1`                                                                                                                                      |
 | `backups/install.sh`                                   | `backup.encrypted-artifacts.v1`                                                                                                                          |
+| `php-fpm/install.sh`                                   | `web.php-fpm.v1`                                                                                                                                         |
+| `adminer/install.sh`                                   | `tools.adminer.v1`                                                                                                                                       |
+| `webmail/install.sh`                                   | `mail.webmail.v1`                                                                                                                                        |
 | (nginx/apache + mariadb already installed)             | `metrics.usage.v1`, once you're ready to start collecting usage                                                                                          |
 
-A capability's status only shows **Running** once the agent has actually reported it back to the control plane through a real heartbeat (Admin Guide, Chapter 5) — declaring it here is necessary but not sufficient by itself; the agent's own confirmation is what actually flips it. After a `--prune` removal, the reverse applies: reset the capability back to Not installed in the admin app yourself.
+A capability's status only shows **Running** once the agent has actually reported it back to the control plane through a real heartbeat (Admin Guide, Chapter 5), declaring it here is necessary but not sufficient by itself; the agent's own confirmation is what actually flips it. After a `--prune` or `--remove` run on the node, the reverse applies: reset the capability back to Not installed in the admin app yourself (an uninstall started from the panel does this for you).
 
 ---
 

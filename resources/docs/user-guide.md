@@ -20,7 +20,7 @@ Click through from "My account," or from the dashboard, to reach your account's 
 
 - **View**: name, package, suspension status, resource counts, and the list of people (members) on the account.
 - **Update** name, contact email, or package — available to the account **owner** only. A **member** sees a plain, read-only summary instead of the edit form, so there's nothing to click that wouldn't work.
-- **Suspend / Unsuspend your own account**, and **Delete it** — also owner-only. Suspending cascades to every web domain, DNS zone, mail domain, tenant database, and cron job you have; deleting removes everything permanently.
+- **Suspend / Unsuspend your own account**, and **Delete it**: also owner-only. Suspending cascades to every web domain, DNS zone, mail domain, tenant database, and cron job you have. Deleting removes everything permanently: the domains, mailboxes, databases and cron jobs, and on the server your website files, your SFTP key and every backup of the account. Download a backup first (Chapter 8) if you might want anything back.
 - **Invite or remove a member**: an owner can add another person to the account (name, email, and role — member or owner) and remove one, right from this same page. A brand-new email gets its own login and a password-reset email, the same way your own login was first created.
 
 **Note:** if your account is managed by a reseller, you won't see that relationship reflected here in any special way — reseller access is invisible from the account's own page; it just means the reseller's own users can manage it too, the same as if they were a direct owner.
@@ -31,10 +31,22 @@ Click through from "My account," or from the dashboard, to reach your account's 
 
 `Domains` in the sidebar (`/domains`).
 
-- **Add domain**: the domain name, optional **aliases** (one per line — extra hostnames that serve the same site), a **template**, **web server** (nginx or Apache — Apache only works if your node supports it), and **SSL mode** (None, Manual, or Let's Encrypt).
+- **Add domain**: the domain name, optional **aliases** (one per line, extra hostnames that serve the same site), a **template**, **web server** (nginx or Apache, Apache only works if your node supports it), a **PHP version** (8.1 to 8.4, or none for a static site), and **SSL mode** (None, Manual, or Let's Encrypt).
 - **Edit**: change the same fields after creation.
 - **Suspend / Unsuspend**: takes the site offline/back online without deleting it.
 - **Delete**: removes it permanently.
+
+On a domain's own page you also find:
+
+- **Files**: a file manager in the browser (from the Domains list, or the domain's page): browse, upload, edit, rename and delete the site's files. Every change is made on the server as your account's own user, so nothing can reach outside your own site.
+- **SFTP access**: paste your SSH public key to upload files with any SFTP client. You are kept inside your own account's folder; there is no shell.
+- **Redirects**: send a path, or everything under a path, to another path or address, permanently (301) or temporarily (302). Up to 100 per domain.
+- **Password-protected folders**: ask for a username and password before a folder of the site is shown, with as many logins per folder as you need.
+- **Hotlink protection**: stop other sites from showing your images; an allow list lets chosen partner sites through.
+- **Web application firewall** (nginx sites): **Off**, **Detect** (log what would be blocked, block nothing) or **Block**. A **preset** for WordPress, Drupal, Nextcloud, DokuWiki or XenForo avoids false alarms from that application's normal requests. Start with Detect and look at the logs before switching to Block.
+- **Logs and traffic**: requests by status and by hour, top pages, missing pages (404), referrers, browsers and visitors from the recent access log, the last lines of the access and error logs, a download of the recent log, and 30 days of requests and bandwidth.
+
+**IP access rules** (`IP access rules` on the Domains page, `/ip-rules`): allow or deny addresses and ranges for every site of your account. An allow is an exception to a wider deny; to let only some addresses in, add them as allows and deny `0.0.0.0/0` and `::/0`.
 
 ---
 
@@ -57,6 +69,8 @@ Click through from "My account," or from the dashboard, to reach your account's 
     - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **Rotate password** on that mailbox to get a new one.
 - Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page.
 - The domain itself can be suspended/unsuspended (stops/resumes all mail for every mailbox on it) or deleted (removes it and every mailbox in it).
+- **Mailing lists** (`Lists` on a mail domain): a list address that sends each message on to its members, open to anyone or to members only, with an owner address, a subject prefix and an optional reply-to.
+- **Webmail**: read and send mail in the browser. Open it from the mail pages; it signs you in to the mailbox without asking for the password again.
 
 ---
 
@@ -66,6 +80,7 @@ Click through from "My account," or from the dashboard, to reach your account's 
 
 - **Add database**: just a label (lowercase letters, digits, and underscores, starting with a letter — this is used to build the real database name and **cannot be changed later**). This creates a real MariaDB database plus a matching database user.
 - The database's password is shown once, the same one-time-reveal rule as mailbox passwords (Chapter 5) — copy it immediately, or use **Rotate password** later if you missed it.
+- **Open Adminer** on a database's page opens Adminer, a database tool in the browser, already signed in to that database, in a new tab.
 - Suspend/unsuspend (blocks/restores the database user's own access) or delete (removes the database and its user permanently) from the same page.
 
 ---
@@ -75,12 +90,27 @@ Click through from "My account," or from the dashboard, to reach your account's 
 `Cron jobs` in the sidebar (`/cron-jobs`).
 
 - **Add cron job**: the five standard cron fields (minute, hour, day of month, month, day of week — `*` means "every"), and the command to run.
-- **Note:** your job runs as a shared, non-root system user on the node, alongside other accounts' jobs on the same node — it is not isolated in its own sandbox from them.
+- Your job runs as your account's own system user on the node, never as root and never as another account. It can reach your own files and nothing else on the server.
 - Edit, suspend/unsuspend, or delete a job from the same list.
 
 ---
 
-## Chapter 8: Usage & statistics
+## Chapter 8: Backups
+
+`My backups` in the sidebar. A backup is a snapshot of your **website files**, **databases** and **mailboxes** (choose which), kept encrypted on the server.
+
+- **Back up now**: pick what to include and, optionally, a name. It takes a few minutes for a large account.
+- **Automatic backups**: daily or weekly, with the parts you choose. They run at night (between 01:00 and 04:00 UTC). The latest seven automatic backups are kept; older ones are removed.
+- **Restore this backup**: choose which parts to put back. A backup of the current data is taken first, automatically, so a restore can itself be undone.
+- **Download**: prepares a copy you can download for an hour (a large backup takes a few minutes to prepare).
+- **Copy to your own storage**: send a backup to S3-compatible storage of your own (endpoint, region, bucket and keys, saved once). Copies there are yours; LESta never deletes them.
+- **Restore from a copy**: import a downloaded backup (**A file from this computer**) or one from your own storage, then restore it like any other.
+
+Manual backups keep the latest five, imported ones three.
+
+---
+
+## Chapter 9: Usage & statistics
 
 `Usage` in the sidebar (`/usage`). Shows your own resource usage: raw daily snapshots for the last 90 days (per web domain, mailbox, and database), plus monthly rollups kept indefinitely once the raw data ages out.
 
@@ -88,23 +118,24 @@ If your account hasn't been fully set up yet, this page (like Domains, DNS, Mail
 
 ---
 
-## Chapter 9: Personal settings
+## Chapter 10: Personal settings
 
 Separate from your hosting account — these control your own login, not anything you host.
 
 - **Profile** (`/settings/profile`): your name and email, and a way to delete your own login entirely (not your hosting account — ask your administrator if you actually want the account gone, see Chapter 2).
 - **Security** (`/settings/security`): change your password, turn on two-factor authentication (with recovery codes), and register passkeys.
 - **Appearance**: light/dark/system theme.
+- **API tokens** (`/settings/api-tokens`, account owners only): tokens that let your own scripts use the LESta API. See the **API Guide**.
 
 ---
 
-## Chapter 10: If a LESta administrator is helping you
+## Chapter 11: If a LESta administrator is helping you
 
 If you contact support about a problem with your account, an administrator may briefly sign in as you to see exactly what you're seeing, with your permission, to diagnose it faster. When they do, a clearly labeled banner appears at the top of every page for the whole time they're doing this, naming who is doing it, with a button to end it immediately. This is always logged.
 
 ---
 
-## Chapter 11: Summary of gaps and notes
+## Chapter 12: Summary of gaps and notes
 
 1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "My account" to reach the others.
 2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "rotate" (which invalidates the old one immediately).

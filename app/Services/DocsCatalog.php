@@ -28,6 +28,12 @@ class DocsCatalog
             'file' => 'admin-guide.md',
             'admin_only' => true,
         ],
+        'api-guide' => [
+            'title' => 'API Guide',
+            'description' => 'For scripts and integrations: API tokens, calling the API, and the endpoints available today.',
+            'file' => 'api-guide.md',
+            'admin_only' => false,
+        ],
         'installation-guide' => [
             'title' => 'Installation Guide',
             'description' => 'For setting up a real infrastructure node: prerequisites, the installers, and removing services safely.',

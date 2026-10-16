@@ -24,6 +24,11 @@ LESta has no single "admin" flag. Access is built from a few independent pieces 
 - **Two-factor authentication and passkeys**: `Settings → Security` (`/settings/security`) lets you enable 2FA (with recovery codes) and register passkeys, independent of your role.
 - **Profile**: `Settings → Profile` (`/settings/profile`) — name, email, and account deletion (deletes your own login, not any hosting account).
 - **Appearance**: `Settings → Appearance` — light/dark/system theme, cosmetic only.
+- **API tokens**: `Settings → API tokens`: tokens for your own scripts. As a platform user you can also give a token the **Platform administration** abilities. See the **API Guide**.
+
+### The dashboard
+
+As a platform administrator your dashboard shows **Node status** for every node (a node admin sees only their own nodes): whether the node's agent is **online** (it reported in the last three minutes), the **ping** time from the panel to the node (checked every minute), and every service the node runs, with failed or stopped ones in red. It refreshes every 30 seconds. The node's name links to its page (Chapter 5).
 
 ---
 
@@ -48,7 +53,7 @@ If an account has no hosting set up at all yet, its tenant-facing pages (Domains
 
 If the owner email already belongs to an existing user, that person is simply added as the account's owner. If not, a brand-new login is created for them with an unusable random password, and a real password-reset email is sent so they can set their own password the first time they use it — the same mechanism used to create your own admin login. You never see or set anyone's password directly.
 
-**Gap (disclosed, not yet built):** there is no way for a reseller to create a new account themselves yet — only a platform admin can. There is also no API for this yet.
+**Gap (disclosed, not yet built):** there is no way for a reseller to create a new account themselves yet, only a platform admin can. The API cannot create accounts yet either (it is being built in steps, see the API Guide).
 
 ### Editing / suspending / deleting an account
 
@@ -56,9 +61,11 @@ From `/accounts/{account}`:
 
 - **Update** name, contact email, or package.
 - **Suspend / Unsuspend** — cascades to every web domain, DNS zone, mail domain, tenant database, and cron job the account owns (they get suspended/unsuspended too, tagged as "cascade" so you can tell them apart from something a tenant suspended manually).
-- **Delete** — deletes the account and everything it owns. Cannot be undone.
+- **Delete**: deletes the account and everything it owns. Cannot be undone. On the servers this also removes the account's website files, its SFTP key and every backup of the account (copies the customer sent to their own storage are not touched).
 
 None of these require the account to have zero resources first; delete cascades through everything.
+
+**The "LESta platform" account** holds each node's own tools domain (webmail and Adminer on the node's hostname). It is internal: it is not listed among the accounts or in the cross-account lists, and its package is not listed and cannot be edited or deleted.
 
 ### Members
 
@@ -97,29 +104,48 @@ On a node's own page (`/nodes/{node}/edit`), under **Enrollment**: **Issue enrol
 
 ### Declaring capabilities
 
-Still on the node's edit page, under **Capabilities**: a dropdown lets you tell LESta "this node can now do X" after you've run the real installer for that service on the actual machine (this is a manual declaration — nothing here runs an installer for you). The nine real, admin-declarable capabilities:
+Still on the node's edit page, under **Capabilities**: a dropdown lets you tell LESta "this node can now do X" after you've run the real installer for that service on the actual machine (this is a manual declaration, nothing here runs an installer for you). The admin-declarable capabilities:
 
-- `web.nginx.v1`
+- `web.nginx.v1`, `web.apache.v1`, `web.php-fpm.v1`
 - `dns.bind9.v1`
-- `web.apache.v1`
 - `tls.acme.v1`
 - `database.tenant.v1`
 - `scheduler.account-cron.v1`
-- `mail.smtp-imap.v1`
+- `mail.smtp-imap.v1`, `mail.webmail.v1`
 - `backup.encrypted-artifacts.v1`
 - `metrics.usage.v1`
+- `files.manager.v1`, `tools.adminer.v1`
 
-Two capability-shaped strings deliberately don't appear here: `system.account-identity.v1` (dispatched automatically the first time an account gets a cron job on a node — nothing for an admin to declare) and `database.control-plane.v1` (a fixed internal key for this application's own database, never a real per-node capability).
+Two capability-shaped strings deliberately don't appear here: `system.account-identity.v1` (dispatched automatically the first time an account needs its own system user on a node, nothing for an admin to declare) and `database.control-plane.v1` (a fixed internal key for this application's own database, never a real per-node capability).
 
-**Status, not just a suspend toggle.** Declaring a capability no longer means "instantly shown as active" — each one shows a real status, honestly confirmed by the node's own agent, never just an admin's say-so:
+**Status, not just a suspend toggle.** Each capability shows a real status, confirmed by the node's own agent, never just an admin's say-so:
 
 - **Not installed** — declared, but the agent has never confirmed it's actually running.
-- **Running** — the agent's own heartbeat has reported it present. Only the agent's heartbeat can ever set this; there is no button that sets a capability to "running" directly.
-- **Stopped** — was running, and the agent's most recent heartbeat no longer reports it. You can also set this by hand (for a capability you know is down), or reset a capability back to **Not installed** (for example after `--prune` removed it for real).
-- **Suspended** — an admin's own suspend action, shown regardless of what the agent reports underneath; unsuspending reveals whatever the real status underneath actually is.
+- **Running**: the agent's heartbeat reported it installed **and every service behind it running** (for example nginx; exim4 and dovecot for mail). Only the agent's heartbeat can ever set this.
+- **Stopped**: the agent reported it, but a service behind it is down, or a later heartbeat no longer reports it. You can also set this by hand, or reset a capability back to **Not installed**. These two buttons only change what the panel records; they do nothing on the server.
+- **Suspended**: an admin's own suspend action, shown regardless of what the agent reports underneath; unsuspending reveals whatever the real status underneath actually is. Suspending is a hold inside the panel; it does not stop anything on the server.
 - **Unknown** — the node's agent hasn't been reachable recently, so any `running`/`stopped` value on file can't be trusted right now. This overrides everything except an active suspension.
 
 `metrics.usage.v1` is the one exception: it has no standalone install step of its own (it's built into the web server and database installers), so it's simply labeled "Not tracked" rather than carrying a status.
+
+### Services: start, stop, restart
+
+Under **Services** the node page lists the services the node last reported, each with its state. Unused PHP versions are left out. For the customer-facing services, nginx, Apache, BIND (`named`), each PHP-FPM version in use, the tenant database (`mariadb@tenant`), cron, Exim and Dovecot, you get **Start** (when it's down), **Restart**, and **Stop** (when it's up). Stop asks first and says what on the node depends on the service, for example "2 web domains using PHP 8.3".
+
+The node's own LESta services (its appliers and firewall), `ssh` and the panel's own database are shown but cannot be controlled from here: stopping them would cut the panel off from the node, with no way to start them again from the panel.
+
+The node carries the action out a moment later; the row shows "stop requested" until it has, then the new state. Every action is recorded in the audit log. Provider admins with `nodes.update` and the node's own admins can do this.
+
+### Installed services: uninstall
+
+Under **Installed services**, each LESta service on the node (nginx, Apache, BIND, MariaDB, cron, mail, backups, PHP-FPM, Adminer, webmail) has an **Uninstall** button. Removing one stops it, purges its packages and removes its firewall ports and configuration on the node. For MariaDB, mail, backups and webmail the data is moved aside on the node (to `<data directory>-removed-<time>`), never deleted, so it can be recovered by hand. Confirm by typing the node's name.
+
+Uninstall is refused, with the reason shown, while:
+
+- customer resources on the node use the service ("In use by 3 web domains", "In use by 2 databases", backups for the backups service), or
+- another installed service needs it (mail needs nginx and BIND; Adminer needs PHP-FPM and nginx; webmail needs mail, PHP-FPM and nginx). The node checks this again itself.
+
+Only one removal runs on a node at a time. When the node reports success, the panel removes the service's capabilities from the node by itself. A failed removal shows the node's error on the row.
 
 ### Node admin delegation
 
@@ -127,7 +153,7 @@ Further down the same page, **Node admins** (only visible if you can manage this
 
 ### Orphaned account identities
 
-Each tenant account gets its own dedicated system user on a node the first time it runs a cron job there. If every cron job for that account on that node is later removed, the system user is left behind (not automatically cleaned up) — this section lists those and lets you delete them.
+Each tenant account gets its own dedicated system user on a node the first time it needs one there (a web domain or a cron job). If everything the account had on that node is later removed, the system user is left behind (not automatically cleaned up), this section lists those and lets you delete them. Deleting one here keeps the account's files on the node; deleting the whole account removes them (Chapter 3).
 
 ### Suspending, scheduled backups, deleting
 
@@ -169,9 +195,26 @@ The default "Starter" package on a fresh install has **no quota rows configured*
 
 ---
 
-## Chapter 9: Running list of gaps
+## Chapter 9: Rotating the application key and database password
 
-1. There is no picker for which capabilities `install-selected.sh` has already detected versus what you still need to declare by hand — declaring a capability in the admin app is always a separate, manual step from actually installing it on the server (see the Installation Guide).
+The panel's `.env` holds `APP_KEY` (which decrypts every stored secret: backup keys, storage keys, database and mail passwords) and the database password. If anyone who should not have could have read that file, rotate both. Everyone is signed out by a key rotation.
+
+**APP_KEY**, in the panel's directory:
+
+1. Back up `.env`.
+2. If `PASSKEYS_USER_HANDLE_SECRET` is not set, set it to the current `APP_KEY` value: passkey sign-in is derived from it, and a new key would silently stop every passkey from working. (If nobody has registered a passkey yet, any new random value will do.)
+3. Set `APP_PREVIOUS_KEYS` to the current key and put a new key in `APP_KEY` (`php artisan key:generate --show` prints one without writing it).
+4. `php artisan config:clear`, restart the queue worker, reload the panel's php-fpm.
+5. `php artisan lesta:reencrypt-secrets`. It re-encrypts every stored secret with the new key, reports what it did per table, and must end without errors. It refuses to run while step 2 is missing.
+6. Remove `APP_PREVIOUS_KEYS`, then clear the config and restart the worker and php-fpm again.
+
+**The database password** (the panel's own database user, `lesta_app`): set a new one with `ALTER USER 'lesta_app'@'127.0.0.1' IDENTIFIED BY '<new>'` as root on the control-plane database, put it in `DB_PASSWORD` in `.env` and in `/etc/lesta/mariadb-control-plane-app.env`, then clear the config and restart the worker and php-fpm.
+
+---
+
+## Chapter 10: Running list of gaps
+
+1. There is no picker for which capabilities `install-selected.sh` has already detected versus what you still need to declare by hand, declaring a capability in the admin app is always a separate, manual step from actually installing it on the server (see the Installation Guide). Installing a service from the panel is not possible; uninstalling is (Chapter 5).
 2. Resellers cannot create new accounts themselves (by design, deferred).
-3. No API yet.
+3. The API so far has tokens and two read endpoints; the rest is being built in steps (API Guide, Chapter 6).
 4. If you ever need an admin with narrower platform permissions than "everything" but don't want to build a custom role by hand through the UI, there's no bulk/preset option — every custom role starts from an empty permission set.
