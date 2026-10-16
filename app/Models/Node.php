@@ -30,6 +30,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $last_seen_at
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
+ * @property list<array{name: string, state: string}>|null $service_states
+ * @property bool|null $ping_ok
+ * @property float|null $ping_ms
+ * @property Carbon|null $pinged_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -83,6 +87,10 @@ class Node extends Model implements ProviderAdminManaged
             'enrollment_token_expires_at' => 'datetime',
             'enrollment_status' => NodeEnrollmentStatus::class,
             'last_seen_at' => 'datetime',
+            'service_states' => 'array',
+            'ping_ok' => 'boolean',
+            'ping_ms' => 'float',
+            'pinged_at' => 'datetime',
             'backups_scheduled' => 'boolean',
         ];
     }

@@ -886,6 +886,19 @@ func daemonProductionConfig() daemon.Config {
 			adminerCapability:                  "/var/lib/lesta/adminer",
 			webmailCapability:                  "/var/lib/lesta/webmail",
 		},
+		// The services behind each capability, reported up or down on the admin dashboard. A unit
+		// that does not exist on this node (an unused PHP version, Apache on an nginx node) is
+		// left out.
+		CapabilityUnits: map[string][]string{
+			webNginxCapability:       {"nginx"},
+			webApacheCapability:      {"apache2"},
+			dnsBind9Capability:       {"named"},
+			webPhpFpmCapability:      {"php8.1-fpm", "php8.2-fpm", "php8.3-fpm", "php8.4-fpm"},
+			databaseTenantCapability: {"mariadb@tenant"},
+			schedulerCronCapability:  {"cron"},
+			mailSmtpImapCapability:   {"exim4", "dovecot"},
+		},
+		CoreUnits: []string{"lesta-applier", "lesta-applier-identity", "lesta-applier-tenant", "lesta-applier-backup", "lesta-firewall", "mariadb", "ssh"},
 	}
 }
 

@@ -34,7 +34,53 @@ class DashboardController extends Controller
             'account' => $account === null ? null : $this->presentAccount($account),
             'overview' => $account === null ? null : $this->presentOverview($account, $request->user()),
             'usage' => $account === null ? null : $this->presentUsage($account),
+            'nodeStatus' => $this->presentNodeStatus($request->user()),
         ]);
+    }
+
+    /** Seconds after the last heartbeat a node still counts as online (three missed beats). */
+    private const int ONLINE_SECONDS = 180;
+
+    /**
+     * The status of the nodes the user administers: every node for a provider admin, the granted
+     * ones for a node admin, null for everyone else. Heartbeat age, the control plane's ping, and the
+     * systemd units the node last reported.
+     *
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function presentNodeStatus(User $user): ?array
+    {
+        if ($user->can('viewAny', Node::class)) {
+            $nodes = Node::query()->with('capabilities')->orderBy('name')->get();
+        } elseif ($user->nodeAdminGrants()->exists()) {
+            $nodes = Node::query()->with('capabilities')->whereIn('id', $user->nodeAdminGrants()->pluck('node_id'))->orderBy('name')->get();
+        } else {
+            return null;
+        }
+
+        return $nodes->map(fn (Node $node): array => [
+            'id' => $node->id,
+            'uuid' => $node->uuid,
+            'name' => $node->name,
+            'hostname' => $node->hostname,
+            'suspended' => $node->isSuspended(),
+            'agent_version' => $node->agent_version,
+            'heartbeat' => [
+                'online' => $node->last_seen_at !== null && $node->last_seen_at->diffInSeconds(now()) <= self::ONLINE_SECONDS,
+                'last_seen_at' => $node->last_seen_at?->toIso8601String(),
+            ],
+            'ping' => $node->pinged_at === null ? null : [
+                'ok' => (bool) $node->ping_ok,
+                'ms' => $node->ping_ms,
+                'at' => $node->pinged_at->toIso8601String(),
+            ],
+            'services' => $node->service_states ?? [],
+            'capabilities' => $node->capabilities
+                ->filter(fn ($capability): bool => $capability->status->value !== 'not_installed')
+                ->map(fn ($capability): array => ['capability' => $capability->capability, 'status' => $capability->status->value])
+                ->values()
+                ->all(),
+        ])->all();
     }
 
     /**

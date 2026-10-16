@@ -74,6 +74,16 @@ type Config struct {
 	// presence (os.Stat on the directory), never to invoke that
 	// capability's own Apply/Observe.
 	CapabilityStateRoots map[string]string
+	// CapabilityUnits maps a capability to the systemd units that serve it (nginx, named,
+	// exim4 and dovecot, ...). A present capability is reported healthy only while every one of
+	// its units that exists on this node is active.
+	CapabilityUnits map[string][]string
+	// CoreUnits are this node's own LESta units (the appliers, the firewall), reported with the
+	// service states but tied to no capability.
+	CoreUnits []string
+	// SystemctlBinary is the systemctl the service states are read with; empty means "systemctl"
+	// (tests point it at a stand-in).
+	SystemctlBinary string
 	// FileOpsPollInterval is how long the dedicated files.manager.v1 fast
 	// lane (fileops.go) sleeps between polls of
 	// <ControlPlaneURL>/agent/v1/file-operations/poll -- a second,

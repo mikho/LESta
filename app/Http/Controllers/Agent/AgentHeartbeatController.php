@@ -21,9 +21,8 @@ class AgentHeartbeatController extends Controller
      * already exist, matching this phase's own explicit boundary.
      *
      * Status transitions are heartbeat-driven only: a capability this heartbeat reports present
-     * becomes Running (any reported health_state counts -- the Go agent today only ever sends
-     * the literal "healthy" or omits the capability entirely, so there is no other value to map
-     * yet); a capability known to this node but absent from this heartbeat's own array only
+     * becomes Running when its health_state is "healthy" (every systemd unit behind it is active)
+     * and Stopped otherwise; a capability known to this node but absent from this heartbeat's own array only
      * changes if it was previously Running, in which case it becomes Stopped (absence is not new
      * information for a capability that was already NotInstalled or Stopped). Suspension
      * (suspended_at/suspension_source) is never touched here -- only the underlying status value
@@ -55,7 +54,15 @@ class AgentHeartbeatController extends Controller
                 'agent_version' => $validated['agent_version'],
             ])->save();
 
-            $reportedCapabilities = array_flip(array_column($validated['capabilities'] ?? [], 'capability'));
+            // An older agent sends no service states; keep the last ones it never replaced.
+            if (array_key_exists('services', $validated)) {
+                $node->forceFill(['service_states' => array_map(
+                    fn (array $service): array => ['name' => $service['name'], 'state' => $service['state']],
+                    $validated['services'] ?? [],
+                )])->save();
+            }
+
+            $reportedHealth = array_column($validated['capabilities'] ?? [], 'health_state', 'capability');
 
             foreach ($node->capabilities as $capability) {
                 $type = NodeCapabilityType::tryFrom($capability->capability);
@@ -64,10 +71,12 @@ class AgentHeartbeatController extends Controller
                     continue;
                 }
 
-                if (array_key_exists($capability->capability, $reportedCapabilities)) {
+                if (array_key_exists($capability->capability, $reportedHealth)) {
+                    // Present and every service behind it up is running; present with a service
+                    // down is stopped (the agent reports "unhealthy").
                     $capability->forceFill([
                         'last_seen_at' => now(),
-                        'status' => NodeCapabilityStatus::Running,
+                        'status' => $reportedHealth[$capability->capability] === 'healthy' ? NodeCapabilityStatus::Running : NodeCapabilityStatus::Stopped,
                     ])->save();
 
                     continue;

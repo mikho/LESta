@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePoll } from '@inertiajs/react';
+import { useEffect } from 'react';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { dashboard } from '@/routes';
@@ -6,6 +7,7 @@ import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
 import domains from '@/routes/domains';
 import mail from '@/routes/mail';
+import nodes from '@/routes/nodes';
 import tenantDatabases from '@/routes/tenant-databases';
 
 type DashboardAccount = {
@@ -48,6 +50,192 @@ type Usage = {
     requests_30d: number;
     collected_at: string | null;
 };
+
+type NodeStatus = {
+    id: number;
+    uuid: string;
+    name: string;
+    hostname: string;
+    suspended: boolean;
+    agent_version: string | null;
+    heartbeat: { online: boolean; last_seen_at: string | null };
+    ping: { ok: boolean; ms: number | null; at: string } | null;
+    services: { name: string; state: string }[];
+    capabilities: { capability: string; status: string }[];
+};
+
+function timeAgo(value: string | null): string {
+    if (value === null) {
+        return 'never';
+    }
+
+    const seconds = Math.max(
+        0,
+        Math.round((Date.now() - new Date(value).getTime()) / 1000),
+    );
+
+    if (seconds < 60) {
+        return `${seconds} s ago`;
+    }
+
+    if (seconds < 3600) {
+        return `${Math.round(seconds / 60)} min ago`;
+    }
+
+    return `${Math.round(seconds / 3600)} h ago`;
+}
+
+function Dot({ tone }: { tone: 'up' | 'down' | 'unknown' }) {
+    const colour = {
+        up: 'bg-green-500',
+        down: 'bg-red-500',
+        unknown: 'bg-muted-foreground/40',
+    }[tone];
+
+    return (
+        <span
+            aria-hidden
+            className={`inline-block size-2 shrink-0 rounded-full ${colour}`}
+        />
+    );
+}
+
+/**
+ * One row per node: heartbeat (the node's daemon reaching the panel), ping (the panel reaching the
+ * node), and the systemd services the node last reported. Refreshed every 30 seconds.
+ */
+function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
+    if (nodeStatus.length === 0) {
+        return <p className="text-sm text-muted-foreground">No nodes yet.</p>;
+    }
+
+    return (
+        <ul className="divide-y">
+            {nodeStatus.map((node) => {
+                const down = node.services.filter(
+                    (service) => service.state !== 'active',
+                );
+
+                return (
+                    <li
+                        key={node.id}
+                        className="grid gap-3 py-3 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,14rem)_minmax(0,10rem)_minmax(0,10rem)_1fr]"
+                    >
+                        <div className="min-w-0">
+                            <Link
+                                href={nodes.edit(node.uuid).url}
+                                className="font-medium hover:underline"
+                            >
+                                {node.name}
+                            </Link>
+                            <p className="truncate text-xs text-muted-foreground">
+                                {node.hostname}
+                                {node.agent_version &&
+                                    ` · agent ${node.agent_version}`}
+                            </p>
+                            {node.suspended && (
+                                <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                                    Suspended
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="text-sm">
+                            <p className="flex items-center gap-2">
+                                <Dot
+                                    tone={node.heartbeat.online ? 'up' : 'down'}
+                                />
+                                {node.heartbeat.online ? 'Online' : 'Offline'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Heartbeat {timeAgo(node.heartbeat.last_seen_at)}
+                            </p>
+                        </div>
+
+                        <div className="text-sm">
+                            <p className="flex items-center gap-2">
+                                <Dot
+                                    tone={
+                                        node.ping === null
+                                            ? 'unknown'
+                                            : node.ping.ok
+                                              ? 'up'
+                                              : 'down'
+                                    }
+                                />
+                                {node.ping === null
+                                    ? 'Not pinged yet'
+                                    : node.ping.ok
+                                      ? `Ping ${node.ping.ms} ms`
+                                      : 'No ping reply'}
+                            </p>
+                            {node.ping && (
+                                <p className="text-xs text-muted-foreground">
+                                    Checked {timeAgo(node.ping.at)}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="min-w-0 text-sm">
+                            {node.services.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                    No service states reported yet (an agent
+                                    older than this panel reports none).
+                                </p>
+                            ) : (
+                                <>
+                                    <p className="mb-1 flex items-center gap-2">
+                                        <Dot
+                                            tone={
+                                                down.length === 0
+                                                    ? 'up'
+                                                    : 'down'
+                                            }
+                                        />
+                                        {down.length === 0
+                                            ? `All ${node.services.length} services up`
+                                            : `${down.length} of ${node.services.length} services down`}
+                                    </p>
+                                    <ul className="flex flex-wrap gap-x-3 gap-y-1">
+                                        {node.services.map((service) => (
+                                            <li
+                                                key={service.name}
+                                                className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                                                title={service.state}
+                                            >
+                                                <Dot
+                                                    tone={
+                                                        service.state ===
+                                                        'active'
+                                                            ? 'up'
+                                                            : 'down'
+                                                    }
+                                                />
+                                                <span
+                                                    className={
+                                                        service.state ===
+                                                        'active'
+                                                            ? ''
+                                                            : 'font-medium text-red-600 dark:text-red-400'
+                                                    }
+                                                >
+                                                    {service.name}
+                                                    {service.state !==
+                                                        'active' &&
+                                                        ` (${service.state})`}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </>
+                            )}
+                        </div>
+                    </li>
+                );
+            })}
+        </ul>
+    );
+}
 
 function formatBytes(bytes: number): string {
     if (bytes < 1024) {
@@ -218,16 +406,52 @@ export default function Dashboard({
     account,
     overview,
     usage,
+    nodeStatus,
 }: {
     account: DashboardAccount | null;
     overview: Overview | null;
     usage: Usage | null;
+    nodeStatus: NodeStatus[] | null;
 }) {
+    const { start, stop } = usePoll(
+        30000,
+        { only: ['nodeStatus'] },
+        { autoStart: false },
+    );
+    const showNodes = nodeStatus !== null;
+
+    useEffect(() => {
+        if (!showNodes) {
+            return;
+        }
+
+        start();
+
+        return stop;
+    }, [showNodes, start, stop]);
+
     return (
         <>
             <Head title="Dashboard" />
 
             <div className="space-y-6 p-4">
+                {nodeStatus && (
+                    <section className="space-y-3 rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
+                        <div className="flex items-baseline justify-between gap-4">
+                            <h2 className="text-sm font-semibold">
+                                Node status
+                            </h2>
+                            <Link
+                                href={nodes.index().url}
+                                className="text-xs text-muted-foreground hover:underline"
+                            >
+                                All nodes
+                            </Link>
+                        </div>
+                        <NodeStatusPanel nodeStatus={nodeStatus} />
+                    </section>
+                )}
+
                 {account ? (
                     <>
                         <div className="flex items-center justify-between gap-4">
@@ -296,7 +520,7 @@ export default function Dashboard({
                         </div>
                     </>
                 ) : (
-                    <NoAccountNotice />
+                    !showNodes && <NoAccountNotice />
                 )}
             </div>
         </>

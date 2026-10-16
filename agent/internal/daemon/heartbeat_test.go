@@ -142,3 +142,80 @@ func TestUbuntuReleaseMissingFile(t *testing.T) {
 		t.Errorf("ubuntuRelease() = %q, want empty string for a missing file", got)
 	}
 }
+
+func TestCapabilityHealthReadsUnitStatesAndMarksADownServiceUnhealthy(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, name := range []string{"nginx", "mail"} {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A stand-in for systemctl that answers the way `systemctl show` does: one block per unit asked
+	// for, in order, with a unit that does not exist reported as not-found.
+	systemctl := filepath.Join(dir, "systemctl")
+	script := `#!/bin/sh
+printf 'Id=nginx.service\nLoadState=loaded\nActiveState=active\n\n'
+printf 'Id=exim4.service\nLoadState=loaded\nActiveState=active\n\n'
+printf 'Id=dovecot.service\nLoadState=loaded\nActiveState=failed\n\n'
+printf 'Id=lesta-applier.service\nLoadState=loaded\nActiveState=active\n\n'
+printf 'Id=apache2.service\nLoadState=not-found\nActiveState=inactive\n'
+`
+	if err := os.WriteFile(systemctl, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		CapabilityStateRoots: map[string]string{"web.nginx.v1": filepath.Join(dir, "nginx"), "mail.smtp-imap.v1": filepath.Join(dir, "mail"), "web.apache.v1": filepath.Join(dir, "absent")},
+		CapabilityUnits:      map[string][]string{"web.nginx.v1": {"nginx"}, "mail.smtp-imap.v1": {"exim4", "dovecot"}, "web.apache.v1": {"apache2"}},
+		CoreUnits:            []string{"lesta-applier", "apache2"},
+		SystemctlBinary:      systemctl,
+	}
+
+	capabilities, services := capabilityHealth(cfg)
+
+	health := map[string]string{}
+	for _, c := range capabilities {
+		health[c.Capability] = c.HealthState
+	}
+
+	if health["web.nginx.v1"] != "healthy" || health["mail.smtp-imap.v1"] != "unhealthy" || len(health) != 2 {
+		t.Errorf("capability health = %v, want nginx healthy, mail unhealthy, nothing else", health)
+	}
+
+	got := map[string]string{}
+	for _, s := range services {
+		got[s.Name] = s.State
+	}
+
+	want := map[string]string{"nginx": "active", "exim4": "active", "dovecot": "failed", "lesta-applier": "active"}
+	if len(got) != len(want) {
+		t.Fatalf("services = %v, want %v (a unit that does not exist is left out)", got, want)
+	}
+
+	for name, state := range want {
+		if got[name] != state {
+			t.Errorf("service %s = %q, want %q", name, got[name], state)
+		}
+	}
+}
+
+func TestCapabilityHealthWithoutSystemdKeepsPresenceAndReportsNoServices(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "nginx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		CapabilityStateRoots: map[string]string{"web.nginx.v1": filepath.Join(dir, "nginx")},
+		CapabilityUnits:      map[string][]string{"web.nginx.v1": {"nginx"}},
+		SystemctlBinary:      filepath.Join(dir, "no-such-systemctl"),
+	}
+
+	capabilities, services := capabilityHealth(cfg)
+
+	if len(capabilities) != 1 || capabilities[0].HealthState != "healthy" || services != nil {
+		t.Errorf("capabilities %+v services %+v, want present-means-healthy and no services", capabilities, services)
+	}
+}

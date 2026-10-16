@@ -23,6 +23,9 @@ class StoreHeartbeatRequest extends FormRequest
             'capabilities' => ['sometimes', 'array'],
             'capabilities.*.capability' => ['required_with:capabilities', 'string', 'max:128'],
             'capabilities.*.health_state' => ['required_with:capabilities', 'string', 'max:32'],
+            'services' => ['sometimes', 'nullable', 'array', 'max:64'],
+            'services.*.name' => ['required_with:services', 'string', 'max:128', 'regex:/^[A-Za-z0-9@._-]+$/'],
+            'services.*.state' => ['required_with:services', 'string', 'max:32'],
         ];
     }
 }

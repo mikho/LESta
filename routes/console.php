@@ -9,6 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('provisioning:dispatch-pending')->everyMinute()->withoutOverlapping();
+Schedule::command('nodes:ping')->everyMinute()->withoutOverlapping();
 Schedule::command('acme:renew-certificates')->daily()->withoutOverlapping();
 Schedule::command('metrics:collect')->daily()->withoutOverlapping();
 Schedule::command('metrics:rollup')->daily()->withoutOverlapping();

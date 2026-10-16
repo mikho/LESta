@@ -48,6 +48,7 @@ class PackageController extends Controller
         Gate::authorize('viewAny', Package::class);
 
         $packages = Package::query()
+            ->withoutPlatform()
             ->withCount('accounts')
             ->orderBy('name')
             ->get();

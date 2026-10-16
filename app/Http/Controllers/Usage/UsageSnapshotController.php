@@ -190,6 +190,8 @@ class UsageSnapshotController extends Controller
             ->join('nodes', 'nodes.id', '=', 'usage_snapshots.node_id')
             ->join('accounts', 'accounts.id', '=', 'usage_snapshots.account_id')
             ->where('usage_snapshots.collected_at', '>=', now()->subDays(30))
+            // The hidden platform account (node tools domains) is not a customer.
+            ->where('accounts.is_platform', false)
             ->when($node !== '', fn (Builder $q) => $q->where('nodes.name', $node))
             ->when($search !== '', fn (Builder $q) => $q->where(fn (Builder $w) => $w
                 ->where('accounts.name', 'like', '%'.$search.'%')

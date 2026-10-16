@@ -2,12 +2,15 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,7 +35,15 @@ type heartbeatRequest struct {
 	UbuntuRelease   string             `json:"ubuntu_release"`
 	Architecture    string             `json:"architecture"`
 	Capabilities    []capabilityStatus `json:"capabilities"`
+	Services        []serviceStatus    `json:"services"`
 	Timestamp       string             `json:"timestamp"`
+}
+
+// serviceStatus is one systemd unit's state as systemd reports it ("active", "inactive", "failed",
+// "activating", ...).
+type serviceStatus struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
 }
 
 type capabilityStatus struct {
@@ -61,9 +72,10 @@ func sendHeartbeat(client *http.Client, cfg *Config, credential string) ([]proto
 		AgentVersion:    cfg.AgentVersion,
 		UbuntuRelease:   ubuntuRelease(osReleasePath),
 		Architecture:    runtime.GOARCH,
-		Capabilities:    presentCapabilities(cfg.CapabilityStateRoots),
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
 	}
+
+	req.Capabilities, req.Services = capabilityHealth(cfg)
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -123,6 +135,83 @@ func presentCapabilities(stateRoots map[string]string) []capabilityStatus {
 	}
 
 	return statuses
+}
+
+// capabilityHealth reports every present capability (presentCapabilities) as healthy only while all
+// of its units that exist on this node are active, and returns the state of every such unit plus the
+// core units. A node whose systemd cannot be read reports its capabilities as before (present means
+// healthy) and no service states, rather than calling everything down.
+func capabilityHealth(cfg *Config) ([]capabilityStatus, []serviceStatus) {
+	present := presentCapabilities(cfg.CapabilityStateRoots)
+
+	wanted := append([]string{}, cfg.CoreUnits...)
+	for _, status := range present {
+		wanted = append(wanted, cfg.CapabilityUnits[status.Capability]...)
+	}
+
+	states, err := unitStates(cfg.SystemctlBinary, wanted)
+	if err != nil {
+		return present, nil
+	}
+
+	for i, status := range present {
+		for _, unit := range cfg.CapabilityUnits[status.Capability] {
+			if state, loaded := states[unit]; loaded && state != "active" {
+				present[i].HealthState = "unhealthy"
+			}
+		}
+	}
+
+	services := make([]serviceStatus, 0, len(states))
+	for name, state := range states {
+		services = append(services, serviceStatus{Name: name, State: state})
+	}
+
+	sort.Slice(services, func(a, b int) bool { return services[a].Name < services[b].Name })
+
+	return present, services
+}
+
+// unitStates asks systemd, in one call, for the active state of every named unit that exists
+// (LoadState loaded); units that do not exist on this node are left out.
+func unitStates(systemctl string, units []string) (map[string]string, error) {
+	states := map[string]string{}
+	if len(units) == 0 {
+		return states, nil
+	}
+
+	if systemctl == "" {
+		systemctl = "systemctl"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	args := append([]string{"show", "--property=Id,LoadState,ActiveState", "--"}, units...)
+
+	out, err := exec.CommandContext(ctx, systemctl, args...).Output() //nolint:gosec // fixed binary, unit names from this binary's own configuration
+	if err != nil {
+		return nil, fmt.Errorf("reading unit states: %w", err)
+	}
+
+	// One block of KEY=value lines per unit, blocks separated by a blank line, in the order asked.
+	for _, block := range strings.Split(strings.TrimSpace(string(out)), "\n\n") {
+		fields := map[string]string{}
+
+		for _, line := range strings.Split(block, "\n") {
+			if key, value, found := strings.Cut(line, "="); found {
+				fields[key] = value
+			}
+		}
+
+		if fields["LoadState"] != "loaded" || fields["Id"] == "" {
+			continue
+		}
+
+		states[strings.TrimSuffix(fields["Id"], ".service")] = fields["ActiveState"]
+	}
+
+	return states, nil
 }
 
 // ubuntuRelease reads VERSION_ID out of /etc/os-release, e.g. "24.04".

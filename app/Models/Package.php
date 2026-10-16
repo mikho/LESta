@@ -6,6 +6,7 @@ use App\Concerns\HasUuid;
 use App\Contracts\ProviderAdminManaged;
 use Database\Factories\PackageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -61,5 +62,22 @@ class Package extends Model implements ProviderAdminManaged
     public function accounts(): HasMany
     {
         return $this->hasMany(Account::class);
+    }
+
+    /**
+     * Whether this is the package of the hidden platform account (EnsureNodeToolsDomain), which is
+     * neither listed nor edited nor deleted.
+     */
+    public function isPlatformPackage(): bool
+    {
+        return $this->accounts()->where('is_platform', true)->exists();
+    }
+
+    /**
+     * @param  Builder<Package>  $query
+     */
+    public function scopeWithoutPlatform(Builder $query): void
+    {
+        $query->whereDoesntHave('accounts', fn (Builder $accounts) => $accounts->where('is_platform', true));
     }
 }

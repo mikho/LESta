@@ -31,13 +31,16 @@ class PackagePolicy
         return $user->hasPermission('packages.create');
     }
 
+    /**
+     * The hidden platform account's package is internal: never edited or deleted.
+     */
     public function update(User $user, Package $package): bool
     {
-        return $user->hasPermission('packages.update');
+        return $user->hasPermission('packages.update') && ! $package->isPlatformPackage();
     }
 
     public function delete(User $user, Package $package): bool
     {
-        return $user->hasPermission('packages.delete');
+        return $user->hasPermission('packages.delete') && ! $package->isPlatformPackage();
     }
 }
