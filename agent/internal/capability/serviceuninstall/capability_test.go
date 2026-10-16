@@ -144,7 +144,27 @@ func TestRootOwnedAcceptsARootOnlyPathAndRefusesAWritableOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := rootOwned(script); err != nil {
+		t.Errorf("group-writable by root's own group is still root only: %v", err)
+	}
+
+	if err := os.Chown(script, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := rootOwned(script); err == nil {
-		t.Errorf("a group-writable installer must be refused")
+		t.Errorf("group-writable by another group must be refused")
+	}
+
+	if err := os.Chown(script, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(script, 0o757); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rootOwned(script); err == nil {
+		t.Errorf("an installer anyone can write must be refused")
 	}
 }

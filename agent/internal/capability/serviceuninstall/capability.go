@@ -161,8 +161,9 @@ func (c *ServiceUninstallCapability) apply(ctx context.Context, op protocol.Oper
 }
 
 // rootOwned refuses to run an installer that anyone but root could have changed: the script and
-// every directory above it must be owned by root and not writable by group or others. This instance
-// runs it as unsandboxed root.
+// every directory above it must be owned by root, not writable by others, and writable by its group
+// only when that group is root's (git archive's default 0775 leaves directories group-writable).
+// This instance runs it as unsandboxed root.
 func rootOwned(path string) error {
 	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
 		info, err := os.Stat(p)
@@ -171,8 +172,9 @@ func rootOwned(path string) error {
 		}
 
 		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || st.Uid != 0 || info.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("%s must be owned by root and writable only by root", p)
+		perm := info.Mode().Perm()
+		if !ok || st.Uid != 0 || perm&0o002 != 0 || (perm&0o020 != 0 && st.Gid != 0) {
+			return fmt.Errorf("%s must be owned by root and writable only by root (and its group only if that is root)", p)
 		}
 
 		if p == filepath.Dir(p) {
