@@ -17,6 +17,7 @@ class DnsZoneResource extends ApiResource
     {
         return [
             'id' => $this->uuid,
+            'account_id' => $this->whenLoaded('account', fn (): string => $this->account->public_id),
             'domain' => $this->domain,
             'ttl' => $this->ttl,
             'records_count' => $this->whenCounted('records'),

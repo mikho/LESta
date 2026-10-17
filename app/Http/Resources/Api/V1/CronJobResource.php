@@ -18,6 +18,7 @@ class CronJobResource extends ApiResource
     {
         return [
             'id' => $this->uuid,
+            'account_id' => $this->whenLoaded('account', fn (): string => $this->account->public_id),
             'minute' => $this->minute,
             'hour' => $this->hour,
             'day_of_month' => $this->day_of_month,

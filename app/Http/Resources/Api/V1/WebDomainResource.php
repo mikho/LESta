@@ -17,6 +17,7 @@ class WebDomainResource extends ApiResource
     {
         return [
             'id' => $this->uuid,
+            'account_id' => $this->whenLoaded('account', fn (): string => $this->account->public_id),
             'domain' => $this->domain,
             'aliases' => $this->aliases->pluck('alias')->all(),
             'web_template' => $this->web_template,

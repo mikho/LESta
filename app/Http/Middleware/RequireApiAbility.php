@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Exceptions\ApiProblemException;
 use App\Models\Account;
 use App\Models\ApiToken;
 use Closure;
@@ -24,17 +25,18 @@ class RequireApiAbility
         $token = $request->attributes->get('api_token');
 
         if (! $token instanceof ApiToken || ! $token->allows($ability)) {
-            abort(403, "This token does not have the {$ability} ability.");
+            throw new ApiProblemException(403, 'missing-ability', "This token does not have the {$ability} ability.");
         }
 
         $account = $request->route('account');
 
         if ($account instanceof Account && ! $token->reaches($account)) {
-            abort(403, 'This token is restricted to another account.');
+            throw new ApiProblemException(403, 'account-restricted', 'This token is restricted to another account.');
         }
 
-        if ($account instanceof Account && str_ends_with($ability, ':write') && $account->isSuspended()) {
-            abort(403, 'This account is suspended.');
+        // Platform administration acts on suspended accounts too (it is what unsuspends them).
+        if ($account instanceof Account && str_ends_with($ability, ':write') && $ability !== 'admin:write' && $account->isSuspended()) {
+            throw new ApiProblemException(403, 'account-suspended', 'This account is suspended. It can be read, not changed.');
         }
 
         return $next($request);

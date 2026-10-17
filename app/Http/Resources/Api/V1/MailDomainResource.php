@@ -17,6 +17,7 @@ class MailDomainResource extends ApiResource
     {
         return [
             'id' => $this->uuid,
+            'account_id' => $this->whenLoaded('account', fn (): string => $this->account->public_id),
             'domain' => $this->domain,
             'antivirus_enabled' => $this->antivirus_enabled,
             'antispam_enabled' => $this->antispam_enabled,

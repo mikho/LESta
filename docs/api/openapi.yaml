@@ -178,6 +178,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -350,6 +352,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -403,6 +407,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -482,6 +488,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -639,6 +647,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -691,6 +701,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -771,6 +783,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -932,6 +946,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -985,6 +1001,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1064,6 +1082,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1221,6 +1241,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1273,6 +1295,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1353,6 +1377,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1514,6 +1540,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1567,6 +1595,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1608,6 +1638,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1686,6 +1718,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1801,6 +1835,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1853,6 +1889,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1893,6 +1931,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -1971,6 +2011,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -2128,6 +2170,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -2180,6 +2224,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -2258,6 +2304,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -2367,6 +2415,8 @@ paths:
           $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
@@ -2439,6 +2489,1021 @@ paths:
           $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+  /admin/accounts:
+    get:
+      operationId: adminListAccounts
+      summary: Every customer account
+      description: Needs the admin:read ability and the accounts.view_as_support permission. The hidden platform account is never listed.
+      parameters:
+        - name: filter[search]
+          in: query
+          required: false
+          description: Part of the name or contact e-mail.
+          schema:
+            type: string
+        - name: filter[suspended]
+          in: query
+          required: false
+          description: true for suspended accounts only, false for the others.
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    post:
+      operationId: adminCreateAccount
+      summary: Create an account and its owner
+      description: Needs the admin:write ability and the accounts.create permission. An owner without a login gets one and an e-mail to set a password.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountCreate'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/accounts/{account}:
+    get:
+      operationId: adminGetAccount
+      summary: One account
+      description: Needs the admin:read ability and the accounts.view_as_support permission.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: adminUpdateAccount
+      summary: Change an account
+      description: Needs the admin:write ability and the accounts.update permission. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    delete:
+      operationId: adminDeleteAccount
+      summary: Delete an account with everything it has
+      description: Needs the admin:write ability and the accounts.delete permission. Its sites, mail, databases, backups and logins on the nodes go too; each resource is removed by its own operation.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccountDelete'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/accounts/{account}/suspend:
+    post:
+      operationId: adminSuspendAccount
+      summary: Suspend an account and its resources
+      description: Needs the admin:write ability and the accounts.suspend permission. Each resource is suspended on its node by its own operation.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/accounts/{account}/unsuspend:
+    post:
+      operationId: adminUnsuspendAccount
+      summary: Unsuspend an account and its resources
+      description: Needs the admin:write ability and the accounts.unsuspend permission.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/accounts/{account}/reseller:
+    put:
+      operationId: adminAssignReseller
+      summary: Put an account under a reseller account
+      description: Needs the admin:write ability and the accounts.update permission.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAssignReseller'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    delete:
+      operationId: adminUnassignReseller
+      summary: Take an account from its reseller
+      description: Needs the admin:write ability and the accounts.update permission.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Account'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/packages:
+    get:
+      operationId: adminListPackages
+      summary: Every hosting package
+      description: Needs the admin:read ability and the packages.view_any permission.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Package'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    post:
+      operationId: adminCreatePackage
+      summary: Create a package
+      description: Needs the admin:write ability and the packages.create permission. A new package has no limits set.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageCreate'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Package'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/packages/{package}:
+    get:
+      operationId: adminGetPackage
+      summary: One package
+      description: Needs the admin:read ability and the packages.view permission.
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Package'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: adminUpdatePackage
+      summary: Change a package
+      description: Needs the admin:write ability and the packages.update permission. Fields left out keep their value.
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageUpdate'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Package'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    delete:
+      operationId: adminDeletePackage
+      summary: Delete a package no account uses
+      description: Needs the admin:write ability and the packages.delete permission.
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/packages/{package}/limits/{resourceType}:
+    put:
+      operationId: adminSetPackageLimit
+      summary: Set one limit of a package
+      description: Needs the admin:write ability and the packages.update permission.
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+        - $ref: '#/components/parameters/ResourceType'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PackageLimit'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Package'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/nodes:
+    get:
+      operationId: adminListNodes
+      summary: Every node
+      description: Needs the admin:read ability and the nodes.view_any permission.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Node'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/nodes/{node}:
+    get:
+      operationId: adminGetNode
+      summary: One node
+      description: Needs the admin:read ability and the nodes.view permission.
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Node'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /admin/nodes/{node}/suspend:
+    post:
+      operationId: adminSuspendNode
+      summary: Take a node out of service
+      description: Needs the admin:write ability and the nodes.suspend permission.
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Node'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/nodes/{node}/unsuspend:
+    post:
+      operationId: adminUnsuspendNode
+      summary: Put a node back in service
+      description: Needs the admin:write ability and the nodes.unsuspend permission.
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Node'
+                  operation:
+                    type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/node-backups:
+    get:
+      operationId: adminListNodeBackups
+      summary: Whole-node backups, newest first
+      description: Needs the admin:read ability and the backups.view_any permission.
+      parameters:
+        - name: filter[node]
+          in: query
+          required: false
+          description: The node's id or name.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NodeBackup'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+    post:
+      operationId: adminCreateNodeBackup
+      summary: Back up a whole node
+      description: Needs the admin:write ability and the backups.create permission.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeBackupCreate'
+      responses:
+        '202':
+          description: Accepted; the nodes apply the change next. Poll the operation in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NodeBackup'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /admin/node-backups/{backup}:
+    get:
+      operationId: adminGetNodeBackup
+      summary: One whole-node backup
+      description: Needs the admin:read ability and the backups.view permission.
+      parameters:
+        - $ref: '#/components/parameters/NodeBackupId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NodeBackup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      operationId: adminDeleteNodeBackup
+      summary: Delete a whole-node backup
+      description: Needs the admin:write ability and the backups.delete permission.
+      parameters:
+        - $ref: '#/components/parameters/NodeBackupId'
+      responses:
+        '202':
+          description: Accepted; the nodes apply the change next. Poll the operation in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/web-domains:
+    get:
+      operationId: adminListWebDomains
+      summary: Every customer's web domains
+      description: Needs the admin:read ability and the web_domains.view_any permission. Read only; each entry carries account_id.
+      parameters:
+        - name: filter[account]
+          in: query
+          required: false
+          description: The account's id.
+          schema:
+            type: string
+        - name: filter[domain]
+          in: query
+          required: false
+          description: Exactly this domain.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDomain'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/dns-zones:
+    get:
+      operationId: adminListDnsZones
+      summary: Every customer's dns zones
+      description: Needs the admin:read ability and the dns_zones.view_any permission. Read only; each entry carries account_id.
+      parameters:
+        - name: filter[account]
+          in: query
+          required: false
+          description: The account's id.
+          schema:
+            type: string
+        - name: filter[domain]
+          in: query
+          required: false
+          description: Exactly this domain.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DnsZone'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/mail-domains:
+    get:
+      operationId: adminListMailDomains
+      summary: Every customer's mail domains
+      description: Needs the admin:read ability and the mail_domains.view_any permission. Read only; each entry carries account_id.
+      parameters:
+        - name: filter[account]
+          in: query
+          required: false
+          description: The account's id.
+          schema:
+            type: string
+        - name: filter[domain]
+          in: query
+          required: false
+          description: Exactly this domain.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MailDomain'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/databases:
+    get:
+      operationId: adminListDatabases
+      summary: Every customer's databases
+      description: Needs the admin:read ability and the tenant_databases.view_any permission. Read only; each entry carries account_id.
+      parameters:
+        - name: filter[account]
+          in: query
+          required: false
+          description: The account's id.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Database'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
+  /admin/cron-jobs:
+    get:
+      operationId: adminListCronJobs
+      summary: Every customer's cron jobs
+      description: Needs the admin:read ability and the cron_jobs.view_any permission. Read only; each entry carries account_id.
+      parameters:
+        - name: filter[account]
+          in: query
+          required: false
+          description: The account's id.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CronJob'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '422':
+          $ref: '#/components/responses/Invalid'
 components:
   securitySchemes:
     apiToken:
@@ -2528,6 +3593,37 @@ components:
       schema:
         type: string
         format: uuid
+    PackageId:
+      name: package
+      in: path
+      required: true
+      description: The package's id.
+      schema:
+        type: string
+        format: uuid
+    NodeId:
+      name: node
+      in: path
+      required: true
+      description: The node's id.
+      schema:
+        type: string
+        format: uuid
+    NodeBackupId:
+      name: backup
+      in: path
+      required: true
+      description: The backup's id.
+      schema:
+        type: string
+        format: uuid
+    ResourceType:
+      name: resourceType
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [web_domains, dns_zones, dns_records, mail_domains, mail_accounts, tenant_databases, cron_jobs]
     DomainFilter:
       name: filter[domain]
       in: query
@@ -2552,68 +3648,88 @@ components:
         default: 50
   responses:
     Unauthorized:
-      description: The token is missing, unknown or expired.
+      description: The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token).
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
     Forbidden:
-      description: The token lacks the ability, is restricted to another account, or the user cannot see this account.
+      description: >
+        The token lacks the ability (missing-ability), is restricted to another account
+        (account-restricted), the account is suspended and the call changes it (account-suspended),
+        the login lacks the platform permission (missing-permission), or the user may not do this
+        (about:blank).
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
     NotFound:
-      description: No such resource in this account.
+      description: No such resource here.
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
     Invalid:
-      description: The input is invalid, or a package limit is reached.
+      description: The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded).
       content:
-        application/json:
+        application/problem+json:
           schema:
-            type: object
-            required: [message]
-            properties:
-              message:
-                type: string
-              errors:
-                type: object
-                additionalProperties:
-                  type: array
-                  items:
-                    type: string
+            $ref: '#/components/schemas/Problem'
+    BadRequest:
+      description: The Idempotency-Key header is not 1 to 255 printable characters (urn:lesta:problem:invalid-idempotency-key).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     IdempotencyConflict:
-      description: The Idempotency-Key was used with another request, or that request is still running.
+      description: The Idempotency-Key was used with another request (idempotency-key-reused), or that request is still running (idempotency-key-in-progress).
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
     NoCapacity:
-      description: No server can take the resource right now.
+      description: No server can take the resource right now (urn:lesta:problem:no-capacity).
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
     TooManyRequests:
-      description: Too many requests, or too many failed tokens from this address.
+      description: Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens).
       headers:
         Retry-After:
           schema:
             type: integer
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Message'
+            $ref: '#/components/schemas/Problem'
   schemas:
-    Message:
+    Problem:
+      description: >
+        An RFC 9457 problem document. type is urn:lesta:problem:<name> for the problems the API
+        names (invalid-token, too-many-failed-tokens, missing-ability, missing-permission,
+        account-restricted, account-suspended, validation, quota-exceeded, no-capacity,
+        invalid-idempotency-key, idempotency-key-reused, idempotency-key-in-progress), otherwise
+        about:blank with the status's own title.
       type: object
-      required: [message]
+      required: [type, title, status, detail]
       properties:
-        message:
+        type:
           type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        errors:
+          description: Only for urn:lesta:problem:validation, the field errors.
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
     User:
       type: object
       required: [id, name, email, token]
@@ -2663,7 +3779,8 @@ components:
               required: [id, name]
               properties:
                 id:
-                  type: integer
+                  type: string
+                  format: uuid
                 name:
                   type: string
         is_owner:
@@ -2673,6 +3790,12 @@ components:
           description: The public id of the reseller account that manages this one.
         suspended:
           type: boolean
+        suspended_at:
+          type: [string, 'null']
+          format: date-time
+        memberships_count:
+          type: integer
+          description: Only in the admin account calls.
         created_at:
           type: [string, 'null']
           format: date-time
@@ -2974,6 +4097,216 @@ components:
           type: boolean
           const: true
           description: The restore overwrites the current data of these parts.
+    AdminAccountCreate:
+      type: object
+      required: [name, package, owner_name, owner_email]
+      properties:
+        name:
+          type: string
+        contact_email:
+          type: [string, 'null']
+          description: The owner's e-mail when left out.
+        package:
+          type: string
+          format: uuid
+          description: An active package's id.
+        owner_name:
+          type: string
+          description: Used only when the owner has no login yet.
+        owner_email:
+          type: string
+    AdminAccountUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        contact_email:
+          type: [string, 'null']
+        package:
+          type: string
+          format: uuid
+    AdminAccountDelete:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: string
+          description: The account's id, to confirm.
+    AdminAssignReseller:
+      type: object
+      required: [reseller_account_id]
+      properties:
+        reseller_account_id:
+          type: string
+    Package:
+      type: object
+      required: [id, name, description, is_active, limits, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        is_active:
+          type: boolean
+        limits:
+          type: object
+          description: One entry per resource type. configured false means none may be created; limit null means unlimited.
+          additionalProperties:
+            type: object
+            required: [configured, limit]
+            properties:
+              configured:
+                type: boolean
+              limit:
+                type: [integer, 'null']
+        accounts_count:
+          type: integer
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    PackageCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        is_active:
+          type: boolean
+          description: false when left out, as in the panel.
+    PackageUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        is_active:
+          type: boolean
+    PackageLimit:
+      type: object
+      properties:
+        limit_value:
+          type: [integer, 'null']
+          minimum: 0
+          description: null for unlimited.
+    Node:
+      type: object
+      required: [id, name, hostname, enrollment_status, agent_reachable, ping, services, backups_scheduled, suspended, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        hostname:
+          type: string
+        mail_hostname:
+          type: [string, 'null']
+        enrollment_status:
+          type: string
+        agent_version:
+          type: [string, 'null']
+        agent_reachable:
+          type: boolean
+        last_seen_at:
+          type: [string, 'null']
+          format: date-time
+        ping:
+          type: object
+          properties:
+            ok:
+              type: [boolean, 'null']
+            ms:
+              type: [number, 'null']
+            at:
+              type: [string, 'null']
+              format: date-time
+        services:
+          type: array
+          items:
+            type: object
+            required: [name, state]
+            properties:
+              name:
+                type: string
+              state:
+                type: string
+        capabilities:
+          type: array
+          items:
+            type: object
+            required: [capability, status]
+            properties:
+              capability:
+                type: string
+              status:
+                type: string
+                description: suspended, unknown when the agent cannot be reached, otherwise the reported status.
+              last_seen_at:
+                type: [string, 'null']
+                format: date-time
+        backups_scheduled:
+          type: boolean
+        suspended:
+          type: boolean
+        suspended_at:
+          type: [string, 'null']
+          format: date-time
+        suspension_source:
+          type: [string, 'null']
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    NodeBackup:
+      description: A whole-node backup. Never its encryption key.
+      type: object
+      required: [id, label, node, status, error, included_capabilities, size_bytes, completed_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: [string, 'null']
+        node:
+          type: object
+          required: [id, name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        status:
+          type: string
+          enum: [running, ready, failed]
+        error:
+          type: [string, 'null']
+        included_capabilities:
+          type: array
+          items:
+            type: string
+        size_bytes:
+          type: [integer, 'null']
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: [string, 'null']
+          format: date-time
+    NodeBackupCreate:
+      type: object
+      required: [node]
+      properties:
+        node:
+          type: string
+          format: uuid
+        label:
+          type: [string, 'null']
     Suspension:
       type: object
       required: [suspended, suspended_at, suspension_source]
@@ -3009,6 +4342,9 @@ components:
             id:
               type: string
               format: uuid
+            account_id:
+              type: string
+              description: Only in the admin lists.
             domain:
               type: string
             aliases:
@@ -3063,6 +4399,9 @@ components:
             id:
               type: string
               format: uuid
+            account_id:
+              type: string
+              description: Only in the admin lists.
             domain:
               type: string
             ttl:
@@ -3103,6 +4442,9 @@ components:
             id:
               type: string
               format: uuid
+            account_id:
+              type: string
+              description: Only in the admin lists.
             domain:
               type: string
             antivirus_enabled:
@@ -3160,6 +4502,9 @@ components:
             id:
               type: string
               format: uuid
+            account_id:
+              type: string
+              description: Only in the admin lists.
             label:
               type: string
             database_name:
@@ -3180,6 +4525,9 @@ components:
             id:
               type: string
               format: uuid
+            account_id:
+              type: string
+              description: Only in the admin lists.
             minute:
               type: string
             hour:

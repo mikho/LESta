@@ -2,6 +2,11 @@
 
 use App\Http\Controllers\Api\V1\AccountBackupController;
 use App\Http\Controllers\Api\V1\AccountController;
+use App\Http\Controllers\Api\V1\Admin\AccountController as AdminAccountController;
+use App\Http\Controllers\Api\V1\Admin\CustomerResourceController;
+use App\Http\Controllers\Api\V1\Admin\NodeBackupController;
+use App\Http\Controllers\Api\V1\Admin\NodeController;
+use App\Http\Controllers\Api\V1\Admin\PackageController;
 use App\Http\Controllers\Api\V1\CronJobController;
 use App\Http\Controllers\Api\V1\DnsRecordController;
 use App\Http\Controllers\Api\V1\DnsZoneController;
@@ -122,6 +127,44 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
         Route::middleware('api.ability:usage:read')->group(function () {
             Route::get('usage', [UsageController::class, 'index'])->name('usage.index');
             Route::get('usage/monthly', [UsageController::class, 'monthly'])->name('usage.monthly');
+        });
+    });
+
+    // Platform administration: tokens with admin:read or admin:write, which only a platform user can
+    // hold, and on each route the same platform permission the panel page needs (api.permission).
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::middleware('api.ability:admin:read')->group(function () {
+            Route::get('accounts', [AdminAccountController::class, 'index'])->middleware('api.permission:accounts.view_as_support')->name('accounts.index');
+            Route::get('accounts/{account}', [AdminAccountController::class, 'show'])->middleware('api.permission:accounts.view_as_support')->name('accounts.show');
+            Route::get('packages', [PackageController::class, 'index'])->middleware('api.permission:packages.view_any')->name('packages.index');
+            Route::get('packages/{package}', [PackageController::class, 'show'])->middleware('api.permission:packages.view')->name('packages.show');
+            Route::get('nodes', [NodeController::class, 'index'])->middleware('api.permission:nodes.view_any')->name('nodes.index');
+            Route::get('nodes/{node}', [NodeController::class, 'show'])->middleware('api.permission:nodes.view')->name('nodes.show');
+            Route::get('node-backups', [NodeBackupController::class, 'index'])->middleware('api.permission:backups.view_any')->name('node-backups.index');
+            Route::get('node-backups/{backup}', [NodeBackupController::class, 'show'])->middleware('api.permission:backups.view')->name('node-backups.show');
+            Route::get('web-domains', [CustomerResourceController::class, 'webDomains'])->middleware('api.permission:web_domains.view_any')->name('web-domains.index');
+            Route::get('dns-zones', [CustomerResourceController::class, 'dnsZones'])->middleware('api.permission:dns_zones.view_any')->name('dns-zones.index');
+            Route::get('mail-domains', [CustomerResourceController::class, 'mailDomains'])->middleware('api.permission:mail_domains.view_any')->name('mail-domains.index');
+            Route::get('databases', [CustomerResourceController::class, 'databases'])->middleware('api.permission:tenant_databases.view_any')->name('databases.index');
+            Route::get('cron-jobs', [CustomerResourceController::class, 'cronJobs'])->middleware('api.permission:cron_jobs.view_any')->name('cron-jobs.index');
+        });
+
+        Route::middleware('api.ability:admin:write')->group(function () {
+            Route::post('accounts', [AdminAccountController::class, 'store'])->middleware(['api.permission:accounts.create', 'api.idempotent'])->name('accounts.store');
+            Route::patch('accounts/{account}', [AdminAccountController::class, 'update'])->middleware('api.permission:accounts.update')->name('accounts.update');
+            Route::delete('accounts/{account}', [AdminAccountController::class, 'destroy'])->middleware('api.permission:accounts.delete')->name('accounts.destroy');
+            Route::post('accounts/{account}/suspend', [AdminAccountController::class, 'suspend'])->middleware(['api.permission:accounts.suspend', 'api.idempotent'])->name('accounts.suspend');
+            Route::post('accounts/{account}/unsuspend', [AdminAccountController::class, 'unsuspend'])->middleware(['api.permission:accounts.unsuspend', 'api.idempotent'])->name('accounts.unsuspend');
+            Route::put('accounts/{account}/reseller', [AdminAccountController::class, 'assignReseller'])->middleware('api.permission:accounts.update')->name('accounts.reseller.update');
+            Route::delete('accounts/{account}/reseller', [AdminAccountController::class, 'unassignReseller'])->middleware('api.permission:accounts.update')->name('accounts.reseller.destroy');
+            Route::post('packages', [PackageController::class, 'store'])->middleware(['api.permission:packages.create', 'api.idempotent'])->name('packages.store');
+            Route::patch('packages/{package}', [PackageController::class, 'update'])->middleware('api.permission:packages.update')->name('packages.update');
+            Route::put('packages/{package}/limits/{resourceType}', [PackageController::class, 'updateLimit'])->middleware('api.permission:packages.update')->name('packages.limits.update');
+            Route::delete('packages/{package}', [PackageController::class, 'destroy'])->middleware('api.permission:packages.delete')->name('packages.destroy');
+            Route::post('nodes/{node}/suspend', [NodeController::class, 'suspend'])->middleware(['api.permission:nodes.suspend', 'api.idempotent'])->name('nodes.suspend');
+            Route::post('nodes/{node}/unsuspend', [NodeController::class, 'unsuspend'])->middleware(['api.permission:nodes.unsuspend', 'api.idempotent'])->name('nodes.unsuspend');
+            Route::post('node-backups', [NodeBackupController::class, 'store'])->middleware(['api.permission:backups.create', 'api.idempotent'])->name('node-backups.store');
+            Route::delete('node-backups/{backup}', [NodeBackupController::class, 'destroy'])->middleware('api.permission:backups.delete')->name('node-backups.destroy');
         });
     });
 });

@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Enums\IdempotencyReceiptStatus;
+use App\Exceptions\ApiProblemException;
 use App\Models\ApiToken;
 use App\Models\IdempotencyReceipt;
 use Closure;
@@ -44,7 +45,7 @@ class HandleApiIdempotencyKey
         }
 
         if (! preg_match('/^[\x21-\x7E]{1,255}$/', $key)) {
-            abort(400, 'The Idempotency-Key header must be 1 to 255 printable characters.');
+            throw new ApiProblemException(400, 'invalid-idempotency-key', 'The Idempotency-Key header must be 1 to 255 printable characters.');
         }
 
         $scope = 'api-token:'.$token->id;
@@ -120,11 +121,11 @@ class HandleApiIdempotencyKey
     private function answerExisting(IdempotencyReceipt $receipt, string $hash): Response
     {
         if ($receipt->request_hash !== $hash) {
-            abort(409, 'This Idempotency-Key was already used with a different request.');
+            throw new ApiProblemException(409, 'idempotency-key-reused', 'This Idempotency-Key was already used with a different request.');
         }
 
         if ($receipt->status !== IdempotencyReceiptStatus::Completed || ! is_array($receipt->response)) {
-            abort(409, 'A request with this Idempotency-Key is still being processed.');
+            throw new ApiProblemException(409, 'idempotency-key-in-progress', 'A request with this Idempotency-Key is still being processed.');
         }
 
         $response = new JsonResponse($receipt->response['body'], $receipt->response['status']);

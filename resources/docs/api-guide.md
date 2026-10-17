@@ -1,6 +1,6 @@
 # LESta API Guide
 
-The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading everything an account has, and changing it.
+The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading and changing everything an account has, and platform administration.
 
 ---
 
@@ -44,19 +44,56 @@ curl -H "Authorization: Bearer lesta_..." \
 
 A token in the query string is not accepted. The API keeps no session and sets no cookies.
 
-### Responses and errors
+### Responses
 
-- `200` with the result under `data`.
-- `401`: the token is missing, unknown, revoked or expired. This is checked first, before anything in the address is looked up.
-- `403`: the token lacks the ability for this call, it is restricted to another account, or you are not a member of the account in the address.
-- `404`: the resource does not exist, or it belongs to another account than the one in the address.
+- `200` with the result under `data`; `201` when something new was made that needs no node (an account, a package).
 - `202`: a change was accepted; the nodes apply it next (see "Changing things" below).
-- `409`: the `Idempotency-Key` was already used with another request, or that request is still running.
-- `422`: the input is invalid, or a package limit is reached; the field errors are under `errors`, in the same shape the panel uses.
-- `429`: too many requests (see below), with a `Retry-After` header in seconds.
-- `503`: no server can take the resource right now (for example, no node offers the web server you asked for).
 
-Errors carry a human-readable `message`.
+### Errors
+
+Every error is a problem document ([RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)), sent as `application/problem+json`:
+
+```json
+{
+    "type": "urn:lesta:problem:missing-ability",
+    "title": "Forbidden",
+    "status": 403,
+    "detail": "This token does not have the dns:write ability."
+}
+```
+
+`detail` is for people and may change; a script should look at `status` and `type`. `type` names the problem when the API has a name for it, and is `about:blank` otherwise (then `title` is the status's own name):
+
+| Status | `type` (after `urn:lesta:problem:`) | Meaning                                                                                                        |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `400`  | `invalid-idempotency-key`           | The `Idempotency-Key` header is not 1 to 255 printable characters.                                             |
+| `401`  | `invalid-token`                     | The token is missing, unknown, revoked or expired. Checked first, before anything in the address is looked up. |
+| `403`  | `missing-ability`                   | The token lacks the ability this call needs.                                                                   |
+| `403`  | `missing-permission`                | Your login lacks the platform permission an admin call needs (Chapter 5).                                      |
+| `403`  | `account-restricted`                | The token is restricted to another account.                                                                    |
+| `403`  | `account-suspended`                 | The account is suspended: it can be read, not changed.                                                         |
+| `403`  | `about:blank`                       | You may not do this to this resource, for example in an account you are only a member of.                      |
+| `404`  | `about:blank`                       | The resource does not exist, or belongs to another account than the one in the address.                        |
+| `409`  | `idempotency-key-reused`            | The `Idempotency-Key` was already used with another request.                                                   |
+| `409`  | `idempotency-key-in-progress`       | A request with this `Idempotency-Key` is still running.                                                        |
+| `422`  | `validation`                        | The input is invalid; the field errors are under `errors`, in the same shape the panel uses.                   |
+| `422`  | `quota-exceeded`                    | A package limit is reached, or the package allows none of this resource.                                       |
+| `429`  | `too-many-failed-tokens`            | Too many failed tokens from your address (see Rate limits).                                                    |
+| `429`  | `about:blank`                       | Too many requests; wait for `Retry-After` seconds.                                                             |
+| `503`  | `no-capacity`                       | No server can take the resource right now, for example no node offers the web server you asked for.            |
+| `500`  | `about:blank`                       | Something went wrong on the server. Nothing about it is in the answer; it is in the panel's log.               |
+
+A validation problem:
+
+```json
+{
+    "type": "urn:lesta:problem:validation",
+    "title": "Unprocessable Content",
+    "status": 422,
+    "detail": "The given data was invalid.",
+    "errors": { "domain": ["The domain field is required."] }
+}
+```
 
 ### Paging
 
@@ -178,7 +215,37 @@ Send an `Idempotency-Key` header (any 1 to 255 printable characters, unique per 
 
 ---
 
-## Chapter 5: Good practice
+## Chapter 5: Platform administration
+
+For platform administrators, under `/api/v1/admin`. A token needs **Platform administration** read (`admin:read`) or write (`admin:write`), which only a platform administrator can tick, and every call also needs the same permission your role needs for that page in the panel. A call your role is not allowed answers `403` with `urn:lesta:problem:missing-permission`. Changes are audited like everything else, with the token.
+
+| Call                                                                                | Permission                                              | What it does                                                                                                                                                                                             |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /admin/accounts`                                                               | `accounts.view_as_support`                              | Every customer account. `?filter[search]=` matches name or contact e-mail, `?filter[suspended]=true` or `false`.                                                                                         |
+| `GET /admin/accounts/{id}`                                                          | `accounts.view_as_support`                              | One account, with its package, reseller and number of members.                                                                                                                                           |
+| `POST /admin/accounts`                                                              | `accounts.create`                                       | Creates an account: `name`, `package` (an active package's id), `owner_name`, `owner_email`, optional `contact_email`. An owner without a login gets one and an e-mail to set a password. Answers `201`. |
+| `PATCH /admin/accounts/{id}`                                                        | `accounts.update`                                       | Changes `name`, `contact_email` or `package`.                                                                                                                                                            |
+| `POST /admin/accounts/{id}/suspend`, `/unsuspend`                                   | `accounts.suspend`, `accounts.unsuspend`                | Suspends or unsuspends the account and all its resources. Works on a suspended account.                                                                                                                  |
+| `DELETE /admin/accounts/{id}`                                                       | `accounts.delete`                                       | Deletes the account and everything it has, on the nodes too. Send the account's id as `confirm`, for example `{"confirm": "ZQucS8keP4J7"}`.                                                              |
+| `PUT /admin/accounts/{id}/reseller`, `DELETE`                                       | `accounts.update`                                       | Puts the account under a reseller account (`reseller_account_id`), or takes it away.                                                                                                                     |
+| `GET /admin/packages`, `/admin/packages/{id}`                                       | `packages.view_any`, `packages.view`                    | Packages with their limits and how many accounts use them.                                                                                                                                               |
+| `POST /admin/packages`, `PATCH`, `DELETE`                                           | `packages.create`, `packages.update`, `packages.delete` | `name`, `description`, `is_active` (false when left out, as in the panel). A package in use cannot be deleted.                                                                                           |
+| `PUT /admin/packages/{id}/limits/{type}`                                            | `packages.update`                                       | Sets one limit: `{"limit_value": 10}`, or `null` for unlimited. Types: `web_domains`, `dns_zones`, `dns_records`, `mail_domains`, `mail_accounts`, `tenant_databases`, `cron_jobs`.                      |
+| `GET /admin/nodes`, `/admin/nodes/{id}`                                             | `nodes.view_any`, `nodes.view`                          | Nodes with reachability, ping, services and capabilities.                                                                                                                                                |
+| `POST /admin/nodes/{id}/suspend`, `/unsuspend`                                      | `nodes.suspend`, `nodes.unsuspend`                      | Takes a node out of service, or back.                                                                                                                                                                    |
+| `GET /admin/node-backups`, `/admin/node-backups/{id}`                               | `backups.view_any`, `backups.view`                      | Whole-node backups, newest first; `?filter[node]=` takes a node's id or name.                                                                                                                            |
+| `POST /admin/node-backups`, `DELETE /admin/node-backups/{id}`                       | `backups.create`, `backups.delete`                      | Starts a backup of a whole node (`node`, its id; optional `label`), or deletes one. Both answer `202` with an operation.                                                                                 |
+| `GET /admin/web-domains`, `/dns-zones`, `/mail-domains`, `/databases`, `/cron-jobs` | `web_domains.view_any` and so on                        | Every customer's resources of that kind, each with its `account_id`; `?filter[account]=` and, for the domain lists, `?filter[domain]=`. Read only.                                                       |
+
+In a package's `limits`, each type has `configured` and `limit`: `configured: false` means none of it may be created on the package (no limit set yet), `limit: null` means unlimited.
+
+Suspending or deleting an account answers at once (`200`): the account itself is done, and each of its resources is changed on its node by its own operation, as in the panel.
+
+**Not in the API**, on purpose: adding, enrolling and removing nodes, their capabilities and services, restoring a whole node and downloading its backup, members and roles, and anything a token can never do (Chapter 2). Use the panel for those.
+
+---
+
+## Chapter 6: Good practice
 
 - One token per script or machine, with its own name, so revoking one never breaks another.
 - Only the abilities the script needs, and an account restriction whenever the script works on one customer.
@@ -188,12 +255,12 @@ Send an `Idempotency-Key` header (any 1 to 255 printable characters, unique per 
 
 ---
 
-## Chapter 6: What comes next
+## Chapter 7: What comes next
 
 The API is built in steps. Each step will be added to this guide and to `docs/api/openapi.yaml` when it ships.
 
 1. **Done:** tokens, `GET /user`, `GET /accounts`.
 2. **Done:** reading everything an account has: web domains, DNS zones and records, mail domains and mailboxes, databases, cron jobs, backups, usage.
 3. **Done:** creating, changing, suspending and deleting everything an account has, with `202 Accepted`, operations and `Idempotency-Key`.
-4. **Next:** the platform administration endpoints (accounts, packages, nodes, whole-node backups), for tokens with the Platform administration abilities.
-5. Checking every response against the OpenAPI description in the test suite, and the description shown here in the documentation.
+4. **Done:** the platform administration endpoints (Chapter 5), and errors as problem documents.
+5. **Next:** checking every response against the OpenAPI description in the test suite (the paths already are), and the description shown here in the documentation.

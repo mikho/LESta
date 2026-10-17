@@ -92,7 +92,9 @@ test('the panel validation and quota apply', function () {
 
     $account->package->limits()->where('resource_type', 'web_domains')->update(['limit_value' => 1]);
 
-    $this->postJson(webDomainsPath($account), ['domain' => 'over.example'], $auth)->assertUnprocessable()->assertJsonPath('message', fn (string $message) => str_contains($message, 'limit'));
+    $this->postJson(webDomainsPath($account), ['domain' => 'over.example'], $auth)->assertUnprocessable()
+        ->assertJsonPath('type', 'urn:lesta:problem:quota-exceeded')
+        ->assertJsonPath('detail', fn (string $detail) => str_contains($detail, 'limit'));
 });
 
 test('no node able to host it answers 503', function () {

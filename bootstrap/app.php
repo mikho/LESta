@@ -1,20 +1,12 @@
 <?php
 
-use App\Exceptions\NoBackupCapableNodeAvailableException;
-use App\Exceptions\NoCronCapableNodeAvailableException;
-use App\Exceptions\NoDnsCapableNodeAvailableException;
-use App\Exceptions\NoIpAllocationAvailableException;
-use App\Exceptions\NoMailCapableNodeAvailableException;
-use App\Exceptions\NoPhpCapableNodeAvailableException;
-use App\Exceptions\NoTenantDatabaseCapableNodeAvailableException;
-use App\Exceptions\NoWebCapableNodeAvailableException;
-use App\Exceptions\PackageQuotaExceededException;
-use App\Exceptions\ResourceQuotaExceededException;
+use App\Exceptions\RendersApiProblem;
 use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\HandleApiIdempotencyKey;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequireApiAbility;
+use App\Http\Middleware\RequireApiPermission;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -47,13 +39,14 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: '',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['api.ability' => RequireApiAbility::class, 'api.idempotent' => HandleApiIdempotencyKey::class]);
+        $middleware->alias(['api.ability' => RequireApiAbility::class, 'api.idempotent' => HandleApiIdempotencyKey::class, 'api.permission' => RequireApiPermission::class]);
 
         // The API token is checked first: the "api" rate limiter counts per token, and a caller
         // without a valid token gets 401 before any account in the path is looked up. The ability
         // check runs after route model binding, since it reads the bound account.
         $middleware->prependToPriorityList(before: ThrottleRequests::class, prepend: AuthenticateApiToken::class);
         $middleware->appendToPriorityList(after: SubstituteBindings::class, append: RequireApiAbility::class);
+        $middleware->appendToPriorityList(after: RequireApiAbility::class, append: RequireApiPermission::class);
 
         // Which proxies are believed is set in AppServiceProvider from config('app.trusted_proxies')
         // (TRUSTED_PROXIES): the local machine by default, where nginx terminates TLS. Without
@@ -80,12 +73,7 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
 
-        // The API answers the Actions' own refusals instead of a 500: a package limit is the
-        // client's to resolve (422), no node able to take the resource is the platform's (503).
-        $exceptions->render(function (ResourceQuotaExceededException|PackageQuotaExceededException $e, Request $request) {
-            return $request->is('api/*') ? response()->json(['message' => $e->getMessage()], 422) : null;
-        });
-        $exceptions->render(function (NoWebCapableNodeAvailableException|NoPhpCapableNodeAvailableException|NoIpAllocationAvailableException|NoDnsCapableNodeAvailableException|NoMailCapableNodeAvailableException|NoTenantDatabaseCapableNodeAvailableException|NoCronCapableNodeAvailableException|NoBackupCapableNodeAvailableException $e, Request $request) {
-            return $request->is('api/*') ? response()->json(['message' => 'No server can take this right now. Try again later or contact your provider.'], 503) : null;
-        });
+        // Every API error is a problem document (RFC 9457), see RendersApiProblem; the panel's
+        // own pages are unchanged.
+        $exceptions->render(fn (Throwable $e, Request $request) => $request->is('api/*') ? RendersApiProblem::render($e) : null);
     })->create();

@@ -20,6 +20,26 @@ use Illuminate\Support\Carbon;
 #[Fillable(['package_id', 'resource_type', 'limit_value'])]
 class PackageLimit extends Model
 {
+    /**
+     * The only resource types a real Create action anywhere in this app actually enforces a
+     * quota against (confirmed by grepping every Actions/**\/Create*.php for its own
+     * ->where('resource_type', ...) quota check) -- deliberately excludes 'memberships', which
+     * App\Actions\Packages\UpdatePackageQuota has always had a special case for but which no real
+     * membership-creation path has ever actually checked, so offering a quota field for it here
+     * would imply an enforcement that does not exist.
+     *
+     * @var list<string>
+     */
+    public const array RESOURCE_TYPES = [
+        'web_domains',
+        'dns_zones',
+        'dns_records',
+        'mail_domains',
+        'mail_accounts',
+        'tenant_databases',
+        'cron_jobs',
+    ];
+
     /** @use HasFactory<PackageLimitFactory> */
     use HasFactory;
 

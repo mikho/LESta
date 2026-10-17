@@ -20,6 +20,7 @@ class TenantDatabaseResource extends ApiResource
     {
         return [
             'id' => $this->uuid,
+            'account_id' => $this->whenLoaded('account', fn (): string => $this->account->public_id),
             'label' => $this->label,
             'database_name' => $this->database_name,
             'database_user' => $this->database_user,

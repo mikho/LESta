@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Exceptions\ApiProblemException;
 use App\Models\ApiToken;
 use Closure;
 use Illuminate\Http\Request;
@@ -32,7 +33,7 @@ class AuthenticateApiToken
         $failureKey = 'api-auth-failures:'.$request->ip();
 
         if (RateLimiter::tooManyAttempts($failureKey, self::MAX_FAILURES_PER_MINUTE)) {
-            abort(429, 'Too many failed attempts.');
+            throw new ApiProblemException(429, 'too-many-failed-tokens', 'Too many failed tokens from this address. Wait a minute.', ['Retry-After' => (string) RateLimiter::availableIn($failureKey)]);
         }
 
         $plaintext = $request->bearerToken();
@@ -45,7 +46,7 @@ class AuthenticateApiToken
         if ($token === null || $token->isExpired() || $token->user === null) {
             RateLimiter::hit($failureKey, 60);
 
-            abort(401, 'Missing, invalid or expired API token.');
+            throw new ApiProblemException(401, 'invalid-token', 'Missing, invalid, revoked or expired API token.');
         }
 
         if ($token->last_used_at === null || $token->last_used_at->diffInSeconds(now()) >= self::TOUCH_EVERY_SECONDS || $token->last_used_ip !== $request->ip()) {
