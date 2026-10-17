@@ -553,7 +553,7 @@ bootstrap_base() {
 
     install -d -m 0751 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
     install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
-    install -d -m 0750 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
+    install -d -m 0751 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
     add_change base.os.v1 ensured /etc/lesta "directory present, mode 0751 root:lesta"
     add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
     add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0750 root:lesta"
@@ -817,8 +817,21 @@ install_nginx() {
     # the same "must exist before the thing that validates against it runs"
     # ordering mail/install.sh's own lesta.conf-before-package-install fix
     # already had to learn the hard way.
-    install -d -m 0750 -o root -g lesta "${NGINX_LOG_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LOG_DIR}" "failed to create ${NGINX_LOG_DIR}"
-    add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "per-vhost access-log directory present, mode 0750 root:lesta"
+    #
+    # Mode 0751 (and /var/log/lesta's own 0751): nginx's worker processes run
+    # as www-data and reopen every log when log rotation signals them each
+    # night, so they must be able to pass through these directories (not list
+    # them). Each vhost's log file is owned by www-data, group lesta (the
+    # agent reads it), mode 0640: the agent creates new ones that way, and the
+    # live ones already here are put right below.
+    install -d -m 0751 -o root -g lesta "${NGINX_LOG_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${NGINX_LOG_DIR}" "failed to create ${NGINX_LOG_DIR}"
+    add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "per-vhost access-log directory present, mode 0751 root:lesta"
+
+    if getent passwd www-data >/dev/null 2>&1; then
+        find "${NGINX_LOG_DIR}" -maxdepth 1 -type f \( -name '*.access.log' -o -name '*.error.log' \) -exec chown www-data:lesta {} + -exec chmod 0640 {} + \
+            || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${NGINX_LOG_DIR}" "failed to hand the live per-vhost logs to www-data"
+        add_change web.nginx.v1 ensured "${NGINX_LOG_DIR}" "live per-vhost logs owned by www-data:lesta, mode 0640, so nginx's workers can reopen them at log rotation"
+    fi
 
     # Password files for protected directories (auth_basic). Owned by the agent
     # so it can write them, group www-data (nginx's worker user) with the setgid

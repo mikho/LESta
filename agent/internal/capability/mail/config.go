@@ -75,6 +75,11 @@ type Config struct {
 	// this capability rewrites atomically on every apply: one line per
 	// active (non-suspended) MailAccount across every hosted domain.
 	DovecotPasswdPath string
+	// VmailRoot is Dovecot's mail store, <VmailRoot>/<domain>/<local_part>
+	// (the installer's VMAIL_HOME): a deleted mailbox's or domain's mail is
+	// removed from it. Production: /var/lib/lesta/mail/vmail. Empty: mail is
+	// never removed.
+	VmailRoot string
 	// DovecotBinary/DoveadmBinary/DoveconfBinary are the executables to
 	// invoke. Empty means resolved via PATH.
 	DovecotBinary  string

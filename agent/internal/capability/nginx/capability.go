@@ -129,6 +129,10 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return c.rejected(op, "protected_directories_unavailable", "this node has no directory for protected-directory password files; rerun the nginx installer", "protected_dirs")
 	}
 
+	if err := ensureLogFiles(c.cfg, filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"), filepath.Join(c.cfg.LogDir, op.ResourceID+".error.log")); err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
 	auth := c.prepareAuthFiles(op.ResourceID, payload.ProtectedDirs)
 	if err := c.writeAuthFiles(auth.Files); err != nil {
 		return protocol.ResultEnvelope{}, err
@@ -284,7 +288,14 @@ func (c *NginxCapability) applyDelete(ctx context.Context, op protocol.Operation
 
 	c.pruneAuthFiles(op.ResourceID, nil)
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	// The domain is gone from nginx: its files and logs go too. What cannot
+	// be removed is reported with the applied result, not as a failure.
+	var leftovers []protocol.ResultError
+	for _, problem := range c.removeDeletedDomainData(payload.AccountUsername, op.ResourceID) {
+		leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: problem})
+	}
+
+	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
 }
 
 // observe is read-only: it recomputes the whole-LiveDir digest and compares it

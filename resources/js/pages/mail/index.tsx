@@ -410,9 +410,11 @@ export default function Index({
                                                     <DialogDescription>
                                                         This cannot be undone.
                                                         The domain, its
-                                                        mailboxes, and its
-                                                        provisioning state will
-                                                        be permanently removed.
+                                                        mailboxes and all their
+                                                        mail are deleted from
+                                                        the server; take a
+                                                        backup first if you need
+                                                        them.
                                                     </DialogDescription>
 
                                                     <Form

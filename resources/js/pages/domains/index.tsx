@@ -443,9 +443,11 @@ export default function Index({
                                                     </DialogTitle>
                                                     <DialogDescription>
                                                         This cannot be undone.
-                                                        The domain and its
-                                                        provisioning state will
-                                                        be permanently removed.
+                                                        The domain's site files
+                                                        and logs are deleted
+                                                        from the server too;
+                                                        take a backup first if
+                                                        you need them.
                                                     </DialogDescription>
 
                                                     <Form

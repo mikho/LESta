@@ -788,7 +788,10 @@ export default function Edit({
                                                         </DialogTitle>
                                                         <DialogDescription>
                                                             This cannot be
-                                                            undone.
+                                                            undone. The mailbox
+                                                            and all its mail are
+                                                            deleted from the
+                                                            server.
                                                         </DialogDescription>
 
                                                         <Form
@@ -908,9 +911,10 @@ export default function Edit({
                                     {mailDomain.domain}?
                                 </DialogTitle>
                                 <DialogDescription>
-                                    Once this domain is deleted, all of its
-                                    mailboxes and provisioning state will also
-                                    be permanently deleted.
+                                    This cannot be undone. The domain, its
+                                    mailboxes and all their mail are deleted
+                                    from the server; take a backup first if you
+                                    need them.
                                 </DialogDescription>
 
                                 <Form

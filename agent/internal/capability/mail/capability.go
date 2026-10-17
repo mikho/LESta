@@ -148,6 +148,15 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		}
 	}
 
+	// The mailboxes before this change, to remove the mail of the ones it
+	// takes away once it has taken effect.
+	var previous Payload
+	if hasCurrent {
+		if previous, err = c.currentPayload(op.ResourceID); err != nil {
+			return protocol.ResultEnvelope{}, err
+		}
+	}
+
 	n, err := c.store.NextGeneration(op.ResourceID)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
@@ -175,7 +184,16 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	result, err := c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	// A deleted mailbox's mail goes with it. What cannot be removed is
+	// reported with the applied result, not as a failure.
+	var leftovers []protocol.ResultError
+	for _, localPart := range removedMailboxes(previous, payload) {
+		if err := c.removeMaildir(payload.Domain, localPart); err != nil {
+			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+		}
+	}
+
+	result, err := c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
@@ -341,7 +359,13 @@ func (c *MailCapability) applyDelete(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	// The domain is gone from Exim and Dovecot: its mail goes too.
+	var leftovers []protocol.ResultError
+	if err := c.removeMaildir(deletedPayload.Domain, ""); err != nil {
+		leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+	}
+
+	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
 }
 
 // applyAndActivateAbsent re-renders every OTHER known domain's own state

@@ -894,9 +894,9 @@ export default function Edit({
                                     {webDomain.domain}?
                                 </DialogTitle>
                                 <DialogDescription>
-                                    Once this domain is deleted, all of its
-                                    resources and provisioning state will also
-                                    be permanently deleted.
+                                    This cannot be undone. The domain's site
+                                    files and logs are deleted from the server
+                                    too; take a backup first if you need them.
                                 </DialogDescription>
 
                                 <Form

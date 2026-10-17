@@ -238,6 +238,9 @@ func nginxProductionConfig() nginx.Config {
 	return nginx.Config{
 		LiveDir:       "/etc/nginx/lesta.d",
 		AuthDir:       "/etc/lesta/nginx-auth",
+		LogOwner:      "www-data",
+		LogGroup:      "lesta",
+		WafLogDir:     "/var/log/lesta/waf",
 		StateRoot:     "/var/lib/lesta/nginx",
 		NginxConfPath: "/etc/nginx/nginx.conf",
 		NginxBinary:   "nginx",
@@ -614,6 +617,7 @@ func cronProductionConfig() cron.Config {
 func mailProductionConfig() mail.Config {
 	return mail.Config{
 		EximStaticConfPath: "/etc/exim4/exim4.conf",
+		VmailRoot:          "/var/lib/lesta/mail/vmail",
 		EximDataDir:        "/etc/exim4/lesta.d/data",
 		EximBinary:         "exim",
 		EximPIDFile:        "/var/run/exim4/exim.pid",

@@ -27,6 +27,16 @@ type Config struct {
 	// bandwidth/request-count usage per domain, with no per-line Host-header
 	// attribution needed.
 	LogDir string
+	// LogOwner and LogGroup own each vhost's log files (see
+	// ensureLogFiles): nginx's worker user, so the workers can reopen them
+	// at log rotation, and the group that reads them (the agent's).
+	// Production: www-data and lesta. Empty: the files are created as they
+	// are.
+	LogOwner string
+	LogGroup string
+	// WafLogDir holds each resource's ModSecurity audit log, removed with
+	// the domain. Production: /var/log/lesta/waf. Empty: nothing to remove.
+	WafLogDir string
 	// AuthDir is where the htpasswd files for protected directories are
 	// written, one per distinct user list, named by the list's content hash so
 	// a previous generation's file stays in place until a new one is active

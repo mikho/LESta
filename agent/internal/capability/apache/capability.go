@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mikho/LESta/agent/internal/capability/nginx"
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -303,7 +304,22 @@ func (c *ApacheCapability) applyDelete(ctx context.Context, op protocol.Operatio
 		return c.recoverFromFailure(ctx, op, true, "health_check_failed", healthErr.Error())
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	// The domain is gone from Apache: its files and Apache logs go too
+	// (web.nginx.v1 does the same in the "both" profile; removing twice is
+	// harmless). What cannot be removed is reported, not a failure.
+	var leftovers []protocol.ResultError
+	if payload.AccountUsername != "" && c.cfg.AccountsRoot != "" {
+		if err := nginx.RemoveDomainDirectory(c.cfg.AccountsRoot, payload.AccountUsername, op.ResourceID); err != nil {
+			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+		}
+	}
+	if c.cfg.LogDir != "" {
+		if err := nginx.RemoveResourceLogs(c.cfg.LogDir, op.ResourceID); err != nil {
+			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+		}
+	}
+
+	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
 }
 
 // observe is read-only: it recomputes the whole-LiveDir digest and compares it

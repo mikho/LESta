@@ -34,7 +34,7 @@ Click through from "My account," or from the dashboard, to reach your account's 
 - **Add domain**: the domain name, optional **aliases** (one per line, extra hostnames that serve the same site), a **template**, **web server** (nginx or Apache, Apache only works if your node supports it), a **PHP version** (8.1 to 8.4, or none for a static site), and **SSL mode** (None, Manual, or Let's Encrypt).
 - **Edit**: change the same fields after creation.
 - **Suspend / Unsuspend**: takes the site offline/back online without deleting it.
-- **Delete**: removes it permanently.
+- **Delete**: removes it permanently, and with it the site's files and logs on the server. Take a backup first (Chapter 8) if you might want them back.
 
 On a domain's own page you also find:
 
@@ -43,7 +43,7 @@ On a domain's own page you also find:
 - **Redirects**: send a path, or everything under a path, to another path or address, permanently (301) or temporarily (302). Up to 100 per domain.
 - **Password-protected folders**: ask for a username and password before a folder of the site is shown, with as many logins per folder as you need.
 - **Hotlink protection**: stop other sites from showing your images; an allow list lets chosen partner sites through.
-- **Web application firewall** (nginx sites): **Off**, **Detect** (log what would be blocked, block nothing) or **Block**. A **preset** for WordPress, Drupal, Nextcloud, DokuWiki or XenForo avoids false alarms from that application's normal requests. Start with Detect and look at the logs before switching to Block.
+- **Web application firewall** (nginx sites): **Off**, **Detect** (log what would be blocked, block nothing) or **Block**. A **preset** for WordPress, Drupal, Nextcloud, DokuWiki or XenForo avoids false alarms from that application's normal requests. Start with Detect and look at the logs before switching to Block. One limit of Detect: requests for pages that do not exist (what scanners mostly send) are not logged there, because the error page takes over before the firewall's record is written; Block refuses and logs them.
 - **Logs and traffic**: requests by status and by hour, top pages, missing pages (404), referrers, browsers and visitors from the recent access log, the last lines of the access and error logs, a download of the recent log, and 30 days of requests and bandwidth.
 
 **IP access rules** (`IP access rules` on the Domains page, `/ip-rules`): allow or deny addresses and ranges for every site of your account. An allow is an exception to a wider deny; to let only some addresses in, add them as allows and deny `0.0.0.0/0` and `::/0`.
@@ -67,8 +67,8 @@ On a domain's own page you also find:
 - **Add domain**: the domain name, a **catch-all email** (optional — where mail to unrecognized addresses at this domain goes), and three toggles: scan incoming mail for viruses, scan for spam (both on by default), and sign outgoing mail with DKIM (off by default — turning it on starts real key generation, and the key rotates automatically on a schedule you don't need to manage).
 - Inside a domain's edit page, **Add mailbox**: a name (the part before the `@`), optional quota in MB, optional forwarding address, a "forward only, don't keep a copy" toggle, and an autoreply toggle with its own message.
     - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **Rotate password** on that mailbox to get a new one.
-- Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page.
-- The domain itself can be suspended/unsuspended (stops/resumes all mail for every mailbox on it) or deleted (removes it and every mailbox in it).
+- Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page. Deleting a mailbox deletes its mail on the server too.
+- The domain itself can be suspended/unsuspended (stops/resumes all mail for every mailbox on it) or deleted (removes it and every mailbox in it, with all their mail).
 - **Mailing lists** (`Lists` on a mail domain): a list address that sends each message on to its members, open to anyone or to members only, with an owner address, a subject prefix and an optional reply-to.
 - **Webmail**: read and send mail in the browser. Open it from the mail pages; it signs you in to the mailbox without asking for the password again.
 
