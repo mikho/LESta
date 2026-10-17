@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
 
 /**
@@ -16,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $api_token_id
  * @property string $auditable_type
  * @property int|string $auditable_id
+ * @property int|null $account_id
  * @property string $action
  * @property string $correlation_id
  * @property array<string, mixed>|null $metadata
@@ -88,9 +90,51 @@ class AuditEvent extends Model
                 request()->attributes->set('api_audit_events', [...request()->attributes->get('api_audit_events', []), $event]);
             }
 
+            $event->account_id ??= $event->resolveAccountId();
+
             $event->previous_hash = static::query()->orderByDesc('id')->value('hash');
             $event->hash = $event->chainHash($event->previous_hash);
         });
+    }
+
+    /**
+     * The account the audited resource belongs to, walking up from a record to its zone, a
+     * mailbox to its mail domain, and so on; for a resource that is gone already, the account its
+     * earlier events named. Null for what belongs to no account (nodes, packages, roles, a
+     * platform login) and for API tokens, which are their user's own.
+     */
+    public function resolveAccountId(): ?int
+    {
+        $model = Relation::getMorphedModel($this->auditable_type) ?? $this->auditable_type;
+
+        if ($model === ApiToken::class) {
+            return null;
+        }
+
+        $accountId = is_subclass_of($model, Model::class) ? self::accountIdOf($model::query()->find($this->auditable_id)) : null;
+
+        return $accountId ?? static::query()
+            ->where('auditable_type', $this->auditable_type)
+            ->where('auditable_id', $this->auditable_id)
+            ->whereNotNull('account_id')
+            ->orderByDesc('id')
+            ->value('account_id');
+    }
+
+    private static function accountIdOf(?Model $model): ?int
+    {
+        return match (true) {
+            $model === null => null,
+            $model instanceof Account => $model->id,
+            $model instanceof DnsRecord => $model->dnsZone?->account_id,
+            $model instanceof MailAccount, $model instanceof MailingList => $model->mailDomain?->account_id,
+            $model instanceof MailingListMember => $model->mailingList?->mailDomain?->account_id,
+            $model instanceof WebDomainAlias, $model instanceof WebDomainRedirect, $model instanceof WebDomainProtectedDir => $model->webDomain?->account_id,
+            $model instanceof WebDomainProtectedDirUser => $model->directory?->webDomain?->account_id,
+            $model instanceof AccountBackupDownload => $model->backup?->account_id,
+            array_key_exists('account_id', $model->getAttributes()) => $model->getAttribute('account_id'),
+            default => null,
+        };
     }
 
     /**

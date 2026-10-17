@@ -58,6 +58,8 @@ class HandleInertiaRequests extends Middleware
                 'impersonating' => $this->impersonating($request),
                 // Account owners and platform users may create API tokens (ApiTokenPolicy).
                 'can_use_api_tokens' => $request->user()?->can('create', ApiToken::class) ?? false,
+                // The audit log: the platform-wide one, or the user's own accounts' (AuditEventPolicy).
+                'can_view_audit_log' => $request->user() !== null && ($request->user()->hasPermission('audit_events.view_any') || $request->user()->memberships()->whereNotNull('account_id')->exists()),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

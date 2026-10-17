@@ -16,6 +16,7 @@ export type Auth = {
     has_node_admin_grants: boolean;
     has_any_account_membership: boolean;
     can_use_api_tokens: boolean;
+    can_view_audit_log: boolean;
     impersonating: { admin_name: string } | null;
 };
 

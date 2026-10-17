@@ -12,6 +12,7 @@ import {
     Mail as MailIcon,
     Network,
     PackageIcon,
+    ScrollText,
     Server,
     ShieldCheck,
     UserRound,
@@ -31,6 +32,7 @@ import {
 import { dashboard } from '@/routes';
 import accountBackups from '@/routes/account-backups';
 import accounts from '@/routes/accounts';
+import auditLog from '@/routes/audit-log';
 import backups from '@/routes/backups';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
@@ -123,6 +125,12 @@ const myBackupsNavItem: NavItem = {
     icon: ArchiveRestore,
 };
 
+const auditLogNavItem: NavItem = {
+    title: 'Audit log',
+    href: auditLog.index(),
+    icon: ScrollText,
+};
+
 const myAccountNavItem: NavItem = {
     title: 'My account',
     href: accounts.mine(),
@@ -153,6 +161,10 @@ export function AppSidebar() {
         // Independent of admin/node-admin capacity: a provider admin who also happens to hold a
         // real membership sees both the platform-wide Accounts list and their own account.
         items = [...items, myBackupsNavItem, myAccountNavItem];
+    }
+
+    if (auth.can_view_audit_log) {
+        items = [...items, auditLogNavItem];
     }
 
     return (
