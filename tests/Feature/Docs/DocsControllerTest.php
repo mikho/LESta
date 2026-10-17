@@ -8,7 +8,7 @@ test('a guest is redirected to login', function () {
     $this->get(route('docs.index'))->assertRedirect(route('login'));
 });
 
-test('a plain user sees the user guide and the API guide in the index', function () {
+test('a plain user sees the user guide and the two API guides in the index', function () {
     $user = User::factory()->create();
 
     $this->actingAs($user)
@@ -16,13 +16,14 @@ test('a plain user sees the user guide and the API guide in the index', function
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('docs/index')
-            ->has('guides', 2)
+            ->has('guides', 3)
             ->where('guides.0.slug', 'user-guide')
             ->where('guides.1.slug', 'api-guide')
+            ->where('guides.2.slug', 'api-reference')
         );
 });
 
-test('a provider admin sees all four guides in the index', function () {
+test('a provider admin sees all five guides in the index', function () {
     $admin = Membership::factory()->providerAdmin()->create()->user;
 
     $this->actingAs($admin)
@@ -30,7 +31,7 @@ test('a provider admin sees all four guides in the index', function () {
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('docs/index')
-            ->has('guides', 4)
+            ->has('guides', 5)
         );
 });
 
@@ -44,7 +45,7 @@ test('a plain user can open the user guide and its chapters, with the guides the
             ->component('docs/show')
             ->where('guide.slug', 'user-guide')
             ->has('guide.chapters')
-            ->has('guides', 2)
+            ->has('guides', 3)
             ->where('guides.0.slug', 'user-guide')
         );
 
@@ -56,7 +57,7 @@ test('a plain user can open the user guide and its chapters, with the guides the
             ->where('chapter.slug', 'chapter-1')
             ->where('chapter.previous', null)
             ->has('guide.chapters')
-            ->has('guides', 2)
+            ->has('guides', 3)
             ->where('guides.0.slug', 'user-guide')
         );
 });
@@ -78,7 +79,7 @@ test('a provider admin can open the admin guide and its chapters, with all four 
         ->assertInertia(fn (Assert $page) => $page
             ->component('docs/show')
             ->where('guide.slug', 'admin-guide')
-            ->has('guides', 4)
+            ->has('guides', 5)
         );
 
     $this->actingAs($admin)
@@ -87,7 +88,7 @@ test('a provider admin can open the admin guide and its chapters, with all four 
         ->assertInertia(fn (Assert $page) => $page
             ->component('docs/chapter')
             ->where('chapter.slug', 'chapter-1')
-            ->has('guides', 4)
+            ->has('guides', 5)
         );
 });
 
@@ -116,4 +117,14 @@ test('the API guide opens for a plain user and has its chapters', function () {
             ->where('guide.slug', 'api-guide')
             ->where('chapter.title', 'API tokens')
         );
+});
+
+test('the API Reference opens, and its schema links name a chapter that exists', function () {
+    $user = User::factory()->create();
+    $markdown = file_get_contents(resource_path('docs/api-reference.md'));
+    preg_match('#\(/docs/api-reference/(chapter-\d+)\#webdomain\)#', $markdown, $link);
+
+    $this->actingAs($user)->get(route('docs.show', 'api-reference'))->assertOk();
+    $this->actingAs($user)->get(route('docs.chapter', ['api-reference', $link[1]]))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('chapter.title', 'Schemas'));
 });

@@ -1,12 +1,17 @@
 <?php
 
+use App\Models\Membership;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Symfony\Component\Yaml\Yaml;
+use Tests\OpenApiResponseValidator;
 
 /**
  * docs/api/openapi.yaml describes exactly the API's routes: every route is in the description and
  * every described path and method exists. (symfony/yaml is here through laravel/sail and
- * laravel/roster, both dev dependencies.) Validating response bodies against the schemas is step 5.
+ * laravel/roster, both dev dependencies.) Every response body a test receives is also checked
+ * against its schema, by Tests\OpenApiResponseValidator from Tests\TestCase.
  */
 test('the OpenAPI description and the API routes match', function () {
     $normalize = fn (string $path): string => preg_replace('/\{[^}]+\}/', '{}', $path);
@@ -26,4 +31,18 @@ test('the OpenAPI description and the API routes match', function () {
         ->sort()->values()->all();
 
     expect($described)->toBe($routes);
+});
+
+test('the response check catches a body or a status the description does not have', function () {
+    $owner = Membership::factory()->owner()->create();
+    $request = Request::create('/api/v1/accounts/'.$owner->account->public_id.'/web-domains', 'GET');
+    $request->setRouteResolver(fn () => Route::getRoutes()->match($request));
+
+    $good = new JsonResponse(['data' => [], 'links' => ['first' => null, 'last' => null, 'prev' => null, 'next' => null], 'meta' => ['path' => '/x', 'per_page' => 50, 'next_cursor' => null, 'prev_cursor' => null]]);
+    $wrongBody = new JsonResponse(['data' => [['id' => 'not-a-uuid']], 'links' => [], 'meta' => []]);
+    $wrongStatus = new JsonResponse([], 418);
+
+    expect(OpenApiResponseValidator::check($request, $good))->toBeNull()
+        ->and(OpenApiResponseValidator::check($request, $wrongBody))->toContain('does not match the schema')
+        ->and(OpenApiResponseValidator::check($request, $wrongStatus))->toContain('418: this status is not described');
 });

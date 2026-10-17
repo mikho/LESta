@@ -34,6 +34,12 @@ class DocsCatalog
             'file' => 'api-guide.md',
             'admin_only' => false,
         ],
+        'api-reference' => [
+            'title' => 'API Reference',
+            'description' => 'Every API call with what it takes and answers, generated from the OpenAPI description.',
+            'file' => 'api-reference.md',
+            'admin_only' => false,
+        ],
         'installation-guide' => [
             'title' => 'Installation Guide',
             'description' => 'For setting up a real infrastructure node: prerequisites, the installers, and removing services safely.',

@@ -59,6 +59,8 @@ paths:
                     $ref: '#/components/schemas/CursorMeta'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
   /operations/{operation}:
@@ -123,6 +125,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -139,18 +143,6 @@ paths:
             schema:
               $ref: '#/components/schemas/WebDomainCreate'
       responses:
-        '200':
-          description: Nothing to change (for example, already suspended).
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, operation]
-                properties:
-                  data:
-                    $ref: '#/components/schemas/WebDomain'
-                  operation:
-                    type: 'null'
         '202':
           description: Accepted. The nodes apply the change next; poll the operation in Location.
           headers:
@@ -225,18 +217,6 @@ paths:
             schema:
               $ref: '#/components/schemas/WebDomainUpdate'
       responses:
-        '200':
-          description: Nothing to change (for example, already suspended).
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, operation]
-                properties:
-                  data:
-                    $ref: '#/components/schemas/WebDomain'
-                  operation:
-                    type: 'null'
         '202':
           description: Accepted. The nodes apply the change next; poll the operation in Location.
           headers:
@@ -446,6 +426,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -740,6 +722,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -1040,6 +1024,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -1334,6 +1320,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -1676,6 +1664,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -1969,6 +1959,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -2262,6 +2254,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
     post:
@@ -2453,6 +2447,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
   /accounts/{account}/usage/monthly:
@@ -2487,6 +2483,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
         '429':
           $ref: '#/components/responses/TooManyRequests'
   /admin/accounts:

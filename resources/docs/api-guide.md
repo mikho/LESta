@@ -8,7 +8,7 @@ The LESta API lets a script do what you do in the panel, as you. This guide cove
 
 - **The same panel, another door.** Every API call runs the same checks the panel does. A script using your token can never do more than you can in the panel, only less.
 - **Version 1** lives under `/api/v1` on your panel's address, for example `https://panel.example.com/api/v1`. A future breaking change gets a new version (`/api/v2`); version 1 stays available for an announced period.
-- **Machine-readable description:** the full contract is an OpenAPI 3.1 file in the LESta repository, `docs/api/openapi.yaml`. Generate a client from it, or read it alongside this guide.
+- **Every call in detail:** the **API Reference** in these docs lists each call with its parameters, body and answers. It is generated from the machine-readable contract, an OpenAPI 3.1 file in the LESta repository (`docs/api/openapi.yaml`), which you can also use to generate a client. The test suite checks every answer the API gives against that file.
 - **JSON only.** Send `Accept: application/json`. Responses put their content under `data`.
 
 ---
@@ -263,4 +263,5 @@ The API is built in steps. Each step will be added to this guide and to `docs/ap
 2. **Done:** reading everything an account has: web domains, DNS zones and records, mail domains and mailboxes, databases, cron jobs, backups, usage.
 3. **Done:** creating, changing, suspending and deleting everything an account has, with `202 Accepted`, operations and `Idempotency-Key`.
 4. **Done:** the platform administration endpoints (Chapter 5), and errors as problem documents.
-5. **Next:** checking every response against the OpenAPI description in the test suite (the paths already are), and the description shown here in the documentation.
+5. **Done:** every answer checked against the OpenAPI description in the test suite, and the API Reference in these docs.
+6. **Later, a separate design:** webhooks (an operation or backup finished) and allowing a token only from given addresses.
