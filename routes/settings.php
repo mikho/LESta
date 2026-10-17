@@ -3,6 +3,7 @@
 use App\Http\Controllers\Settings\ApiTokenController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Settings\WebhookController;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +35,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware([RequirePassword::class, 'throttle:10,1'])
         ->name('api-tokens.store');
     Route::delete('settings/api-tokens/{apiToken}', [ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
+
+    // Adding a webhook shows its signing secret once, so it asks for the password again too.
+    Route::get('settings/webhooks', [WebhookController::class, 'index'])
+        ->middleware(RequirePassword::class)
+        ->name('webhooks.index');
+    Route::post('settings/webhooks', [WebhookController::class, 'store'])
+        ->middleware([RequirePassword::class, 'throttle:10,1'])
+        ->name('webhooks.store');
+    Route::post('settings/webhooks/{webhook}/test', [WebhookController::class, 'test'])->middleware('throttle:10,1')->name('webhooks.test');
+    Route::delete('settings/webhooks/{webhook}', [WebhookController::class, 'destroy'])->name('webhooks.destroy');
 });
 
 Route::get('.well-known/passkey-endpoints', function () {

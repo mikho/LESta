@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\IdempotencyReceipt;
+use App\Models\WebhookDelivery;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -22,4 +23,5 @@ Schedule::command('account-backups:prune-downloads')->everyFifteenMinutes()->wit
 Schedule::command('mail:rotate-dkim-selectors')->daily()->withoutOverlapping();
 Schedule::command('mail:promote-pending-dkim-selectors')->hourly()->withoutOverlapping();
 Schedule::command('mail:retire-old-dkim-selectors')->hourly()->withoutOverlapping();
-Schedule::command('model:prune', ['--model' => [IdempotencyReceipt::class]])->daily()->withoutOverlapping();
+Schedule::command('model:prune', ['--model' => [IdempotencyReceipt::class, WebhookDelivery::class]])->daily()->withoutOverlapping();
+Schedule::command('webhooks:deliver-due')->everyMinute()->withoutOverlapping();

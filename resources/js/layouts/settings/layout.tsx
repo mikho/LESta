@@ -9,6 +9,7 @@ import { index as apiTokensIndex } from '@/routes/api-tokens';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
+import { index as webhooksIndex } from '@/routes/webhooks';
 import type { NavItem } from '@/types';
 
 const sidebarNavItems: NavItem[] = [
@@ -32,12 +33,15 @@ const sidebarNavItems: NavItem[] = [
 export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
     const { auth } = usePage().props;
-    const navItems: NavItem[] = auth.can_use_api_tokens
-        ? [
-              ...sidebarNavItems,
-              { title: 'API tokens', href: apiTokensIndex(), icon: null },
-          ]
-        : sidebarNavItems;
+    const navItems: NavItem[] = [
+        ...sidebarNavItems,
+        ...(auth.can_use_api_tokens
+            ? [{ title: 'API tokens', href: apiTokensIndex(), icon: null }]
+            : []),
+        ...(auth.can_use_webhooks
+            ? [{ title: 'Webhooks', href: webhooksIndex(), icon: null }]
+            : []),
+    ];
 
     return (
         <div className="px-4 py-6">

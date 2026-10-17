@@ -2,6 +2,7 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Actions\Webhooks\QueuesFinishedWebhookEvents;
 use App\Models\ProvisioningOperation;
 use App\Services\Provisioning\ProvisioningResult;
 
@@ -46,5 +47,8 @@ class CompletesProvisioningOperation
         $this->recordsAccountBackupResult->handle($operation);
         $this->recordsNodeServiceState->handle($operation);
         $this->recordsNodeServiceRemoval->handle($operation);
+
+        // Last, so the events see every record above as already updated.
+        app(QueuesFinishedWebhookEvents::class)->handle($operation);
     }
 }

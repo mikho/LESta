@@ -69,6 +69,7 @@ class Permission extends Model implements ProviderAdminManaged
         'web_domains.view_any', 'dns_zones.view_any', 'mail_domains.view_any', 'tenant_databases.view_any', 'cron_jobs.view_any',
         'roles.view_any', 'roles.view', 'roles.create', 'roles.update', 'roles.delete',
         'audit_events.view_any',
+        'webhooks.manage',
     ];
 
     /**

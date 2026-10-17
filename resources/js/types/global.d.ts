@@ -22,6 +22,7 @@ declare module '@inertiajs/core' {
             generatedPassword?: GeneratedTenantDatabasePassword;
             enrollmentToken?: string;
             createdToken?: string;
+            createdWebhookSecret?: string;
         };
     }
 }

@@ -25,6 +25,8 @@ LESta has no single "admin" flag. Access is built from a few independent pieces 
 - **Profile**: `Settings → Profile` (`/settings/profile`) — name, email, and account deletion (deletes your own login, not any hosting account).
 - **Appearance**: `Settings → Appearance` — light/dark/system theme, cosmetic only.
 - **API tokens**: `Settings → API tokens`: tokens for your own scripts. As a platform user you can also give a token the **Platform administration** abilities. See the **API Guide**.
+- **Webhooks**: `Settings → Webhooks`. With the `webhooks.manage` permission you can add **platform-wide** webhooks, which receive the events of every account and whole-node backups; account owners add their own account's. See the API Guide's webhooks chapter.
+- **Audit log**: `Audit log` in the sidebar. With `audit_events.view_any` you see every event on the platform, with the account, the person, how it was made (panel, which API token, or the platform itself) and the address it came from; filter by account id, action and how. Customers see their own accounts' events, with staff shown only as "Platform administrator". `php artisan audit:verify-chain` checks that no entry was changed or removed.
 
 ### The dashboard
 
@@ -216,5 +218,5 @@ The panel's `.env` holds `APP_KEY` (which decrypts every stored secret: backup k
 
 1. There is no picker for which capabilities `install-selected.sh` has already detected versus what you still need to declare by hand, declaring a capability in the admin app is always a separate, manual step from actually installing it on the server (see the Installation Guide). Installing a service from the panel is not possible; uninstalling is (Chapter 5).
 2. Resellers cannot create new accounts themselves (by design, deferred).
-3. The API so far has tokens and two read endpoints; the rest is being built in steps (API Guide, Chapter 6).
+3. The API covers reading and changing every account resource and the platform administration in the API Guide's Chapter 5; adding and enrolling nodes, whole-node restores and members stay in the panel. The two permissions added with the audit log and webhooks (`audit_events.view_any`, `webhooks.manage`) are given to the full administrator role automatically; a custom role needs them ticked.
 4. If you ever need an admin with narrower platform permissions than "everything" but don't want to build a custom role by hand through the UI, there's no bulk/preset option — every custom role starts from an empty permission set.

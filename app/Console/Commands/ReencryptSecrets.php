@@ -10,6 +10,7 @@ use App\Models\MailAccount;
 use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\User;
+use App\Models\Webhook;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
@@ -42,6 +43,7 @@ class ReencryptSecrets extends Command
         MailAccount::class,
         ProvisioningOperation::class,
         TenantDatabase::class,
+        Webhook::class,
     ];
 
     /**

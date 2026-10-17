@@ -126,16 +126,25 @@ Separate from your hosting account — these control your own login, not anythin
 - **Security** (`/settings/security`): change your password, turn on two-factor authentication (with recovery codes), and register passkeys.
 - **Appearance**: light/dark/system theme.
 - **API tokens** (`/settings/api-tokens`, account owners only): tokens that let your own scripts use the LESta API. See the **API Guide**.
+- **Webhooks** (`/settings/webhooks`, account owners only): an address of yours that LESta calls when a change finishes on the server (applied or failed), when a backup is ready or failed, and when a restore finishes. The address must be HTTPS and public. When you add one, its **signing secret** is shown once: your receiver uses it to check each call came from LESta (the API Guide shows how). Each webhook lists its last deliveries, whether they arrived and what your receiver answered. **Send a test** sends a harmless `ping`. A delivery that fails is tried again for about a day; a webhook whose deliveries keep failing switches itself off, and sending a test switches it back on.
 
 ---
 
-## Chapter 11: If a LESta administrator is helping you
+## Chapter 11: The audit log
+
+`Audit log` in the sidebar (`/audit-log`). Every change to your account, newest first: what was done (for example `web_domain.created`), to what, by whom, and how: **Panel**, **API token** (with the token's name, or "revoked" once it is gone), or **Platform** (something automatic, such as a scheduled backup or a node reporting back). Every member of an account sees its log. When LESta's own staff did something (for example suspended the account), the log says "Platform administrator" rather than a name.
+
+Filter by account (if you are in more than one), by the start of the action (`web_domain.` for everything about web domains), and by how it was made. The log cannot be edited; each entry is chained to the one before it, so a change to an old entry would show.
+
+---
+
+## Chapter 12: If a LESta administrator is helping you
 
 If you contact support about a problem with your account, an administrator may briefly sign in as you to see exactly what you're seeing, with your permission, to diagnose it faster. When they do, a clearly labeled banner appears at the top of every page for the whole time they're doing this, naming who is doing it, with a button to end it immediately. This is always logged.
 
 ---
 
-## Chapter 12: Summary of gaps and notes
+## Chapter 13: Summary of gaps and notes
 
 1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "My account" to reach the others.
 2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "rotate" (which invalidates the old one immediately).

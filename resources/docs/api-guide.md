@@ -1,6 +1,6 @@
 # LESta API Guide
 
-The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading and changing everything an account has, and platform administration.
+The LESta API lets a script do what you do in the panel, as you. This guide covers what exists today: API tokens, how to call the API, reading and changing everything an account has, platform administration, and webhooks.
 
 ---
 
@@ -245,7 +245,58 @@ Suspending or deleting an account answers at once (`200`): the account itself is
 
 ---
 
-## Chapter 6: Good practice
+## Chapter 6: Webhooks
+
+Instead of polling, let LESta call you. Add a webhook under `Settings → Webhooks`: an account owner for their account, a platform administrator (`webhooks.manage`) for the whole platform.
+
+**Events:**
+
+| Event                | When                                                                                                                                | `data` holds                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `operation.finished` | Every step of a change is done on its node, applied or failed. One per change, whether it was made in the panel or through the API. | `operation`: the same object as `GET /operations/{id}` |
+| `backup.finished`    | An account backup is ready or failed; for platform webhooks also whole-node backups.                                                | `backup` (an account backup) or `node_backup`          |
+| `restore.finished`   | A restore is done or failed, including when its safety backup failed.                                                               | `backup`, with `last_restore`                          |
+| `ping`               | You pressed **Send a test**.                                                                                                        | `webhook`                                              |
+
+An account's webhooks get that account's events; platform webhooks get every account's, and whole-node backups.
+
+**The call** is a `POST` with a JSON body:
+
+```json
+{
+    "id": "8b0c…",
+    "event": "operation.finished",
+    "created_at": "2026-10-17T09:30:00Z",
+    "account_id": "ZQucS8keP4J7",
+    "data": {
+        "operation": {
+            "id": "…",
+            "action": "web_domain.created",
+            "status": "applied",
+            "steps": []
+        }
+    }
+}
+```
+
+and these headers: `Lesta-Event` (the event), `Lesta-Delivery` (the `id`, the same on every retry: use it to ignore a repeat), and `Lesta-Signature`.
+
+**Check the signature** before trusting a call. `Lesta-Signature` is `t=<unix time>,v1=<hex>`, where the hex is the HMAC-SHA256 of `<unix time>.<raw body>` with your webhook's signing secret. Compute it over the raw body exactly as received, compare in constant time, and refuse a time more than five minutes old. In PHP:
+
+```php
+[$t, $v1] = sscanf($_SERVER['HTTP_LESTA_SIGNATURE'], 't=%d,v1=%s');
+$body = file_get_contents('php://input');
+$ok = abs(time() - $t) < 300
+    && hash_equals(hash_hmac('sha256', $t.'.'.$body, $secret), $v1);
+```
+
+**Answer** with any `2xx` within 10 seconds; do the real work afterwards. Anything else, a timeout or a redirect counts as failed, and the call is tried again after 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours and 12 hours. Calls can arrive late or, rarely, twice: rely on `Lesta-Delivery` and the event's own ids, not on the order. A webhook whose deliveries fail for good 10 times in a row switches itself off; **Send a test** switches it back on.
+
+**Addresses:** HTTPS only, and only to public addresses: an address on a private, loopback or reserved network is refused when you add the webhook and again before every call, and the call goes to the address that was checked.
+
+---
+
+## Chapter 7: Good practice
 
 - One token per script or machine, with its own name, so revoking one never breaks another.
 - Only the abilities the script needs, and an account restriction whenever the script works on one customer.
@@ -255,7 +306,7 @@ Suspending or deleting an account answers at once (`200`): the account itself is
 
 ---
 
-## Chapter 7: What comes next
+## Chapter 8: What comes next
 
 The API is built in steps. Each step will be added to this guide and to `docs/api/openapi.yaml` when it ships.
 
@@ -264,4 +315,4 @@ The API is built in steps. Each step will be added to this guide and to `docs/ap
 3. **Done:** creating, changing, suspending and deleting everything an account has, with `202 Accepted`, operations and `Idempotency-Key`.
 4. **Done:** the platform administration endpoints (Chapter 5), and errors as problem documents.
 5. **Done:** every answer checked against the OpenAPI description in the test suite, and the API Reference in these docs.
-6. **Later, a separate design:** webhooks (an operation or backup finished) and allowing a token only from given addresses.
+6. **Done:** webhooks (Chapter 6). **Later:** allowing a token only from given addresses.

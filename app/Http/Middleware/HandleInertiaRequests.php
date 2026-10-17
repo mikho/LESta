@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\ApiToken;
 use App\Models\User;
+use App\Models\Webhook;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -58,6 +59,8 @@ class HandleInertiaRequests extends Middleware
                 'impersonating' => $this->impersonating($request),
                 // Account owners and platform users may create API tokens (ApiTokenPolicy).
                 'can_use_api_tokens' => $request->user()?->can('create', ApiToken::class) ?? false,
+                // Account owners and webhooks.manage holders may manage webhooks (WebhookPolicy).
+                'can_use_webhooks' => $request->user()?->can('viewAny', Webhook::class) ?? false,
                 // The audit log: the platform-wide one, or the user's own accounts' (AuditEventPolicy).
                 'can_view_audit_log' => $request->user() !== null && ($request->user()->hasPermission('audit_events.view_any') || $request->user()->memberships()->whereNotNull('account_id')->exists()),
             ],
