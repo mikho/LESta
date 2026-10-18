@@ -184,12 +184,14 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	// A deleted mailbox's mail goes with it. What cannot be removed is
-	// reported with the applied result, not as a failure.
+	// A deleted mailbox's mail and Sieve script go with it. What cannot be
+	// removed is reported with the applied result, not as a failure.
 	var leftovers []protocol.ResultError
 	for _, localPart := range removedMailboxes(previous, payload) {
-		if err := c.removeMaildir(payload.Domain, localPart); err != nil {
-			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+		for _, remove := range []func(string, string) error{c.removeMaildir, c.removeSieveData} {
+			if err := remove(payload.Domain, localPart); err != nil {
+				leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+			}
 		}
 	}
 
@@ -359,10 +361,13 @@ func (c *MailCapability) applyDelete(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 
-	// The domain is gone from Exim and Dovecot: its mail goes too.
+	// The domain is gone from Exim and Dovecot: its mail and Sieve scripts
+	// go too.
 	var leftovers []protocol.ResultError
-	if err := c.removeMaildir(deletedPayload.Domain, ""); err != nil {
-		leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+	for _, remove := range []func(string, string) error{c.removeMaildir, c.removeSieveData} {
+		if err := remove(deletedPayload.Domain, ""); err != nil {
+			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
+		}
 	}
 
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)

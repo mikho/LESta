@@ -866,4 +866,12 @@ func TestMailCapability_SpamSettingsCompileWithTheRealSievec(t *testing.T) {
 			t.Fatalf("activated script lacks %s:\n%s", want, script)
 		}
 	}
+
+	entries, err := os.ReadDir(filepath.Join(d.Config.SieveDir, domain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want only the activated script, validation left %v", entries)
+	}
 }

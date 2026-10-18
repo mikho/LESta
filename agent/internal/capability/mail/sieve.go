@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // sievePath is address's own rendered Sieve script location, one file per
@@ -192,16 +193,29 @@ func (c *MailCapability) writeSieveScripts(ctx context.Context, domains []Payloa
 }
 
 // ensureSieveDomainDir creates (or puts right) a domain's Sieve directory,
-// mode 2770 like the installer's SIEVE_DIR it sits in (root:vmail, setgid, so
-// the group is inherited): Dovecot delivers as vmail and saves each script's
-// compiled .svbin next to it, which a 0755 directory refused, so every
-// delivery compiled the script again and logged "Permission denied".
+// mode 0770 with the group of the installer's SIEVE_DIR it sits in (vmail):
+// Dovecot delivers as vmail and saves each script's compiled .svbin next to
+// it, which a 0755 directory refused, so every delivery compiled the script
+// again and logged "Permission denied". The group is set explicitly rather
+// than through setgid, since the applier's RestrictSUIDSGID refuses any chmod
+// that sets it.
 func ensureSieveDomainDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o770); err != nil {
 		return err
 	}
 
-	return os.Chmod(dir, 0o770|os.ModeSetgid)
+	parent, err := os.Stat(filepath.Dir(dir))
+	if err != nil {
+		return err
+	}
+
+	if stat, ok := parent.Sys().(*syscall.Stat_t); ok {
+		if err := os.Chown(dir, -1, int(stat.Gid)); err != nil {
+			return err
+		}
+	}
+
+	return os.Chmod(dir, 0o770)
 }
 
 // validateSieveScript runs the real Pigeonhole `sievec` compiler against
@@ -223,6 +237,9 @@ func (c *MailCapability) validateSieveScript(ctx context.Context, path string) e
 	cmd := exec.CommandContext(ctx, c.cfg.sievecBinary(), args...)
 
 	out, err := cmd.CombinedOutput()
+	// sievec saves its compiled output beside the staged script; only the
+	// verdict is wanted, and Dovecot compiles the activated script itself.
+	_ = os.Remove(path + ".svbin")
 	if err != nil {
 		return &ValidationError{
 			Code:    "sieve_script_invalid",
