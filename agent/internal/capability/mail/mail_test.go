@@ -676,6 +676,14 @@ func assertListContains(t *testing.T, path, want string) {
 func TestMailCapability_DKIMSigningProof(t *testing.T) {
 	requireRealExim(t)
 
+	// The disposable signing Exim runs as the current user, and Exim is
+	// built never to deliver as root (fixed_never_users): as root the
+	// message is only deferred and never reaches the capture listener. CI
+	// runs the suite as an ordinary user.
+	if os.Geteuid() == 0 {
+		t.Skip("Exim never delivers as root (fixed_never_users); run this test as an ordinary user, as CI does")
+	}
+
 	d := newDisposableExim(t)
 	capability := mail.New(d.Config)
 	ctx := context.Background()
