@@ -168,6 +168,10 @@ sudo .install/scripts/install-selected.sh --apply --yes --services nginx,cron --
 
 **Dropping `php-fpm`, `adminer` or `webmail` never removes PHP itself.** On a single-node install, the LESta application may run on the same php-fpm, and the PHP extensions these add are shared with every site's own PHP pool. So dropping `php-fpm` removes only LESta's own per-site pools and its own state, and dropping `adminer` or `webmail` removes only their own pool and files; php-fpm keeps running and is reloaded.
 
+**Dropping `cron` never removes the OS's cron.** Ubuntu ships the `cron` package and service with the system, and other packages keep their own jobs in `/etc/cron.d` (`e2scrub_all`, `sysstat`, PHP's session cleaner). So dropping `cron` removes only LESta's own job files there (`lesta-<id>`) and its own state; the package, `cron.service` and every other file in `/etc/cron.d` stay.
+
+**What two services share stays until neither needs it.** The root applier's systemd units (`lesta-applier.service`, used by nginx, Apache, BIND, mail, MariaDB and PHP-FPM; `lesta-applier-tenant.service`, used by cron and the agent daemon) are never removed with a single service, since the others still run through them.
+
 **After a real removal, remove the capability from the node in the admin app yourself.** `--prune` has no path back into Laravel's own database, so go to `Nodes → [your node] → Capabilities` and reset the corresponding entry back to Not installed by hand (Admin Guide, Chapter 5).
 
 ### Removing one service: `--remove`

@@ -3319,3 +3319,43 @@ jobs:
 
       - name: "Scenario 31 cleanup: remove the mariadb tenant quarantine directory"
         run: sudo rm -rf /var/lib/lesta/mariadb/tenant-removed-*
+
+      # --- Scenario 32: --remove keeps what other services and the OS need --
+      #
+      # A single-service removal (what the panel's Uninstall runs) never
+      # reruns the services that stay, so a root two services share (the
+      # lesta-applier units) must survive it, and removing cron must leave the
+      # OS's own cron alone: its package, cron.service and every other file in
+      # /etc/cron.d. Found on a bare VM on 2026-10-18, where both were broken.
+
+      - name: "Scenario 32 setup: nginx is still installed; add bind9 and cron, an OS-owned cron job and a LESta cron fragment"
+        run: |
+          sudo apt-get install -y bind9 bind9-utils cron
+          sudo sh .install/services/bind9/install.sh --prepare-config --yes
+          sudo sh .install/scripts/install-selected.sh --apply --yes --services nginx,bind9,cron --web-server nginx
+          printf '# not LESta\n17 4 * * * root true\n' | sudo tee /etc/cron.d/os-canary >/dev/null
+          printf '# LESta test fragment\n' | sudo tee /etc/cron.d/lesta-00000000-0000-0000-0000-000000000032 >/dev/null
+          test -f /etc/systemd/system/lesta-applier.service
+
+      - name: "Scenario 32: --remove bind9 keeps the shared applier unit nginx still uses"
+        run: |
+          sudo sh .install/scripts/install-selected.sh --apply --yes --remove bind9 | tail -1 | grep -q '"status":"applied"'
+          sudo systemctl daemon-reload
+          test -f /etc/systemd/system/lesta-applier.service || { echo "expected lesta-applier.service to survive removing bind9: nginx still needs it" >&2; exit 1; }
+          sudo systemctl is-enabled lesta-applier
+          sudo systemctl is-active lesta-applier
+          sudo systemctl is-active nginx
+          dpkg-query -W -f '${Status}' bind9 2>/dev/null | grep -q ' installed$' && { echo "expected bind9 to be purged" >&2; exit 1; } || true
+
+      - name: "Scenario 32: --remove cron removes only LESta's cron state, never the OS's cron"
+        run: |
+          sudo sh .install/scripts/install-selected.sh --apply --yes --remove cron | tail -1 | grep -q '"status":"applied"'
+          dpkg-query -W -f '${Status}' cron | grep -q ' installed$' || { echo "expected the cron package to stay: it is the OS's" >&2; exit 1; }
+          sudo systemctl is-active cron
+          test -f /etc/cron.d/os-canary || { echo "expected /etc/cron.d's non-LESta jobs to survive" >&2; exit 1; }
+          test ! -e /etc/cron.d/lesta-00000000-0000-0000-0000-000000000032 || { echo "expected LESta's own cron fragment to be removed" >&2; exit 1; }
+          test ! -e /var/lib/lesta/cron || { echo "expected /var/lib/lesta/cron to be removed" >&2; exit 1; }
+          sudo sh .install/scripts/install-selected.sh --apply --yes --remove cron | tail -1 | grep -q 'already_absent' || { echo "expected a second --remove cron to report already_absent" >&2; exit 1; }
+
+      - name: "Scenario 32 cleanup: remove the canary cron job"
+        run: sudo rm -f /etc/cron.d/os-canary

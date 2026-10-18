@@ -140,7 +140,7 @@ The node carries the action out a moment later; the row shows "stop requested" u
 
 ### Installed services: uninstall
 
-Under **Installed services**, each LESta service on the node (nginx, Apache, BIND, MariaDB, cron, mail, backups, PHP-FPM, Adminer, webmail) has an **Uninstall** button. Removing one stops it, purges its packages and removes its firewall ports and configuration on the node. For MariaDB, mail, backups and webmail the data is moved aside on the node (to `<data directory>-removed-<time>`), never deleted, so it can be recovered by hand. Confirm by typing the node's name.
+Under **Installed services**, each LESta service on the node (nginx, Apache, BIND, MariaDB, cron, mail, backups, PHP-FPM, Adminer, webmail) has an **Uninstall** button. Removing one stops it, purges its packages and removes its firewall ports and configuration on the node. Cron is the exception for the package: the OS's own cron and its other jobs stay, only LESta's cron jobs and state go. For MariaDB, mail, backups and webmail the data is moved aside on the node (to `<data directory>-removed-<time>`), never deleted, so it can be recovered by hand. Confirm by typing the node's name.
 
 Uninstall is refused, with the reason shown, while:
 

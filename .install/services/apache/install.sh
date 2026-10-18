@@ -580,7 +580,7 @@ bootstrap_base() {
     install -d -m 0751 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
     add_change base.os.v1 ensured /etc/lesta "directory present, mode 0751 root:lesta"
     add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
-    add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0750 root:lesta"
+    add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0751 root:lesta (nginx workers pass through to reopen their logs)"
 
     update-ca-certificates >/dev/null 2>&1 || true
     add_change base.tls.v1 refreshed /etc/ssl/certs "update-ca-certificates run"

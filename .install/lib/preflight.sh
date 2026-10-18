@@ -28,7 +28,10 @@
 manifest_extract_array() {
     local file="$1" field="$2"
 
-    sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p" "${file}" \
+    # Lines joined first: an array may be written over several lines
+    # (agent-daemon's owned_roots is), which a line-by-line sed never matches.
+    tr '\n' ' ' < "${file}" \
+        | sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p" \
         | tr ',' '\n' \
         | sed -e 's/^[[:space:]]*"\{0,1\}//' -e 's/"\{0,1\}[[:space:]]*$//' -e '/^[[:space:]]*$/d'
 }

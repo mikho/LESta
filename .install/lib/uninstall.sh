@@ -50,7 +50,9 @@ uninstall_service_packages() {
             printf '%s\n' bind9
             printf '%s\n' bind9-utils
             ;;
-        cron) printf '%s\n' cron ;;
+        # cron: never the cron package. Ubuntu ships it with the OS (the
+        # ubuntu-standard metapackage depends on it), and the OS's own jobs
+        # (e2scrub_all, sysstat, php's session cleaner) run through it.
         mail)
             printf '%s\n' exim4-daemon-heavy
             printf '%s\n' dovecot-imapd
@@ -76,7 +78,8 @@ uninstall_service_units() {
         # named.service is the real unit; bind9.service is only a systemd
         # alias (see bind9/install.sh's own identical comment).
         bind9) printf '%s\n' named ;;
-        cron) printf '%s\n' cron ;;
+        # cron: never cron.service, the OS's own scheduler (see
+        # uninstall_service_packages).
         mail)
             printf '%s\n' exim4
             printf '%s\n' dovecot
@@ -112,6 +115,25 @@ uninstall_service_data_root() {
     esac
 }
 
+# uninstall_root_is_shared <manifest> <path> -> exit 0 (true) when another
+# service's manifest.json also owns <path>: the shared applier units
+# (lesta-applier.service is nginx's, apache's, bind9's, mail's, mariadb's and
+# php-fpm's; lesta-applier-tenant.service is cron's and agent-daemon's).
+uninstall_root_is_shared() {
+    local manifest="$1" path="$2" other
+
+    for other in "$(dirname "$(dirname "${manifest}")")"/*/manifest.json; do
+        [ -f "${other}" ] || continue
+        [ "${other}" = "${manifest}" ] && continue
+
+        if manifest_extract_array "${other}" owned_roots | grep -qxF "${path}"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # uninstall_service_owned_roots <service_id> -> every other owned path (not
 # the data root above) this service's own manifest.json declares, minus the
 # mariadb control-plane paths, which install-selected.sh's own uninstall
@@ -127,6 +149,18 @@ uninstall_service_owned_roots() {
             case "${path}" in
                 *control-plane*) continue ;;
             esac
+        fi
+
+        # A root another service's manifest also owns (the shared applier
+        # units) is never removed with one service: the others still need it.
+        if uninstall_root_is_shared "${manifest}" "${path}"; then
+            continue
+        fi
+
+        # cron: never /etc/cron.d itself, which holds the OS's own jobs; only
+        # LESta's own lesta-<resource_id> fragments go (uninstall_remove_service).
+        if [ "${service_id}" = "cron" ] && [ "${path}" = "/etc/cron.d" ]; then
+            continue
         fi
 
         # php-fpm: never a whole pool.d (it may hold the control-plane app's
@@ -166,7 +200,11 @@ uninstall_service_present() {
             [ -d /var/lib/lesta/backups ] && return 0
             ;;
         # Their own state roots, never a package: php-fpm's packages can be
-        # present for the control-plane app alone.
+        # present for the control-plane app alone, and cron's always are (the
+        # OS's own cron).
+        cron)
+            [ -d /var/lib/lesta/cron ] && return 0
+            ;;
         php-fpm)
             [ -d /var/lib/lesta/php-fpm ] && return 0
             ;;
@@ -219,6 +257,10 @@ uninstall_remove_service() {
         [ "${path}" = "${data_root}" ] && continue
         rm -rf "${path}"
     done
+
+    if [ "${service_id}" = "cron" ]; then
+        rm -f /etc/cron.d/lesta-*
+    fi
 
     if [ -n "${data_root}" ] && [ "${data_root_quarantined}" != "1" ] && [ -e "${data_root}" ]; then
         rm -rf "${data_root}"
