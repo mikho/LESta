@@ -23,5 +23,5 @@ test('every operation and schema is on the API Reference page', function () {
     expect($markdown)->toContain('### `POST /accounts/{account}/web-domains`')
         ->toContain('### `GET /admin/nodes/{node}`')
         ->toContain('<a id="problem"></a>Problem')
-        ->and(substr_count($markdown, "\n### `"))->toBe(88);
+        ->and(substr_count($markdown, "\n### `"))->toBe(94);
 });

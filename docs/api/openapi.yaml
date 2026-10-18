@@ -1927,6 +1927,241 @@ paths:
           $ref: '#/components/responses/IdempotencyConflict'
         '503':
           $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/users:
+    get:
+      operationId: listDatabaseUsers
+      summary: The database's extra users
+      description: Needs the databases:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, links, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DatabaseUser'
+                  links:
+                    $ref: '#/components/schemas/CursorLinks'
+                  meta:
+                    $ref: '#/components/schemas/CursorMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      operationId: createDatabaseUser
+      summary: Add a user to the database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended. The user is named after the database and the label (database_name, an underscore, the label); at most 20 per database. The answer holds its password, once; the panel does not keep it. The operation is the database's.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseUserCreate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseUserWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/users/{user}:
+    get:
+      operationId: getDatabaseUser
+      summary: One extra user
+      description: Needs the databases:read ability.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/DatabaseUserId'
+      responses:
+        '200':
+          description: The resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      operationId: updateDatabaseUser
+      summary: Change a user's access
+      description: Needs the databases:write ability. Refused (403) while the account is suspended. The label and user name stay as they are.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/DatabaseUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseUserUpdate'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseUser'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+    delete:
+      operationId: deleteDatabaseUser
+      summary: Remove a user from the database
+      description: Needs the databases:write ability. Refused (403) while the account is suspended.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/DatabaseUserId'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    type: 'null'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
+  /accounts/{account}/databases/{database}/users/{user}/rotate-password:
+    post:
+      operationId: rotateDatabaseUserPassword
+      summary: Give an extra user a new password
+      description: Needs the databases:write ability. Refused (403) while the account is suspended. The answer holds the new password, once.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/DatabaseId'
+        - $ref: '#/components/parameters/DatabaseUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Accepted. The nodes apply the change next; poll the address in Location.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, operation]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DatabaseUserWithPassword'
+                  operation:
+                    $ref: '#/components/schemas/OperationRef'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Invalid'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '503':
+          $ref: '#/components/responses/NoCapacity'
   /accounts/{account}/cron-jobs:
     get:
       operationId: listCronJobs
@@ -3559,6 +3794,14 @@ components:
       schema:
         type: string
         format: uuid
+    DatabaseUserId:
+      name: user
+      in: path
+      required: true
+      description: The extra user's id.
+      schema:
+        type: string
+        format: uuid
     CronJobId:
       name: cronJob
       in: path
@@ -4054,6 +4297,34 @@ components:
     DatabaseWithPassword:
       allOf:
         - $ref: '#/components/schemas/Database'
+        - type: object
+          required: [password]
+          properties:
+            password:
+              type: [string, 'null']
+              description: Shown in this answer only. Null in a replayed answer.
+    DatabaseUserCreate:
+      type: object
+      required: [label, access]
+      properties:
+        label:
+          type: string
+          pattern: '^[a-z][a-z0-9]{0,15}$'
+          description: Not ro, and unique on the database.
+        access:
+          type: string
+          enum: [full, read_only]
+          description: full is what the database's own user may do; read_only is SELECT and SHOW VIEW.
+    DatabaseUserUpdate:
+      type: object
+      required: [access]
+      properties:
+        access:
+          type: string
+          enum: [full, read_only]
+    DatabaseUserWithPassword:
+      allOf:
+        - $ref: '#/components/schemas/DatabaseUser'
         - type: object
           required: [password]
           properties:
@@ -4556,6 +4827,24 @@ components:
             created_at:
               type: [string, 'null']
               format: date-time
+    DatabaseUser:
+      description: An extra user on a database. Never its password.
+      type: object
+      required: [id, label, username, access, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        username:
+          type: string
+        access:
+          type: string
+          enum: [full, read_only]
+        created_at:
+          type: [string, 'null']
+          format: date-time
     CronJob:
       allOf:
         - $ref: '#/components/schemas/Suspension'

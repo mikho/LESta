@@ -14,6 +14,7 @@ use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\TenantDatabases\StoreTenantDatabaseRequest;
 use App\Models\TenantDatabase;
+use App\Models\TenantDatabaseUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -127,6 +128,13 @@ class TenantDatabaseController extends Controller
         return Inertia::render('tenant-databases/edit', [
             'tenantDatabase' => $this->presentForEdit($tenantDatabase),
             'adminerAvailable' => $tenantDatabase->node->hasAdminerAvailable(),
+            'users' => $tenantDatabase->users()->orderBy('label')->get()->map(fn (TenantDatabaseUser $user): array => [
+                'uuid' => $user->uuid,
+                'label' => $user->label,
+                'username' => $user->username,
+                'access' => $user->access->value,
+            ])->all(),
+            'maxUsers' => TenantDatabaseUser::MAX_PER_DATABASE,
         ]);
     }
 

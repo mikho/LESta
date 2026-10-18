@@ -21,9 +21,11 @@ package mariadb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -92,7 +94,7 @@ func (c *MariaDBCapability) Apply(ctx context.Context, op protocol.OperationEnve
 	case protocol.OperationCreate:
 		result, err = c.applyCreate(ctx, op)
 	case protocol.OperationUpdate:
-		result, err = c.applyRotate(ctx, op)
+		result, err = c.applyUpdate(ctx, op)
 	case protocol.OperationSuspend:
 		result, err = c.applySuspend(ctx, op)
 	case protocol.OperationUnsuspend:
@@ -131,6 +133,10 @@ func (c *MariaDBCapability) applyCreate(ctx context.Context, op protocol.Operati
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
+	if verr := payload.requireNewUserPasswords(nil); verr != nil {
+		return c.rejectedFromValidationError(ctx, op, verr)
+	}
+
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
@@ -139,27 +145,30 @@ func (c *MariaDBCapability) applyCreate(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, createDDL(payload.DatabaseName, payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword)); err != nil {
+	script := createDDL(payload.DatabaseName, payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword) +
+		withFlush(extraUsersCreateDDL(payload.DatabaseName, payload.Users, payload.Suspended))
+	if _, err := runSQL(ctx, c.cfg, script); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
 }
 
-// applyRotate handles ProvisioningVerb::Update, which -- for this capability
-// alone among this module's own -- unambiguously means "rotate the
-// password": database_name/database_user/label are all immutable after
-// creation on the Laravel side (see app/Actions/TenantDatabases's own
-// package doc comment), so RotateTenantDatabasePassword is the only action
-// that ever issues `update` for database.tenant.v1 at all, and its payload
-// always carries a password. Requires a prior generation.
-func (c *MariaDBCapability) applyRotate(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+// applyUpdate handles ProvisioningVerb::Update: database_name/database_user
+// are immutable after creation, so an update either rotates the database's
+// own two credentials (both present, RotateTenantDatabasePassword) or changes
+// its extra users, or both. Extra users are reconciled against the previous
+// generation: a new one is created (it must carry a password), an existing
+// one carrying a password has it changed, one whose access changed is
+// re-granted (unless the database is suspended; unsuspend grants the current
+// access), and one no longer listed is dropped. Requires a prior generation.
+func (c *MariaDBCapability) applyUpdate(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
-	if verr := payload.requirePasswords(); verr != nil {
+	if verr := payload.optionalPasswords(); verr != nil {
 		return c.rejectedFromValidationError(ctx, op, verr)
 	}
 
@@ -171,8 +180,49 @@ func (c *MariaDBCapability) applyRotate(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, rotateDDL(payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword)); err != nil {
-		return c.failed(ctx, op, "ddl_failed", err.Error())
+	previous, err := c.previousUsers(op.ResourceID)
+	if err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+
+	if verr := payload.requireNewUserPasswords(previous); verr != nil {
+		return c.rejectedFromValidationError(ctx, op, verr)
+	}
+
+	var script string
+	if payload.Password != nil {
+		script = rotateDDL(payload.DatabaseUser, *payload.Password, payload.StatsUser, *payload.StatsPassword)
+	}
+
+	var users string
+	current := make(map[string]bool, len(payload.Users))
+	for _, u := range payload.Users {
+		current[u.Name] = true
+		before, existed := previous[u.Name]
+		switch {
+		case !existed:
+			users += extraUsersCreateDDL(payload.DatabaseName, []User{u}, payload.Suspended)
+		default:
+			if u.Password != nil {
+				users += extraUserPasswordDDL(u)
+			}
+			if before.Access != u.Access && !payload.Suspended {
+				users += extraUsersRevokeDDL([]User{u}) + extraUsersGrantDDL(payload.DatabaseName, []User{u})
+			}
+		}
+	}
+
+	for _, name := range sortedUserNames(previous) {
+		if !current[name] {
+			users += extraUsersDropDDL([]User{previous[name]})
+		}
+	}
+
+	script += withFlush(users)
+	if script != "" {
+		if _, err := runSQL(ctx, c.cfg, script); err != nil {
+			return c.failed(ctx, op, "ddl_failed", err.Error())
+		}
 	}
 
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
@@ -205,7 +255,7 @@ func (c *MariaDBCapability) applySuspend(ctx context.Context, op protocol.Operat
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, suspendDDL(payload.DatabaseUser, payload.StatsUser)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, suspendDDL(payload.DatabaseUser, payload.StatsUser)+withFlush(extraUsersRevokeDDL(payload.Users))); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -237,7 +287,7 @@ func (c *MariaDBCapability) applyUnsuspend(ctx context.Context, op protocol.Oper
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, unsuspendDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)); err != nil {
+	if _, err := runSQL(ctx, c.cfg, unsuspendDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)+withFlush(extraUsersGrantDDL(payload.DatabaseName, payload.Users))); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -264,7 +314,21 @@ func (c *MariaDBCapability) applyDelete(ctx context.Context, op protocol.Operati
 		return c.rejected(ctx, op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
-	if _, err := runSQL(ctx, c.cfg, deleteDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)); err != nil {
+	// Every extra user the node knows of goes, as well as any the payload
+	// names, so a stale list from the panel can never leave one behind.
+	previous, err := c.previousUsers(op.ResourceID)
+	if err != nil {
+		return protocol.ResultEnvelope{}, err
+	}
+	for _, u := range payload.Users {
+		previous[u.Name] = u
+	}
+	dropped := make([]User, 0, len(previous))
+	for _, name := range sortedUserNames(previous) {
+		dropped = append(dropped, previous[name])
+	}
+
+	if _, err := runSQL(ctx, c.cfg, deleteDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)+withFlush(extraUsersDropDDL(dropped))); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
@@ -297,7 +361,7 @@ func (c *MariaDBCapability) observe(ctx context.Context, op protocol.OperationEn
 		return protocol.ResultEnvelope{}, err
 	}
 
-	liveDigest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)
+	liveDigest, err := computeDigest(ctx, c.cfg, payload)
 	if err != nil {
 		return c.failed(ctx, op, "observe_query_failed", err.Error())
 	}
@@ -321,7 +385,7 @@ func (c *MariaDBCapability) recordGenerationAndBuildResult(ctx context.Context, 
 		return protocol.ResultEnvelope{}, err
 	}
 
-	digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)
+	digest, err := computeDigest(ctx, c.cfg, payload)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
@@ -403,7 +467,7 @@ func (c *MariaDBCapability) buildResult(ctx context.Context, op protocol.Operati
 // query, so the fallback path below is used instead).
 func (c *MariaDBCapability) currentDigestOrFallback(ctx context.Context, op protocol.OperationEnvelope) string {
 	if payload, verr := ParsePayload(op.Payload); verr == nil {
-		if digest, err := computeDigest(ctx, c.cfg, payload.DatabaseName, payload.DatabaseUser, payload.StatsUser); err == nil {
+		if digest, err := computeDigest(ctx, c.cfg, payload); err == nil {
 			return digest
 		}
 	}
@@ -440,4 +504,55 @@ func (c *MariaDBCapability) currentObservedVersionOrZero(resourceID string) int 
 	}
 
 	return manifest.DesiredStateVersion
+}
+
+// previousUsers is the extra users of this resource's current generation,
+// by name: what the node last applied, never what is live in MariaDB, so a
+// user is only ever dropped because the panel removed it. A generation
+// recorded before extra users existed has none.
+func (c *MariaDBCapability) previousUsers(resourceID string) (map[string]User, error) {
+	users := map[string]User{}
+
+	n, ok, err := c.store.CurrentGeneration(resourceID)
+	if err != nil || !ok {
+		return users, err
+	}
+
+	content, deleted, err := c.store.ReadContent(resourceID, n)
+	if err != nil || deleted {
+		return users, err
+	}
+
+	var previous Payload
+	if err := json.Unmarshal(content, &previous); err != nil {
+		return nil, fmt.Errorf("reading %s generation %d: %w", resourceID, n, err)
+	}
+
+	for _, u := range previous.Users {
+		users[u.Name] = u
+	}
+
+	return users, nil
+}
+
+// sortedUserNames is users' names in order, so the DDL for them is
+// deterministic.
+func sortedUserNames(users map[string]User) []string {
+	names := make([]string, 0, len(users))
+	for name := range users {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names
+}
+
+// withFlush ends a non-empty extra-user script with FLUSH PRIVILEGES, like
+// every other DDL script here; an empty one stays empty.
+func withFlush(script string) string {
+	if script == "" {
+		return ""
+	}
+
+	return script + "FLUSH PRIVILEGES;\n"
 }

@@ -1064,6 +1064,145 @@ Needs the databases:write ability. Refused (403) while the account is suspended.
 - `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
 - `503` No server can take the resource right now (urn:lesta:problem:no-capacity). A [problem document](/docs/api-reference/chapter-14#problem).
 
+### `GET /accounts/{account}/databases/{database}/users`
+
+The database's extra users.
+
+Needs the databases:read ability.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `cursor` | query | no | string |
+| `limit` | query | no | integer, at least 1, at most 100 |
+
+**Answers:**
+
+- `200` A page of results. Data: [DatabaseUser](/docs/api-reference/chapter-14#databaseuser) (a page of them).
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `422` The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded). A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+
+### `POST /accounts/{account}/databases/{database}/users`
+
+Add a user to the database.
+
+Needs the databases:write ability. Refused (403) while the account is suspended. The user is named after the database and the label (database_name, an underscore, the label); at most 20 per database. The answer holds its password, once; the panel does not keep it. The operation is the database's.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `Idempotency-Key` | header | no | Any 1 to 255 printable characters. A retry with the same key and the same request gets the first answer again (with Idempotent-Replayed true) instead of running twice; kept 24 hours, per token. Only successful answers are kept. |
+
+**Body:** [DatabaseUserCreate](/docs/api-reference/chapter-14#databaseusercreate)
+
+**Answers:**
+
+- `202` Accepted. The nodes apply the change next; poll the address in Location. Data: [DatabaseUserWithPassword](/docs/api-reference/chapter-14#databaseuserwithpassword).
+- `400` The Idempotency-Key header is not 1 to 255 printable characters (urn:lesta:problem:invalid-idempotency-key). A [problem document](/docs/api-reference/chapter-14#problem).
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `409` The Idempotency-Key was used with another request (idempotency-key-reused), or that request is still running (idempotency-key-in-progress). A [problem document](/docs/api-reference/chapter-14#problem).
+- `422` The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded). A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+- `503` No server can take the resource right now (urn:lesta:problem:no-capacity). A [problem document](/docs/api-reference/chapter-14#problem).
+
+### `GET /accounts/{account}/databases/{database}/users/{user}`
+
+One extra user.
+
+Needs the databases:read ability.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `user` | path | yes | The extra user's id. |
+
+**Answers:**
+
+- `200` The resource. Data: [DatabaseUser](/docs/api-reference/chapter-14#databaseuser).
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+
+### `PATCH /accounts/{account}/databases/{database}/users/{user}`
+
+Change a user's access.
+
+Needs the databases:write ability. Refused (403) while the account is suspended. The label and user name stay as they are.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `user` | path | yes | The extra user's id. |
+
+**Body:** [DatabaseUserUpdate](/docs/api-reference/chapter-14#databaseuserupdate)
+
+**Answers:**
+
+- `202` Accepted. The nodes apply the change next; poll the address in Location. Data: [DatabaseUser](/docs/api-reference/chapter-14#databaseuser).
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `422` The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded). A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+- `503` No server can take the resource right now (urn:lesta:problem:no-capacity). A [problem document](/docs/api-reference/chapter-14#problem).
+
+### `DELETE /accounts/{account}/databases/{database}/users/{user}`
+
+Remove a user from the database.
+
+Needs the databases:write ability. Refused (403) while the account is suspended.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `user` | path | yes | The extra user's id. |
+
+**Answers:**
+
+- `202` Accepted. The nodes apply the change next; poll the address in Location. Data: null.
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `422` The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded). A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+- `503` No server can take the resource right now (urn:lesta:problem:no-capacity). A [problem document](/docs/api-reference/chapter-14#problem).
+
+### `POST /accounts/{account}/databases/{database}/users/{user}/rotate-password`
+
+Give an extra user a new password.
+
+Needs the databases:write ability. Refused (403) while the account is suspended. The answer holds the new password, once.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `account` | path | yes | The account's id from GET /accounts. |
+| `database` | path | yes | The database's id. |
+| `user` | path | yes | The extra user's id. |
+| `Idempotency-Key` | header | no | Any 1 to 255 printable characters. A retry with the same key and the same request gets the first answer again (with Idempotent-Replayed true) instead of running twice; kept 24 hours, per token. Only successful answers are kept. |
+
+**Answers:**
+
+- `202` Accepted. The nodes apply the change next; poll the address in Location. Data: [DatabaseUserWithPassword](/docs/api-reference/chapter-14#databaseuserwithpassword).
+- `400` The Idempotency-Key header is not 1 to 255 printable characters (urn:lesta:problem:invalid-idempotency-key). A [problem document](/docs/api-reference/chapter-14#problem).
+- `401` The token is missing, unknown, revoked or expired (urn:lesta:problem:invalid-token). A [problem document](/docs/api-reference/chapter-14#problem).
+- `403` The token lacks the ability (missing-ability), is restricted to another account (account-restricted), the account is suspended and the call changes it (account-suspended), the login lacks the platform permission (missing-permission), or the user may not do this (about:blank). A [problem document](/docs/api-reference/chapter-14#problem).
+- `404` No such resource here. A [problem document](/docs/api-reference/chapter-14#problem).
+- `409` The Idempotency-Key was used with another request (idempotency-key-reused), or that request is still running (idempotency-key-in-progress). A [problem document](/docs/api-reference/chapter-14#problem).
+- `422` The input is invalid (urn:lesta:problem:validation, with errors), or a package limit is reached (urn:lesta:problem:quota-exceeded). A [problem document](/docs/api-reference/chapter-14#problem).
+- `429` Too many requests (about:blank), or too many failed tokens from this address (too-many-failed-tokens). A [problem document](/docs/api-reference/chapter-14#problem).
+- `503` No server can take the resource right now (urn:lesta:problem:no-capacity). A [problem document](/docs/api-reference/chapter-14#problem).
+
 ---
 
 ## Chapter 6: Cron jobs
@@ -2178,6 +2317,27 @@ All the fields of [Database](/docs/api-reference/chapter-14#database), and:
 | --- | --- | --- | --- |
 | `password` | string or null | yes | Shown in this answer only. Null in a replayed answer. |
 
+### <a id="databaseusercreate"></a>DatabaseUserCreate
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `label` | string, matching `^[a-z][a-z0-9]{0,15}$` | yes | Not ro, and unique on the database. |
+| `access` | string: `full`, `read_only` | yes | full is what the database's own user may do; read_only is SELECT and SHOW VIEW. |
+
+### <a id="databaseuserupdate"></a>DatabaseUserUpdate
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `access` | string: `full`, `read_only` | yes |  |
+
+### <a id="databaseuserwithpassword"></a>DatabaseUserWithPassword
+
+All the fields of [DatabaseUser](/docs/api-reference/chapter-14#databaseuser), and:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `password` | string or null | yes | Shown in this answer only. Null in a replayed answer. |
+
 ### <a id="cronjobcreate"></a>CronJobCreate
 
 | Field | Type | Required | Description |
@@ -2440,6 +2600,18 @@ All the fields of [Suspension](/docs/api-reference/chapter-14#suspension), and:
 | `database_name` | string | yes |  |
 | `database_user` | string | yes |  |
 | `provisioning` | [Provisioning](/docs/api-reference/chapter-14#provisioning) | yes |  |
+| `created_at` | string or null (date-time) | yes |  |
+
+### <a id="databaseuser"></a>DatabaseUser
+
+An extra user on a database. Never its password.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | string (uuid) | yes |  |
+| `label` | string | yes |  |
+| `username` | string | yes |  |
+| `access` | string: `full`, `read_only` | yes |  |
 | `created_at` | string or null (date-time) | yes |  |
 
 ### <a id="cronjob"></a>CronJob

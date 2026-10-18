@@ -20,9 +20,10 @@ test('toProvisioningPayload returns exactly the expected keys with no password b
         'database_name' => 'lesta_1_app1',
         'database_user' => 'lesta_1_app1',
         'stats_user' => 'lesta_1_app1_ro',
+        'users' => [],
         'suspended' => false,
     ])
-        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'stats_user', 'suspended'])
+        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'stats_user', 'users', 'suspended'])
         ->and($payload)->not->toHaveKey('password')
         ->and($payload)->not->toHaveKey('stats_password');
 });
@@ -35,7 +36,7 @@ test('toProvisioningPayload includes both passwords only when explicitly request
 
     expect($payload['password'])->toBe('a-plaintext-password')
         ->and($payload['stats_password'])->toBe('a-stats-plaintext-password')
-        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'password', 'stats_user', 'stats_password', 'suspended']);
+        ->and(array_keys($payload))->toBe(['database_name', 'database_user', 'password', 'stats_user', 'stats_password', 'users', 'suspended']);
 });
 
 test('toProvisioningPayload throws when includePassword is true but statsPlaintextPassword is omitted', function () {

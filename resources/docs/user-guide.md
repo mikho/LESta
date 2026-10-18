@@ -82,7 +82,8 @@ On a domain's own page you also find:
 - **Add database**: just a label (lowercase letters, digits, and underscores, starting with a letter — this is used to build the real database name and **cannot be changed later**). This creates a real MariaDB database plus a matching database user.
 - The database's password is shown once, the same one-time-reveal rule as mailbox passwords (Chapter 5) — copy it immediately, or use **Rotate password** later if you missed it.
 - **Open Adminer** on a database's page opens Adminer, a database tool in the browser, already signed in to that database, in a new tab.
-- Suspend/unsuspend (blocks/restores the database user's own access) or delete (removes the database and its user permanently) from the same page.
+- **Extra users**: on a database's page you can add up to 20 more users, for another application or a person. Each is named after the database plus a short label you choose (lowercase letters and digits, starting with a letter, for example `report`), and has either **Full access** (the same as the database's own user) or **Read only** (it can read tables and views, never change them). You can change a user's access at any time; the change applies straight away. A new user's password is shown once, like the database's own; **New password** gives it another, and **Remove** takes the user away without touching the data.
+- Suspend/unsuspend (blocks/restores access for the database's own user and every extra user) or delete (removes the database and all its users permanently) from the same page.
 
 ---
 

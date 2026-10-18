@@ -31,3 +31,14 @@ export type GeneratedTenantDatabasePassword = {
     database_user: string;
     password: string;
 };
+
+/**
+ * An extra user on a tenant database (TenantDatabaseController::edit()'s
+ * `users` prop). Never a password: the panel does not keep one.
+ */
+export type TenantDatabaseUser = {
+    uuid: string;
+    label: string;
+    username: string;
+    access: 'full' | 'read_only';
+};

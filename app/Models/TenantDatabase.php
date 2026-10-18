@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
@@ -139,6 +140,16 @@ class TenantDatabase extends Model
     }
 
     /**
+     * The database's extra users (TenantDatabaseUser).
+     *
+     * @return HasMany<TenantDatabaseUser, $this>
+     */
+    public function users(): HasMany
+    {
+        return $this->hasMany(TenantDatabaseUser::class);
+    }
+
+    /**
      * The single most recent provisioning operation for this database.
      * `MorphMany::latestOfMany()` does not exist in this Laravel version
      * (only `HasOne`/`MorphOne`/`HasOneThrough` support the "of many"
@@ -169,9 +180,14 @@ class TenantDatabase extends Model
      * companion statistics account, not just create/update (mirroring
      * database_user).
      *
-     * @return array{database_name: string, database_user: string, password?: string, stats_user: string, stats_password?: string, suspended: bool}
+     * users lists every extra user, read fresh, each with a password only
+     * when $userPasswords (TenantDatabaseUser id => plaintext) names it: the
+     * user's creation or a rotation of its password, the same explicit rule.
+     *
+     * @param  array<int, string>  $userPasswords
+     * @return array{database_name: string, database_user: string, password?: string, stats_user: string, stats_password?: string, users: list<array{name: string, access: string, password?: string}>, suspended: bool}
      */
-    public function toProvisioningPayload(bool $includePassword = false, ?string $plaintextPassword = null, ?string $statsPlaintextPassword = null): array
+    public function toProvisioningPayload(bool $includePassword = false, ?string $plaintextPassword = null, ?string $statsPlaintextPassword = null, array $userPasswords = []): array
     {
         if ($includePassword && $statsPlaintextPassword === null) {
             throw new InvalidArgumentException('statsPlaintextPassword must be provided whenever includePassword is true: the two accounts rotate in lockstep.');
@@ -190,6 +206,18 @@ class TenantDatabase extends Model
 
         if ($includePassword) {
             $payload['stats_password'] = $statsPlaintextPassword;
+        }
+
+        $payload['users'] = [];
+
+        foreach ($this->users()->orderBy('username')->get() as $user) {
+            $entry = ['name' => $user->username, 'access' => $user->access->value];
+
+            if (isset($userPasswords[$user->id])) {
+                $entry['password'] = $userPasswords[$user->id];
+            }
+
+            $payload['users'][] = $entry;
         }
 
         $payload['suspended'] = $this->isSuspended();

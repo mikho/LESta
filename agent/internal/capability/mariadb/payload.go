@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // identifierPattern matches this capability's own derived database_name/
@@ -31,6 +32,32 @@ var statsIdentifierPattern = regexp.MustCompile(`^lesta_[0-9]+_[a-z][a-z0-9_]{0,
 // guarantee sound, not a courtesy check.
 var passwordPattern = regexp.MustCompile(`^[0-9a-f]{48}$`)
 
+// extraUserSuffixPattern matches what follows "<database_name>_" in an
+// extra user's name, TenantDatabaseUser::deriveUsername's scheme. "ro" is
+// refused separately: that name is the statistics account's.
+var extraUserSuffixPattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+
+// maxExtraUsers caps the extra users one database carries, matching the
+// panel's own limit.
+const maxExtraUsers = 20
+
+// extraUserPrivileges is the grant each extra user access level receives on
+// its database: full is what the database's own user has, read_only what
+// the statistics account has.
+var extraUserPrivileges = map[string]string{
+	"full":      "ALL PRIVILEGES",
+	"read_only": statsPrivileges,
+}
+
+// User is one extra database user: a name, an access level, and a password
+// only in the operation that sets it (the user's creation or a rotation),
+// the same rule as the database's own credentials.
+type User struct {
+	Name     string  `json:"name"`
+	Access   string  `json:"access"`
+	Password *string `json:"password,omitempty"`
+}
+
 // Payload is the database.tenant.v1 capability's request body: one fixed
 // shape for every operation (unlike acme's two-kind payload, this capability
 // only ever manages one resource shape, so there is no `kind` discriminator
@@ -48,6 +75,7 @@ type Payload struct {
 	Password      *string `json:"password,omitempty"`
 	StatsUser     string  `json:"stats_user"`
 	StatsPassword *string `json:"stats_password,omitempty"`
+	Users         []User  `json:"users,omitempty"`
 	Suspended     bool    `json:"suspended"`
 }
 
@@ -109,7 +137,56 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "invalid_stats_password", Message: "stats_password must be exactly 48 lowercase hex characters", Field: "stats_password"}
 	}
 
+	if verr := p.validateUsers(); verr != nil {
+		return Payload{}, verr
+	}
+
 	return p, nil
+}
+
+// validateUsers checks every extra user: a name of the form
+// <database_name>_<suffix> that is not the statistics account's, unique,
+// a known access level, and a password of the generated shape when present.
+func (p Payload) validateUsers() *ValidationError {
+	if len(p.Users) > maxExtraUsers {
+		return &ValidationError{Code: "too_many_users", Message: fmt.Sprintf("at most %d extra users per database", maxExtraUsers), Field: "users"}
+	}
+
+	seen := make(map[string]bool, len(p.Users))
+	for i, u := range p.Users {
+		field := fmt.Sprintf("users[%d]", i)
+		suffix, ok := strings.CutPrefix(u.Name, p.DatabaseName+"_")
+		if !ok || suffix == "ro" || !extraUserSuffixPattern.MatchString(suffix) {
+			return &ValidationError{Code: "invalid_user_name", Message: "an extra user's name must be <database_name>_<suffix>, the suffix a lowercase letter then up to 15 letters or digits, not ro", Field: field + ".name"}
+		}
+
+		if seen[u.Name] {
+			return &ValidationError{Code: "duplicate_user", Message: "each extra user may appear only once", Field: field + ".name"}
+		}
+		seen[u.Name] = true
+
+		if _, ok := extraUserPrivileges[u.Access]; !ok {
+			return &ValidationError{Code: "invalid_user_access", Message: "access must be full or read_only", Field: field + ".access"}
+		}
+
+		if u.Password != nil && !passwordPattern.MatchString(*u.Password) {
+			return &ValidationError{Code: "invalid_user_password", Message: "password must be exactly 48 lowercase hex characters", Field: field + ".password"}
+		}
+	}
+
+	return nil
+}
+
+// requireNewUserPasswords returns a *ValidationError when a user not in
+// previous carries no password: a user can only be created with one.
+func (p Payload) requireNewUserPasswords(previous map[string]User) *ValidationError {
+	for i, u := range p.Users {
+		if _, existed := previous[u.Name]; !existed && u.Password == nil {
+			return &ValidationError{Code: "user_password_required", Message: "a new extra user needs a password", Field: fmt.Sprintf("users[%d].password", i)}
+		}
+	}
+
+	return nil
 }
 
 // requirePasswords returns a *ValidationError if p is missing either
@@ -144,6 +221,23 @@ func (p Payload) forbidPasswords() *ValidationError {
 		return &ValidationError{Code: "stats_password_not_allowed", Message: "stats_password must not be present for this operation", Field: "stats_password"}
 	}
 
+	for i, u := range p.Users {
+		if u.Password != nil {
+			return &ValidationError{Code: "user_password_not_allowed", Message: "an extra user's password must not be present for this operation", Field: fmt.Sprintf("users[%d].password", i)}
+		}
+	}
+
+	return nil
+}
+
+// optionalPasswords returns a *ValidationError when p carries one of the
+// database's two credentials without the other: an update rotates both
+// together or neither.
+func (p Payload) optionalPasswords() *ValidationError {
+	if (p.Password == nil) != (p.StatsPassword == nil) {
+		return &ValidationError{Code: "passwords_rotate_together", Message: "password and stats_password are rotated together or not at all", Field: "password"}
+	}
+
 	return nil
 }
 
@@ -162,6 +256,10 @@ func (p Payload) marshalMeta() ([]byte, error) {
 	redacted := p
 	redacted.Password = nil
 	redacted.StatsPassword = nil
+	redacted.Users = make([]User, len(p.Users))
+	for i, u := range p.Users {
+		redacted.Users[i] = User{Name: u.Name, Access: u.Access}
+	}
 
 	raw, err := json.Marshal(redacted)
 	if err != nil {

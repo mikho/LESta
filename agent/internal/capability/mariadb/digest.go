@@ -69,7 +69,9 @@ func grantsFor(ctx context.Context, cfg Config, databaseUser string) ([]string, 
 // rest) or sending the plaintext on every observe (worse than the gap it
 // would close): both strictly worse than the narrow, disclosed limitation of
 // not detecting an out-of-band manual password change.
-func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser, statsUser string) (string, error) {
+func computeDigest(ctx context.Context, cfg Config, payload Payload) (string, error) {
+	databaseName, databaseUser, statsUser := payload.DatabaseName, payload.DatabaseUser, payload.StatsUser
+
 	schemaLive, err := schemaExists(ctx, cfg, databaseName)
 	if err != nil {
 		return "", fmt.Errorf("checking schema existence: %w", err)
@@ -116,6 +118,36 @@ func computeDigest(ctx context.Context, cfg Config, databaseName, databaseUser, 
 
 	for _, g := range statsGrants {
 		fmt.Fprintf(&manifest, "stats_grant: %s\n", g)
+	}
+
+	// Extra users, by name. A database without any digests exactly as it
+	// did before they existed, so its recorded generations still match.
+	names := make([]string, 0, len(payload.Users))
+	for _, u := range payload.Users {
+		names = append(names, u.Name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		live, err := userExists(ctx, cfg, name)
+		if err != nil {
+			return "", fmt.Errorf("checking extra user existence: %w", err)
+		}
+
+		fmt.Fprintf(&manifest, "extra_user %s exists=%s\n", name, strconv.FormatBool(live))
+
+		if !live {
+			continue
+		}
+
+		userGrants, err := grantsFor(ctx, cfg, name)
+		if err != nil {
+			return "", fmt.Errorf("reading extra user grants: %w", err)
+		}
+
+		for _, g := range userGrants {
+			fmt.Fprintf(&manifest, "extra_user %s grant: %s\n", name, g)
+		}
 	}
 
 	sum := sha256.Sum256([]byte(manifest.String()))

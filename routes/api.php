@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\MailAccountController;
 use App\Http\Controllers\Api\V1\MailDomainController;
 use App\Http\Controllers\Api\V1\OperationController;
 use App\Http\Controllers\Api\V1\TenantDatabaseController;
+use App\Http\Controllers\Api\V1\TenantDatabaseUserController;
 use App\Http\Controllers\Api\V1\UsageController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\WebDomainController;
@@ -90,6 +91,8 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
         Route::middleware('api.ability:databases:read')->group(function () {
             Route::get('databases', [TenantDatabaseController::class, 'index'])->name('databases.index');
             Route::get('databases/{tenantDatabase}', [TenantDatabaseController::class, 'show'])->name('databases.show');
+            Route::get('databases/{tenantDatabase}/users', [TenantDatabaseUserController::class, 'index'])->name('databases.users.index');
+            Route::get('databases/{tenantDatabase}/users/{user}', [TenantDatabaseUserController::class, 'show'])->name('databases.users.show');
         });
 
         Route::middleware('api.ability:databases:write')->group(function () {
@@ -98,6 +101,10 @@ Route::prefix('api/v1')->name('api.v1.')->middleware([AuthenticateApiToken::clas
             Route::post('databases/{tenantDatabase}/suspend', [TenantDatabaseController::class, 'suspend'])->middleware('api.idempotent')->name('databases.suspend');
             Route::post('databases/{tenantDatabase}/unsuspend', [TenantDatabaseController::class, 'unsuspend'])->middleware('api.idempotent')->name('databases.unsuspend');
             Route::post('databases/{tenantDatabase}/rotate-password', [TenantDatabaseController::class, 'rotatePassword'])->middleware('api.idempotent:data.password')->name('databases.rotate-password');
+            Route::post('databases/{tenantDatabase}/users', [TenantDatabaseUserController::class, 'store'])->middleware('api.idempotent:data.password')->name('databases.users.store');
+            Route::patch('databases/{tenantDatabase}/users/{user}', [TenantDatabaseUserController::class, 'update'])->name('databases.users.update');
+            Route::delete('databases/{tenantDatabase}/users/{user}', [TenantDatabaseUserController::class, 'destroy'])->name('databases.users.destroy');
+            Route::post('databases/{tenantDatabase}/users/{user}/rotate-password', [TenantDatabaseUserController::class, 'rotatePassword'])->middleware('api.idempotent:data.password')->name('databases.users.rotate-password');
         });
 
         Route::middleware('api.ability:cron:read')->group(function () {

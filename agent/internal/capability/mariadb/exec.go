@@ -144,3 +144,56 @@ func deleteDDL(databaseName, databaseUser, statsUser string) string {
 		statsUser, grantHost,
 	)
 }
+
+// extraUsersCreateDDL creates each user (CREATE OR REPLACE USER IDENTIFIED
+// BY) and, unless the database is suspended, grants its access level on the
+// database. Every user passed must carry a password.
+func extraUsersCreateDDL(databaseName string, users []User, suspended bool) string {
+	var b strings.Builder
+	for _, u := range users {
+		fmt.Fprintf(&b, "CREATE OR REPLACE USER '%s'@'%s' IDENTIFIED BY '%s';\n", u.Name, grantHost, *u.Password)
+		if !suspended {
+			fmt.Fprintf(&b, "GRANT %s ON `%s`.* TO '%s'@'%s';\n", extraUserPrivileges[u.Access], databaseName, u.Name, grantHost)
+		}
+	}
+
+	return b.String()
+}
+
+// extraUserPasswordDDL changes one existing user's password with ALTER
+// USER, never CREATE OR REPLACE, for rotateDDL's reason: its grants stay.
+func extraUserPasswordDDL(u User) string {
+	return fmt.Sprintf("ALTER USER '%s'@'%s' IDENTIFIED BY '%s';\n", u.Name, grantHost, *u.Password)
+}
+
+// extraUsersRevokeDDL takes every privilege from each user, keeping the
+// user itself: suspending, or the first half of an access change.
+func extraUsersRevokeDDL(users []User) string {
+	var b strings.Builder
+	for _, u := range users {
+		fmt.Fprintf(&b, "REVOKE ALL PRIVILEGES, GRANT OPTION FROM '%s'@'%s';\n", u.Name, grantHost)
+	}
+
+	return b.String()
+}
+
+// extraUsersGrantDDL grants each user its access level on the database:
+// unsuspending, or the second half of an access change.
+func extraUsersGrantDDL(databaseName string, users []User) string {
+	var b strings.Builder
+	for _, u := range users {
+		fmt.Fprintf(&b, "GRANT %s ON `%s`.* TO '%s'@'%s';\n", extraUserPrivileges[u.Access], databaseName, u.Name, grantHost)
+	}
+
+	return b.String()
+}
+
+// extraUsersDropDDL drops each user.
+func extraUsersDropDDL(users []User) string {
+	var b strings.Builder
+	for _, u := range users {
+		fmt.Fprintf(&b, "DROP USER IF EXISTS '%s'@'%s';\n", u.Name, grantHost)
+	}
+
+	return b.String()
+}
