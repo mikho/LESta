@@ -49,6 +49,9 @@ class CreateMailAccount
                 'forward_only' => $data['forward_only'] ?? false,
                 'autoreply_enabled' => $data['autoreply_enabled'] ?? false,
                 'autoreply_message' => $data['autoreply_message'] ?? null,
+                'spam_sensitivity' => $data['spam_sensitivity'] ?? 'medium',
+                'spam_allow' => array_values($data['spam_allow'] ?? []),
+                'spam_block' => array_values($data['spam_block'] ?? []),
             ]);
 
             $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();

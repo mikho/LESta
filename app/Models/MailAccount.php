@@ -29,12 +29,15 @@ use Illuminate\Support\Carbon;
  * @property bool $forward_only
  * @property bool $autoreply_enabled
  * @property string|null $autoreply_message
+ * @property string $spam_sensitivity off, low, medium or high
+ * @property list<string>|null $spam_allow
+ * @property list<string>|null $spam_block
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['mail_domain_id', 'local_part', 'password', 'quota_mb', 'forward_to', 'forward_only', 'autoreply_enabled', 'autoreply_message'])]
+#[Fillable(['mail_domain_id', 'local_part', 'password', 'quota_mb', 'forward_to', 'forward_only', 'autoreply_enabled', 'autoreply_message', 'spam_sensitivity', 'spam_allow', 'spam_block'])]
 class MailAccount extends Model
 {
     /** @use HasFactory<MailAccountFactory> */
@@ -45,11 +48,20 @@ class MailAccount extends Model
      *
      * @return array<string, string>
      */
+    /**
+     * Matches the column default, so a mailbox made in memory has it too.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = ['spam_sensitivity' => 'medium'];
+
     protected function casts(): array
     {
         return [
             'password' => 'encrypted',
             'forward_only' => 'boolean',
+            'spam_allow' => 'array',
+            'spam_block' => 'array',
             'autoreply_enabled' => 'boolean',
             'suspended_at' => 'datetime',
             'suspension_source' => SuspensionSource::class,

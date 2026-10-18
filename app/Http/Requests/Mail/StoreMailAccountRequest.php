@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Mail;
 
+use App\Concerns\ValidatesSpamSettings;
 use App\Models\MailDomain;
 use App\Rules\ValidMailboxLocalPart;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -10,6 +11,13 @@ use Illuminate\Validation\Rule;
 
 class StoreMailAccountRequest extends FormRequest
 {
+    use ValidatesSpamSettings;
+
+    protected function prepareForValidation(): void
+    {
+        $this->normalizeSpamLists();
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *
@@ -42,6 +50,7 @@ class StoreMailAccountRequest extends FormRequest
             'forward_only' => ['nullable', 'boolean'],
             'autoreply_enabled' => ['nullable', 'boolean'],
             'autoreply_message' => ['nullable', 'string', 'max:2000'],
+            ...$this->spamRules(),
         ];
     }
 }

@@ -53,7 +53,24 @@ type Account struct {
 	AutoreplyEnabled bool    `json:"autoreply_enabled"`
 	AutoreplyMessage *string `json:"autoreply_message"`
 	Suspended        bool    `json:"suspended"`
+	// SpamSensitivity is off, low, medium or high (empty means medium): how
+	// high SpamAssassin's score must be for a message to be filed into the
+	// mailbox's Junk folder (see spamThresholds). It only has an effect on
+	// a domain with antispam_enabled, where Exim adds the score headers.
+	SpamSensitivity string `json:"spam_sensitivity,omitempty"`
+	// SpamAllow and SpamBlock are this mailbox's own sender lists, each
+	// entry a lower-case address or a domain: a blocked sender's mail is
+	// discarded, an allowed sender's is never filed as spam.
+	SpamAllow []string `json:"spam_allow,omitempty"`
+	SpamBlock []string `json:"spam_block,omitempty"`
 }
+
+// maxSpamListEntries bounds each mailbox's allow and block lists.
+const maxSpamListEntries = 100
+
+// spamThresholds maps a sensitivity to the score, times ten (Exim's
+// $spam_score_int), from which a message goes to Junk.
+var spamThresholds = map[string]int{"low": 80, "medium": 50, "high": 30}
 
 // MailingList is one list address of a domain: mail to <local_part>@<domain>
 // is delivered to every member. Every address is validated against
@@ -182,6 +199,10 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 			return Payload{}, &ValidationError{Code: "invalid_forward_to", Message: fmt.Sprintf("accounts[%d].forward_to does not match the expected local@domain shape", i), Field: "accounts"}
 		}
 
+		if err := validateSpamSettings(i, a); err != nil {
+			return Payload{}, err
+		}
+
 		if a.QuotaMB != nil && *a.QuotaMB < 0 {
 			return Payload{}, &ValidationError{Code: "invalid_quota", Message: fmt.Sprintf("accounts[%d].quota_mb must not be negative", i), Field: "accounts"}
 		}
@@ -192,6 +213,33 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	}
 
 	return p, nil
+}
+
+// validateSpamSettings checks one account's spam sensitivity and sender
+// lists. Every entry must be a plain lower-case address (memberEmailPattern)
+// or domain (domainPattern): they are written into the account's Sieve
+// script, so nothing that could end a quoted string or start a command may
+// get in.
+func validateSpamSettings(i int, a Account) error {
+	if a.SpamSensitivity != "" && a.SpamSensitivity != "off" {
+		if _, ok := spamThresholds[a.SpamSensitivity]; !ok {
+			return &ValidationError{Code: "invalid_spam_sensitivity", Message: fmt.Sprintf("accounts[%d].spam_sensitivity must be off, low, medium or high", i), Field: "accounts"}
+		}
+	}
+
+	for name, list := range map[string][]string{"spam_allow": a.SpamAllow, "spam_block": a.SpamBlock} {
+		if len(list) > maxSpamListEntries {
+			return &ValidationError{Code: "invalid_spam_list", Message: fmt.Sprintf("accounts[%d].%s holds at most %d entries", i, name, maxSpamListEntries), Field: "accounts"}
+		}
+
+		for _, entry := range list {
+			if !memberEmailPattern.MatchString(entry) && !domainPattern.MatchString(entry) {
+				return &ValidationError{Code: "invalid_spam_list", Message: fmt.Sprintf("accounts[%d].%s entry %q is not an address or a domain", i, name, entry), Field: "accounts"}
+			}
+		}
+	}
+
+	return nil
 }
 
 // validateLists checks every mailing list of the payload.

@@ -195,7 +195,7 @@ class MailDomain extends Model
      * means this never disrupts a mailbox owner who keeps using the password they already have.
      *
      * @param  array<int, string>  $resyncPasswordsByAccountId
-     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, suspended: bool}>, lists: list<array{local_part: string, owner_email: string, post_policy: string, subject_prefix: string, reply_to_list: bool, members: list<string>}>, suspended: bool}
+     * @return array{domain: string, antivirus_enabled: bool, antispam_enabled: bool, dkim_enabled: bool, dkim_active_selector: string, dkim_pending_selector: string|null, dkim_retire_selector: string|null, catchall_email: string|null, accounts: array<int, array{local_part: string, password?: string, quota_mb: int|null, forward_to: string|null, forward_only: bool, autoreply_enabled: bool, autoreply_message: string|null, spam_sensitivity: string, spam_allow: list<string>, spam_block: list<string>, suspended: bool}>, lists: list<array{local_part: string, owner_email: string, post_policy: string, subject_prefix: string, reply_to_list: bool, members: list<string>}>, suspended: bool}
      */
     public function toProvisioningPayload(?int $includePasswordForAccountId = null, ?string $plaintextPassword = null, ?string $retireSelector = null, array $resyncPasswordsByAccountId = []): array
     {
@@ -224,6 +224,9 @@ class MailDomain extends Model
                 $account['forward_only'] = $a->forward_only;
                 $account['autoreply_enabled'] = $a->autoreply_enabled;
                 $account['autoreply_message'] = $a->autoreply_message;
+                $account['spam_sensitivity'] = $a->spam_sensitivity;
+                $account['spam_allow'] = $a->spam_allow ?? [];
+                $account['spam_block'] = $a->spam_block ?? [];
                 $account['suspended'] = $a->isSuspended();
 
                 return $account;

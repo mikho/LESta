@@ -201,7 +201,19 @@ func minimalDovecotConf(t *testing.T, prefix string) string {
 	t.Helper()
 
 	path := filepath.Join(prefix, "dovecot-sieve-bootstrap.conf")
-	content := fmt.Sprintf("dovecot_config_version = %s\nmail_uid = %s\nmail_gid = %s\n", dovecotConfigVersion(t), currentUsername(t), currentGroupname(t))
+	content := fmt.Sprintf("mail_uid = %s\nmail_gid = %s\n", currentUsername(t), currentGroupname(t))
+
+	// dovecot_config_version exists from Dovecot 2.4 on (which then requires
+	// it); 2.3, Ubuntu 24.04's, refuses it as an unknown setting.
+	// Run as root (the build VM), sievec refuses mail_uid 0 unless the
+	// lowest valid uid allows it. Never in production, where mail_uid is vmail.
+	if os.Geteuid() == 0 {
+		content += "first_valid_uid = 0\nfirst_valid_gid = 0\n"
+	}
+
+	if version := dovecotConfigVersion(t); !strings.HasPrefix(version, "2.3.") {
+		content = fmt.Sprintf("dovecot_config_version = %s\n", version) + content
+	}
 
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writing minimal dovecot sieve-bootstrap config: %v", err)

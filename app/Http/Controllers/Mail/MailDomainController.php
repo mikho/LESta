@@ -236,6 +236,9 @@ class MailDomainController extends Controller
             'forward_only' => $account->forward_only,
             'autoreply_enabled' => $account->autoreply_enabled,
             'autoreply_message' => $account->autoreply_message,
+            'spam_sensitivity' => $account->spam_sensitivity,
+            'spam_allow' => $account->spam_allow ?? [],
+            'spam_block' => $account->spam_block ?? [],
             'suspended_at' => $account->suspended_at?->toIso8601String(),
             'suspension_source' => $account->suspension_source?->value,
         ];

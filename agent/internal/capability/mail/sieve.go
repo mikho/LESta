@@ -19,24 +19,44 @@ func (c *MailCapability) sievePath(domain, localPart string) string {
 	return filepath.Join(c.cfg.SieveDir, domain, localPart+".sieve")
 }
 
-// renderSieveScript builds a's own Sieve script text. Forwarding and
-// autoreply are the only two behaviors this pass renders (see render.go's
-// own doc comment for why forwarding lives here rather than as an Exim-
-// level lookup); an account with neither enabled gets an empty script
-// (equivalent to Dovecot's own default "just deliver to INBOX" behavior,
-// but written out explicitly so this function's own output is never empty
-// for an account that DOES need one, keeping the two cases structurally
-// distinct rather than relying on file absence to mean "no special
-// handling").
+// renderSieveScript builds a's own Sieve script text, in this order:
+//
+//  1. its block list: mail From a blocked address or domain is discarded;
+//  2. spam filing, on a domain with antispam (antispam): unless From is on
+//     its allow list, a message whose score is at or above the mailbox's
+//     sensitivity threshold is filed into Junk (created when missing), and
+//     nothing else happens to it (no forward, no autoreply);
+//  3. forwarding and autoreply, as before.
+//
+// The score comes from the X-Lesta-Spam-Score-Int header Exim's data ACL
+// adds to every message it scans (after removing any copy the sender put
+// there), never below zero: Sieve's i;ascii-numeric comparator treats a
+// value that does not start with a digit as infinity.
+//
+// An account that needs none of this gets an empty script (Dovecot's own
+// default "just deliver to INBOX").
 //
 // forward_only=true (forward, never keep a local copy) uses a plain
 // `redirect`, which implicitly cancels the default keep action per RFC 5228
 // s4.2. forward_only=false (forward AND keep) uses `redirect :copy`, which
 // does not cancel it.
-func renderSieveScript(a Account) string {
+func renderSieveScript(a Account, antispam bool) string {
 	var requires []string
 	var b strings.Builder
 
+	sensitivity := a.SpamSensitivity
+	if sensitivity == "" {
+		sensitivity = "medium"
+	}
+	threshold, filesSpam := spamThresholds[sensitivity]
+	filesSpam = filesSpam && antispam
+
+	blockAddresses, blockDomains := splitSenders(a.SpamBlock)
+	allowAddresses, allowDomains := splitSenders(a.SpamAllow)
+
+	if filesSpam {
+		requires = append(requires, `"fileinto"`, `"mailbox"`, `"relational"`, `"comparator-i;ascii-numeric"`)
+	}
 	if a.ForwardTo != nil {
 		requires = append(requires, `"copy"`)
 	}
@@ -44,11 +64,34 @@ func renderSieveScript(a Account) string {
 		requires = append(requires, `"vacation"`)
 	}
 
-	if len(requires) == 0 {
+	hasBlock := len(blockAddresses) > 0 || len(blockDomains) > 0
+
+	if len(requires) == 0 && !hasBlock {
 		return ""
 	}
 
-	fmt.Fprintf(&b, "require [%s];\n\n", strings.Join(requires, ", "))
+	if len(requires) > 0 {
+		fmt.Fprintf(&b, "require [%s];\n\n", strings.Join(requires, ", "))
+	}
+
+	if len(blockAddresses) > 0 {
+		fmt.Fprintf(&b, "if address :is :all \"from\" %s {\n    discard;\n    stop;\n}\n", sieveList(blockAddresses))
+	}
+	if len(blockDomains) > 0 {
+		fmt.Fprintf(&b, "if address :is :domain \"from\" %s {\n    discard;\n    stop;\n}\n", sieveList(blockDomains))
+	}
+
+	if filesSpam {
+		tests := []string{fmt.Sprintf(`header :value "ge" :comparator "i;ascii-numeric" "X-Lesta-Spam-Score-Int" "%d"`, threshold)}
+		if len(allowAddresses) > 0 {
+			tests = append(tests, fmt.Sprintf(`not address :is :all "from" %s`, sieveList(allowAddresses)))
+		}
+		if len(allowDomains) > 0 {
+			tests = append(tests, fmt.Sprintf(`not address :is :domain "from" %s`, sieveList(allowDomains)))
+		}
+
+		fmt.Fprintf(&b, "if allof (%s) {\n    fileinto :create \"Junk\";\n    stop;\n}\n", strings.Join(tests, ", "))
+	}
 
 	if a.ForwardTo != nil {
 		if a.ForwardOnly {
@@ -68,6 +111,31 @@ func renderSieveScript(a Account) string {
 	}
 
 	return b.String()
+}
+
+// splitSenders separates a validated sender list into addresses and domains.
+func splitSenders(entries []string) (addresses, domains []string) {
+	for _, entry := range entries {
+		if strings.Contains(entry, "@") {
+			addresses = append(addresses, entry)
+		} else {
+			domains = append(domains, entry)
+		}
+	}
+
+	return addresses, domains
+}
+
+// sieveList renders validated entries as a Sieve string list. The entries
+// match memberEmailPattern or domainPattern, so none holds a quote or a
+// backslash.
+func sieveList(entries []string) string {
+	quoted := make([]string, len(entries))
+	for i, entry := range entries {
+		quoted[i] = `"` + entry + `"`
+	}
+
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // writeSieveScripts renders and validates (via the real `sievec` compiler)
@@ -92,7 +160,7 @@ func (c *MailCapability) writeSieveScripts(ctx context.Context, domains []Payloa
 				continue
 			}
 
-			content := renderSieveScript(a)
+			content := renderSieveScript(a, d.AntispamEnabled)
 			finalPath := c.sievePath(d.Domain, a.LocalPart)
 
 			if content == "" {

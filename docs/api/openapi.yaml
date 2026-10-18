@@ -3994,6 +3994,20 @@ components:
           type: boolean
         autoreply_message:
           type: [string, 'null']
+        spam_sensitivity:
+          type: string
+          enum: ['off', low, medium, high]
+          description: How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain.
+        spam_allow:
+          type: array
+          description: Addresses or domains whose mail is never moved to Junk.
+          items:
+            type: string
+        spam_block:
+          type: array
+          description: Addresses or domains whose mail is deleted without delivery.
+          items:
+            type: string
     MailboxUpdate:
       type: object
       properties:
@@ -4007,6 +4021,20 @@ components:
           type: boolean
         autoreply_message:
           type: [string, 'null']
+        spam_sensitivity:
+          type: string
+          enum: ['off', low, medium, high]
+          description: How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain.
+        spam_allow:
+          type: array
+          description: Addresses or domains whose mail is never moved to Junk.
+          items:
+            type: string
+        spam_block:
+          type: array
+          description: Addresses or domains whose mail is deleted without delivery.
+          items:
+            type: string
     MailboxWithPassword:
       allOf:
         - $ref: '#/components/schemas/Mailbox'
@@ -4487,6 +4515,20 @@ components:
               type: boolean
             autoreply_message:
               type: [string, 'null']
+            spam_sensitivity:
+              type: string
+              enum: ['off', low, medium, high]
+              description: How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain.
+            spam_allow:
+              type: array
+              description: Addresses or domains whose mail is never moved to Junk.
+              items:
+                type: string
+            spam_block:
+              type: array
+              description: Addresses or domains whose mail is deleted without delivery.
+              items:
+                type: string
             created_at:
               type: [string, 'null']
               format: date-time

@@ -2139,6 +2139,9 @@ An RFC 9457 problem document. type is urn:lesta:problem:<name> for the problems 
 | `forward_only` | boolean | no |  |
 | `autoreply_enabled` | boolean | no |  |
 | `autoreply_message` | string or null | no |  |
+| `spam_sensitivity` | string: `off`, `low`, `medium`, `high` | no | How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain. |
+| `spam_allow` | list of string | no | Addresses or domains whose mail is never moved to Junk. |
+| `spam_block` | list of string | no | Addresses or domains whose mail is deleted without delivery. |
 
 ### <a id="mailboxupdate"></a>MailboxUpdate
 
@@ -2149,6 +2152,9 @@ An RFC 9457 problem document. type is urn:lesta:problem:<name> for the problems 
 | `forward_only` | boolean | no |  |
 | `autoreply_enabled` | boolean | no |  |
 | `autoreply_message` | string or null | no |  |
+| `spam_sensitivity` | string: `off`, `low`, `medium`, `high` | no | How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain. |
+| `spam_allow` | list of string | no | Addresses or domains whose mail is never moved to Junk. |
+| `spam_block` | list of string | no | Addresses or domains whose mail is deleted without delivery. |
 
 ### <a id="mailboxwithpassword"></a>MailboxWithPassword
 
@@ -2415,6 +2421,9 @@ All the fields of [Suspension](/docs/api-reference/chapter-14#suspension), and:
 | `forward_only` | boolean | yes |  |
 | `autoreply_enabled` | boolean | yes |  |
 | `autoreply_message` | string or null | yes |  |
+| `spam_sensitivity` | string: `off`, `low`, `medium`, `high` | no | How readily spam goes to the Junk folder (from a score of 8, 5 or 3; off never). Needs antispam on the mail domain. |
+| `spam_allow` | list of string | no | Addresses or domains whose mail is never moved to Junk. |
+| `spam_block` | list of string | no | Addresses or domains whose mail is deleted without delivery. |
 | `created_at` | string or null (date-time) | yes |  |
 
 ### <a id="database"></a>Database

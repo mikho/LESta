@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Mail;
 
+use App\Concerns\ValidatesSpamSettings;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -12,6 +13,13 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class UpdateMailAccountRequest extends FormRequest
 {
+    use ValidatesSpamSettings;
+
+    protected function prepareForValidation(): void
+    {
+        $this->normalizeSpamLists();
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *
@@ -25,6 +33,7 @@ class UpdateMailAccountRequest extends FormRequest
             'forward_only' => ['nullable', 'boolean'],
             'autoreply_enabled' => ['nullable', 'boolean'],
             'autoreply_message' => ['nullable', 'string', 'max:2000'],
+            ...$this->spamRules(),
         ];
     }
 }

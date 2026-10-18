@@ -200,6 +200,19 @@ function AddMailAccountDialog({ mailDomain }: { mailDomain: MailDomain }) {
     );
 }
 
+/**
+ * A list field's own error, or its first entry's ("spam_allow.2" for the third line).
+ */
+function firstError(
+    errors: Record<string, string | undefined>,
+    field: string,
+): string | undefined {
+    return (
+        errors[field] ??
+        Object.entries(errors).find(([key]) => key.startsWith(`${field}.`))?.[1]
+    );
+}
+
 function EditMailAccountDialog({
     mailDomain,
     account,
@@ -314,6 +327,97 @@ function EditMailAccountDialog({
                                     />
                                 </div>
                             )}
+
+                            <fieldset className="grid gap-3 rounded-lg border p-3">
+                                <legend className="px-1 text-sm font-medium">
+                                    Spam
+                                </legend>
+
+                                {!mailDomain.antispam_enabled && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Spam checking is off for this domain, so
+                                        only the block list applies.
+                                    </p>
+                                )}
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-spam_sensitivity">
+                                        Move spam to the Junk folder
+                                    </Label>
+                                    <select
+                                        id="edit-spam_sensitivity"
+                                        name="spam_sensitivity"
+                                        defaultValue={account.spam_sensitivity}
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    >
+                                        <option value="off">Never</option>
+                                        <option value="low">
+                                            Only obvious spam
+                                        </option>
+                                        <option value="medium">
+                                            Likely spam (recommended)
+                                        </option>
+                                        <option value="high">
+                                            Anything suspicious
+                                        </option>
+                                    </select>
+                                    <InputError
+                                        message={errors.spam_sensitivity}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-spam_allow">
+                                        Always accept from
+                                    </Label>
+                                    <Textarea
+                                        id="edit-spam_allow"
+                                        name="spam_allow"
+                                        rows={3}
+                                        placeholder={
+                                            'friend@example.com\npartner.example'
+                                        }
+                                        defaultValue={account.spam_allow.join(
+                                            '\n',
+                                        )}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        One address or domain per line. Never
+                                        moved to Junk.
+                                    </p>
+                                    <InputError
+                                        message={firstError(
+                                            errors,
+                                            'spam_allow',
+                                        )}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-spam_block">
+                                        Block
+                                    </Label>
+                                    <Textarea
+                                        id="edit-spam_block"
+                                        name="spam_block"
+                                        rows={3}
+                                        placeholder="spammer.example"
+                                        defaultValue={account.spam_block.join(
+                                            '\n',
+                                        )}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        One address or domain per line. Their
+                                        mail is deleted without delivery.
+                                    </p>
+                                    <InputError
+                                        message={firstError(
+                                            errors,
+                                            'spam_block',
+                                        )}
+                                    />
+                                </div>
+                            </fieldset>
 
                             <DialogFooter className="gap-2">
                                 <DialogClose asChild>

@@ -831,3 +831,39 @@ func captureOneSMTPMessage(listener net.Listener, ch chan<- string) {
 		}
 	}
 }
+
+// TestMailCapability_SpamSettingsCompileWithTheRealSievec applies a mailbox
+// with every spam setting at once and checks the real Pigeonhole compiler
+// accepted the resulting script (Apply validates every script with sievec
+// before activating it).
+func TestMailCapability_SpamSettingsCompileWithTheRealSievec(t *testing.T) {
+	requireRealExim(t)
+
+	d := newDisposableExim(t)
+	capability := mail.New(d.Config)
+
+	const domain = "spam-settings-example.com"
+	password := randomPassword(t)
+	forward := "boss@example.net"
+
+	box := account("info", &password)
+	box["forward_to"] = &forward
+	box["autoreply_enabled"] = true
+	box["spam_sensitivity"] = "high"
+	box["spam_allow"] = []string{"friend@partner.example", "partner.example"}
+	box["spam_block"] = []string{"pest@spam.example", "junkmail.example"}
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1,
+		domainPayload(domain, false, true, false, []map[string]any{box}, false)))
+	requireApplied(t, "create with spam settings", result, err)
+
+	script, err := os.ReadFile(filepath.Join(d.Config.SieveDir, domain, "info.sieve"))
+	if err != nil {
+		t.Fatalf("reading the activated sieve script: %v", err)
+	}
+	for _, want := range []string{"discard;", `fileinto :create "Junk";`, `"30"`, "redirect :copy", "vacation"} {
+		if !strings.Contains(string(script), want) {
+			t.Fatalf("activated script lacks %s:\n%s", want, script)
+		}
+	}
+}

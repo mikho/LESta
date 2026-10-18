@@ -33,6 +33,9 @@ class UpdateMailAccount
                 'forward_only' => $data['forward_only'] ?? $mailAccount->forward_only,
                 'autoreply_enabled' => $data['autoreply_enabled'] ?? $mailAccount->autoreply_enabled,
                 'autoreply_message' => array_key_exists('autoreply_message', $data) ? $data['autoreply_message'] : $mailAccount->autoreply_message,
+                'spam_sensitivity' => $data['spam_sensitivity'] ?? $mailAccount->spam_sensitivity,
+                'spam_allow' => array_key_exists('spam_allow', $data) ? array_values($data['spam_allow']) : $mailAccount->spam_allow,
+                'spam_block' => array_key_exists('spam_block', $data) ? array_values($data['spam_block']) : $mailAccount->spam_block,
             ])->save();
 
             $mailDomain = $mailAccount->mailDomain;

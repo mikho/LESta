@@ -9,6 +9,9 @@ export type MailAccount = {
     forward_only: boolean;
     autoreply_enabled: boolean;
     autoreply_message: string | null;
+    spam_sensitivity: 'off' | 'low' | 'medium' | 'high';
+    spam_allow: string[];
+    spam_block: string[];
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
 };

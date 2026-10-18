@@ -716,8 +716,21 @@ acl_check_data:
           malware = */defer_ok
           message = "This message contains a virus (\$malware_name) and was rejected"
 
+  # Spam is marked, not refused, so each mailbox can decide (its own
+  # sensitivity, allow and block lists, in its Sieve script): every message
+  # loses any score header a sender put on it, a scanned one gets
+  # SpamAssassin's score (the integer one never below zero, for Sieve's
+  # numeric comparison), and only an overwhelming score (15 or more, which
+  # also covers SpamAssassin's GTUBE test pattern) is refused outright.
+  warn    remove_header = X-Lesta-Spam-Score : X-Lesta-Spam-Score-Int
+
+  warn    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
+          spam = Debian-exim:true/defer_ok
+          add_header = X-Lesta-Spam-Score: \$spam_score
+          add_header = X-Lesta-Spam-Score-Int: \${if <{\$spam_score_int}{0}{0}{\$spam_score_int}}
+
   deny    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
-          spam = Debian-exim/defer_ok
+          condition = \${if >={\${if def:spam_score_int{\$spam_score_int}{0}}}{150}{1}{0}}
           message = "This message was rejected as spam (score: \$spam_score)"
 
   accept

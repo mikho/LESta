@@ -26,6 +26,9 @@ class MailAccountResource extends ApiResource
             'forward_only' => $this->forward_only,
             'autoreply_enabled' => $this->autoreply_enabled,
             'autoreply_message' => $this->autoreply_message,
+            'spam_sensitivity' => $this->spam_sensitivity,
+            'spam_allow' => $this->spam_allow ?? [],
+            'spam_block' => $this->spam_block ?? [],
             ...$this->suspension($this->suspended_at, $this->suspension_source),
             'created_at' => $this->timestamp($this->created_at),
         ];
