@@ -636,6 +636,7 @@ domainlist local_domains = lsearch;${EXIM_DATA_DIR}/domains.list
 acl_smtp_mail = acl_check_mail
 acl_smtp_rcpt = acl_check_rcpt
 acl_smtp_data = acl_check_data
+acl_not_smtp = acl_check_not_smtp
 
 av_scanner = clamd:${CLAMD_SOCKET}
 spamd_address = 127.0.0.1 ${SPAMD_PORT}
@@ -732,6 +733,15 @@ acl_check_data:
   deny    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
           condition = \${if >={\${if def:spam_score_int{\$spam_score_int}{0}}}{150}{1}{0}}
           message = "This message was rejected as spam (score: \$spam_score)"
+
+  accept
+
+# Mail submitted on this server itself (sendmail, a site's PHP mail()) is
+# not SMTP, so acl_check_data never sees it: it gets no score, and any score
+# header the submitter wrote is removed, so nobody can push a message past
+# a mailbox's Junk filing or into it.
+acl_check_not_smtp:
+  warn    remove_header = X-Lesta-Spam-Score : X-Lesta-Spam-Score-Int
 
   accept
 

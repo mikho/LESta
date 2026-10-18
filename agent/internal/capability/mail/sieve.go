@@ -169,7 +169,7 @@ func (c *MailCapability) writeSieveScripts(ctx context.Context, domains []Payloa
 				continue
 			}
 
-			if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
+			if err := ensureSieveDomainDir(filepath.Dir(finalPath)); err != nil {
 				return nil, fmt.Errorf("creating sieve directory for %s@%s: %w", a.LocalPart, d.Domain, err)
 			}
 
@@ -189,6 +189,19 @@ func (c *MailCapability) writeSieveScripts(ctx context.Context, domains []Payloa
 	}
 
 	return staged, nil
+}
+
+// ensureSieveDomainDir creates (or puts right) a domain's Sieve directory,
+// mode 2770 like the installer's SIEVE_DIR it sits in (root:vmail, setgid, so
+// the group is inherited): Dovecot delivers as vmail and saves each script's
+// compiled .svbin next to it, which a 0755 directory refused, so every
+// delivery compiled the script again and logged "Permission denied".
+func ensureSieveDomainDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o770); err != nil {
+		return err
+	}
+
+	return os.Chmod(dir, 0o770|os.ModeSetgid)
 }
 
 // validateSieveScript runs the real Pigeonhole `sievec` compiler against

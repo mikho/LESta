@@ -56,3 +56,19 @@ func TestRemoveMaildir_MailboxAndDomain(t *testing.T) {
 		t.Fatalf("without a VmailRoot nothing is removed and nothing fails: %v", err)
 	}
 }
+
+func TestEnsureSieveDomainDir_IsGroupWritableAndSetgid(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "example.com")
+
+	if err := ensureSieveDomainDir(dir); err != nil {
+		t.Fatalf("ensureSieveDomainDir: %v", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o770 || info.Mode()&os.ModeSetgid == 0 {
+		t.Fatalf("want 0770 with setgid, got %v", info.Mode())
+	}
+}
