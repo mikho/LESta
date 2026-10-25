@@ -20,6 +20,7 @@ test('an owner can switch a domain to detect only and exclude rules from the edi
     $page->assertSee('Web application firewall')
         ->click('#waf_mode')
         ->click('[role="option"]:has-text("Detect only")')
+        ->click('Fine-tune the firewall')
         ->fill('waf_excluded_rules', '942100, 920350')
         ->click('#hotlink_protection')
         ->fill('hotlink_allowed_hosts', 'partner.example')

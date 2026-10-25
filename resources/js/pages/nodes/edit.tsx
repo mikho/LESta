@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
 import NodeServiceController from '@/actions/App/Http/Controllers/Nodes/NodeServiceController';
+import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -741,8 +742,9 @@ function ToolsAddress({ node }: { node: Node }) {
 function ServicesSection({ node }: { node: Node }) {
     const services = node.services ?? [];
     const [busy, setBusy] = useState<string | null>(null);
+    const [confirm, confirmDialog] = useConfirm();
 
-    function control(
+    async function control(
         service: NonNullable<Node['services']>[number],
         action: 'start' | 'stop' | 'restart',
     ) {
@@ -752,9 +754,12 @@ function ServicesSection({ node }: { node: Node }) {
                 : '';
 
             if (
-                !window.confirm(
-                    `Stop ${service.name} on ${node.name}?${impact}`,
-                )
+                !(await confirm({
+                    title: `Stop ${service.name} on ${node.name}?`,
+                    description: `It stays stopped until it is started again.${impact}`,
+                    confirmLabel: `Stop ${service.name}`,
+                    destructive: true,
+                }))
             ) {
                 return;
             }
@@ -777,6 +782,7 @@ function ServicesSection({ node }: { node: Node }) {
 
     return (
         <div className="space-y-4 rounded-lg border p-4">
+            {confirmDialog}
             <Heading
                 variant="small"
                 title="Services"

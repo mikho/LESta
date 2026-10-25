@@ -1,5 +1,6 @@
 import { Head } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import {
@@ -84,6 +85,7 @@ export default function Index({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [confirm, confirmDialog] = useConfirm();
 
     const [editingFile, setEditingFile] = useState<string | null>(null);
     const [editingContent, setEditingContent] = useState('');
@@ -325,7 +327,17 @@ export default function Index({
     }
 
     async function remove(entry: Entry) {
-        if (!confirm(`Delete "${entry.name}"? This cannot be undone.`)) {
+        if (
+            !(await confirm({
+                title: `Delete ${entry.name}?`,
+                description:
+                    entry.type === 'directory'
+                        ? 'The folder and everything in it are deleted from the server. This cannot be undone.'
+                        : 'The file is deleted from the server. This cannot be undone.',
+                confirmLabel: 'Delete',
+                destructive: true,
+            }))
+        ) {
             return;
         }
 
@@ -361,6 +373,7 @@ export default function Index({
 
     return (
         <>
+            {confirmDialog}
             <Head title={`Files – ${webDomain.domain}`} />
 
             <div className="mx-auto w-full max-w-4xl space-y-6 p-4">

@@ -11,11 +11,19 @@ export default function AppSidebarLayout({
 }: AppLayoutProps) {
     return (
         <AppShell variant="sidebar">
+            <a
+                href="#main-content"
+                className="sr-only z-50 rounded-md bg-background px-4 py-2 text-sm font-medium shadow focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+            >
+                Skip to content
+            </a>
             <AppSidebar />
             <AppContent variant="sidebar" className="min-w-0 overflow-x-clip">
                 <ImpersonationBanner />
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                {children}
+                <div id="main-content" tabIndex={-1} className="outline-none">
+                    {children}
+                </div>
             </AppContent>
         </AppShell>
     );

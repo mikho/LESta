@@ -9,13 +9,21 @@ use App\Actions\Domains\SuspendWebDomain;
 use App\Actions\Domains\UnsuspendWebDomain;
 use App\Actions\Domains\UpdateWebDomain;
 use App\Actions\Provisioning\EnsuresAccountNodeIdentity;
+use App\Actions\Provisioning\ResolvesWebCapableNode;
 use App\Concerns\ListsCustomerResources;
+use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
+use App\Enums\NodeCapabilityType;
+use App\Enums\PhpVersion;
+use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Domains\StoreWebDomainRequest;
 use App\Http\Requests\Domains\UpdateSshPublicKeyRequest;
 use App\Http\Requests\Domains\UpdateWebDomainRequest;
+use App\Models\DnsZone;
+use App\Models\MailDomain;
+use App\Models\Node;
 use App\Models\WebDomain;
 use App\Models\WebDomainProtectedDir;
 use App\Models\WebDomainProtectedDirUser;
@@ -30,6 +38,7 @@ use Inertia\Response;
 class WebDomainController extends Controller
 {
     use ListsCustomerResources;
+    use PresentsProvisioningStatus;
     use ResolvesCurrentAccount;
 
     /**
@@ -90,7 +99,24 @@ class WebDomainController extends Controller
 
         Gate::authorize('create', [WebDomain::class, $account]);
 
-        return Inertia::render('domains/create');
+        // What the server a new domain lands on can do, so the form offers PHP and automatic
+        // HTTPS by default where they work and explains where they do not.
+        try {
+            [$node] = app(ResolvesWebCapableNode::class)->resolve();
+        } catch (NoWebCapableNodeAvailableException) {
+            $node = null;
+        }
+
+        return Inertia::render('domains/create', [
+            'offers' => [
+                'php' => $node?->hasCapability(NodeCapabilityType::WebPhpFpm) ?? false,
+                'automatic_https' => $node?->hasCapability(NodeCapabilityType::TlsAcme) ?? false,
+                'apache' => Node::query()->whereNull('suspended_at')
+                    ->whereHas('capabilities', fn ($query) => $query->where('capability', NodeCapabilityType::WebApache->value)->whereNull('suspended_at'))
+                    ->exists(),
+                'php_versions' => array_column(PhpVersion::cases(), 'value'),
+            ],
+        ]);
     }
 
     /**
@@ -147,6 +173,14 @@ class WebDomainController extends Controller
                 'identityUuid' => $identity->uuid,
                 'username' => $identity->system_username,
                 'hasSshPublicKey' => $identity->ssh_public_key !== null,
+            ],
+            // The same domain's DNS zone and mail domain in this account, if it has them, so the
+            // page can show how the pieces of one domain fit together and link between them.
+            'connected' => [
+                'dns_zone' => DnsZone::query()->where('account_id', $webDomain->account_id)
+                    ->where('domain', WebDomain::normalizeDomain($webDomain->domain))->value('uuid'),
+                'mail_domain' => MailDomain::query()->where('account_id', $webDomain->account_id)
+                    ->where('domain', WebDomain::normalizeDomain($webDomain->domain))->value('uuid'),
             ],
         ]);
     }
@@ -243,7 +277,7 @@ class WebDomainController extends Controller
             'last_certificate_error' => $webDomain->last_certificate_error,
             'suspended_at' => $webDomain->suspended_at?->toIso8601String(),
             'suspension_source' => $webDomain->suspension_source?->value,
-            'provisioning_status' => $webDomain->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($webDomain->latestProvisioningOperation),
         ];
     }
 }

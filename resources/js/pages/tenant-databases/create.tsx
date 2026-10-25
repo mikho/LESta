@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -10,12 +10,12 @@ import { index } from '@/routes/tenant-databases';
 export default function Create() {
     return (
         <>
-            <Head title="Add a database" />
+            <Head title="Add database" />
 
             <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
                 <Heading
-                    title="Add a database"
-                    description="Provision a new MariaDB database and matching database user for this account"
+                    title="Add database"
+                    description="A MariaDB database with its own user. The password is shown once, right after it is created."
                 />
 
                 <Form
@@ -50,7 +50,10 @@ export default function Create() {
                                     disabled={processing}
                                     data-test="create-tenant-database-button"
                                 >
-                                    Create database
+                                    Add database
+                                </Button>
+                                <Button variant="ghost" asChild>
+                                    <Link href={index()}>Cancel</Link>
                                 </Button>
                             </div>
                         </>

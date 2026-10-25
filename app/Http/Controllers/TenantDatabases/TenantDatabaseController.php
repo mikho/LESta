@@ -9,6 +9,7 @@ use App\Actions\TenantDatabases\RotateTenantDatabasePassword;
 use App\Actions\TenantDatabases\SuspendTenantDatabase;
 use App\Actions\TenantDatabases\UnsuspendTenantDatabase;
 use App\Concerns\ListsCustomerResources;
+use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -26,6 +27,7 @@ use Inertia\Response;
 class TenantDatabaseController extends Controller
 {
     use ListsCustomerResources;
+    use PresentsProvisioningStatus;
     use ResolvesCurrentAccount;
 
     /**
@@ -224,7 +226,7 @@ class TenantDatabaseController extends Controller
             'database_name' => $tenantDatabase->database_name,
             'suspended_at' => $tenantDatabase->suspended_at?->toIso8601String(),
             'suspension_source' => $tenantDatabase->suspension_source?->value,
-            'provisioning_status' => $tenantDatabase->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($tenantDatabase->latestProvisioningOperation),
         ];
     }
 
@@ -245,7 +247,7 @@ class TenantDatabaseController extends Controller
             'database_user' => $tenantDatabase->database_user,
             'suspended_at' => $tenantDatabase->suspended_at?->toIso8601String(),
             'suspension_source' => $tenantDatabase->suspension_source?->value,
-            'provisioning_status' => $tenantDatabase->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($tenantDatabase->latestProvisioningOperation),
         ];
     }
 

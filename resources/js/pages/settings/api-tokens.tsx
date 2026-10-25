@@ -1,6 +1,7 @@
 import { Form, Head, router, usePage } from '@inertiajs/react';
 import { Check, Copy } from 'lucide-react';
 import ApiTokenController from '@/actions/App/Http/Controllers/Settings/ApiTokenController';
+import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -106,11 +107,17 @@ export default function ApiTokens({
         abilities.some((ability) => ability.startsWith(`${family.key}:`)),
     );
 
-    function revoke(token: ApiToken) {
+    const [confirm, confirmDialog] = useConfirm();
+
+    async function revoke(token: ApiToken) {
         if (
-            !window.confirm(
-                `Revoke "${token.name}"? Scripts using it stop working at once.`,
-            )
+            !(await confirm({
+                title: `Revoke ${token.name}?`,
+                description:
+                    'Scripts using this token stop working at once. This cannot be undone.',
+                confirmLabel: 'Revoke token',
+                destructive: true,
+            }))
         ) {
             return;
         }
@@ -123,8 +130,7 @@ export default function ApiTokens({
     return (
         <>
             <Head title="API tokens" />
-
-            <h1 className="sr-only">API tokens</h1>
+            {confirmDialog}
 
             <div className="space-y-6">
                 <Heading

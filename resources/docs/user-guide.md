@@ -9,14 +9,15 @@ This guide is for a hosting customer — someone with a real account on LESta, e
 ## Chapter 1: Getting started
 
 - **Log in** at the site's login page with the email and password your administrator gave you (or the password you set via the emailed link).
-- **Dashboard** (the page you land on after logging in) shows a quick overview of your account: how many web domains, DNS zones, mail domains, mailboxes, databases, and cron jobs you have, each linking straight to that section. If your account is suspended, that's shown here too.
-- If you belong to more than one account, **My account** in the sidebar (`/accounts/mine`) lists all of them; each row links to that account's own page. The dashboard itself only ever shows your _first_ account if you have several — there is no account switcher yet, so if you manage more than one, use "My account" to get to the others.
+- **Dashboard** (the page you land on after logging in) starts by saying whether your hosting is in order: "Everything is up to date on the server", how many changes are still being applied, or a list of anything the server could not apply, each with the reason and a link to the page where you can fix it. Below that are your plan, your usage and how many websites, DNS zones, mail domains, mailboxes, databases and cron jobs you have, each linking to its list. A new, empty account gets a short **Get started** path instead. If your account is suspended, the dashboard says so and what it means.
+- **Lists and status.** Every list (Domains, DNS, Mail, Databases, Cron jobs) works the same way: click a name or **Manage** to open it; the **⋯** button next to it holds the rest (such as Files, Suspend and Delete). The **Status** column stays quiet while all is well and shows **In progress** while the server applies a change, or **Failed** with the server's reason. Lists and pages update by themselves while a change is in progress. Each resource's own page starts with the same status in a sentence.
+- If you belong to more than one account, **Your accounts** in the sidebar (`/accounts/mine`) lists all of them; each row links to that account's own page. The dashboard itself only ever shows your _first_ account if you have several — there is no account switcher yet, so if you manage more than one, use "Your accounts" to get to the others.
 
 ---
 
 ## Chapter 2: Your account
 
-Click through from "My account," or from the dashboard, to reach your account's own page.
+Click through from "Your accounts," or from the dashboard, to reach your account's own page.
 
 - **View**: name, package, suspension status, resource counts, and the list of people (members) on the account.
 - **Update** name, contact email, or package — available to the account **owner** only. A **member** sees a plain, read-only summary instead of the edit form, so there's nothing to click that wouldn't work.
@@ -31,8 +32,8 @@ Click through from "My account," or from the dashboard, to reach your account's 
 
 `Domains` in the sidebar (`/domains`).
 
-- **Add domain**: the domain name, optional **aliases** (one per line, extra hostnames that serve the same site), a **template**, **web server** (nginx or Apache, Apache only works if your node supports it), a **PHP version** (8.1 to 8.4, or none for a static site), and **SSL mode** (None, Manual, or Let's Encrypt).
-- **Edit**: change the same fields after creation.
+- **Add domain**: the domain name, optional other addresses for the same site (one per line, such as the www address), **HTTPS** (automatic, with a free Let's Encrypt certificate, is chosen for you when the server offers it; or your own certificate; or off) and **PHP** (the newest version is chosen when the server offers PHP; pick "No PHP" for plain HTML files). **Advanced** holds the web server (nginx, or Apache where offered) and the template.
+- **The domain's page** (click its name or **Manage**) groups its settings into Site, HTTPS, Protection (hotlink protection and the web application firewall; fine-tuning is folded away) and Advanced, followed by Redirects, Password-protected folders, SFTP access and, last, Suspend or delete. **This domain here** shows whether the same domain also has a DNS zone and mail on the server, with a link to each or to add it.
 - **Suspend / Unsuspend**: takes the site offline/back online without deleting it.
 - **Delete**: removes it permanently, and with it the site's files and logs on the server. Take a backup first (Chapter 8) if you might want them back.
 
@@ -55,7 +56,8 @@ On a domain's own page you also find:
 `DNS` in the sidebar (`/dns`). DNS is organized as **zones** (one per domain) containing **records**.
 
 - **Add zone**: domain name and TTL (how long resolvers should cache answers, in seconds).
-- Inside a zone's edit page, **Add record**: name (e.g. `www`, or `@` for the domain itself), type (A, AAAA, NS, CNAME, MX, TXT, SRV, PTR, or CAA — a priority field appears for MX/SRV), and value. Records can be individually edited, suspended/unsuspended, or deleted without touching the rest of the zone.
+- A zone's page shows the **Name servers** to enter where you registered the domain, so the world asks this server about it.
+- Inside a zone's page, **Add record**: name (e.g. `www`, or `@` for the domain itself), type (A, AAAA, NS, CNAME, MX, TXT, SRV, PTR, or CAA — a priority field appears for MX/SRV), and value. Records can be individually edited, suspended/unsuspended, or deleted without touching the rest of the zone.
 - The zone itself can also be suspended/unsuspended (stops/resumes DNS answering for the whole domain) or deleted (removes it and every record in it).
 
 ---
@@ -66,7 +68,7 @@ On a domain's own page you also find:
 
 - **Add domain**: the domain name, a **catch-all email** (optional — where mail to unrecognized addresses at this domain goes), and three toggles: scan incoming mail for viruses, scan for spam (both on by default), and sign outgoing mail with DKIM (off by default — turning it on starts real key generation, and the key rotates automatically on a schedule you don't need to manage).
 - Inside a domain's edit page, **Add mailbox**: a name (the part before the `@`), optional quota in MB, optional forwarding address, a "forward only, don't keep a copy" toggle, and an autoreply toggle with its own message.
-    - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **Rotate password** on that mailbox to get a new one.
+    - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **New password** (under **⋯** next to the mailbox) to get a new one.
 - Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page. Deleting a mailbox deletes its mail on the server too.
 - **Spam settings per mailbox** (in the mailbox's Edit dialog, when the domain has antispam on): **Move spam to the Junk folder** never, only for obvious spam, for likely spam (the default) or for anything suspicious; **Always accept from**, addresses or domains whose mail is never moved to Junk; and **Block**, addresses or domains whose mail is deleted without being delivered (the block list works even when the domain's antispam is off). One entry per line. Mail moved to Junk is not forwarded and gets no autoreply. Overwhelming spam (a score of 15 or more) is still refused for every mailbox before it arrives. The lists match the From address people see, which a spammer can fake, so keep the allow list to senders you need.
 - The domain itself can be suspended/unsuspended (stops/resumes all mail for every mailbox on it) or deleted (removes it and every mailbox in it, with all their mail).
@@ -80,7 +82,7 @@ On a domain's own page you also find:
 `Databases` in the sidebar (`/tenant-databases`).
 
 - **Add database**: just a label (lowercase letters, digits, and underscores, starting with a letter — this is used to build the real database name and **cannot be changed later**). This creates a real MariaDB database plus a matching database user.
-- The database's password is shown once, the same one-time-reveal rule as mailbox passwords (Chapter 5) — copy it immediately, or use **Rotate password** later if you missed it.
+- The database's password is shown once, the same one-time-reveal rule as mailbox passwords (Chapter 5) — copy it immediately, or use **New password** on its page later if you missed it.
 - **Open Adminer** on a database's page opens Adminer, a database tool in the browser, already signed in to that database, in a new tab.
 - **Extra users**: on a database's page you can add up to 20 more users, for another application or a person. Each is named after the database plus a short label you choose (lowercase letters and digits, starting with a letter, for example `report`), and has either **Full access** (the same as the database's own user) or **Read only** (it can read tables and views, never change them). You can change a user's access at any time; the change applies straight away. A new user's password is shown once, like the database's own; **New password** gives it another, and **Remove** takes the user away without touching the data.
 - **Remote access**: an extra user can also connect from other computers, for example a reporting tool or your own workstation. Under **Remote access**, list the IP addresses it may connect from, one per line (up to 20, single addresses only, no ranges). Those connections go to the server's hostname on port 3307 and must use TLS; the page shows the exact address. Only the addresses you list can reach the database from outside, and only as that user. Leave the list empty to allow local connections only. Remote access needs a certificate for the server's hostname; if the page says it is not available, ask your provider. The database's own user always stays local.
@@ -92,15 +94,15 @@ On a domain's own page you also find:
 
 `Cron jobs` in the sidebar (`/cron-jobs`).
 
-- **Add cron job**: the five standard cron fields (minute, hour, day of month, month, day of week — `*` means "every"), and the command to run.
+- **Add cron job**: pick when it runs (every 5 minutes, every hour, every day, every week, every month, or **Custom** for the five standard cron fields) and the command. The page says in words when the job will run, for example "Daily at 03:30".
 - Your job runs as your account's own system user on the node, never as root and never as another account. It can reach your own files and nothing else on the server.
-- Edit, suspend/unsuspend, or delete a job from the same list.
+- Open a job (its command, or **Manage**) to change it, see its recent runs, or suspend or delete it; suspend and delete are also under **⋯** in the list.
 
 ---
 
 ## Chapter 8: Backups
 
-`My backups` in the sidebar. A backup is a snapshot of your **website files**, **databases** and **mailboxes** (choose which), kept encrypted on the server.
+`Backups` in the sidebar, under Your account. A backup is a snapshot of your **website files**, **databases** and **mailboxes** (choose which), kept encrypted on the server.
 
 - **Back up now**: pick what to include and, optionally, a name. It takes a few minutes for a large account.
 - **Automatic backups**: daily or weekly, with the parts you choose. They run at night (between 01:00 and 04:00 UTC). The latest seven automatic backups are kept; older ones are removed.
@@ -149,6 +151,6 @@ If you contact support about a problem with your account, an administrator may b
 
 ## Chapter 13: Summary of gaps and notes
 
-1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "My account" to reach the others.
-2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "rotate" (which invalidates the old one immediately).
+1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "Your accounts" to reach the others.
+2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "New password" (which invalidates the old one immediately).
 3. No self-service sign-up, ever, by design — only an administrator (or later, a reseller) can create your account.

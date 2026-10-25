@@ -22,25 +22,27 @@ test('a full list, create, edit, suspend, unsuspend, delete workflow works in a 
 
     $page->assertNoJavaScriptErrors()
         ->assertSee('Domains')
-        ->assertSee('No domains yet.')
+        ->assertSee('No domains yet')
         ->click('Add domain')
         ->assertNoJavaScriptErrors()
         ->fill('domain', 'browser-test.example.com')
-        ->click('Create domain')
+        ->click('[data-test="create-domain-button"]')
         ->assertNoJavaScriptErrors()
         ->assertSee('browser-test.example.com');
 
     $webDomain = WebDomain::where('domain', 'browser-test.example.com')->sole();
 
-    $page->click('Edit')
+    $page->click('Manage')
         ->assertNoJavaScriptErrors()
-        ->assertSee('Edit domain')
-        ->click('Suspend')
+        ->assertSee('Website settings for this domain')
+        ->click('[data-test="toggle-suspend-domain-button"]')
+        ->click('[data-test="confirm-toggle-suspend-domain-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($webDomain->refresh()->isSuspended())->toBeTrue();
 
-    $page->click('Unsuspend')
+    $page->click('[data-test="toggle-suspend-domain-button"]')
+        ->click('[data-test="confirm-toggle-suspend-domain-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($webDomain->refresh()->isSuspended())->toBeFalse();

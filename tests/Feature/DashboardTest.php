@@ -3,6 +3,7 @@
 use App\Models\Account;
 use App\Models\Membership;
 use App\Models\PackageLimit;
+use App\Models\ProvisioningOperation;
 use App\Models\UsageSnapshot;
 use App\Models\User;
 use App\Models\WebDomain;
@@ -58,4 +59,27 @@ test('the dashboard shows plan limits against use and the previous sign-in', fun
             ->where('usage.requests_30d', 40)
             ->where('usage.bandwidth_bytes_30d', 2048)
         );
+});
+
+test('the dashboard lists what the server could not apply, with its reason, and counts what is still being applied', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $broken = WebDomain::factory()->for($account)->create(['domain' => 'broken.example']);
+    $busy = WebDomain::factory()->for($account)->create(['domain' => 'busy.example']);
+    $operation = fn (WebDomain $webDomain) => [
+        'provisionable_type' => $webDomain->getMorphClass(),
+        'provisionable_id' => $webDomain->id,
+        'resource_id' => $webDomain->uuid,
+        'node_id' => $webDomain->node_id,
+    ];
+    ProvisioningOperation::factory()->failed()->create($operation($broken));
+    ProvisioningOperation::factory()->pending()->create($operation($busy));
+
+    $this->actingAs($owner)->get(route('dashboard'))->assertInertia(fn (Assert $page) => $page
+        ->has('health.attention', 1)
+        ->where('health.attention.0.kind', 'Website')
+        ->where('health.attention.0.name', 'broken.example')
+        ->where('health.attention.0.error', 'Provisioner failed to apply.')
+        ->where('health.attention.0.url', route('domains.edit', $broken))
+        ->where('health.applying', 1));
 });

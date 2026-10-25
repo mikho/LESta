@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -10,12 +10,12 @@ import { index } from '@/routes/dns';
 export default function Create() {
     return (
         <>
-            <Head title="Add a DNS zone" />
+            <Head title="Add DNS zone" />
 
             <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
                 <Heading
-                    title="Add a DNS zone"
-                    description="Provision a new DNS zone for this account"
+                    title="Add DNS zone"
+                    description="Let this server answer DNS for a domain you own. You add its records next."
                 />
 
                 <Form {...DnsZoneController.store.form()} className="space-y-6">
@@ -53,7 +53,10 @@ export default function Create() {
                                     disabled={processing}
                                     data-test="create-dns-zone-button"
                                 >
-                                    Create zone
+                                    Add DNS zone
+                                </Button>
+                                <Button variant="ghost" asChild>
+                                    <Link href={index()}>Cancel</Link>
                                 </Button>
                             </div>
                         </>

@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
@@ -11,12 +11,12 @@ import { index } from '@/routes/mail';
 export default function Create() {
     return (
         <>
-            <Head title="Add a mail domain" />
+            <Head title="Add mail domain" />
 
             <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
                 <Heading
-                    title="Add a mail domain"
-                    description="Provision a new mail domain for this account"
+                    title="Add mail domain"
+                    description="Receive mail for a domain you own. You add mailboxes next."
                 />
 
                 <Form
@@ -76,7 +76,10 @@ export default function Create() {
                                     disabled={processing}
                                     data-test="create-mail-domain-button"
                                 >
-                                    Create domain
+                                    Add mail domain
+                                </Button>
+                                <Button variant="ghost" asChild>
+                                    <Link href={index()}>Cancel</Link>
                                 </Button>
                             </div>
                         </>

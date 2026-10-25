@@ -21,8 +21,8 @@ test('a full list, create, edit, record, suspend, unsuspend, delete workflow wor
 
     $page->assertNoJavaScriptErrors()
         ->assertSee('DNS')
-        ->assertSee('No DNS zones yet.')
-        ->click('Add zone')
+        ->assertSee('No DNS zones yet')
+        ->click('Add DNS zone')
         ->assertNoJavaScriptErrors()
         ->fill('domain', 'browser-test.example.com')
         ->click('[data-test="create-dns-zone-button"]')
@@ -31,9 +31,9 @@ test('a full list, create, edit, record, suspend, unsuspend, delete workflow wor
 
     $dnsZone = DnsZone::where('domain', 'browser-test.example.com')->sole();
 
-    $page->click('Edit')
+    $page->click('Manage')
         ->assertNoJavaScriptErrors()
-        ->assertSee('Edit DNS zone')
+        ->assertSee('Name servers')
         ->click('[data-test="add-dns-record-button"]')
         ->assertNoJavaScriptErrors()
         ->fill('name', 'www')
@@ -44,21 +44,24 @@ test('a full list, create, edit, record, suspend, unsuspend, delete workflow wor
 
     $dnsRecord = DnsRecord::where('dns_zone_id', $dnsZone->id)->where('name', 'www')->sole();
 
-    $page->click('[data-test="toggle-suspend-dns-record-button"]')
+    $page->click('[aria-label="More actions for www A"]')
+        ->click('[data-test="toggle-suspend-dns-record-button"]')
         ->assertNoJavaScriptErrors()
         ->click('[data-test="confirm-toggle-suspend-dns-record-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($dnsRecord->refresh()->isSuspended())->toBeTrue();
 
-    $page->click('[data-test="toggle-suspend-dns-record-button"]')
+    $page->click('[aria-label="More actions for www A"]')
+        ->click('[data-test="toggle-suspend-dns-record-button"]')
         ->assertNoJavaScriptErrors()
         ->click('[data-test="confirm-toggle-suspend-dns-record-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($dnsRecord->refresh()->isSuspended())->toBeFalse();
 
-    $page->click('[data-test="delete-dns-record-button"]')
+    $page->click('[aria-label="More actions for www A"]')
+        ->click('[data-test="delete-dns-record-button"]')
         ->assertNoJavaScriptErrors()
         ->click('[data-test="confirm-delete-dns-record-button"]')
         ->assertNoJavaScriptErrors();
@@ -66,11 +69,13 @@ test('a full list, create, edit, record, suspend, unsuspend, delete workflow wor
     expect(DnsRecord::find($dnsRecord->id))->toBeNull();
 
     $page->click('[data-test="toggle-suspend-dns-zone-button"]')
+        ->click('[data-test="confirm-toggle-suspend-dns-zone-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($dnsZone->refresh()->isSuspended())->toBeTrue();
 
     $page->click('[data-test="toggle-suspend-dns-zone-button"]')
+        ->click('[data-test="confirm-toggle-suspend-dns-zone-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($dnsZone->refresh()->isSuspended())->toBeFalse();

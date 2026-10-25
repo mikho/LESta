@@ -1,6 +1,7 @@
 import { Form, Head, router, usePage } from '@inertiajs/react';
 import { Check, Copy } from 'lucide-react';
 import WebhookController from '@/actions/App/Http/Controllers/Settings/WebhookController';
+import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -117,11 +118,16 @@ export default function Webhooks({
     canManagePlatform,
     events,
 }: Props) {
-    function remove(webhook: Webhook) {
+    const [confirm, confirmDialog] = useConfirm();
+
+    async function remove(webhook: Webhook) {
         if (
-            !window.confirm(
-                `Remove the webhook to ${webhook.url}? Nothing more is sent to it.`,
-            )
+            !(await confirm({
+                title: 'Remove this webhook?',
+                description: `Nothing more is sent to ${webhook.url}.`,
+                confirmLabel: 'Remove webhook',
+                destructive: true,
+            }))
         ) {
             return;
         }
@@ -142,8 +148,7 @@ export default function Webhooks({
     return (
         <>
             <Head title="Webhooks" />
-
-            <h1 className="sr-only">Webhooks</h1>
+            {confirmDialog}
 
             <div className="space-y-6">
                 <Heading

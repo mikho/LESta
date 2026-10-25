@@ -1,4 +1,4 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -15,15 +15,24 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { index } from '@/routes/domains';
 
-export default function Create() {
+type Offers = {
+    php: boolean;
+    automatic_https: boolean;
+    apache: boolean;
+    php_versions: string[];
+};
+
+export default function Create({ offers }: { offers: Offers }) {
+    const newestPhp = offers.php_versions[offers.php_versions.length - 1];
+
     return (
         <>
-            <Head title="Add a domain" />
+            <Head title="Add domain" />
 
             <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
                 <Heading
-                    title="Add a domain"
-                    description="Provision a new web domain for this account"
+                    title="Add domain"
+                    description="Host a website on a domain you own. You can add mail and DNS for it afterwards."
                 />
 
                 <Form
@@ -55,6 +64,8 @@ export default function Create() {
                                     required
                                     autoFocus
                                     placeholder="example.com"
+                                    autoCapitalize="none"
+                                    spellCheck={false}
                                 />
 
                                 <InputError message={errors.domain} />
@@ -62,120 +73,191 @@ export default function Create() {
 
                             <div className="grid gap-2">
                                 <Label htmlFor="aliases">
-                                    Aliases (one per line)
+                                    Other addresses for the same site
                                 </Label>
 
                                 <Textarea
                                     id="aliases"
                                     name="aliases"
-                                    rows={4}
-                                    placeholder={
-                                        'www.example.com\nshop.example.com'
-                                    }
+                                    rows={3}
+                                    placeholder={'www.example.com'}
+                                    aria-describedby="aliases-help"
                                 />
+                                <p
+                                    id="aliases-help"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    One per line, for example the www address.
+                                    Optional.
+                                </p>
 
                                 <InputError message={errors.aliases} />
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="web_template">Template</Label>
+                                <Label htmlFor="ssl_mode">HTTPS</Label>
 
-                                <Input
-                                    id="web_template"
-                                    name="web_template"
-                                    defaultValue="default"
-                                />
-
-                                <InputError message={errors.web_template} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="web_server">Web server</Label>
-
-                                <Select name="web_server" defaultValue="nginx">
-                                    <SelectTrigger id="web_server">
-                                        <SelectValue placeholder="Select a web server" />
+                                <Select
+                                    name="ssl_mode"
+                                    defaultValue={
+                                        offers.automatic_https
+                                            ? 'lets_encrypt'
+                                            : 'none'
+                                    }
+                                >
+                                    <SelectTrigger
+                                        id="ssl_mode"
+                                        aria-describedby="ssl-help"
+                                    >
+                                        <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="nginx">
-                                            nginx
+                                        {offers.automatic_https && (
+                                            <SelectItem value="lets_encrypt">
+                                                Automatic (free certificate from
+                                                Let&apos;s Encrypt)
+                                            </SelectItem>
+                                        )}
+                                        <SelectItem value="manual">
+                                            My own certificate
                                         </SelectItem>
-                                        <SelectItem value="apache">
-                                            Apache
+                                        <SelectItem value="none">
+                                            Off (HTTP only)
                                         </SelectItem>
                                     </SelectContent>
                                 </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Apache support requires this node to offer
-                                    it.
+                                <p
+                                    id="ssl-help"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {offers.automatic_https
+                                        ? 'The certificate is issued once the domain points at this server, and renewed by itself.'
+                                        : 'Automatic certificates are not offered on this server; ask your provider.'}
                                 </p>
 
-                                <InputError message={errors.web_server} />
+                                <InputError message={errors.ssl_mode} />
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="php_version">PHP version</Label>
+                                <Label htmlFor="php_version">PHP</Label>
 
-                                <Select name="php_version" defaultValue="none">
-                                    <SelectTrigger id="php_version">
-                                        <SelectValue placeholder="Select a PHP version" />
+                                <Select
+                                    name="php_version"
+                                    defaultValue={
+                                        offers.php && newestPhp
+                                            ? newestPhp
+                                            : 'none'
+                                    }
+                                >
+                                    <SelectTrigger
+                                        id="php_version"
+                                        aria-describedby="php-help"
+                                    >
+                                        <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        {offers.php &&
+                                            [...offers.php_versions]
+                                                .reverse()
+                                                .map((version) => (
+                                                    <SelectItem
+                                                        key={version}
+                                                        value={version}
+                                                    >
+                                                        PHP {version}
+                                                        {version === newestPhp
+                                                            ? ' (newest)'
+                                                            : ''}
+                                                    </SelectItem>
+                                                ))}
                                         <SelectItem value="none">
-                                            None (static only)
-                                        </SelectItem>
-                                        <SelectItem value="8.1">
-                                            PHP 8.1
-                                        </SelectItem>
-                                        <SelectItem value="8.2">
-                                            PHP 8.2
-                                        </SelectItem>
-                                        <SelectItem value="8.3">
-                                            PHP 8.3
-                                        </SelectItem>
-                                        <SelectItem value="8.4">
-                                            PHP 8.4
+                                            No PHP (plain HTML files only)
                                         </SelectItem>
                                     </SelectContent>
                                 </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Requires this node to offer PHP execution.
+                                <p
+                                    id="php-help"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {offers.php
+                                        ? 'WordPress and most site software need PHP. You can change the version later.'
+                                        : 'PHP is not offered on this server, so the site can serve plain files only.'}
                                 </p>
 
                                 <InputError message={errors.php_version} />
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="ssl_mode">SSL mode</Label>
+                            <details className="group rounded-lg border p-4">
+                                <summary className="cursor-pointer text-sm font-medium">
+                                    Advanced
+                                </summary>
 
-                                <Select name="ssl_mode" defaultValue="none">
-                                    <SelectTrigger id="ssl_mode">
-                                        <SelectValue placeholder="Select an SSL mode" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">
-                                            None
-                                        </SelectItem>
-                                        <SelectItem value="manual">
-                                            Manual
-                                        </SelectItem>
-                                        <SelectItem value="lets_encrypt">
-                                            Let&apos;s Encrypt
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <div className="mt-4 space-y-6">
+                                    {offers.apache && (
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="web_server">
+                                                Web server
+                                            </Label>
 
-                                <InputError message={errors.ssl_mode} />
-                            </div>
+                                            <Select
+                                                name="web_server"
+                                                defaultValue="nginx"
+                                            >
+                                                <SelectTrigger id="web_server">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="nginx">
+                                                        nginx (recommended)
+                                                    </SelectItem>
+                                                    <SelectItem value="apache">
+                                                        Apache, for sites that
+                                                        need .htaccess
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+
+                                            <InputError
+                                                message={errors.web_server}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="web_template">
+                                            Template
+                                        </Label>
+
+                                        <Input
+                                            id="web_template"
+                                            name="web_template"
+                                            defaultValue="default"
+                                            aria-describedby="template-help"
+                                        />
+                                        <p
+                                            id="template-help"
+                                            className="text-sm text-muted-foreground"
+                                        >
+                                            Leave as default unless your
+                                            provider gave you another name.
+                                        </p>
+
+                                        <InputError
+                                            message={errors.web_template}
+                                        />
+                                    </div>
+                                </div>
+                            </details>
 
                             <div className="flex items-center gap-4">
                                 <Button
                                     disabled={processing}
                                     data-test="create-domain-button"
                                 >
-                                    Create domain
+                                    Add domain
+                                </Button>
+                                <Button variant="ghost" asChild>
+                                    <Link href={index()}>Cancel</Link>
                                 </Button>
                             </div>
                         </>

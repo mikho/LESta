@@ -338,9 +338,7 @@ export default function Show({
                             <dd>{account.mail_domains_count ?? 0}</dd>
                         </div>
                         <div>
-                            <dt className="text-muted-foreground">
-                                Tenant databases
-                            </dt>
+                            <dt className="text-muted-foreground">Databases</dt>
                             <dd>{account.tenant_databases_count ?? 0}</dd>
                         </div>
                         <div>
@@ -736,9 +734,9 @@ export default function Show({
                                         {account.name}?
                                     </DialogTitle>
                                     <DialogDescription>
-                                        This deletes the account and every web
-                                        domain, mail domain, tenant database,
-                                        and cron job it owns.
+                                        This deletes the account and every
+                                        website, mail domain, database and cron
+                                        job it owns.
                                     </DialogDescription>
 
                                     <Form

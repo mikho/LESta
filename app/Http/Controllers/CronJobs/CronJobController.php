@@ -8,6 +8,7 @@ use App\Actions\CronJobs\SuspendCronJob;
 use App\Actions\CronJobs\UnsuspendCronJob;
 use App\Actions\CronJobs\UpdateCronJob;
 use App\Concerns\ListsCustomerResources;
+use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -25,6 +26,7 @@ use Inertia\Response;
 class CronJobController extends Controller
 {
     use ListsCustomerResources;
+    use PresentsProvisioningStatus;
     use ResolvesCurrentAccount;
 
     /**
@@ -193,7 +195,7 @@ class CronJobController extends Controller
             'command' => $cronJob->command,
             'suspended_at' => $cronJob->suspended_at?->toIso8601String(),
             'suspension_source' => $cronJob->suspension_source?->value,
-            'provisioning_status' => $cronJob->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($cronJob->latestProvisioningOperation),
         ];
     }
 
@@ -214,7 +216,7 @@ class CronJobController extends Controller
             'command' => $cronJob->command,
             'suspended_at' => $cronJob->suspended_at?->toIso8601String(),
             'suspension_source' => $cronJob->suspension_source?->value,
-            'provisioning_status' => $cronJob->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($cronJob->latestProvisioningOperation),
             'executions' => $cronJob->executions->map(fn (CronJobExecution $e): array => [
                 'started_at' => $e->started_at->toIso8601String(),
                 'finished_at' => $e->finished_at->toIso8601String(),

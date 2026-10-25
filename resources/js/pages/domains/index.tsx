@@ -1,5 +1,4 @@
-import { Form, Head, Link, router } from '@inertiajs/react';
-import { useEffect, useRef, useState } from 'react';
+import { Head, Link } from '@inertiajs/react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import {
     CustomerResourceIndex,
@@ -9,41 +8,26 @@ import type {
     CustomerItem,
     CustomerListing,
 } from '@/components/customer-resource-index';
-import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
-import {
-    ProvisioningBadge,
-    QuietProvisioningStatus,
-} from '@/components/provisioning-badge';
+import { OwnResourceList } from '@/components/own-resource-list';
+import type { Paginated } from '@/components/own-resource-list';
+import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import customerResources from '@/routes/customer-resources';
 import domains from '@/routes/domains';
 import { index as ipRulesIndex } from '@/routes/ip-rules';
 import type { WebDomain } from '@/types';
 
-type PaginatedWebDomains = {
-    data: WebDomain[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
-
 const sslModeLabels: Record<WebDomain['ssl_mode'], string> = {
     none: 'None',
     manual: 'Manual',
     lets_encrypt: "Let's Encrypt",
+};
+
+const httpsLabels: Record<WebDomain['ssl_mode'], string> = {
+    none: 'Off',
+    manual: 'Own certificate',
+    lets_encrypt: 'On (automatic)',
 };
 
 const webServerLabels: Record<WebDomain['web_server'], string> = {
@@ -57,30 +41,9 @@ export default function Index({
     search: initialSearch,
 }: {
     customers?: CustomerListing<CustomerItem<WebDomain>>;
-    webDomains: PaginatedWebDomains | null;
+    webDomains: Paginated<WebDomain> | null;
     search: string;
 }) {
-    const [search, setSearch] = useState(initialSearch);
-    const isFirstRender = useRef(true);
-
-    useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-
-            return;
-        }
-
-        const timeout = setTimeout(() => {
-            router.get(
-                domains.index.url(),
-                { search },
-                { preserveState: true, replace: true },
-            );
-        }, 300);
-
-        return () => clearTimeout(timeout);
-    }, [search]);
-
     if (customers) {
         return (
             <CustomerResourceIndex
@@ -158,367 +121,86 @@ export default function Index({
     }
 
     return (
-        <>
-            <Head title="Domains" />
-
-            <div className="space-y-6 p-4">
-                <div className="flex items-center justify-between gap-4">
-                    <Heading
-                        title="Domains"
-                        description="Manage this account's web domains"
-                    />
-
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" asChild>
-                            <Link href={ipRulesIndex()}>IP access rules</Link>
-                        </Button>
-
-                        <Button asChild>
-                            <Link href={WebDomainController.create()}>
-                                Add domain
-                            </Link>
-                        </Button>
-                    </div>
-                </div>
-
-                <Input
-                    type="search"
-                    placeholder="Search domains…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="max-w-sm"
-                />
-
-                <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                    <table className="w-full text-left text-sm">
-                        <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
-                            <tr>
-                                <th className="px-4 py-2 font-medium">
-                                    Domain
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Aliases
-                                </th>
-                                <th className="px-4 py-2 font-medium">SSL</th>
-                                <th className="px-4 py-2 font-medium">
-                                    Web server
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Suspension
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Provisioning
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Actions
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {webDomains.data.length === 0 && (
-                                <tr>
-                                    <td
-                                        colSpan={7}
-                                        className="px-4 py-6 text-center text-muted-foreground"
-                                    >
-                                        No domains yet.
-                                    </td>
-                                </tr>
-                            )}
-
-                            {webDomains.data.map((webDomain) => (
-                                <tr
-                                    key={webDomain.uuid}
-                                    className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
-                                >
-                                    <td className="px-4 py-2 font-medium">
-                                        {webDomain.domain}
-                                    </td>
-                                    <td className="px-4 py-2 text-muted-foreground">
-                                        {webDomain.aliases.length > 0
-                                            ? webDomain.aliases.join(', ')
-                                            : '—'}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        {sslModeLabels[webDomain.ssl_mode]}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        {webServerLabels[webDomain.web_server]}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        {webDomain.suspended_at ? (
-                                            <span className="text-red-600 dark:text-red-400">
-                                                Suspended
-                                                {webDomain.suspension_source ===
-                                                'cascade'
-                                                    ? ' (account)'
-                                                    : ''}
-                                            </span>
-                                        ) : (
-                                            <span className="text-green-700 dark:text-green-400">
-                                                Active
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <ProvisioningBadge
-                                            status={
-                                                webDomain.provisioning_status
-                                            }
-                                        />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                asChild
-                                            >
-                                                <Link
-                                                    href={WebDomainController.edit(
-                                                        webDomain,
-                                                    )}
-                                                >
-                                                    Edit
-                                                </Link>
-                                            </Button>
-
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                asChild
-                                            >
-                                                <Link
-                                                    href={domains.files.index(
-                                                        webDomain,
-                                                    )}
-                                                >
-                                                    Files
-                                                </Link>
-                                            </Button>
-
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                asChild
-                                            >
-                                                <Link
-                                                    href={domains.logs.index(
-                                                        webDomain,
-                                                    )}
-                                                >
-                                                    Logs
-                                                </Link>
-                                            </Button>
-
-                                            {webDomain.suspended_at ? (
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                        >
-                                                            Unsuspend
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Unsuspend{' '}
-                                                            {webDomain.domain}?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            The domain will
-                                                            resume serving
-                                                            traffic.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...WebDomainController.unsuspend.form(
-                                                                webDomain,
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button type="submit">
-                                                                            Unsuspend
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            ) : (
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                        >
-                                                            Suspend
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Suspend{' '}
-                                                            {webDomain.domain}?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            The domain will stop
-                                                            serving traffic
-                                                            until it is
-                                                            unsuspended.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...WebDomainController.suspend.form(
-                                                                webDomain,
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        variant="destructive"
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button type="submit">
-                                                                            Suspend
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            )}
-
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="sm"
-                                                    >
-                                                        Delete
-                                                    </Button>
-                                                </DialogTrigger>
-                                                <DialogContent>
-                                                    <DialogTitle>
-                                                        Delete{' '}
-                                                        {webDomain.domain}?
-                                                    </DialogTitle>
-                                                    <DialogDescription>
-                                                        This cannot be undone.
-                                                        The domain's site files
-                                                        and logs are deleted
-                                                        from the server too;
-                                                        take a backup first if
-                                                        you need them.
-                                                    </DialogDescription>
-
-                                                    <Form
-                                                        {...WebDomainController.destroy.form(
-                                                            webDomain,
-                                                        )}
-                                                        options={{
-                                                            preserveScroll: true,
-                                                        }}
-                                                    >
-                                                        {({ processing }) => (
-                                                            <DialogFooter className="gap-2">
-                                                                <DialogClose
-                                                                    asChild
-                                                                >
-                                                                    <Button variant="secondary">
-                                                                        Cancel
-                                                                    </Button>
-                                                                </DialogClose>
-
-                                                                <Button
-                                                                    variant="destructive"
-                                                                    disabled={
-                                                                        processing
-                                                                    }
-                                                                    asChild
-                                                                >
-                                                                    <button type="submit">
-                                                                        Delete
-                                                                    </button>
-                                                                </Button>
-                                                            </DialogFooter>
-                                                        )}
-                                                    </Form>
-                                                </DialogContent>
-                                            </Dialog>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{webDomains.total} total</span>
-
-                    <div className="flex gap-2">
-                        {webDomains.prev_page_url && (
-                            <Link
-                                href={webDomains.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Previous
-                            </Link>
-                        )}
-
-                        {webDomains.next_page_url && (
-                            <Link
-                                href={webDomains.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Next
-                            </Link>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </>
+        <OwnResourceList
+            title="Domains"
+            description="Your websites and the addresses they answer on"
+            headerActions={
+                <Button variant="outline" asChild>
+                    <Link href={ipRulesIndex()}>IP access rules</Link>
+                </Button>
+            }
+            addHref={WebDomainController.create()}
+            addLabel="Add domain"
+            indexUrl={domains.index.url()}
+            search={initialSearch}
+            noun={{ one: 'domain', other: 'domains' }}
+            items={webDomains}
+            pollProp="webDomains"
+            empty={{
+                title: 'No domains yet',
+                body: 'Add a domain to host a website on it. You can add mail and DNS for the same domain afterwards.',
+            }}
+            name={(webDomain) => webDomain.domain}
+            manageHref={(webDomain) => WebDomainController.edit(webDomain)}
+            columns={[
+                {
+                    header: 'Aliases',
+                    hideOnMobile: true,
+                    cell: (webDomain) =>
+                        webDomain.aliases.length > 0
+                            ? webDomain.aliases.join(', ')
+                            : '—',
+                },
+                {
+                    header: 'HTTPS',
+                    hideOnMobile: true,
+                    cell: (webDomain) => httpsLabels[webDomain.ssl_mode],
+                },
+                {
+                    header: 'Web server',
+                    hideOnMobile: true,
+                    cell: (webDomain) => webServerLabels[webDomain.web_server],
+                },
+            ]}
+            moreActions={(webDomain) => [
+                { label: 'Files', href: domains.files.index(webDomain) },
+                { label: 'Logs', href: domains.logs.index(webDomain) },
+                webDomain.suspended_at
+                    ? {
+                          label: 'Unsuspend',
+                          confirm: {
+                              form: WebDomainController.unsuspend.form(
+                                  webDomain,
+                              ),
+                              title: `Unsuspend ${webDomain.domain}?`,
+                              description: 'The site will be reachable again.',
+                              confirmLabel: 'Unsuspend',
+                          },
+                      }
+                    : {
+                          label: 'Suspend',
+                          confirm: {
+                              form: WebDomainController.suspend.form(webDomain),
+                              title: `Suspend ${webDomain.domain}?`,
+                              description:
+                                  'Visitors will get an error until you unsuspend it. Its files are kept.',
+                              confirmLabel: 'Suspend',
+                              destructive: true,
+                          },
+                      },
+                {
+                    label: 'Delete',
+                    confirm: {
+                        form: WebDomainController.destroy.form(webDomain),
+                        title: `Delete ${webDomain.domain}?`,
+                        description:
+                            "This cannot be undone. The site's files and logs are deleted from the server too; take a backup first if you need them.",
+                        confirmLabel: 'Delete domain',
+                        destructive: true,
+                    },
+                },
+            ]}
+        />
     );
 }
 

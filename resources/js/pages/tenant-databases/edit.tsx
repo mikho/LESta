@@ -3,8 +3,10 @@ import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
 import TenantDatabaseUserController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseUserController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ProvisioningPanel } from '@/components/provisioning-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import { apiPost } from '@/lib/api';
 import { submitHandoff } from '@/lib/handoff';
 import tenantDatabases from '@/routes/tenant-databases';
@@ -356,7 +359,7 @@ function DatabaseUsersCard({
                             key={user.uuid}
                             className="flex flex-wrap items-center gap-3 p-3"
                         >
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                                 <p className="truncate font-mono text-sm">
                                     {user.username}
                                 </p>
@@ -512,62 +515,70 @@ export default function Edit({
 }) {
     const [rotateOpen, setRotateOpen] = useState(false);
 
+    usePollWhile(isApplying(tenantDatabase.provisioning_status), [
+        'tenantDatabase',
+    ]);
+
     return (
         <>
-            <Head title={`Manage ${tenantDatabase.label}`} />
+            <Head title={tenantDatabase.label} />
 
             <div className="mx-auto w-full max-w-2xl space-y-8 p-4">
                 <Heading
-                    title="Manage database"
-                    description="Connection details and lifecycle controls for this tenant database"
+                    level={1}
+                    title={tenantDatabase.label}
+                    description="Database: how to connect, its users and its password"
+                />
+
+                <ProvisioningPanel
+                    status={tenantDatabase.provisioning_status}
+                    reason={tenantDatabase.provisioning_error}
+                    updatedAt={tenantDatabase.provisioning_updated_at}
                 />
 
                 <GeneratedPasswordBanner tenantDatabase={tenantDatabase} />
 
-                <div className="space-y-4 rounded-lg border p-4">
+                <section
+                    aria-labelledby="connect-heading"
+                    className="space-y-4 rounded-lg border p-4"
+                >
+                    <Heading
+                        variant="small"
+                        id="connect-heading"
+                        title="How to connect"
+                        description="Enter these in your site or application's database settings."
+                    />
                     <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div>
+                        {[
+                            ['Host', '127.0.0.1'],
+                            ['Port', '3307'],
+                            ['Database name', tenantDatabase.database_name],
+                            ['User', tenantDatabase.database_user ?? ''],
+                        ].map(([term, value]) => (
+                            <div key={term}>
+                                <dt className="text-sm text-muted-foreground">
+                                    {term}
+                                </dt>
+                                <dd className="font-mono text-sm break-all">
+                                    {value}
+                                </dd>
+                            </div>
+                        ))}
+                        <div className="sm:col-span-2">
                             <dt className="text-sm text-muted-foreground">
-                                Label
+                                Password
                             </dt>
-                            <dd className="font-medium">
-                                {tenantDatabase.label}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-sm text-muted-foreground">
-                                Database name
-                            </dt>
-                            <dd className="font-mono text-sm">
-                                {tenantDatabase.database_name}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-sm text-muted-foreground">
-                                Database user
-                            </dt>
-                            <dd className="font-mono text-sm">
-                                {tenantDatabase.database_user}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-sm text-muted-foreground">
-                                Status
-                            </dt>
-                            <dd>
-                                {tenantDatabase.suspended_at ? (
-                                    <span className="text-red-600 dark:text-red-400">
-                                        Suspended
-                                    </span>
-                                ) : (
-                                    <span className="text-green-700 dark:text-green-400">
-                                        Active
-                                    </span>
-                                )}
+                            <dd className="text-sm">
+                                Shown once, when the database was created. If it
+                                is lost, give the user a new one below.
                             </dd>
                         </div>
                     </dl>
-                </div>
+                    <p className="text-sm text-muted-foreground">
+                        127.0.0.1 works for sites on this server. To connect
+                        from elsewhere, add an extra user with remote access.
+                    </p>
+                </section>
 
                 <OpenAdminerCard
                     tenantDatabase={tenantDatabase}
@@ -584,8 +595,8 @@ export default function Edit({
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading
                         variant="small"
-                        title="Rotate password"
-                        description="Generate a new password for this database's own user. The old password stops working immediately; existing grants are unaffected. Extra users have their own, above."
+                        title="New password"
+                        description="Give this database's own user a new password. The old one stops working at once; what the user may do stays the same. Extra users have their own, above."
                     />
 
                     <Dialog open={rotateOpen} onOpenChange={setRotateOpen}>
@@ -594,13 +605,13 @@ export default function Edit({
                                 variant="outline"
                                 data-test="rotate-tenant-database-password-button"
                             >
-                                Rotate password
+                                New password
                             </Button>
                         </DialogTrigger>
                         <DialogContent>
                             <DialogTitle>
-                                Rotate the password for{' '}
-                                {tenantDatabase.database_name}?
+                                Give {tenantDatabase.database_user} a new
+                                password?
                             </DialogTitle>
                             <DialogDescription>
                                 Any application still using the old password
@@ -625,7 +636,7 @@ export default function Edit({
 
                                         <Button disabled={processing} asChild>
                                             <button type="submit">
-                                                Rotate password
+                                                New password
                                             </button>
                                         </Button>
                                     </DialogFooter>
@@ -635,117 +646,74 @@ export default function Edit({
                     </Dialog>
                 </div>
 
-                <div className="space-y-4 rounded-lg border p-4">
+                <section
+                    aria-labelledby="danger-heading"
+                    className="space-y-4 rounded-lg border border-red-200 p-4 dark:border-red-900"
+                >
                     <Heading
                         variant="small"
-                        title={
-                            tenantDatabase.suspended_at
-                                ? 'Unsuspend database'
-                                : 'Suspend database'
-                        }
-                        description={
-                            tenantDatabase.suspended_at
-                                ? 'Restore access for this database.'
-                                : "Revoke this database's own tenant user access until it is unsuspended."
-                        }
+                        id="danger-heading"
+                        title="Suspend or delete"
+                        description="Suspending stops every user of this database connecting until you unsuspend it, and keeps the data. Deleting removes the database, all its data and all its users for good."
                     />
 
-                    <Form
-                        {...(tenantDatabase.suspended_at
-                            ? TenantDatabaseController.unsuspend.form(
-                                  tenantDatabase,
-                              )
-                            : TenantDatabaseController.suspend.form(
-                                  tenantDatabase,
-                              ))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    tenantDatabase.suspended_at
-                                        ? 'default'
-                                        : 'outline'
+                    <div className="flex flex-wrap gap-2">
+                        {tenantDatabase.suspended_at ? (
+                            <ConfirmActionDialog
+                                form={TenantDatabaseController.unsuspend.form(
+                                    tenantDatabase,
+                                )}
+                                title={`Unsuspend ${tenantDatabase.label}?`}
+                                description="Its users can connect again."
+                                confirmLabel="Unsuspend"
+                                confirmTestId="confirm-toggle-suspend-tenant-database-button"
+                                trigger={
+                                    <Button data-test="toggle-suspend-tenant-database-button">
+                                        Unsuspend database
+                                    </Button>
                                 }
-                                disabled={processing}
-                                data-test="toggle-suspend-tenant-database-button"
-                            >
-                                {tenantDatabase.suspended_at
-                                    ? 'Unsuspend'
-                                    : 'Suspend'}
-                            </Button>
+                            />
+                        ) : (
+                            <ConfirmActionDialog
+                                form={TenantDatabaseController.suspend.form(
+                                    tenantDatabase,
+                                )}
+                                title={`Suspend ${tenantDatabase.label}?`}
+                                description="Its users cannot connect until you unsuspend it, so sites using it stop working. The data is kept."
+                                confirmLabel="Suspend"
+                                destructive
+                                confirmTestId="confirm-toggle-suspend-tenant-database-button"
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-tenant-database-button"
+                                    >
+                                        Suspend database
+                                    </Button>
+                                }
+                            />
                         )}
-                    </Form>
-                </div>
 
-                <div className="space-y-6">
-                    <Heading
-                        variant="small"
-                        title="Delete database"
-                        description="Delete this database, its tenant user and its extra users"
-                    />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
-
-                        <Dialog>
-                            <DialogTrigger asChild>
+                        <ConfirmActionDialog
+                            form={TenantDatabaseController.destroy.form(
+                                tenantDatabase,
+                            )}
+                            title={`Delete ${tenantDatabase.label}?`}
+                            description="This cannot be undone. The database, all its data and all its users are removed from the server; take a backup first if you need them."
+                            confirmLabel="Delete database"
+                            destructive
+                            confirmTestId="confirm-delete-tenant-database-button"
+                            trigger={
                                 <Button
                                     variant="destructive"
                                     data-test="delete-tenant-database-button"
                                 >
                                     Delete database
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {tenantDatabase.database_name}?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    Once this database is deleted, its schema,
-                                    its tenant user, and its provisioning state
-                                    will also be permanently deleted.
-                                </DialogDescription>
-
-                                <Form
-                                    {...TenantDatabaseController.destroy.form(
-                                        tenantDatabase,
-                                    )}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
-                                        <DialogFooter className="gap-2">
-                                            <DialogClose asChild>
-                                                <Button variant="secondary">
-                                                    Cancel
-                                                </Button>
-                                            </DialogClose>
-
-                                            <Button
-                                                variant="destructive"
-                                                disabled={processing}
-                                                asChild
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    data-test="confirm-delete-tenant-database-button"
-                                                >
-                                                    Delete database
-                                                </button>
-                                            </Button>
-                                        </DialogFooter>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            }
+                        />
                     </div>
-                </div>
+                </section>
             </div>
         </>
     );

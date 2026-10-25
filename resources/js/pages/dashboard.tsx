@@ -1,7 +1,9 @@
 import { Head, Link, usePoll } from '@inertiajs/react';
+import { CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect } from 'react';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
+import { usePollWhile } from '@/hooks/use-poll-while';
 import { dashboard } from '@/routes';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
@@ -51,6 +53,17 @@ type Usage = {
     collected_at: string | null;
 };
 
+type Health = {
+    attention: {
+        kind: string;
+        name: string;
+        url: string;
+        status: string;
+        error: string | null;
+    }[];
+    applying: number;
+};
+
 type NodeStatus = {
     id: number;
     uuid: string;
@@ -97,6 +110,138 @@ function Dot({ tone }: { tone: 'up' | 'down' | 'unknown' }) {
             aria-hidden
             className={`inline-block size-2 shrink-0 rounded-full ${colour}`}
         />
+    );
+}
+
+/**
+ * The first thing on the page: whether the account's hosting is in order. Quiet when it is, a
+ * list of exactly what needs looking at (with the server's reason and a link to fix it) when not.
+ */
+function HealthSummary({ health }: { health: Health }) {
+    if (health.attention.length > 0) {
+        return (
+            <section
+                aria-labelledby="health-heading"
+                className="space-y-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40"
+            >
+                <h2
+                    id="health-heading"
+                    className="flex items-center gap-2 font-medium"
+                >
+                    <TriangleAlert
+                        aria-hidden
+                        className="size-4 text-red-700 dark:text-red-400"
+                    />
+                    {health.attention.length === 1
+                        ? '1 thing needs your attention'
+                        : `${health.attention.length} things need your attention`}
+                </h2>
+                <ul className="space-y-2 text-sm">
+                    {health.attention.map((item) => (
+                        <li key={item.url}>
+                            <Link
+                                href={item.url}
+                                className="font-medium underline underline-offset-4"
+                            >
+                                {item.kind} {item.name}
+                            </Link>
+                            <span className="text-muted-foreground">
+                                {' '}
+                                {item.status === 'degraded'
+                                    ? 'no longer matches its settings on the server'
+                                    : 'could not be updated on the server'}
+                                {item.error ? `: ${item.error}` : '.'}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            </section>
+        );
+    }
+
+    return (
+        <p
+            role="status"
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+            {health.applying > 0 ? (
+                <>
+                    <LoaderCircle
+                        aria-hidden
+                        className="size-4 animate-spin text-blue-700 dark:text-blue-300"
+                    />
+                    {health.applying === 1
+                        ? '1 change is being applied on the server.'
+                        : `${health.applying} changes are being applied on the server.`}
+                </>
+            ) : (
+                <>
+                    <CircleCheck
+                        aria-hidden
+                        className="size-4 text-green-700 dark:text-green-400"
+                    />
+                    Everything is up to date on the server.
+                </>
+            )}
+        </p>
+    );
+}
+
+/**
+ * What a brand-new account sees instead of six zeros: the order things are usually set up in,
+ * each step a link.
+ */
+function GetStarted() {
+    const steps = [
+        {
+            href: domains.create().url,
+            title: 'Add your domain',
+            body: 'Host a website on it. HTTPS is set up for you.',
+        },
+        {
+            href: dns.create().url,
+            title: 'Let this server answer for it',
+            body: 'Add a DNS zone, then enter the name servers it shows where you registered the domain.',
+        },
+        {
+            href: mail.create().url,
+            title: 'Set up mail',
+            body: 'Add the domain for mail and create mailboxes such as info@.',
+        },
+    ];
+
+    return (
+        <section
+            aria-labelledby="get-started-heading"
+            className="space-y-4 rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border"
+        >
+            <div>
+                <h2 id="get-started-heading" className="font-medium">
+                    Get started
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                    Most sites are set up in this order. Each step can be done
+                    on its own.
+                </p>
+            </div>
+            <ol className="grid gap-3 sm:grid-cols-3">
+                {steps.map((step) => (
+                    <li key={step.title}>
+                        <Link
+                            href={step.href}
+                            className="block h-full rounded-lg border p-3 hover:bg-muted"
+                        >
+                            <span className="block font-medium">
+                                {step.title}
+                            </span>
+                            <span className="mt-1 block text-sm text-muted-foreground">
+                                {step.body}
+                            </span>
+                        </Link>
+                    </li>
+                ))}
+            </ol>
+        </section>
     );
 }
 
@@ -406,13 +551,17 @@ export default function Dashboard({
     account,
     overview,
     usage,
+    health,
     nodeStatus,
 }: {
     account: DashboardAccount | null;
     overview: Overview | null;
     usage: Usage | null;
+    health: Health | null;
     nodeStatus: NodeStatus[] | null;
 }) {
+    usePollWhile((health?.applying ?? 0) > 0, ['health', 'account']);
+
     const { start, stop } = usePoll(
         30000,
         { only: ['nodeStatus'] },
@@ -435,6 +584,15 @@ export default function Dashboard({
             <Head title="Dashboard" />
 
             <div className="space-y-6 p-4">
+                <Heading
+                    title={account ? account.name : 'Dashboard'}
+                    description={
+                        account
+                            ? 'Your hosting at a glance'
+                            : 'The platform at a glance'
+                    }
+                />
+
                 {nodeStatus && (
                     <section className="space-y-3 rounded-xl border border-sidebar-border/70 p-4 dark:border-sidebar-border">
                         <div className="flex items-baseline justify-between gap-4">
@@ -454,18 +612,31 @@ export default function Dashboard({
 
                 {account ? (
                     <>
-                        <div className="flex items-center justify-between gap-4">
-                            <Heading
-                                title={account.name}
-                                description="An overview of your account"
-                            />
+                        {account.suspended_at ? (
+                            <section
+                                role="alert"
+                                className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm dark:border-red-900 dark:bg-red-950/40"
+                            >
+                                <p className="font-medium">
+                                    This account is suspended
+                                </p>
+                                <p className="text-muted-foreground">
+                                    Its websites, mail, databases and cron jobs
+                                    are stopped until it is unsuspended. Your
+                                    files and data are kept. Contact your
+                                    provider to find out why.
+                                </p>
+                            </section>
+                        ) : (
+                            health && <HealthSummary health={health} />
+                        )}
 
-                            {account.suspended_at && (
-                                <span className="text-sm font-medium text-red-600 dark:text-red-400">
-                                    Suspended
-                                </span>
-                            )}
-                        </div>
+                        {account.web_domains_count +
+                            account.dns_zones_count +
+                            account.mail_domains_count +
+                            account.tenant_databases_count +
+                            account.cron_jobs_count ===
+                            0 && <GetStarted />}
 
                         <div className="grid gap-4 lg:grid-cols-2">
                             {overview && (
@@ -488,7 +659,7 @@ export default function Dashboard({
 
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                             <ResourceCard
-                                title="Web domains"
+                                title="Websites"
                                 count={account.web_domains_count}
                                 href={domains.index().url}
                             />

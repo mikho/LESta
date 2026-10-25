@@ -8,6 +8,7 @@ use App\Actions\Mail\SuspendMailDomain;
 use App\Actions\Mail\UnsuspendMailDomain;
 use App\Actions\Mail\UpdateMailDomain;
 use App\Concerns\ListsCustomerResources;
+use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -26,6 +27,7 @@ use Inertia\Response;
 class MailDomainController extends Controller
 {
     use ListsCustomerResources;
+    use PresentsProvisioningStatus;
     use ResolvesCurrentAccount;
 
     /**
@@ -192,7 +194,7 @@ class MailDomainController extends Controller
             'dkim_enabled' => $mailDomain->dkim_enabled,
             'suspended_at' => $mailDomain->suspended_at?->toIso8601String(),
             'suspension_source' => $mailDomain->suspension_source?->value,
-            'provisioning_status' => $mailDomain->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($mailDomain->latestProvisioningOperation),
             'accounts_count' => $mailDomain->accounts_count,
         ];
     }
@@ -215,7 +217,7 @@ class MailDomainController extends Controller
             'catchall_email' => $mailDomain->catchall_email,
             'suspended_at' => $mailDomain->suspended_at?->toIso8601String(),
             'suspension_source' => $mailDomain->suspension_source?->value,
-            'provisioning_status' => $mailDomain->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($mailDomain->latestProvisioningOperation),
             'accounts' => $mailDomain->accounts->map(fn (MailAccount $account): array => $this->presentAccount($account))->all(),
         ];
     }

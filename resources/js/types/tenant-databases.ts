@@ -9,6 +9,8 @@ export type TenantDatabase = {
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     provisioning_status: ProvisioningStatus | null;
+    provisioning_error?: string | null;
+    provisioning_updated_at?: string | null;
 };
 
 /**

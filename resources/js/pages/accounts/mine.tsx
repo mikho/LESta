@@ -11,12 +11,12 @@ export default function Mine({
 }) {
     return (
         <>
-            <Head title="My account" />
+            <Head title="Your accounts" />
 
             <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
                 <Heading
-                    title="My account"
-                    description="Accounts you are a member of"
+                    title="Your accounts"
+                    description="The hosting accounts you belong to. Open one to see its package, limits and members."
                 />
 
                 <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
@@ -30,14 +30,13 @@ export default function Mine({
                                 <th className="px-4 py-2 font-medium">
                                     Status
                                 </th>
-                                <th className="px-4 py-2 font-medium" />
                             </tr>
                         </thead>
                         <tbody>
                             {myAccounts.length === 0 && (
                                 <tr>
                                     <td
-                                        colSpan={4}
+                                        colSpan={3}
                                         className="px-4 py-6 text-center text-muted-foreground"
                                     >
                                         You are not a member of any account yet.
@@ -50,9 +49,19 @@ export default function Mine({
                                     key={account.public_id}
                                     className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
                                 >
-                                    <td className="px-4 py-2 font-medium">
-                                        {account.name}
-                                    </td>
+                                    <th
+                                        scope="row"
+                                        className="px-4 py-2 text-left font-medium"
+                                    >
+                                        <Link
+                                            href={AccountController.show(
+                                                account,
+                                            )}
+                                            className="underline-offset-4 hover:underline"
+                                        >
+                                            {account.name}
+                                        </Link>
+                                    </th>
                                     <td className="px-4 py-2 text-muted-foreground">
                                         {account.package_name ?? '—'}
                                     </td>
@@ -62,20 +71,10 @@ export default function Mine({
                                                 Suspended
                                             </span>
                                         ) : (
-                                            <span className="text-green-700 dark:text-green-400">
+                                            <span className="text-muted-foreground">
                                                 Active
                                             </span>
                                         )}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <Link
-                                            href={AccountController.show(
-                                                account,
-                                            )}
-                                            className="text-sm font-medium underline"
-                                        >
-                                            View
-                                        </Link>
                                     </td>
                                 </tr>
                             ))}
@@ -90,7 +89,7 @@ export default function Mine({
 Mine.layout = {
     breadcrumbs: [
         {
-            title: 'My account',
+            title: 'Your accounts',
             href: accounts.mine(),
         },
     ],

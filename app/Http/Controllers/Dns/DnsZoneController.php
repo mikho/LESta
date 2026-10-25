@@ -8,6 +8,7 @@ use App\Actions\Dns\SuspendDnsZone;
 use App\Actions\Dns\UnsuspendDnsZone;
 use App\Actions\Dns\UpdateDnsZone;
 use App\Concerns\ListsCustomerResources;
+use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
@@ -25,6 +26,7 @@ use Inertia\Response;
 class DnsZoneController extends Controller
 {
     use ListsCustomerResources;
+    use PresentsProvisioningStatus;
     use ResolvesCurrentAccount;
 
     /**
@@ -122,6 +124,8 @@ class DnsZoneController extends Controller
 
         return Inertia::render('dns/edit', [
             'dnsZone' => $this->presentForEdit($dnsZone),
+            // What the customer enters at their registrar so this zone is the one the world asks.
+            'nameservers' => config('provisioning.dns_nameservers'),
         ]);
     }
 
@@ -187,7 +191,7 @@ class DnsZoneController extends Controller
             'ttl' => $dnsZone->ttl,
             'suspended_at' => $dnsZone->suspended_at?->toIso8601String(),
             'suspension_source' => $dnsZone->suspension_source?->value,
-            'provisioning_status' => $dnsZone->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($dnsZone->latestProvisioningOperation),
             'records_count' => $dnsZone->records_count,
         ];
     }
@@ -205,7 +209,7 @@ class DnsZoneController extends Controller
             'ttl' => $dnsZone->ttl,
             'suspended_at' => $dnsZone->suspended_at?->toIso8601String(),
             'suspension_source' => $dnsZone->suspension_source?->value,
-            'provisioning_status' => $dnsZone->latestProvisioningOperation?->status->value,
+            ...$this->provisioningProps($dnsZone->latestProvisioningOperation),
             'records' => $dnsZone->records->map(fn (DnsRecord $record): array => $this->presentRecord($record))->all(),
         ];
     }

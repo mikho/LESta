@@ -1,20 +1,15 @@
 import { Form, Head } from '@inertiajs/react';
 import CronJobController from '@/actions/App/Http/Controllers/CronJobs/CronJobController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
+import { CronScheduleField } from '@/components/cron-schedule-field';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ProvisioningPanel } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
+import { describeSchedule } from '@/lib/cron-schedule';
 import cronJobs from '@/routes/cron-jobs';
 import type { CronJob, CronJobExecution } from '@/types';
 
@@ -51,14 +46,23 @@ function ExecutionRow({ execution }: { execution: CronJobExecution }) {
 }
 
 export default function Edit({ cronJob }: { cronJob: CronJob }) {
+    usePollWhile(isApplying(cronJob.provisioning_status), ['cronJob']);
+
     return (
         <>
-            <Head title="Manage cron job" />
+            <Head title="Cron job" />
 
             <div className="mx-auto w-full max-w-2xl space-y-8 p-4">
                 <Heading
-                    title="Manage cron job"
-                    description="Schedule, command, and lifecycle controls for this cron job"
+                    level={1}
+                    title="Cron job"
+                    description={`${describeSchedule(cronJob)}: ${cronJob.command}`}
+                />
+
+                <ProvisioningPanel
+                    status={cronJob.provisioning_status}
+                    reason={cronJob.provisioning_error}
+                    updatedAt={cronJob.provisioning_updated_at}
                 />
 
                 <Form
@@ -67,57 +71,10 @@ export default function Edit({ cronJob }: { cronJob: CronJob }) {
                 >
                     {({ processing, errors }) => (
                         <>
-                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="minute">Minute</Label>
-                                    <Input
-                                        id="minute"
-                                        name="minute"
-                                        defaultValue={cronJob.minute}
-                                    />
-                                    <InputError message={errors.minute} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="hour">Hour</Label>
-                                    <Input
-                                        id="hour"
-                                        name="hour"
-                                        defaultValue={cronJob.hour}
-                                    />
-                                    <InputError message={errors.hour} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="day_of_month">Day</Label>
-                                    <Input
-                                        id="day_of_month"
-                                        name="day_of_month"
-                                        defaultValue={cronJob.day_of_month}
-                                    />
-                                    <InputError message={errors.day_of_month} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="month">Month</Label>
-                                    <Input
-                                        id="month"
-                                        name="month"
-                                        defaultValue={cronJob.month}
-                                    />
-                                    <InputError message={errors.month} />
-                                </div>
-
-                                <div className="grid gap-2">
-                                    <Label htmlFor="day_of_week">Weekday</Label>
-                                    <Input
-                                        id="day_of_week"
-                                        name="day_of_week"
-                                        defaultValue={cronJob.day_of_week}
-                                    />
-                                    <InputError message={errors.day_of_week} />
-                                </div>
-                            </div>
+                            <CronScheduleField
+                                initial={cronJob}
+                                errors={errors}
+                            />
 
                             <div className="grid gap-2">
                                 <Label htmlFor="command">Command</Label>
@@ -131,9 +88,9 @@ export default function Edit({ cronJob }: { cronJob: CronJob }) {
                                 />
 
                                 <p className="text-sm text-muted-foreground">
-                                    Runs as a fixed, shared, non-root system
-                                    user on the node. Not isolated from other
-                                    accounts' jobs on the same node.
+                                    Runs as your account's own user on the
+                                    server, never as root, and can reach only
+                                    your own files.
                                 </p>
 
                                 <InputError message={errors.command} />
@@ -154,43 +111,8 @@ export default function Edit({ cronJob }: { cronJob: CronJob }) {
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading
                         variant="small"
-                        title={
-                            cronJob.suspended_at
-                                ? 'Unsuspend cron job'
-                                : 'Suspend cron job'
-                        }
-                        description={
-                            cronJob.suspended_at
-                                ? 'Resume running this job on its own schedule.'
-                                : 'Stop this job from running until it is unsuspended.'
-                        }
-                    />
-
-                    <Form
-                        {...(cronJob.suspended_at
-                            ? CronJobController.unsuspend.form(cronJob)
-                            : CronJobController.suspend.form(cronJob))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    cronJob.suspended_at ? 'default' : 'outline'
-                                }
-                                disabled={processing}
-                                data-test="toggle-suspend-cron-job-button"
-                            >
-                                {cronJob.suspended_at ? 'Unsuspend' : 'Suspend'}
-                            </Button>
-                        )}
-                    </Form>
-                </div>
-
-                <div className="space-y-4 rounded-lg border p-4">
-                    <Heading
-                        variant="small"
                         title="Recent runs"
-                        description="The most recent reported executions of this job on its node"
+                        description="What happened the last times this job ran: when, its exit code and its output."
                     />
 
                     {cronJob.executions && cronJob.executions.length > 0 ? (
@@ -204,77 +126,73 @@ export default function Edit({ cronJob }: { cronJob: CronJob }) {
                         </div>
                     ) : (
                         <p className="text-sm text-muted-foreground">
-                            No executions reported yet.
+                            It has not run yet.
                         </p>
                     )}
                 </div>
 
-                <div className="space-y-6">
+                <section
+                    aria-labelledby="danger-heading"
+                    className="space-y-4 rounded-lg border border-red-200 p-4 dark:border-red-900"
+                >
                     <Heading
                         variant="small"
-                        title="Delete cron job"
-                        description="Delete this cron job"
+                        id="danger-heading"
+                        title="Suspend or delete"
+                        description="Suspending stops the job running until you unsuspend it. Deleting removes it and its run history for good."
                     />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
 
-                        <Dialog>
-                            <DialogTrigger asChild>
+                    <div className="flex flex-wrap gap-2">
+                        {cronJob.suspended_at ? (
+                            <ConfirmActionDialog
+                                form={CronJobController.unsuspend.form(cronJob)}
+                                title="Unsuspend this cron job?"
+                                description="It runs on its schedule again."
+                                confirmLabel="Unsuspend"
+                                confirmTestId="confirm-toggle-suspend-cron-job-button"
+                                trigger={
+                                    <Button data-test="toggle-suspend-cron-job-button">
+                                        Unsuspend cron job
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <ConfirmActionDialog
+                                form={CronJobController.suspend.form(cronJob)}
+                                title="Suspend this cron job?"
+                                description="It stops running until you unsuspend it."
+                                confirmLabel="Suspend"
+                                destructive
+                                confirmTestId="confirm-toggle-suspend-cron-job-button"
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-cron-job-button"
+                                    >
+                                        Suspend cron job
+                                    </Button>
+                                }
+                            />
+                        )}
+
+                        <ConfirmActionDialog
+                            form={CronJobController.destroy.form(cronJob)}
+                            title="Delete this cron job?"
+                            description="This cannot be undone. It stops running and its run history is removed."
+                            confirmLabel="Delete cron job"
+                            destructive
+                            confirmTestId="confirm-delete-cron-job-button"
+                            trigger={
                                 <Button
                                     variant="destructive"
                                     data-test="delete-cron-job-button"
                                 >
                                     Delete cron job
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete this cron
-                                    job?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    Once this cron job is deleted, its
-                                    provisioning state will also be permanently
-                                    deleted.
-                                </DialogDescription>
-
-                                <Form
-                                    {...CronJobController.destroy.form(cronJob)}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
-                                        <DialogFooter className="gap-2">
-                                            <DialogClose asChild>
-                                                <Button variant="secondary">
-                                                    Cancel
-                                                </Button>
-                                            </DialogClose>
-
-                                            <Button
-                                                variant="destructive"
-                                                disabled={processing}
-                                                asChild
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    data-test="confirm-delete-cron-job-button"
-                                                >
-                                                    Delete cron job
-                                                </button>
-                                            </Button>
-                                        </DialogFooter>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            }
+                        />
                     </div>
-                </div>
+                </section>
             </div>
         </>
     );

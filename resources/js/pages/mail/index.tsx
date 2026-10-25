@@ -1,5 +1,4 @@
-import { Form, Head, Link, router } from '@inertiajs/react';
-import { useEffect, useRef, useState } from 'react';
+import { Head, Link } from '@inertiajs/react';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
 import {
     CustomerResourceIndex,
@@ -10,35 +9,13 @@ import type {
     CustomerItem,
     CustomerListing,
 } from '@/components/customer-resource-index';
-import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
-import {
-    ProvisioningBadge,
-    QuietProvisioningStatus,
-} from '@/components/provisioning-badge';
-import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { OwnResourceList } from '@/components/own-resource-list';
+import type { Paginated } from '@/components/own-resource-list';
+import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import customerResources from '@/routes/customer-resources';
 import mail from '@/routes/mail';
 import type { MailDomain } from '@/types';
-
-type PaginatedMailDomains = {
-    data: MailDomain[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
 
 export default function Index({
     customers,
@@ -46,30 +23,9 @@ export default function Index({
     search: initialSearch,
 }: {
     customers?: CustomerListing<CustomerItem<MailDomain>>;
-    mailDomains: PaginatedMailDomains | null;
+    mailDomains: Paginated<MailDomain> | null;
     search: string;
 }) {
-    const [search, setSearch] = useState(initialSearch);
-    const isFirstRender = useRef(true);
-
-    useEffect(() => {
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-
-            return;
-        }
-
-        const timeout = setTimeout(() => {
-            router.get(
-                mail.index.url(),
-                { search },
-                { preserveState: true, replace: true },
-            );
-        }, 300);
-
-        return () => clearTimeout(timeout);
-    }, [search]);
-
     if (customers) {
         return (
             <CustomerResourceIndex
@@ -171,321 +127,68 @@ export default function Index({
     }
 
     return (
-        <>
-            <Head title="Mail" />
-
-            <div className="space-y-6 p-4">
-                <div className="flex items-center justify-between gap-4">
-                    <Heading
-                        title="Mail"
-                        description="Manage this account's mail domains"
-                    />
-
-                    <Button asChild>
-                        <Link href={MailDomainController.create()}>
-                            Add domain
-                        </Link>
-                    </Button>
-                </div>
-
-                <Input
-                    type="search"
-                    placeholder="Search domains…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="max-w-sm"
-                />
-
-                <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                    <table className="w-full text-left text-sm">
-                        <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
-                            <tr>
-                                <th className="px-4 py-2 font-medium">
-                                    Domain
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Mailboxes
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Suspension
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Provisioning
-                                </th>
-                                <th className="px-4 py-2 font-medium">
-                                    Actions
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {mailDomains.data.length === 0 && (
-                                <tr>
-                                    <td
-                                        colSpan={5}
-                                        className="px-4 py-6 text-center text-muted-foreground"
-                                    >
-                                        No mail domains yet.
-                                    </td>
-                                </tr>
-                            )}
-
-                            {mailDomains.data.map((mailDomain) => (
-                                <tr
-                                    key={mailDomain.uuid}
-                                    className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
-                                >
-                                    <td className="px-4 py-2 font-medium">
-                                        {mailDomain.domain}
-                                    </td>
-                                    <td className="px-4 py-2 text-muted-foreground">
-                                        {mailDomain.accounts_count ?? 0}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        {mailDomain.suspended_at ? (
-                                            <span className="text-red-600 dark:text-red-400">
-                                                Suspended
-                                                {mailDomain.suspension_source ===
-                                                'cascade'
-                                                    ? ' (account)'
-                                                    : ''}
-                                            </span>
-                                        ) : (
-                                            <span className="text-green-700 dark:text-green-400">
-                                                Active
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <ProvisioningBadge
-                                            status={
-                                                mailDomain.provisioning_status
-                                            }
-                                        />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                asChild
-                                            >
-                                                <Link
-                                                    href={MailDomainController.edit(
-                                                        mailDomain,
-                                                    )}
-                                                >
-                                                    Edit
-                                                </Link>
-                                            </Button>
-
-                                            {mailDomain.suspended_at ? (
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                        >
-                                                            Unsuspend
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Unsuspend{' '}
-                                                            {mailDomain.domain}?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            The domain will
-                                                            resume accepting
-                                                            mail.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...MailDomainController.unsuspend.form(
-                                                                mailDomain,
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button type="submit">
-                                                                            Unsuspend
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            ) : (
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                        >
-                                                            Suspend
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Suspend{' '}
-                                                            {mailDomain.domain}?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            The domain will stop
-                                                            accepting mail until
-                                                            it is unsuspended.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...MailDomainController.suspend.form(
-                                                                mailDomain,
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        variant="destructive"
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button type="submit">
-                                                                            Suspend
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            )}
-
-                                            <Dialog>
-                                                <DialogTrigger asChild>
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="sm"
-                                                    >
-                                                        Delete
-                                                    </Button>
-                                                </DialogTrigger>
-                                                <DialogContent>
-                                                    <DialogTitle>
-                                                        Delete{' '}
-                                                        {mailDomain.domain}?
-                                                    </DialogTitle>
-                                                    <DialogDescription>
-                                                        This cannot be undone.
-                                                        The domain, its
-                                                        mailboxes and all their
-                                                        mail are deleted from
-                                                        the server; take a
-                                                        backup first if you need
-                                                        them.
-                                                    </DialogDescription>
-
-                                                    <Form
-                                                        {...MailDomainController.destroy.form(
-                                                            mailDomain,
-                                                        )}
-                                                        options={{
-                                                            preserveScroll: true,
-                                                        }}
-                                                    >
-                                                        {({ processing }) => (
-                                                            <DialogFooter className="gap-2">
-                                                                <DialogClose
-                                                                    asChild
-                                                                >
-                                                                    <Button variant="secondary">
-                                                                        Cancel
-                                                                    </Button>
-                                                                </DialogClose>
-
-                                                                <Button
-                                                                    variant="destructive"
-                                                                    disabled={
-                                                                        processing
-                                                                    }
-                                                                    asChild
-                                                                >
-                                                                    <button type="submit">
-                                                                        Delete
-                                                                    </button>
-                                                                </Button>
-                                                            </DialogFooter>
-                                                        )}
-                                                    </Form>
-                                                </DialogContent>
-                                            </Dialog>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{mailDomains.total} total</span>
-
-                    <div className="flex gap-2">
-                        {mailDomains.prev_page_url && (
-                            <Link
-                                href={mailDomains.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Previous
-                            </Link>
-                        )}
-
-                        {mailDomains.next_page_url && (
-                            <Link
-                                href={mailDomains.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Next
-                            </Link>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </>
+        <OwnResourceList
+            title="Mail"
+            description="Mail domains and their mailboxes"
+            addHref={MailDomainController.create()}
+            addLabel="Add mail domain"
+            indexUrl={mail.index.url()}
+            search={initialSearch}
+            noun={{ one: 'mail domain', other: 'mail domains' }}
+            items={mailDomains}
+            pollProp="mailDomains"
+            empty={{
+                title: 'No mail domains yet',
+                body: 'Add a mail domain to receive mail for it, then create mailboxes such as info@ on its page.',
+            }}
+            name={(mailDomain) => mailDomain.domain}
+            manageHref={(mailDomain) => MailDomainController.edit(mailDomain)}
+            columns={[
+                {
+                    header: 'Mailboxes',
+                    cell: (mailDomain) => mailDomain.accounts_count ?? 0,
+                },
+            ]}
+            moreActions={(mailDomain) => [
+                mailDomain.suspended_at
+                    ? {
+                          label: 'Unsuspend',
+                          confirm: {
+                              form: MailDomainController.unsuspend.form(
+                                  mailDomain,
+                              ),
+                              title: `Unsuspend ${mailDomain.domain}?`,
+                              description:
+                                  'Mail for this domain is accepted again.',
+                              confirmLabel: 'Unsuspend',
+                          },
+                      }
+                    : {
+                          label: 'Suspend',
+                          confirm: {
+                              form: MailDomainController.suspend.form(
+                                  mailDomain,
+                              ),
+                              title: `Suspend ${mailDomain.domain}?`,
+                              description:
+                                  'Mail for this domain is refused until you unsuspend it. Mail already in the mailboxes is kept.',
+                              confirmLabel: 'Suspend',
+                              destructive: true,
+                          },
+                      },
+                {
+                    label: 'Delete',
+                    confirm: {
+                        form: MailDomainController.destroy.form(mailDomain),
+                        title: `Delete ${mailDomain.domain}?`,
+                        description:
+                            'This cannot be undone. The domain, its mailboxes and all their mail are deleted from the server; take a backup first if you need them.',
+                        confirmLabel: 'Delete mail domain',
+                        destructive: true,
+                    },
+                },
+            ]}
+        />
     );
 }
 

@@ -20,6 +20,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | DNS Name Servers
+    |--------------------------------------------------------------------------
+    |
+    | The name servers every hosted zone names as its own (its apex NS set),
+    | shown to customers as what to enter where they registered a domain. They
+    | must match the agent's (agent/cmd/lesta-agent/main.go, bind9's
+    | Nameservers), which renders them into each zone. Comma-separated.
+    |
+    */
+
+    'dns_nameservers' => array_values(array_filter(array_map(
+        fn (string $nameserver): string => rtrim(trim($nameserver), '.'),
+        explode(',', (string) env('DNS_NAMESERVERS', 'ns1.lesta-hosting.example,ns2.lesta-hosting.example')),
+    ))),
+
+    /*
+    |--------------------------------------------------------------------------
     | Dispatch Deadline
     |--------------------------------------------------------------------------
     |

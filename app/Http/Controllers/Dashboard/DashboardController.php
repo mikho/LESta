@@ -34,8 +34,54 @@ class DashboardController extends Controller
             'account' => $account === null ? null : $this->presentAccount($account),
             'overview' => $account === null ? null : $this->presentOverview($account, $request->user()),
             'usage' => $account === null ? null : $this->presentUsage($account),
+            'health' => $account === null ? null : $this->presentHealth($account),
             'nodeStatus' => $this->presentNodeStatus($request->user()),
         ]);
+    }
+
+    /**
+     * Whether the account's hosting is in order: every resource whose latest change the server
+     * could not apply, with the reason it gave and the page to fix it on, and how many changes are
+     * still being applied. The dashboard says "all up to date" only when both are empty.
+     *
+     * @return array{attention: list<array{kind: string, name: string, url: string, status: string, error: string|null}>, applying: int}
+     */
+    private function presentHealth(Account $account): array
+    {
+        $sources = [
+            ['Website', $account->webDomains(), 'domain', 'domains.edit'],
+            ['DNS zone', $account->dnsZones(), 'domain', 'dns.edit'],
+            ['Mail domain', $account->mailDomains(), 'domain', 'mail.edit'],
+            ['Database', $account->tenantDatabases(), 'label', 'tenant-databases.edit'],
+            ['Cron job', $account->cronJobs(), 'command', 'cron-jobs.edit'],
+        ];
+
+        $attention = [];
+        $applying = 0;
+
+        foreach ($sources as [$kind, $query, $nameColumn, $route]) {
+            foreach ($query->with('latestProvisioningOperation')->get() as $resource) {
+                $operation = $resource->latestProvisioningOperation;
+                $status = $operation?->status->value;
+
+                if (in_array($status, ['pending', 'dispatched'], true)) {
+                    $applying++;
+                }
+
+                if (in_array($status, ['failed', 'rejected', 'degraded'], true)) {
+                    $message = $operation->errors[0]['message'] ?? null;
+                    $attention[] = [
+                        'kind' => $kind,
+                        'name' => (string) $resource->getAttribute($nameColumn),
+                        'url' => route($route, $resource),
+                        'status' => $status,
+                        'error' => is_string($message) ? $message : null,
+                    ];
+                }
+            }
+        }
+
+        return ['attention' => $attention, 'applying' => $applying];
     }
 
     /** Seconds after the last heartbeat a node still counts as online (three missed beats). */

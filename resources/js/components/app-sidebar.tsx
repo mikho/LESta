@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
+import type { NavGroup } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import {
     Sidebar,
@@ -46,65 +47,40 @@ import tenantDatabases from '@/routes/tenant-databases';
 import usage from '@/routes/usage';
 import type { NavItem } from '@/types';
 
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Dashboard',
-        href: dashboard(),
-        icon: LayoutGrid,
-    },
-    {
-        title: 'Domains',
-        href: domains.index(),
-        icon: Globe,
-    },
-    {
-        title: 'DNS',
-        href: dns.index(),
-        icon: Network,
-    },
-    {
-        title: 'Mail',
-        href: mail.index(),
-        icon: MailIcon,
-    },
-    {
-        title: 'Databases',
-        href: tenantDatabases.index(),
-        icon: Database,
-    },
-    {
-        title: 'Cron jobs',
-        href: cronJobs.index(),
-        icon: Clock,
-    },
-    {
-        title: 'Usage',
-        href: usage.index(),
-        icon: BarChart3,
-    },
-    {
-        title: 'Documentation',
-        href: docs.index(),
-        icon: BookOpen,
-    },
+/**
+ * The sidebar follows what people come to do, not how the server is built: the hosting itself
+ * first, then their own account, then (for provider staff) running the platform, then help.
+ */
+const hostingNavItems: NavItem[] = [
+    { title: 'Domains', href: domains.index(), icon: Globe },
+    { title: 'Mail', href: mail.index(), icon: MailIcon },
+    { title: 'DNS', href: dns.index(), icon: Network },
+    { title: 'Databases', href: tenantDatabases.index(), icon: Database },
+    { title: 'Cron jobs', href: cronJobs.index(), icon: Clock },
 ];
 
+const usageNavItem: NavItem = {
+    title: 'Usage',
+    href: usage.index(),
+    icon: BarChart3,
+};
+
+const accountBackupsNavItem: NavItem = {
+    title: 'Backups',
+    href: accountBackups.index(),
+    icon: ArchiveRestore,
+};
+
+const myAccountNavItem: NavItem = {
+    title: 'Your accounts',
+    href: accounts.mine(),
+    icon: UserRound,
+};
+
 const accountsNavItem: NavItem = {
-    title: 'Accounts',
+    title: 'Customer accounts',
     href: accounts.index(),
     icon: Building2,
-};
-
-const nodesNavItem: NavItem = {
-    title: 'Nodes',
-    href: nodes.index(),
-    icon: Server,
-};
-
-const backupsNavItem: NavItem = {
-    title: 'Backups',
-    href: backups.index(),
-    icon: Archive,
 };
 
 const packagesNavItem: NavItem = {
@@ -113,16 +89,22 @@ const packagesNavItem: NavItem = {
     icon: PackageIcon,
 };
 
+const nodesNavItem: NavItem = {
+    title: 'Nodes',
+    href: nodes.index(),
+    icon: Server,
+};
+
+const nodeBackupsNavItem: NavItem = {
+    title: 'Node backups',
+    href: backups.index(),
+    icon: Archive,
+};
+
 const rolesNavItem: NavItem = {
     title: 'Roles',
     href: roles.index(),
     icon: ShieldCheck,
-};
-
-const myBackupsNavItem: NavItem = {
-    title: 'My backups',
-    href: accountBackups.index(),
-    icon: ArchiveRestore,
 };
 
 const auditLogNavItem: NavItem = {
@@ -131,41 +113,49 @@ const auditLogNavItem: NavItem = {
     icon: ScrollText,
 };
 
-const myAccountNavItem: NavItem = {
-    title: 'My account',
-    href: accounts.mine(),
-    icon: UserRound,
-};
-
 export function AppSidebar() {
     const { auth } = usePage().props;
 
-    let items = mainNavItems;
+    const accountItems = auth.has_any_account_membership
+        ? [usageNavItem, accountBackupsNavItem, myAccountNavItem]
+        : [usageNavItem];
 
-    if (auth.is_provider_admin) {
-        items = [
-            ...items,
-            accountsNavItem,
-            nodesNavItem,
-            backupsNavItem,
-            packagesNavItem,
-            rolesNavItem,
-        ];
-    } else if (auth.has_node_admin_grants) {
-        // A delegated node admin sees Nodes only, scoped server-side to just their own
-        // granted node(s) -- never Accounts or Backups, which stay platform-admin-only.
-        items = [...items, nodesNavItem];
-    }
-
-    if (auth.has_any_account_membership) {
-        // Independent of admin/node-admin capacity: a provider admin who also happens to hold a
-        // real membership sees both the platform-wide Accounts list and their own account.
-        items = [...items, myBackupsNavItem, myAccountNavItem];
-    }
+    // A delegated node admin sees Nodes only, scoped server-side to just their own granted
+    // node(s); Accounts and node backups stay platform-admin-only.
+    const adminItems = auth.is_provider_admin
+        ? [
+              accountsNavItem,
+              packagesNavItem,
+              nodesNavItem,
+              nodeBackupsNavItem,
+              rolesNavItem,
+          ]
+        : auth.has_node_admin_grants
+          ? [nodesNavItem]
+          : [];
 
     if (auth.can_view_audit_log) {
-        items = [...items, auditLogNavItem];
+        adminItems.push(auditLogNavItem);
     }
+
+    const groups: NavGroup[] = [
+        {
+            items: [
+                { title: 'Dashboard', href: dashboard(), icon: LayoutGrid },
+            ],
+        },
+        { label: 'Hosting', items: hostingNavItems },
+        { label: 'Your account', items: accountItems },
+        ...(adminItems.length > 0
+            ? [{ label: 'Administration', items: adminItems }]
+            : []),
+        {
+            label: 'Help',
+            items: [
+                { title: 'Documentation', href: docs.index(), icon: BookOpen },
+            ],
+        },
+    ];
 
     return (
         <Sidebar collapsible="icon" variant="inset">
@@ -182,7 +172,13 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={items} />
+                {groups.map((group) => (
+                    <NavMain
+                        key={group.label ?? 'start'}
+                        label={group.label}
+                        items={group.items}
+                    />
+                ))}
             </SidebarContent>
 
             <SidebarFooter>

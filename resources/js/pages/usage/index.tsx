@@ -193,12 +193,12 @@ export default function Index({
                 {viewingAccount ? (
                     <Heading
                         title={`Usage for ${viewingAccount.name}`}
-                        description="Real, incremental usage snapshots for this account, collected daily, plus long-range monthly history."
+                        description="Disk, traffic and requests for this account, updated daily, with monthly history."
                     />
                 ) : (
                     <Heading
                         title="Usage"
-                        description="Real, incremental usage snapshots for your account, collected daily, plus long-range monthly history."
+                        description="Disk, traffic and requests for your account, updated daily, with monthly history."
                     />
                 )}
 

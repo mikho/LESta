@@ -1,20 +1,15 @@
 import { Form, Head, Link } from '@inertiajs/react';
+import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import WebDomainProtectedDirController from '@/actions/App/Http/Controllers/Domains/WebDomainProtectedDirController';
 import WebDomainRedirectController from '@/actions/App/Http/Controllers/Domains/WebDomainRedirectController';
+import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ProvisioningPanel } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -25,6 +20,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import domains from '@/routes/domains';
 import type { SftpAccess, WebDomain } from '@/types';
 
@@ -48,35 +44,136 @@ export default function Edit({
     sftp,
     redirects,
     protectedDirs,
+    connected,
 }: {
     webDomain: WebDomain;
     sftp: SftpAccess;
     redirects: Redirect[];
     protectedDirs: ProtectedDir[];
+    connected: { dns_zone: string | null; mail_domain: string | null };
 }) {
+    usePollWhile(isApplying(webDomain.provisioning_status), ['webDomain']);
+
     return (
         <>
-            <Head title={`Edit ${webDomain.domain}`} />
+            <Head title={webDomain.domain} />
 
             <div className="mx-auto w-full max-w-2xl space-y-8 p-4">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                     <Heading
-                        title="Edit domain"
-                        description="Update this domain's configuration"
+                        level={1}
+                        title={webDomain.domain}
+                        description="Website settings for this domain"
                     />
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <Button variant="outline" size="sm" asChild>
-                            <Link href={`/domains/${webDomain.uuid}/logs`}>
-                                Logs and traffic
+                            <a
+                                href={`${webDomain.ssl_mode === 'none' ? 'http' : 'https'}://${webDomain.domain}`}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                Open site
+                            </a>
+                        </Button>
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href={domains.files.index(webDomain)}>
+                                Files
                             </Link>
                         </Button>
                         <Button variant="outline" size="sm" asChild>
-                            <Link href={`/domains/${webDomain.uuid}/files`}>
-                                Files
+                            <Link href={domains.logs.index(webDomain)}>
+                                Logs and traffic
                             </Link>
                         </Button>
                     </div>
                 </div>
+
+                <ProvisioningPanel
+                    status={webDomain.provisioning_status}
+                    reason={webDomain.provisioning_error}
+                    updatedAt={webDomain.provisioning_updated_at}
+                />
+
+                <section
+                    aria-labelledby="connected-heading"
+                    className="space-y-3 rounded-lg border p-4"
+                >
+                    <Heading
+                        variant="small"
+                        id="connected-heading"
+                        title="This domain here"
+                        description="A domain can have a website, DNS and mail on this server. Each is set up on its own."
+                    />
+                    <ul className="divide-y text-sm">
+                        <li className="flex items-center justify-between gap-3 py-2">
+                            <span>Website</span>
+                            <span className="text-muted-foreground">
+                                This page
+                            </span>
+                        </li>
+                        <li className="flex items-center justify-between gap-3 py-2">
+                            <span>DNS</span>
+                            {connected.dns_zone ? (
+                                <Link
+                                    href={DnsZoneController.edit(
+                                        connected.dns_zone,
+                                    )}
+                                    className="underline underline-offset-4"
+                                >
+                                    Manage DNS zone
+                                </Link>
+                            ) : (
+                                <Link
+                                    href={DnsZoneController.create()}
+                                    className="underline underline-offset-4"
+                                >
+                                    Add DNS zone
+                                </Link>
+                            )}
+                        </li>
+                        <li className="flex items-center justify-between gap-3 py-2">
+                            <span>Mail</span>
+                            {connected.mail_domain ? (
+                                <Link
+                                    href={MailDomainController.edit(
+                                        connected.mail_domain,
+                                    )}
+                                    className="underline underline-offset-4"
+                                >
+                                    Manage mailboxes
+                                </Link>
+                            ) : (
+                                <Link
+                                    href={MailDomainController.create()}
+                                    className="underline underline-offset-4"
+                                >
+                                    Add mail domain
+                                </Link>
+                            )}
+                        </li>
+                    </ul>
+                </section>
+
+                <nav
+                    aria-label="On this page"
+                    className="flex flex-wrap gap-x-4 gap-y-1 text-sm"
+                >
+                    {[
+                        ['#settings', 'Settings'],
+                        ['#redirects', 'Redirects'],
+                        ['#protected-folders', 'Protected folders'],
+                        ['#sftp', 'SFTP'],
+                        ['#suspend-or-delete', 'Suspend or delete'],
+                    ].map(([href, label]) => (
+                        <a
+                            key={href}
+                            href={href}
+                            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                        >
+                            {label}
+                        </a>
+                    ))}
+                </nav>
 
                 <Form
                     {...WebDomainController.update.form(webDomain)}
@@ -102,312 +199,386 @@ export default function Edit({
                                 : data.php_version,
                     })}
                     options={{ preserveScroll: true }}
-                    className="space-y-6"
+                    className="scroll-mt-4 space-y-6"
+                    id="settings"
                 >
                     {({ processing, errors }) => (
                         <>
-                            <div className="grid gap-2">
-                                <Label htmlFor="domain">Domain</Label>
+                            <fieldset className="space-y-6 rounded-lg border p-4">
+                                <legend className="sr-only">Site</legend>
+                                <Heading variant="small" title="Site" />
+                                <div className="grid gap-2">
+                                    <Label htmlFor="domain">Domain</Label>
 
-                                <Input
-                                    id="domain"
-                                    name="domain"
-                                    required
-                                    defaultValue={webDomain.domain}
-                                />
-
-                                <InputError message={errors.domain} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="aliases">
-                                    Aliases (one per line)
-                                </Label>
-
-                                <Textarea
-                                    id="aliases"
-                                    name="aliases"
-                                    rows={4}
-                                    defaultValue={webDomain.aliases.join('\n')}
-                                />
-
-                                <InputError message={errors.aliases} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="web_template">Template</Label>
-
-                                <Input
-                                    id="web_template"
-                                    name="web_template"
-                                    defaultValue={webDomain.web_template}
-                                />
-
-                                <InputError message={errors.web_template} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="web_server">Web server</Label>
-
-                                <Select
-                                    name="web_server"
-                                    defaultValue={webDomain.web_server}
-                                >
-                                    <SelectTrigger id="web_server">
-                                        <SelectValue placeholder="Select a web server" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="nginx">
-                                            nginx
-                                        </SelectItem>
-                                        <SelectItem value="apache">
-                                            Apache
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Apache support requires this node to offer
-                                    it.
-                                </p>
-
-                                <InputError message={errors.web_server} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="php_version">PHP version</Label>
-
-                                <Select
-                                    name="php_version"
-                                    defaultValue={
-                                        webDomain.php_version ?? 'none'
-                                    }
-                                >
-                                    <SelectTrigger id="php_version">
-                                        <SelectValue placeholder="Select a PHP version" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">
-                                            None (static only)
-                                        </SelectItem>
-                                        <SelectItem value="8.1">
-                                            PHP 8.1
-                                        </SelectItem>
-                                        <SelectItem value="8.2">
-                                            PHP 8.2
-                                        </SelectItem>
-                                        <SelectItem value="8.3">
-                                            PHP 8.3
-                                        </SelectItem>
-                                        <SelectItem value="8.4">
-                                            PHP 8.4
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Requires this node to offer PHP execution.
-                                </p>
-
-                                <InputError message={errors.php_version} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="ssl_mode">SSL mode</Label>
-
-                                <Select
-                                    name="ssl_mode"
-                                    defaultValue={webDomain.ssl_mode}
-                                >
-                                    <SelectTrigger id="ssl_mode">
-                                        <SelectValue placeholder="Select an SSL mode" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">
-                                            None
-                                        </SelectItem>
-                                        <SelectItem value="manual">
-                                            Manual
-                                        </SelectItem>
-                                        <SelectItem value="lets_encrypt">
-                                            Let&apos;s Encrypt
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <InputError message={errors.ssl_mode} />
-
-                                {webDomain.ssl_mode === 'lets_encrypt' && (
-                                    <p
-                                        className="text-sm text-muted-foreground"
-                                        data-test="certificate-status"
-                                    >
-                                        {webDomain.certificate_issued_at
-                                            ? `Certificate issued ${new Date(webDomain.certificate_issued_at).toLocaleDateString()}${webDomain.certificate_expires_at ? `, expires ${new Date(webDomain.certificate_expires_at).toLocaleDateString()}` : ''}.`
-                                            : 'Certificate not issued yet.'}
-                                    </p>
-                                )}
-
-                                {webDomain.last_certificate_error && (
-                                    <p
-                                        className="text-sm text-red-600 dark:text-red-400"
-                                        data-test="certificate-error"
-                                    >
-                                        {webDomain.last_certificate_error}
-                                    </p>
-                                )}
-                            </div>
-
-                            <div className="grid gap-2">
-                                <div className="flex items-center gap-2">
-                                    <FormCheckbox
-                                        id="hotlink_protection"
-                                        name="hotlink_protection"
-                                        defaultChecked={
-                                            webDomain.hotlink_protection
-                                        }
+                                    <Input
+                                        id="domain"
+                                        name="domain"
+                                        required
+                                        defaultValue={webDomain.domain}
                                     />
-                                    <Label htmlFor="hotlink_protection">
-                                        Hotlink protection
-                                    </Label>
+
+                                    <InputError message={errors.domain} />
                                 </div>
 
-                                <p className="text-sm text-muted-foreground">
-                                    Stops other sites from showing this
-                                    domain&apos;s images on their pages. This
-                                    domain and its aliases are always allowed,
-                                    and so are visitors who arrive without a
-                                    referrer.
-                                </p>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aliases">
+                                        Other addresses for the same site, one
+                                        per line
+                                    </Label>
 
-                                <Label htmlFor="hotlink_allowed_hosts">
-                                    Other sites allowed to show your images (one
-                                    per line)
-                                </Label>
+                                    <Textarea
+                                        id="aliases"
+                                        name="aliases"
+                                        rows={4}
+                                        defaultValue={webDomain.aliases.join(
+                                            '\n',
+                                        )}
+                                    />
 
-                                <Textarea
-                                    id="hotlink_allowed_hosts"
-                                    name="hotlink_allowed_hosts"
-                                    rows={3}
-                                    placeholder="partner.example"
-                                    defaultValue={webDomain.hotlink_allowed_hosts.join(
-                                        '\n',
+                                    <InputError message={errors.aliases} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="php_version">PHP</Label>
+
+                                    <Select
+                                        name="php_version"
+                                        defaultValue={
+                                            webDomain.php_version ?? 'none'
+                                        }
+                                    >
+                                        <SelectTrigger id="php_version">
+                                            <SelectValue placeholder="Select a PHP version" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">
+                                                No PHP (plain HTML files only)
+                                            </SelectItem>
+                                            <SelectItem value="8.1">
+                                                PHP 8.1
+                                            </SelectItem>
+                                            <SelectItem value="8.2">
+                                                PHP 8.2
+                                            </SelectItem>
+                                            <SelectItem value="8.3">
+                                                PHP 8.3
+                                            </SelectItem>
+                                            <SelectItem value="8.4">
+                                                PHP 8.4
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+
+                                    <p className="text-sm text-muted-foreground">
+                                        WordPress and most site software need
+                                        PHP.
+                                    </p>
+
+                                    <InputError message={errors.php_version} />
+                                </div>
+                            </fieldset>
+
+                            <fieldset className="space-y-6 rounded-lg border p-4">
+                                <legend className="sr-only">HTTPS</legend>
+                                <Heading variant="small" title="HTTPS" />
+                                <div className="grid gap-2">
+                                    <Label htmlFor="ssl_mode">
+                                        Certificate
+                                    </Label>
+
+                                    <Select
+                                        name="ssl_mode"
+                                        defaultValue={webDomain.ssl_mode}
+                                    >
+                                        <SelectTrigger id="ssl_mode">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="lets_encrypt">
+                                                Automatic (free certificate from
+                                                Let&apos;s Encrypt)
+                                            </SelectItem>
+                                            <SelectItem value="manual">
+                                                My own certificate
+                                            </SelectItem>
+                                            <SelectItem value="none">
+                                                Off (HTTP only)
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+
+                                    <InputError message={errors.ssl_mode} />
+
+                                    {webDomain.ssl_mode === 'lets_encrypt' && (
+                                        <p
+                                            className="text-sm text-muted-foreground"
+                                            data-test="certificate-status"
+                                        >
+                                            {webDomain.certificate_issued_at
+                                                ? `Certificate issued ${new Date(webDomain.certificate_issued_at).toLocaleDateString()}${webDomain.certificate_expires_at ? `, expires ${new Date(webDomain.certificate_expires_at).toLocaleDateString()}` : ''}.`
+                                                : 'Certificate not issued yet.'}
+                                        </p>
                                     )}
-                                />
 
-                                <InputError
-                                    message={errors.hotlink_allowed_hosts}
-                                />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="waf_mode">
-                                    Web application firewall
-                                </Label>
-
-                                <Select
-                                    name="waf_mode"
-                                    defaultValue={webDomain.waf_mode}
-                                >
-                                    <SelectTrigger id="waf_mode">
-                                        <SelectValue placeholder="Select a mode" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="off">Off</SelectItem>
-                                        <SelectItem value="detect">
-                                            Detect only (log, never block)
-                                        </SelectItem>
-                                        <SelectItem value="block">
-                                            Block
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Blocks common attacks such as SQL injection
-                                    using the OWASP Core Rule Set. Start with
-                                    Detect only to see what would be blocked. If
-                                    the node cannot enable it, the update fails
-                                    and the previous settings stay.
-                                </p>
-
-                                <InputError message={errors.waf_mode} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="waf_preset">
-                                    Firewall preset
-                                </Label>
-
-                                <Select
-                                    name="waf_preset"
-                                    defaultValue={webDomain.waf_preset}
-                                >
-                                    <SelectTrigger id="waf_preset">
-                                        <SelectValue placeholder="Select a preset" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">
-                                            None
-                                        </SelectItem>
-                                        <SelectItem value="wordpress">
-                                            WordPress
-                                        </SelectItem>
-                                        <SelectItem value="drupal">
-                                            Drupal
-                                        </SelectItem>
-                                        <SelectItem value="nextcloud">
-                                            Nextcloud
-                                        </SelectItem>
-                                        <SelectItem value="dokuwiki">
-                                            DokuWiki
-                                        </SelectItem>
-                                        <SelectItem value="xenforo">
-                                            XenForo
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <p className="text-sm text-muted-foreground">
-                                    A preset lets the application&apos;s own
-                                    admin and editing areas accept the HTML,
-                                    scripts and file uploads they need, while
-                                    the rest of the site stays fully protected.
-                                    WordPress is limited to its admin, login and
-                                    REST areas. The others use the exclusions
-                                    the OWASP Core Rule Set maintains for each
-                                    application.
-                                </p>
-
-                                <InputError message={errors.waf_preset} />
-                            </div>
-
-                            <div className="grid gap-2">
-                                <Label htmlFor="waf_excluded_rules">
-                                    Excluded rule ids
-                                </Label>
-
-                                <Input
-                                    id="waf_excluded_rules"
-                                    name="waf_excluded_rules"
-                                    defaultValue={webDomain.waf_excluded_rules.join(
-                                        ', ',
+                                    {webDomain.last_certificate_error && (
+                                        <p
+                                            className="text-sm text-red-600 dark:text-red-400"
+                                            data-test="certificate-error"
+                                        >
+                                            {webDomain.last_certificate_error}
+                                        </p>
                                     )}
-                                    placeholder="942100, 920350"
-                                    inputMode="numeric"
-                                    autoComplete="off"
-                                />
+                                </div>
+                            </fieldset>
 
-                                <p className="text-sm text-muted-foreground">
-                                    Comma separated. Turns off these rules for
-                                    this domain only, for example when a rule
-                                    blocks a legitimate form.
-                                </p>
-
-                                <InputError
-                                    message={errors.waf_excluded_rules}
+                            <fieldset className="space-y-6 rounded-lg border p-4">
+                                <legend className="sr-only">Protection</legend>
+                                <Heading
+                                    variant="small"
+                                    title="Protection"
+                                    description="Keep other sites from using your images, and block common attacks."
                                 />
-                            </div>
+                                <div className="grid gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <FormCheckbox
+                                            id="hotlink_protection"
+                                            name="hotlink_protection"
+                                            defaultChecked={
+                                                webDomain.hotlink_protection
+                                            }
+                                        />
+                                        <Label htmlFor="hotlink_protection">
+                                            Hotlink protection
+                                        </Label>
+                                    </div>
+
+                                    <p className="text-sm text-muted-foreground">
+                                        Stops other sites from showing this
+                                        domain&apos;s images on their pages.
+                                        This domain and its aliases are always
+                                        allowed, and so are visitors who arrive
+                                        without a referrer.
+                                    </p>
+
+                                    <Label htmlFor="hotlink_allowed_hosts">
+                                        Other sites allowed to show your images
+                                        (one per line)
+                                    </Label>
+
+                                    <Textarea
+                                        id="hotlink_allowed_hosts"
+                                        name="hotlink_allowed_hosts"
+                                        rows={3}
+                                        placeholder="partner.example"
+                                        defaultValue={webDomain.hotlink_allowed_hosts.join(
+                                            '\n',
+                                        )}
+                                    />
+
+                                    <InputError
+                                        message={errors.hotlink_allowed_hosts}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="waf_mode">
+                                        Web application firewall
+                                    </Label>
+
+                                    <Select
+                                        name="waf_mode"
+                                        defaultValue={webDomain.waf_mode}
+                                    >
+                                        <SelectTrigger id="waf_mode">
+                                            <SelectValue placeholder="Select a mode" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="off">
+                                                Off
+                                            </SelectItem>
+                                            <SelectItem value="detect">
+                                                Detect only (log, never block)
+                                            </SelectItem>
+                                            <SelectItem value="block">
+                                                Block
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+
+                                    <p className="text-sm text-muted-foreground">
+                                        Blocks common attacks such as SQL
+                                        injection using the OWASP Core Rule Set.
+                                        Start with Detect only to see what would
+                                        be blocked. If the node cannot enable
+                                        it, the update fails and the previous
+                                        settings stay.
+                                    </p>
+
+                                    <InputError message={errors.waf_mode} />
+                                </div>
+
+                                <details
+                                    className="rounded-md border p-3"
+                                    open={
+                                        webDomain.waf_preset !== 'none' ||
+                                        webDomain.waf_excluded_rules.length > 0
+                                    }
+                                >
+                                    <summary className="cursor-pointer text-sm font-medium">
+                                        Fine-tune the firewall
+                                    </summary>
+                                    <div className="mt-4 space-y-6">
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="waf_preset">
+                                                Firewall preset
+                                            </Label>
+
+                                            <Select
+                                                name="waf_preset"
+                                                defaultValue={
+                                                    webDomain.waf_preset
+                                                }
+                                            >
+                                                <SelectTrigger id="waf_preset">
+                                                    <SelectValue placeholder="Select a preset" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">
+                                                        None
+                                                    </SelectItem>
+                                                    <SelectItem value="wordpress">
+                                                        WordPress
+                                                    </SelectItem>
+                                                    <SelectItem value="drupal">
+                                                        Drupal
+                                                    </SelectItem>
+                                                    <SelectItem value="nextcloud">
+                                                        Nextcloud
+                                                    </SelectItem>
+                                                    <SelectItem value="dokuwiki">
+                                                        DokuWiki
+                                                    </SelectItem>
+                                                    <SelectItem value="xenforo">
+                                                        XenForo
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+
+                                            <p className="text-sm text-muted-foreground">
+                                                A preset lets the
+                                                application&apos;s own admin and
+                                                editing areas accept the HTML,
+                                                scripts and file uploads they
+                                                need, while the rest of the site
+                                                stays fully protected. WordPress
+                                                is limited to its admin, login
+                                                and REST areas. The others use
+                                                the exclusions the OWASP Core
+                                                Rule Set maintains for each
+                                                application.
+                                            </p>
+
+                                            <InputError
+                                                message={errors.waf_preset}
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="waf_excluded_rules">
+                                                Rules to turn off
+                                            </Label>
+
+                                            <Input
+                                                id="waf_excluded_rules"
+                                                name="waf_excluded_rules"
+                                                defaultValue={webDomain.waf_excluded_rules.join(
+                                                    ', ',
+                                                )}
+                                                placeholder="942100, 920350"
+                                                inputMode="numeric"
+                                                autoComplete="off"
+                                            />
+
+                                            <p className="text-sm text-muted-foreground">
+                                                Comma separated. Turns off these
+                                                rules for this domain only, for
+                                                example when a rule blocks a
+                                                legitimate form.
+                                            </p>
+
+                                            <InputError
+                                                message={
+                                                    errors.waf_excluded_rules
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                </details>
+                            </fieldset>
+
+                            <details
+                                className="rounded-lg border p-4"
+                                open={
+                                    webDomain.web_server !== 'nginx' ||
+                                    webDomain.web_template !== 'default'
+                                }
+                            >
+                                <summary className="cursor-pointer text-sm font-medium">
+                                    Advanced
+                                </summary>
+                                <div className="mt-4 space-y-6">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="web_server">
+                                            Web server
+                                        </Label>
+
+                                        <Select
+                                            name="web_server"
+                                            defaultValue={webDomain.web_server}
+                                        >
+                                            <SelectTrigger id="web_server">
+                                                <SelectValue placeholder="Select a web server" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="nginx">
+                                                    nginx (recommended)
+                                                </SelectItem>
+                                                <SelectItem value="apache">
+                                                    Apache, for sites that need
+                                                    .htaccess
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+
+                                        <p className="text-sm text-muted-foreground">
+                                            Apache works only if this server
+                                            offers it.
+                                        </p>
+
+                                        <InputError
+                                            message={errors.web_server}
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="web_template">
+                                            Template
+                                        </Label>
+
+                                        <Input
+                                            id="web_template"
+                                            name="web_template"
+                                            defaultValue={
+                                                webDomain.web_template
+                                            }
+                                        />
+
+                                        <InputError
+                                            message={errors.web_template}
+                                        />
+                                    </div>
+                                </div>
+                            </details>
 
                             <div className="flex items-center gap-4">
                                 <Button
@@ -422,7 +593,8 @@ export default function Edit({
                 </Form>
 
                 <div
-                    className="space-y-4 rounded-lg border p-4"
+                    id="redirects"
+                    className="scroll-mt-4 space-y-4 rounded-lg border p-4"
                     data-test="redirects-section"
                 >
                     <Heading
@@ -559,7 +731,8 @@ export default function Edit({
                 </div>
 
                 <div
-                    className="space-y-4 rounded-lg border p-4"
+                    id="protected-folders"
+                    className="scroll-mt-4 space-y-4 rounded-lg border p-4"
                     data-test="protected-dirs-section"
                 >
                     <Heading
@@ -777,7 +950,10 @@ export default function Edit({
                     ))}
                 </div>
 
-                <div className="space-y-4 rounded-lg border p-4">
+                <div
+                    id="sftp"
+                    className="scroll-mt-4 space-y-4 rounded-lg border p-4"
+                >
                     <Heading
                         variant="small"
                         title="SFTP access"
@@ -825,113 +1001,73 @@ export default function Edit({
                     </Form>
                 </div>
 
-                <div className="space-y-4 rounded-lg border p-4">
+                <section
+                    id="suspend-or-delete"
+                    aria-labelledby="danger-heading"
+                    className="scroll-mt-4 space-y-4 rounded-lg border border-red-200 p-4 dark:border-red-900"
+                >
                     <Heading
                         variant="small"
-                        title={
-                            webDomain.suspended_at
-                                ? 'Unsuspend domain'
-                                : 'Suspend domain'
-                        }
-                        description={
-                            webDomain.suspended_at
-                                ? 'Resume serving traffic for this domain.'
-                                : 'Stop serving traffic for this domain until it is unsuspended.'
-                        }
+                        id="danger-heading"
+                        title="Suspend or delete"
+                        description="Suspending takes the site offline until you unsuspend it and keeps its files. Deleting removes the site, its files and its logs for good."
                     />
 
-                    <Form
-                        {...(webDomain.suspended_at
-                            ? WebDomainController.unsuspend.form(webDomain)
-                            : WebDomainController.suspend.form(webDomain))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    webDomain.suspended_at
-                                        ? 'default'
-                                        : 'outline'
+                    <div className="flex flex-wrap gap-2">
+                        {webDomain.suspended_at ? (
+                            <ConfirmActionDialog
+                                form={WebDomainController.unsuspend.form(
+                                    webDomain,
+                                )}
+                                title={`Unsuspend ${webDomain.domain}?`}
+                                description="The site will be reachable again."
+                                confirmLabel="Unsuspend"
+                                confirmTestId="confirm-toggle-suspend-domain-button"
+                                trigger={
+                                    <Button data-test="toggle-suspend-domain-button">
+                                        Unsuspend domain
+                                    </Button>
                                 }
-                                disabled={processing}
-                                data-test="toggle-suspend-domain-button"
-                            >
-                                {webDomain.suspended_at
-                                    ? 'Unsuspend'
-                                    : 'Suspend'}
-                            </Button>
+                            />
+                        ) : (
+                            <ConfirmActionDialog
+                                form={WebDomainController.suspend.form(
+                                    webDomain,
+                                )}
+                                title={`Suspend ${webDomain.domain}?`}
+                                description="Visitors will get an error until you unsuspend it. Its files are kept."
+                                confirmLabel="Suspend"
+                                destructive
+                                confirmTestId="confirm-toggle-suspend-domain-button"
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-domain-button"
+                                    >
+                                        Suspend domain
+                                    </Button>
+                                }
+                            />
                         )}
-                    </Form>
-                </div>
 
-                <div className="space-y-6">
-                    <Heading
-                        variant="small"
-                        title="Delete domain"
-                        description="Delete this domain and all of its resources"
-                    />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
-
-                        <Dialog>
-                            <DialogTrigger asChild>
+                        <ConfirmActionDialog
+                            form={WebDomainController.destroy.form(webDomain)}
+                            title={`Delete ${webDomain.domain}?`}
+                            description="This cannot be undone. The site's files and logs are deleted from the server too; take a backup first if you need them."
+                            confirmLabel="Delete domain"
+                            destructive
+                            confirmTestId="confirm-delete-domain-button"
+                            trigger={
                                 <Button
                                     variant="destructive"
                                     data-test="delete-domain-button"
                                 >
                                     Delete domain
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {webDomain.domain}?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    This cannot be undone. The domain's site
-                                    files and logs are deleted from the server
-                                    too; take a backup first if you need them.
-                                </DialogDescription>
-
-                                <Form
-                                    {...WebDomainController.destroy.form(
-                                        webDomain,
-                                    )}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
-                                        <DialogFooter className="gap-2">
-                                            <DialogClose asChild>
-                                                <Button variant="secondary">
-                                                    Cancel
-                                                </Button>
-                                            </DialogClose>
-
-                                            <Button
-                                                variant="destructive"
-                                                disabled={processing}
-                                                asChild
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    data-test="confirm-delete-domain-button"
-                                                >
-                                                    Delete domain
-                                                </button>
-                                            </Button>
-                                        </DialogFooter>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            }
+                        />
                     </div>
-                </div>
+                </section>
             </div>
         </>
     );

@@ -2,9 +2,12 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import MailAccountController from '@/actions/App/Http/Controllers/Mail/MailAccountController';
 import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomainController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { MoreActionsMenu } from '@/components/own-resource-list';
+import { ProvisioningPanel } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -18,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import { apiPost } from '@/lib/api';
 import { submitHandoff } from '@/lib/handoff';
 import mail from '@/routes/mail';
@@ -228,7 +232,12 @@ function EditMailAccountDialog({
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${account.local_part}`}
+                    className="pointer-coarse:h-11"
+                >
                     Edit
                 </Button>
             </DialogTrigger>
@@ -439,56 +448,6 @@ function EditMailAccountDialog({
     );
 }
 
-function RotatePasswordDialog({
-    mailDomain,
-    account,
-}: {
-    mailDomain: MailDomain;
-    account: MailAccount;
-}) {
-    const [open, setOpen] = useState(false);
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                    Rotate password
-                </Button>
-            </DialogTrigger>
-            <DialogContent>
-                <DialogTitle>
-                    Rotate the password for {account.local_part}?
-                </DialogTitle>
-                <DialogDescription>
-                    The current password stops working immediately. The new one
-                    is shown once and cannot be recovered afterwards.
-                </DialogDescription>
-
-                <Form
-                    {...MailAccountController.rotatePassword.form([
-                        mailDomain,
-                        account,
-                    ])}
-                    options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
-                >
-                    {({ processing }) => (
-                        <DialogFooter className="gap-2">
-                            <DialogClose asChild>
-                                <Button variant="secondary">Cancel</Button>
-                            </DialogClose>
-
-                            <Button disabled={processing} asChild>
-                                <button type="submit">Rotate password</button>
-                            </Button>
-                        </DialogFooter>
-                    )}
-                </Form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 /**
  * Opens webmail for this mailbox in a new tab, leaving this page as it is.
  * MailAccountController::openWebmail() is a plain JSON endpoint, not an Inertia visit (its
@@ -555,97 +514,6 @@ function OpenWebmailButton({
     );
 }
 
-function ToggleSuspendMailAccountDialog({
-    mailDomain,
-    account,
-}: {
-    mailDomain: MailDomain;
-    account: MailAccount;
-}) {
-    const [open, setOpen] = useState(false);
-
-    if (account.suspended_at) {
-        return (
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogTrigger asChild>
-                    <Button variant="outline" size="sm">
-                        Unsuspend
-                    </Button>
-                </DialogTrigger>
-                <DialogContent>
-                    <DialogTitle>Unsuspend {account.local_part}?</DialogTitle>
-                    <DialogDescription>
-                        The mailbox will resume sending and receiving mail.
-                    </DialogDescription>
-
-                    <Form
-                        {...MailAccountController.unsuspend.form([
-                            mailDomain,
-                            account,
-                        ])}
-                        options={{ preserveScroll: true }}
-                        onSuccess={() => setOpen(false)}
-                    >
-                        {({ processing }) => (
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary">Cancel</Button>
-                                </DialogClose>
-
-                                <Button disabled={processing} asChild>
-                                    <button type="submit">Unsuspend</button>
-                                </Button>
-                            </DialogFooter>
-                        )}
-                    </Form>
-                </DialogContent>
-            </Dialog>
-        );
-    }
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                    Suspend
-                </Button>
-            </DialogTrigger>
-            <DialogContent>
-                <DialogTitle>Suspend {account.local_part}?</DialogTitle>
-                <DialogDescription>
-                    The mailbox will stop sending and receiving mail until it is
-                    unsuspended.
-                </DialogDescription>
-
-                <Form
-                    {...MailAccountController.suspend.form([
-                        mailDomain,
-                        account,
-                    ])}
-                    options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
-                >
-                    {({ processing }) => (
-                        <DialogFooter className="gap-2">
-                            <DialogClose asChild>
-                                <Button variant="secondary">Cancel</Button>
-                            </DialogClose>
-
-                            <Button
-                                variant="destructive"
-                                disabled={processing}
-                                asChild
-                            >
-                                <button type="submit">Suspend</button>
-                            </Button>
-                        </DialogFooter>
-                    )}
-                </Form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 export default function Edit({
     mailDomain,
     webmailAvailable,
@@ -656,17 +524,20 @@ export default function Edit({
     const accounts = mailDomain.accounts ?? [];
     const [dkimEnabled, setDkimEnabled] = useState(mailDomain.dkim_enabled);
 
+    usePollWhile(isApplying(mailDomain.provisioning_status), ['mailDomain']);
+
     return (
         <>
-            <Head title={`Edit ${mailDomain.domain}`} />
+            <Head title={mailDomain.domain} />
 
             <PasswordRevealDialog />
 
             <div className="mx-auto w-full max-w-3xl space-y-8 p-4">
                 <div className="flex items-start justify-between gap-4">
                     <Heading
+                        level={1}
                         title={mailDomain.domain}
-                        description="Update this mail domain's configuration"
+                        description="Mail domain: its mailboxes and mail settings"
                     />
                     <Button variant="outline" size="sm" asChild>
                         <Link href={`/mail/${mailDomain.uuid}/lists`}>
@@ -675,385 +546,401 @@ export default function Edit({
                     </Button>
                 </div>
 
-                <Form
-                    {...MailDomainController.update.form(mailDomain)}
-                    options={{ preserveScroll: true }}
-                    className="space-y-6"
+                <ProvisioningPanel
+                    status={mailDomain.provisioning_status}
+                    reason={mailDomain.provisioning_error}
+                    updatedAt={mailDomain.provisioning_updated_at}
+                />
+
+                <section
+                    aria-labelledby="mailboxes-heading"
+                    className="space-y-4"
                 >
-                    {({ processing, errors }) => (
-                        <>
-                            <div className="grid gap-2">
-                                <Label htmlFor="catchall_email">
-                                    Catch-all mailbox
-                                </Label>
-
-                                <Input
-                                    id="catchall_email"
-                                    name="catchall_email"
-                                    type="email"
-                                    defaultValue={
-                                        mailDomain.catchall_email ?? undefined
-                                    }
-                                />
-
-                                <p className="text-sm text-muted-foreground">
-                                    An existing mailbox on this domain that
-                                    receives mail sent to any address without
-                                    its own mailbox. Leave empty to reject it.
-                                </p>
-
-                                <InputError message={errors.catchall_email} />
-                            </div>
-
-                            <div className="flex items-center space-x-3">
-                                <FormCheckbox
-                                    id="antivirus_enabled"
-                                    name="antivirus_enabled"
-                                    defaultChecked={
-                                        mailDomain.antivirus_enabled
-                                    }
-                                />
-                                <Label htmlFor="antivirus_enabled">
-                                    Scan incoming mail for viruses
-                                </Label>
-                            </div>
-
-                            <div className="flex items-center space-x-3">
-                                <FormCheckbox
-                                    id="antispam_enabled"
-                                    name="antispam_enabled"
-                                    defaultChecked={mailDomain.antispam_enabled}
-                                />
-                                <Label htmlFor="antispam_enabled">
-                                    Scan incoming mail for spam
-                                </Label>
-                            </div>
-
-                            <div className="grid gap-2">
-                                <div className="flex items-center space-x-3">
-                                    <FormCheckbox
-                                        id="dkim_enabled"
-                                        name="dkim_enabled"
-                                        checked={dkimEnabled}
-                                        onCheckedChange={(checked) =>
-                                            setDkimEnabled(checked === true)
-                                        }
-                                    />
-                                    <Label htmlFor="dkim_enabled">
-                                        Sign outgoing mail with DKIM
-                                    </Label>
-                                </div>
-
-                                {mailDomain.dkim_enabled &&
-                                    mailDomain.dkim_selector && (
-                                        <p className="text-sm text-muted-foreground">
-                                            Active selector:{' '}
-                                            {mailDomain.dkim_selector}
-                                            {mailDomain.dkim_selector_activated_at
-                                                ? ` (since ${new Date(mailDomain.dkim_selector_activated_at).toLocaleDateString()})`
-                                                : ''}
-                                            . Rotates automatically.
-                                        </p>
-                                    )}
-                            </div>
-
-                            <div className="flex items-center gap-4">
-                                <Button
-                                    disabled={processing}
-                                    data-test="update-mail-domain-button"
-                                >
-                                    Save
-                                </Button>
-                            </div>
-                        </>
-                    )}
-                </Form>
-
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-4">
-                        <Heading variant="small" title="Mailboxes" />
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <Heading
+                            variant="small"
+                            id="mailboxes-heading"
+                            title="Mailboxes"
+                            description="Each mailbox is an address with its own password, such as info@ or anna@."
+                        />
 
                         <AddMailAccountDialog mailDomain={mailDomain} />
                     </div>
 
-                    {!webmailAvailable && (
+                    {!webmailAvailable && accounts.length > 0 && (
                         <p className="text-sm text-muted-foreground">
-                            Webmail is not available for this domain yet. Ask
-                            your provider to enable it on this domain's node.
+                            Webmail is not available on this server yet; use a
+                            mail app instead, or ask your provider to enable it.
                         </p>
                     )}
 
-                    <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <table className="w-full text-left text-sm">
-                            <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
-                                <tr>
-                                    <th className="px-4 py-2 font-medium">
-                                        Mailbox
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Quota
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Forwarding
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Suspension
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Actions
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {accounts.length === 0 && (
+                    {accounts.length === 0 ? (
+                        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            No mailboxes yet. Add one to start receiving mail at
+                            this domain.
+                        </p>
+                    ) : (
+                        <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                            <table className="w-full text-left text-sm">
+                                <caption className="sr-only">
+                                    Mailboxes on {mailDomain.domain}
+                                </caption>
+                                <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
                                     <tr>
-                                        <td
-                                            colSpan={5}
-                                            className="px-4 py-6 text-center text-muted-foreground"
+                                        <th
+                                            scope="col"
+                                            className="px-4 py-2 font-medium"
                                         >
-                                            No mailboxes yet.
-                                        </td>
+                                            Address
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="hidden px-4 py-2 font-medium md:table-cell"
+                                        >
+                                            Size limit
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="hidden px-4 py-2 font-medium md:table-cell"
+                                        >
+                                            Forwards to
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="px-4 py-2 font-medium"
+                                        >
+                                            Status
+                                        </th>
+                                        <th scope="col" className="px-4 py-2">
+                                            <span className="sr-only">
+                                                Actions
+                                            </span>
+                                        </th>
                                     </tr>
-                                )}
+                                </thead>
+                                <tbody>
+                                    {accounts.map((account) => {
+                                        const address = `${account.local_part}@${mailDomain.domain}`;
 
-                                {accounts.map((account) => (
-                                    <tr
-                                        key={account.uuid}
-                                        className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
-                                    >
-                                        <td className="px-4 py-2 font-medium">
-                                            {account.local_part}@
-                                            {mailDomain.domain}
-                                        </td>
-                                        <td className="px-4 py-2 text-muted-foreground">
-                                            {account.quota_mb
-                                                ? `${account.quota_mb} MB`
-                                                : 'Unlimited'}
-                                        </td>
-                                        <td className="px-4 py-2 text-muted-foreground">
-                                            {account.forward_to
-                                                ? `${account.forward_to}${account.forward_only ? ' (forward only)' : ''}`
-                                                : '—'}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            {account.suspended_at ? (
-                                                <span className="text-red-600 dark:text-red-400">
-                                                    Suspended
-                                                    {account.suspension_source ===
-                                                    'cascade'
-                                                        ? ' (domain)'
-                                                        : ''}
-                                                </span>
-                                            ) : (
-                                                <span className="text-green-700 dark:text-green-400">
-                                                    Active
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <OpenWebmailButton
-                                                    mailDomain={mailDomain}
-                                                    account={account}
-                                                    webmailAvailable={
-                                                        webmailAvailable
-                                                    }
-                                                />
+                                        return (
+                                            <tr
+                                                key={account.uuid}
+                                                className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
+                                            >
+                                                <th
+                                                    scope="row"
+                                                    className="px-4 py-3 text-left font-medium [overflow-wrap:anywhere]"
+                                                >
+                                                    {address}
+                                                </th>
+                                                <td className="hidden px-4 py-3 whitespace-nowrap text-muted-foreground md:table-cell">
+                                                    {account.quota_mb
+                                                        ? `${account.quota_mb} MB`
+                                                        : 'No limit'}
+                                                </td>
+                                                <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
+                                                    {account.forward_to
+                                                        ? `${account.forward_to}${account.forward_only ? ' (not kept here)' : ''}`
+                                                        : '—'}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {account.suspended_at ? (
+                                                        <span className="text-red-700 dark:text-red-400">
+                                                            {account.suspension_source ===
+                                                            'cascade'
+                                                                ? 'Suspended with the domain'
+                                                                : 'Suspended'}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">
+                                                            Active
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {webmailAvailable && (
+                                                            <OpenWebmailButton
+                                                                mailDomain={
+                                                                    mailDomain
+                                                                }
+                                                                account={
+                                                                    account
+                                                                }
+                                                                webmailAvailable={
+                                                                    webmailAvailable
+                                                                }
+                                                            />
+                                                        )}
+                                                        <EditMailAccountDialog
+                                                            mailDomain={
+                                                                mailDomain
+                                                            }
+                                                            account={account}
+                                                        />
+                                                        <MoreActionsMenu
+                                                            name={address}
+                                                            actions={[
+                                                                {
+                                                                    label: 'New password',
+                                                                    confirm: {
+                                                                        form: MailAccountController.rotatePassword.form(
+                                                                            [
+                                                                                mailDomain,
+                                                                                account,
+                                                                            ],
+                                                                        ),
+                                                                        title: `Give ${address} a new password?`,
+                                                                        description:
+                                                                            'The current password stops working at once, so mail apps using it must be given the new one. It is shown once.',
+                                                                        confirmLabel:
+                                                                            'New password',
+                                                                    },
+                                                                },
+                                                                account.suspended_at
+                                                                    ? {
+                                                                          label: 'Unsuspend',
+                                                                          confirm:
+                                                                              {
+                                                                                  form: MailAccountController.unsuspend.form(
+                                                                                      [
+                                                                                          mailDomain,
+                                                                                          account,
+                                                                                      ],
+                                                                                  ),
+                                                                                  title: `Unsuspend ${address}?`,
+                                                                                  description:
+                                                                                      'The mailbox can send and receive mail again.',
+                                                                                  confirmLabel:
+                                                                                      'Unsuspend',
+                                                                              },
+                                                                      }
+                                                                    : {
+                                                                          label: 'Suspend',
+                                                                          confirm:
+                                                                              {
+                                                                                  form: MailAccountController.suspend.form(
+                                                                                      [
+                                                                                          mailDomain,
+                                                                                          account,
+                                                                                      ],
+                                                                                  ),
+                                                                                  title: `Suspend ${address}?`,
+                                                                                  description:
+                                                                                      'The mailbox cannot send or receive mail until you unsuspend it. Its mail is kept.',
+                                                                                  confirmLabel:
+                                                                                      'Suspend',
+                                                                                  destructive: true,
+                                                                              },
+                                                                      },
+                                                                {
+                                                                    label: 'Delete',
+                                                                    confirm: {
+                                                                        form: MailAccountController.destroy.form(
+                                                                            [
+                                                                                mailDomain,
+                                                                                account,
+                                                                            ],
+                                                                        ),
+                                                                        title: `Delete ${address}?`,
+                                                                        description:
+                                                                            'This cannot be undone. The mailbox and all its mail are deleted from the server.',
+                                                                        confirmLabel:
+                                                                            'Delete mailbox',
+                                                                        destructive: true,
+                                                                    },
+                                                                },
+                                                            ]}
+                                                        />
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
 
-                                                <EditMailAccountDialog
-                                                    mailDomain={mailDomain}
-                                                    account={account}
-                                                />
-
-                                                <RotatePasswordDialog
-                                                    mailDomain={mailDomain}
-                                                    account={account}
-                                                />
-
-                                                <ToggleSuspendMailAccountDialog
-                                                    mailDomain={mailDomain}
-                                                    account={account}
-                                                />
-
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="destructive"
-                                                            size="sm"
-                                                        >
-                                                            Delete
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Delete{' '}
-                                                            {account.local_part}
-                                                            ?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            This cannot be
-                                                            undone. The mailbox
-                                                            and all its mail are
-                                                            deleted from the
-                                                            server.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...MailAccountController.destroy.form(
-                                                                [
-                                                                    mailDomain,
-                                                                    account,
-                                                                ],
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        variant="destructive"
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button type="submit">
-                                                                            Delete
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div className="space-y-4 rounded-lg border p-4">
+                <section
+                    aria-labelledby="mail-settings-heading"
+                    className="space-y-4 rounded-lg border p-4"
+                >
                     <Heading
                         variant="small"
-                        title={
-                            mailDomain.suspended_at
-                                ? 'Unsuspend domain'
-                                : 'Suspend domain'
-                        }
-                        description={
-                            mailDomain.suspended_at
-                                ? 'Resume sending and receiving mail for this domain.'
-                                : 'Stop sending and receiving mail for this domain until it is unsuspended.'
-                        }
+                        id="mail-settings-heading"
+                        title="Mail settings"
+                        description="How mail for the whole domain is handled."
                     />
 
                     <Form
-                        {...(mailDomain.suspended_at
-                            ? MailDomainController.unsuspend.form(mailDomain)
-                            : MailDomainController.suspend.form(mailDomain))}
+                        {...MailDomainController.update.form(mailDomain)}
                         options={{ preserveScroll: true }}
+                        className="space-y-6"
                     >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    mailDomain.suspended_at
-                                        ? 'default'
-                                        : 'outline'
-                                }
-                                disabled={processing}
-                                data-test="toggle-suspend-mail-domain-button"
-                            >
-                                {mailDomain.suspended_at
-                                    ? 'Unsuspend'
-                                    : 'Suspend'}
-                            </Button>
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="catchall_email">
+                                        Catch-all mailbox
+                                    </Label>
+
+                                    <Input
+                                        id="catchall_email"
+                                        name="catchall_email"
+                                        type="email"
+                                        defaultValue={
+                                            mailDomain.catchall_email ??
+                                            undefined
+                                        }
+                                    />
+
+                                    <p className="text-sm text-muted-foreground">
+                                        An existing mailbox on this domain that
+                                        receives mail sent to any address
+                                        without its own mailbox. Leave empty to
+                                        reject it.
+                                    </p>
+
+                                    <InputError
+                                        message={errors.catchall_email}
+                                    />
+                                </div>
+
+                                <div className="flex items-center space-x-3">
+                                    <FormCheckbox
+                                        id="antivirus_enabled"
+                                        name="antivirus_enabled"
+                                        defaultChecked={
+                                            mailDomain.antivirus_enabled
+                                        }
+                                    />
+                                    <Label htmlFor="antivirus_enabled">
+                                        Scan incoming mail for viruses
+                                    </Label>
+                                </div>
+
+                                <div className="flex items-center space-x-3">
+                                    <FormCheckbox
+                                        id="antispam_enabled"
+                                        name="antispam_enabled"
+                                        defaultChecked={
+                                            mailDomain.antispam_enabled
+                                        }
+                                    />
+                                    <Label htmlFor="antispam_enabled">
+                                        Scan incoming mail for spam
+                                    </Label>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <div className="flex items-center space-x-3">
+                                        <FormCheckbox
+                                            id="dkim_enabled"
+                                            name="dkim_enabled"
+                                            checked={dkimEnabled}
+                                            onCheckedChange={(checked) =>
+                                                setDkimEnabled(checked === true)
+                                            }
+                                        />
+                                        <Label htmlFor="dkim_enabled">
+                                            Sign outgoing mail with DKIM
+                                        </Label>
+                                    </div>
+
+                                    {mailDomain.dkim_enabled &&
+                                        mailDomain.dkim_selector && (
+                                            <p className="text-sm text-muted-foreground">
+                                                Active selector:{' '}
+                                                {mailDomain.dkim_selector}
+                                                {mailDomain.dkim_selector_activated_at
+                                                    ? ` (since ${new Date(mailDomain.dkim_selector_activated_at).toLocaleDateString()})`
+                                                    : ''}
+                                                . Rotates automatically.
+                                            </p>
+                                        )}
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                    <Button
+                                        disabled={processing}
+                                        data-test="update-mail-domain-button"
+                                    >
+                                        Save
+                                    </Button>
+                                </div>
+                            </>
                         )}
                     </Form>
-                </div>
+                </section>
 
-                <div className="space-y-6">
+                <section
+                    aria-labelledby="danger-heading"
+                    className="space-y-4 rounded-lg border border-red-200 p-4 dark:border-red-900"
+                >
                     <Heading
                         variant="small"
-                        title="Delete domain"
-                        description="Delete this domain and all of its mailboxes"
+                        id="danger-heading"
+                        title="Suspend or delete"
+                        description="Suspending refuses mail for the whole domain until you unsuspend it and keeps the mail already here. Deleting removes the domain, its mailboxes and all their mail for good."
                     />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
 
-                        <Dialog>
-                            <DialogTrigger asChild>
+                    <div className="flex flex-wrap gap-2">
+                        {mailDomain.suspended_at ? (
+                            <ConfirmActionDialog
+                                form={MailDomainController.unsuspend.form(
+                                    mailDomain,
+                                )}
+                                title={`Unsuspend ${mailDomain.domain}?`}
+                                description="Mail for this domain is accepted again."
+                                confirmLabel="Unsuspend"
+                                confirmTestId="confirm-toggle-suspend-mail-domain-button"
+                                trigger={
+                                    <Button data-test="toggle-suspend-mail-domain-button">
+                                        Unsuspend mail domain
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <ConfirmActionDialog
+                                form={MailDomainController.suspend.form(
+                                    mailDomain,
+                                )}
+                                title={`Suspend ${mailDomain.domain}?`}
+                                description="Mail for this domain is refused until you unsuspend it. Mail already in the mailboxes is kept."
+                                confirmLabel="Suspend"
+                                destructive
+                                confirmTestId="confirm-toggle-suspend-mail-domain-button"
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-mail-domain-button"
+                                    >
+                                        Suspend mail domain
+                                    </Button>
+                                }
+                            />
+                        )}
+
+                        <ConfirmActionDialog
+                            form={MailDomainController.destroy.form(mailDomain)}
+                            title={`Delete ${mailDomain.domain}?`}
+                            description="This cannot be undone. The domain, its mailboxes and all their mail are deleted from the server; take a backup first if you need them."
+                            confirmLabel="Delete mail domain"
+                            destructive
+                            confirmTestId="confirm-delete-mail-domain-button"
+                            trigger={
                                 <Button
                                     variant="destructive"
                                     data-test="delete-mail-domain-button"
                                 >
-                                    Delete domain
+                                    Delete mail domain
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {mailDomain.domain}?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    This cannot be undone. The domain, its
-                                    mailboxes and all their mail are deleted
-                                    from the server; take a backup first if you
-                                    need them.
-                                </DialogDescription>
-
-                                <Form
-                                    {...MailDomainController.destroy.form(
-                                        mailDomain,
-                                    )}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
-                                        <DialogFooter className="gap-2">
-                                            <DialogClose asChild>
-                                                <Button variant="secondary">
-                                                    Cancel
-                                                </Button>
-                                            </DialogClose>
-
-                                            <Button
-                                                variant="destructive"
-                                                disabled={processing}
-                                                asChild
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    data-test="confirm-delete-mail-domain-button"
-                                                >
-                                                    Delete domain
-                                                </button>
-                                            </Button>
-                                        </DialogFooter>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            }
+                        />
                     </div>
-                </div>
+                </section>
             </div>
         </>
     );

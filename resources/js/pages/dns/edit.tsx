@@ -2,8 +2,11 @@ import { Form, Head } from '@inertiajs/react';
 import { useState } from 'react';
 import DnsRecordController from '@/actions/App/Http/Controllers/Dns/DnsRecordController';
 import DnsZoneController from '@/actions/App/Http/Controllers/Dns/DnsZoneController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { MoreActionsMenu } from '@/components/own-resource-list';
+import { ProvisioningPanel } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -24,19 +27,26 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import dns from '@/routes/dns';
 import type { DnsRecord, DnsRecordType, DnsZone } from '@/types';
 
-const recordTypes: DnsRecordType[] = [
-    'A',
-    'AAAA',
-    'NS',
-    'CNAME',
-    'MX',
-    'TXT',
-    'SRV',
-    'PTR',
-    'CAA',
+const recordTypes: { type: DnsRecordType; description: string }[] = [
+    { type: 'A', description: 'Points a name at an IPv4 address' },
+    { type: 'AAAA', description: 'Points a name at an IPv6 address' },
+    { type: 'CNAME', description: 'Makes a name an alias of another name' },
+    { type: 'MX', description: 'Says which server receives mail' },
+    {
+        type: 'TXT',
+        description: 'Text, such as SPF or a site verification code',
+    },
+    { type: 'NS', description: 'Hands a subdomain to other name servers' },
+    { type: 'SRV', description: 'Says where a service such as SIP runs' },
+    { type: 'PTR', description: 'Points an address back at a name' },
+    {
+        type: 'CAA',
+        description: 'Says which authorities may issue certificates',
+    },
 ];
 
 function RecordTypeSelect({
@@ -61,9 +71,12 @@ function RecordTypeSelect({
                     <SelectValue placeholder="Select a record type" />
                 </SelectTrigger>
                 <SelectContent>
-                    {recordTypes.map((type) => (
+                    {recordTypes.map(({ type, description }) => (
                         <SelectItem key={type} value={type}>
-                            {type}
+                            <span className="font-medium">{type}</span>
+                            <span className="text-muted-foreground">
+                                {description}
+                            </span>
                         </SelectItem>
                     ))}
                 </SelectContent>
@@ -173,7 +186,12 @@ function EditRecordDialog({
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${record.name} ${record.type} record`}
+                    className="pointer-coarse:h-11"
+                >
                     Edit
                 </Button>
             </DialogTrigger>
@@ -262,428 +280,372 @@ function EditRecordDialog({
     );
 }
 
-function ToggleSuspendRecordDialog({
+export default function Edit({
     dnsZone,
-    record,
+    nameservers,
 }: {
     dnsZone: DnsZone;
-    record: DnsRecord;
+    nameservers: string[];
 }) {
-    const [open, setOpen] = useState(false);
-
-    if (record.suspended_at) {
-        return (
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogTrigger asChild>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        data-test="toggle-suspend-dns-record-button"
-                    >
-                        Unsuspend
-                    </Button>
-                </DialogTrigger>
-                <DialogContent>
-                    <DialogTitle>Unsuspend {record.name}?</DialogTitle>
-                    <DialogDescription>
-                        The record will resume resolving.
-                    </DialogDescription>
-
-                    <Form
-                        {...DnsRecordController.unsuspend.form([
-                            dnsZone,
-                            record,
-                        ])}
-                        options={{ preserveScroll: true }}
-                        onSuccess={() => setOpen(false)}
-                    >
-                        {({ processing }) => (
-                            <DialogFooter className="gap-2">
-                                <DialogClose asChild>
-                                    <Button variant="secondary">Cancel</Button>
-                                </DialogClose>
-
-                                <Button disabled={processing} asChild>
-                                    <button
-                                        type="submit"
-                                        data-test="confirm-toggle-suspend-dns-record-button"
-                                    >
-                                        Unsuspend
-                                    </button>
-                                </Button>
-                            </DialogFooter>
-                        )}
-                    </Form>
-                </DialogContent>
-            </Dialog>
-        );
-    }
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    data-test="toggle-suspend-dns-record-button"
-                >
-                    Suspend
-                </Button>
-            </DialogTrigger>
-            <DialogContent>
-                <DialogTitle>Suspend {record.name}?</DialogTitle>
-                <DialogDescription>
-                    The record will stop resolving until it is unsuspended.
-                </DialogDescription>
-
-                <Form
-                    {...DnsRecordController.suspend.form([dnsZone, record])}
-                    options={{ preserveScroll: true }}
-                    onSuccess={() => setOpen(false)}
-                >
-                    {({ processing }) => (
-                        <DialogFooter className="gap-2">
-                            <DialogClose asChild>
-                                <Button variant="secondary">Cancel</Button>
-                            </DialogClose>
-
-                            <Button
-                                variant="destructive"
-                                disabled={processing}
-                                asChild
-                            >
-                                <button
-                                    type="submit"
-                                    data-test="confirm-toggle-suspend-dns-record-button"
-                                >
-                                    Suspend
-                                </button>
-                            </Button>
-                        </DialogFooter>
-                    )}
-                </Form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-export default function Edit({ dnsZone }: { dnsZone: DnsZone }) {
     const records = dnsZone.records ?? [];
+
+    usePollWhile(isApplying(dnsZone.provisioning_status), ['dnsZone']);
 
     return (
         <>
-            <Head title={`Edit ${dnsZone.domain}`} />
+            <Head title={dnsZone.domain} />
 
             <div className="mx-auto w-full max-w-3xl space-y-8 p-4">
                 <Heading
-                    title="Edit DNS zone"
-                    description="Update this zone's configuration"
+                    level={1}
+                    title={dnsZone.domain}
+                    description="DNS zone: the records the name servers give out for this domain"
                 />
 
-                <Form
-                    {...DnsZoneController.update.form(dnsZone)}
-                    options={{ preserveScroll: true }}
-                    className="space-y-6"
+                <ProvisioningPanel
+                    status={dnsZone.provisioning_status}
+                    reason={dnsZone.provisioning_error}
+                    updatedAt={dnsZone.provisioning_updated_at}
+                />
+
+                {nameservers.length > 0 && (
+                    <section
+                        aria-labelledby="nameservers-heading"
+                        className="space-y-3 rounded-lg border p-4"
+                    >
+                        <Heading
+                            variant="small"
+                            id="nameservers-heading"
+                            title="Name servers"
+                            description="Enter these where you registered the domain, so the world asks this server about it. The change can take up to a day to spread."
+                        />
+                        <ul className="space-y-1 font-mono text-sm">
+                            {nameservers.map((nameserver) => (
+                                <li key={nameserver}>{nameserver}</li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
+                <section
+                    aria-labelledby="records-heading"
+                    className="space-y-4"
                 >
-                    {({ processing, errors }) => (
-                        <>
-                            <div className="grid gap-2">
-                                <Label htmlFor="domain">Domain</Label>
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <Heading
+                            variant="small"
+                            id="records-heading"
+                            title="Records"
+                            description="What each name in this domain points at."
+                        />
 
-                                <Input
-                                    id="domain"
-                                    name="domain"
-                                    required
-                                    defaultValue={dnsZone.domain}
-                                />
+                        <AddRecordDialog dnsZone={dnsZone} />
+                    </div>
 
-                                <InputError message={errors.domain} />
-                            </div>
+                    {records.length === 0 ? (
+                        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            No records yet. Add an A record for @ to point the
+                            domain itself at your site.
+                        </p>
+                    ) : (
+                        <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                            <table className="w-full text-left text-sm">
+                                <caption className="sr-only">
+                                    Records in {dnsZone.domain}
+                                </caption>
+                                <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
+                                    <tr>
+                                        <th
+                                            scope="col"
+                                            className="px-4 py-2 font-medium"
+                                        >
+                                            Name
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="px-4 py-2 font-medium"
+                                        >
+                                            Type
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="hidden px-4 py-2 font-medium md:table-cell"
+                                        >
+                                            Points at
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="hidden px-4 py-2 font-medium md:table-cell"
+                                        >
+                                            Priority
+                                        </th>
+                                        <th
+                                            scope="col"
+                                            className="hidden px-4 py-2 font-medium md:table-cell"
+                                        >
+                                            Status
+                                        </th>
+                                        <th scope="col" className="px-4 py-2">
+                                            <span className="sr-only">
+                                                Actions
+                                            </span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {records.map((record) => (
+                                        <tr
+                                            key={record.uuid}
+                                            className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
+                                        >
+                                            <th
+                                                scope="row"
+                                                className="px-4 py-3 text-left font-medium"
+                                            >
+                                                {record.name}
+                                                <span className="mt-1 block max-w-48 truncate font-mono text-xs font-normal text-muted-foreground md:hidden">
+                                                    {record.value}
+                                                    {record.suspended_at
+                                                        ? ' (suspended)'
+                                                        : ''}
+                                                </span>
+                                            </th>
+                                            <td className="px-4 py-3">
+                                                {record.type}
+                                            </td>
+                                            <td
+                                                className="hidden max-w-xs truncate px-4 py-3 font-mono text-xs text-muted-foreground md:table-cell"
+                                                title={record.value}
+                                            >
+                                                {record.value}
+                                            </td>
+                                            <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
+                                                {record.priority ?? '—'}
+                                            </td>
+                                            <td className="hidden px-4 py-3 md:table-cell">
+                                                {record.suspended_at ? (
+                                                    <span className="text-red-700 dark:text-red-400">
+                                                        {record.suspension_source ===
+                                                        'cascade'
+                                                            ? 'Suspended with the zone'
+                                                            : 'Suspended'}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-muted-foreground">
+                                                        Active
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <EditRecordDialog
+                                                        dnsZone={dnsZone}
+                                                        record={record}
+                                                    />
+                                                    <MoreActionsMenu
+                                                        name={`${record.name} ${record.type}`}
+                                                        actions={[
+                                                            record.suspended_at
+                                                                ? {
+                                                                      label: 'Unsuspend',
+                                                                      testId: 'toggle-suspend-dns-record-button',
+                                                                      confirm: {
+                                                                          form: DnsRecordController.unsuspend.form(
+                                                                              [
+                                                                                  dnsZone,
+                                                                                  record,
+                                                                              ],
+                                                                          ),
+                                                                          title: `Unsuspend ${record.name}?`,
+                                                                          description:
+                                                                              'The record is given out again.',
+                                                                          confirmLabel:
+                                                                              'Unsuspend',
+                                                                          confirmTestId:
+                                                                              'confirm-toggle-suspend-dns-record-button',
+                                                                      },
+                                                                  }
+                                                                : {
+                                                                      label: 'Suspend',
+                                                                      testId: 'toggle-suspend-dns-record-button',
+                                                                      confirm: {
+                                                                          form: DnsRecordController.suspend.form(
+                                                                              [
+                                                                                  dnsZone,
+                                                                                  record,
+                                                                              ],
+                                                                          ),
+                                                                          title: `Suspend ${record.name}?`,
+                                                                          description:
+                                                                              'The record stops being given out until you unsuspend it.',
+                                                                          confirmLabel:
+                                                                              'Suspend',
+                                                                          destructive: true,
+                                                                          confirmTestId:
+                                                                              'confirm-toggle-suspend-dns-record-button',
+                                                                      },
+                                                                  },
+                                                            {
+                                                                label: 'Delete',
+                                                                testId: 'delete-dns-record-button',
+                                                                confirm: {
+                                                                    form: DnsRecordController.destroy.form(
+                                                                        [
+                                                                            dnsZone,
+                                                                            record,
+                                                                        ],
+                                                                    ),
+                                                                    title: `Delete ${record.name} ${record.type}?`,
+                                                                    description:
+                                                                        'This cannot be undone.',
+                                                                    confirmLabel:
+                                                                        'Delete record',
+                                                                    destructive: true,
+                                                                    confirmTestId:
+                                                                        'confirm-delete-dns-record-button',
+                                                                },
+                                                            },
+                                                        ]}
+                                                    />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="ttl">TTL (seconds)</Label>
+                <section
+                    aria-labelledby="zone-settings-heading"
+                    className="space-y-4 rounded-lg border p-4"
+                >
+                    <Heading
+                        variant="small"
+                        id="zone-settings-heading"
+                        title="Zone settings"
+                    />
 
-                                <Input
-                                    id="ttl"
-                                    name="ttl"
-                                    type="number"
-                                    defaultValue={dnsZone.ttl}
-                                />
+                    <Form
+                        {...DnsZoneController.update.form(dnsZone)}
+                        options={{ preserveScroll: true }}
+                        className="space-y-6"
+                    >
+                        {({ processing, errors }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="domain">Domain</Label>
 
-                                <InputError message={errors.ttl} />
-                            </div>
+                                    <Input
+                                        id="domain"
+                                        name="domain"
+                                        required
+                                        defaultValue={dnsZone.domain}
+                                    />
 
-                            <div className="flex items-center gap-4">
+                                    <InputError message={errors.domain} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="ttl">
+                                        Default TTL, in seconds
+                                    </Label>
+
+                                    <Input
+                                        id="ttl"
+                                        name="ttl"
+                                        type="number"
+                                        min={60}
+                                        defaultValue={dnsZone.ttl}
+                                        aria-describedby="ttl-help"
+                                    />
+                                    <p
+                                        id="ttl-help"
+                                        className="text-sm text-muted-foreground"
+                                    >
+                                        How long other servers may keep an
+                                        answer before asking again. 3600 (an
+                                        hour) suits most zones; lower it a day
+                                        before you move a site.
+                                    </p>
+
+                                    <InputError message={errors.ttl} />
+                                </div>
+
                                 <Button
                                     disabled={processing}
                                     data-test="update-dns-zone-button"
                                 >
                                     Save
                                 </Button>
-                            </div>
-                        </>
-                    )}
-                </Form>
-
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-4">
-                        <Heading variant="small" title="DNS records" />
-
-                        <AddRecordDialog dnsZone={dnsZone} />
-                    </div>
-
-                    <div className="overflow-x-auto rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <table className="w-full text-left text-sm">
-                            <thead className="border-b border-sidebar-border/70 text-xs text-muted-foreground dark:border-sidebar-border">
-                                <tr>
-                                    <th className="px-4 py-2 font-medium">
-                                        Name
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Type
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Priority
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Value
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Suspension
-                                    </th>
-                                    <th className="px-4 py-2 font-medium">
-                                        Actions
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {records.length === 0 && (
-                                    <tr>
-                                        <td
-                                            colSpan={6}
-                                            className="px-4 py-6 text-center text-muted-foreground"
-                                        >
-                                            No records yet.
-                                        </td>
-                                    </tr>
-                                )}
-
-                                {records.map((record) => (
-                                    <tr
-                                        key={record.uuid}
-                                        className="border-b border-sidebar-border/70 last:border-0 dark:border-sidebar-border"
-                                    >
-                                        <td className="px-4 py-2 font-medium">
-                                            {record.name}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            {record.type}
-                                        </td>
-                                        <td className="px-4 py-2 text-muted-foreground">
-                                            {record.priority ?? '—'}
-                                        </td>
-                                        <td className="max-w-xs truncate px-4 py-2 text-muted-foreground">
-                                            {record.value}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            {record.suspended_at ? (
-                                                <span className="text-red-600 dark:text-red-400">
-                                                    Suspended
-                                                    {record.suspension_source ===
-                                                    'cascade'
-                                                        ? ' (zone)'
-                                                        : ''}
-                                                </span>
-                                            ) : (
-                                                <span className="text-green-700 dark:text-green-400">
-                                                    Active
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <EditRecordDialog
-                                                    dnsZone={dnsZone}
-                                                    record={record}
-                                                />
-
-                                                <ToggleSuspendRecordDialog
-                                                    dnsZone={dnsZone}
-                                                    record={record}
-                                                />
-
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            data-test="delete-dns-record-button"
-                                                        >
-                                                            Delete
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogTitle>
-                                                            Delete {record.name}
-                                                            ?
-                                                        </DialogTitle>
-                                                        <DialogDescription>
-                                                            This cannot be
-                                                            undone.
-                                                        </DialogDescription>
-
-                                                        <Form
-                                                            {...DnsRecordController.destroy.form(
-                                                                [
-                                                                    dnsZone,
-                                                                    record,
-                                                                ],
-                                                            )}
-                                                            options={{
-                                                                preserveScroll: true,
-                                                            }}
-                                                        >
-                                                            {({
-                                                                processing,
-                                                            }) => (
-                                                                <DialogFooter className="gap-2">
-                                                                    <DialogClose
-                                                                        asChild
-                                                                    >
-                                                                        <Button variant="secondary">
-                                                                            Cancel
-                                                                        </Button>
-                                                                    </DialogClose>
-
-                                                                    <Button
-                                                                        variant="destructive"
-                                                                        disabled={
-                                                                            processing
-                                                                        }
-                                                                        asChild
-                                                                    >
-                                                                        <button
-                                                                            type="submit"
-                                                                            data-test="confirm-delete-dns-record-button"
-                                                                        >
-                                                                            Delete
-                                                                        </button>
-                                                                    </Button>
-                                                                </DialogFooter>
-                                                            )}
-                                                        </Form>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div className="space-y-4 rounded-lg border p-4">
-                    <Heading
-                        variant="small"
-                        title={
-                            dnsZone.suspended_at
-                                ? 'Unsuspend zone'
-                                : 'Suspend zone'
-                        }
-                        description={
-                            dnsZone.suspended_at
-                                ? 'Resume serving DNS queries for this zone.'
-                                : 'Stop serving DNS queries for this zone until it is unsuspended.'
-                        }
-                    />
-
-                    <Form
-                        {...(dnsZone.suspended_at
-                            ? DnsZoneController.unsuspend.form(dnsZone)
-                            : DnsZoneController.suspend.form(dnsZone))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    dnsZone.suspended_at ? 'default' : 'outline'
-                                }
-                                disabled={processing}
-                                data-test="toggle-suspend-dns-zone-button"
-                            >
-                                {dnsZone.suspended_at ? 'Unsuspend' : 'Suspend'}
-                            </Button>
+                            </>
                         )}
                     </Form>
-                </div>
+                </section>
 
-                <div className="space-y-6">
+                <section
+                    aria-labelledby="danger-heading"
+                    className="space-y-4 rounded-lg border border-red-200 p-4 dark:border-red-900"
+                >
                     <Heading
                         variant="small"
-                        title="Delete zone"
-                        description="Delete this zone and all of its records"
+                        id="danger-heading"
+                        title="Suspend or delete"
+                        description="Suspending stops this server answering for the domain until you unsuspend it, so its site and mail may stop being found. Deleting removes the zone and all its records for good."
                     />
-                    <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                        <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                            <p className="font-medium">Warning</p>
-                            <p className="text-sm">
-                                Please proceed with caution, this cannot be
-                                undone.
-                            </p>
-                        </div>
 
-                        <Dialog>
-                            <DialogTrigger asChild>
+                    <div className="flex flex-wrap gap-2">
+                        {dnsZone.suspended_at ? (
+                            <ConfirmActionDialog
+                                form={DnsZoneController.unsuspend.form(dnsZone)}
+                                title={`Unsuspend ${dnsZone.domain}?`}
+                                description="The server answers DNS for this domain again."
+                                confirmLabel="Unsuspend"
+                                confirmTestId="confirm-toggle-suspend-dns-zone-button"
+                                trigger={
+                                    <Button data-test="toggle-suspend-dns-zone-button">
+                                        Unsuspend zone
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <ConfirmActionDialog
+                                form={DnsZoneController.suspend.form(dnsZone)}
+                                title={`Suspend ${dnsZone.domain}?`}
+                                description="The server stops answering DNS for this domain until you unsuspend it."
+                                confirmLabel="Suspend"
+                                destructive
+                                confirmTestId="confirm-toggle-suspend-dns-zone-button"
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-dns-zone-button"
+                                    >
+                                        Suspend zone
+                                    </Button>
+                                }
+                            />
+                        )}
+
+                        <ConfirmActionDialog
+                            form={DnsZoneController.destroy.form(dnsZone)}
+                            title={`Delete ${dnsZone.domain}?`}
+                            description="This cannot be undone. The zone and all its records are removed from the server."
+                            confirmLabel="Delete zone"
+                            destructive
+                            confirmTestId="confirm-delete-dns-zone-button"
+                            trigger={
                                 <Button
                                     variant="destructive"
                                     data-test="delete-dns-zone-button"
                                 >
                                     Delete zone
                                 </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogTitle>
-                                    Are you sure you want to delete{' '}
-                                    {dnsZone.domain}?
-                                </DialogTitle>
-                                <DialogDescription>
-                                    Once this zone is deleted, all of its
-                                    records and provisioning state will also be
-                                    permanently deleted.
-                                </DialogDescription>
-
-                                <Form
-                                    {...DnsZoneController.destroy.form(dnsZone)}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
-                                        <DialogFooter className="gap-2">
-                                            <DialogClose asChild>
-                                                <Button variant="secondary">
-                                                    Cancel
-                                                </Button>
-                                            </DialogClose>
-
-                                            <Button
-                                                variant="destructive"
-                                                disabled={processing}
-                                                asChild
-                                            >
-                                                <button
-                                                    type="submit"
-                                                    data-test="confirm-delete-dns-zone-button"
-                                                >
-                                                    Delete zone
-                                                </button>
-                                            </Button>
-                                        </DialogFooter>
-                                    )}
-                                </Form>
-                            </DialogContent>
-                        </Dialog>
+                            }
+                        />
                     </div>
-                </div>
+                </section>
             </div>
         </>
     );

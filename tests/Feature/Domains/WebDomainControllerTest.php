@@ -249,3 +249,36 @@ test('a non-owner member cannot update the account\'s ssh public key', function 
         ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => validSshPublicKeyLine()])
         ->assertForbidden();
 });
+
+test('the customer pages carry the latest operation\'s status, the reason the node gave and when it moved', function () {
+    [$account, $owner] = actingAsOwnerWithWebCapableAccount();
+    $webDomain = WebDomain::factory()->for($account)->create(['domain' => 'example.com']);
+    AccountNodeIdentity::factory()->for($account)->for($webDomain->node)->create(['system_username' => 'lesta-t'.$account->id]);
+    ProvisioningOperation::factory()->failed()->create(['provisionable_type' => $webDomain->getMorphClass(), 'provisionable_id' => $webDomain->id, 'resource_id' => $webDomain->uuid, 'node_id' => $webDomain->node_id]);
+
+    $this->actingAs($owner)->get(route('domains.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('webDomains.data.0.provisioning_status', 'failed')
+        ->where('webDomains.data.0.provisioning_error', 'Provisioner failed to apply.')
+        ->whereType('webDomains.data.0.provisioning_updated_at', 'string'));
+
+    $this->actingAs($owner)->get(route('domains.edit', $webDomain))->assertInertia(fn (Assert $page) => $page
+        ->where('webDomain.provisioning_status', 'failed')
+        ->where('webDomain.provisioning_error', 'Provisioner failed to apply.'));
+});
+
+test('the add domain form is told what the server offers, so it can default to PHP and automatic HTTPS', function () {
+    [, $owner, $node] = actingAsOwnerWithWebCapableAccount();
+
+    $this->actingAs($owner)->get(route('domains.create'))->assertInertia(fn (Assert $page) => $page
+        ->where('offers.php', false)
+        ->where('offers.automatic_https', false)
+        ->where('offers.apache', false));
+
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'tls.acme.v1']);
+
+    $this->actingAs($owner)->get(route('domains.create'))->assertInertia(fn (Assert $page) => $page
+        ->where('offers.php', true)
+        ->where('offers.automatic_https', true)
+        ->where('offers.php_versions', ['8.1', '8.2', '8.3', '8.4']));
+});
