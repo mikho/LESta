@@ -398,13 +398,17 @@ add rather than an automatic change to files it does not own:
 
      [Unit]
      Description=LESta control-plane queue worker
-     After=network.target
+     After=network.target mariadb.service
+     # Never give up: a database restart (an unattended package update) must
+     # not leave the worker stopped for good.
+     StartLimitIntervalSec=0
 
      [Service]
      User=www-data
      WorkingDirectory=${app_dir}
      ExecStart=/usr/bin/php ${app_dir}/artisan queue:work --tries=3 --sleep=3
      Restart=always
+     RestartSec=5
 
      [Install]
      WantedBy=multi-user.target
