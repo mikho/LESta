@@ -227,6 +227,15 @@ run_update_existing() {
     # upgrade command" convention for every real installer.
     configure_sparse_checkout
 
+    # Files changed by hand in the checkout (a binary copied in, an installer
+    # patched on the spot) make the checkout below refuse to overwrite them.
+    # Say which, and how to let the update replace them, rather than only that
+    # the checkout failed.
+    local_changes=$(git -C "${DEST}" status --porcelain --untracked-files=no)
+    if [ -n "${local_changes}" ]; then
+        fail_mutation "${DEST} has local changes the update would overwrite: $(printf '%s' "${local_changes}" | awk '{print $2}' | tr '\n' ' ')-- if they are already in ${REF}, discard them with: git -C ${DEST} checkout -- . and run this again"
+    fi
+
     git -c advice.detachedHead=false -C "${DEST}" checkout FETCH_HEAD \
         || fail_mutation "git checkout FETCH_HEAD failed in ${DEST}"
 }
