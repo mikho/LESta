@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/mikho/LESta/agent/internal/generation"
@@ -47,6 +48,9 @@ type MariaDBCapability struct {
 	cfg      Config
 	store    *generation.Store
 	receipts *idempotency.Store
+	// firewallMu serializes syncFirewall, so two operations finishing
+	// together cannot write the allow sets from an older read.
+	firewallMu sync.Mutex
 }
 
 // New returns a MariaDBCapability using cfg. Generation history (a monotonic
@@ -151,6 +155,10 @@ func (c *MariaDBCapability) applyCreate(ctx context.Context, op protocol.Operati
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
+	if code, err := c.applyRemoteAccess(ctx, payload, nil); err != nil {
+		return c.failed(ctx, op, code, err.Error())
+	}
+
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
 }
 
@@ -212,9 +220,11 @@ func (c *MariaDBCapability) applyUpdate(ctx context.Context, op protocol.Operati
 		}
 	}
 
+	var gone []User
 	for _, name := range sortedUserNames(previous) {
 		if !current[name] {
 			users += extraUsersDropDDL([]User{previous[name]})
+			gone = append(gone, previous[name])
 		}
 	}
 
@@ -223,6 +233,10 @@ func (c *MariaDBCapability) applyUpdate(ctx context.Context, op protocol.Operati
 		if _, err := runSQL(ctx, c.cfg, script); err != nil {
 			return c.failed(ctx, op, "ddl_failed", err.Error())
 		}
+	}
+
+	if code, err := c.applyRemoteAccess(ctx, payload, gone); err != nil {
+		return c.failed(ctx, op, code, err.Error())
 	}
 
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
@@ -259,6 +273,10 @@ func (c *MariaDBCapability) applySuspend(ctx context.Context, op protocol.Operat
 		return c.failed(ctx, op, "ddl_failed", err.Error())
 	}
 
+	if code, err := c.applyRemoteAccess(ctx, payload, nil); err != nil {
+		return c.failed(ctx, op, code, err.Error())
+	}
+
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
 }
 
@@ -289,6 +307,10 @@ func (c *MariaDBCapability) applyUnsuspend(ctx context.Context, op protocol.Oper
 
 	if _, err := runSQL(ctx, c.cfg, unsuspendDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)+withFlush(extraUsersGrantDDL(payload.DatabaseName, payload.Users))); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
+	}
+
+	if code, err := c.applyRemoteAccess(ctx, payload, nil); err != nil {
+		return c.failed(ctx, op, code, err.Error())
 	}
 
 	return c.recordGenerationAndBuildResult(ctx, op, payload, false)
@@ -330,6 +352,11 @@ func (c *MariaDBCapability) applyDelete(ctx context.Context, op protocol.Operati
 
 	if _, err := runSQL(ctx, c.cfg, deleteDDL(payload.DatabaseName, payload.DatabaseUser, payload.StatsUser)+withFlush(extraUsersDropDDL(dropped))); err != nil {
 		return c.failed(ctx, op, "ddl_failed", err.Error())
+	}
+
+	// Every user is gone, so every remote account goes with it.
+	if code, err := c.applyRemoteAccess(ctx, Payload{DatabaseName: payload.DatabaseName}, dropped); err != nil {
+		return c.failed(ctx, op, code, err.Error())
 	}
 
 	return c.recordGenerationAndBuildResult(ctx, op, payload, true)

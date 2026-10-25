@@ -44,7 +44,7 @@ class TenantDatabaseUserController extends ApiController
      */
     public function store(StoreTenantDatabaseUserRequest $request, Account $account, TenantDatabase $tenantDatabase): JsonResponse
     {
-        /** @var array{label: string, access: string} $data */
+        /** @var array{label: string, access: string, remote_hosts?: list<string>} $data */
         $data = $request->validated();
         [$user, $password] = app(CreateTenantDatabaseUser::class)->handle($request->user(), $tenantDatabase, $data);
 
@@ -53,7 +53,7 @@ class TenantDatabaseUserController extends ApiController
 
     public function update(UpdateTenantDatabaseUserRequest $request, Account $account, TenantDatabase $tenantDatabase, TenantDatabaseUser $user): JsonResponse
     {
-        /** @var array{access: string} $data */
+        /** @var array{access?: string, remote_hosts?: list<string>} $data */
         $data = $request->validated();
         app(UpdateTenantDatabaseUser::class)->handle($request->user(), $user, $data);
 

@@ -26,9 +26,14 @@ func schemaExists(ctx context.Context, cfg Config, databaseName string) (bool, e
 }
 
 func userExists(ctx context.Context, cfg Config, databaseUser string) (bool, error) {
+	return accountExists(ctx, cfg, databaseUser, grantHost)
+}
+
+// accountExists reports whether the account name@host exists.
+func accountExists(ctx context.Context, cfg Config, name, host string) (bool, error) {
 	out, err := runSQL(ctx, cfg, fmt.Sprintf(
 		"SELECT COUNT(*) FROM mysql.user WHERE User = '%s' AND Host = '%s';\n",
-		databaseUser, grantHost,
+		name, host,
 	))
 	if err != nil {
 		return false, err
@@ -41,7 +46,12 @@ func userExists(ctx context.Context, cfg Config, databaseUser string) (bool, err
 // userExists is already known true: SHOW GRANTS FOR a nonexistent user is
 // itself a hard MariaDB error ("no such grant"), not an empty result set.
 func grantsFor(ctx context.Context, cfg Config, databaseUser string) ([]string, error) {
-	out, err := runSQL(ctx, cfg, fmt.Sprintf("SHOW GRANTS FOR '%s'@'%s';\n", databaseUser, grantHost))
+	return accountGrants(ctx, cfg, databaseUser, grantHost)
+}
+
+// accountGrants is SHOW GRANTS FOR name@host, sorted.
+func accountGrants(ctx context.Context, cfg Config, name, host string) ([]string, error) {
+	out, err := runSQL(ctx, cfg, fmt.Sprintf("SHOW GRANTS FOR '%s'@'%s';\n", name, host))
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +138,11 @@ func computeDigest(ctx context.Context, cfg Config, payload Payload) (string, er
 	}
 	sort.Strings(names)
 
+	remoteHosts := make(map[string][]string, len(payload.Users))
+	for _, u := range payload.Users {
+		remoteHosts[u.Name] = u.RemoteHosts
+	}
+
 	for _, name := range names {
 		live, err := userExists(ctx, cfg, name)
 		if err != nil {
@@ -147,6 +162,32 @@ func computeDigest(ctx context.Context, cfg Config, payload Payload) (string, er
 
 		for _, g := range userGrants {
 			fmt.Fprintf(&manifest, "extra_user %s grant: %s\n", name, g)
+		}
+
+		// Remote accounts, only for a user that has remote hosts, so a
+		// user without any digests as it did before remote access existed.
+		hosts := append([]string(nil), remoteHosts[name]...)
+		sort.Strings(hosts)
+		for _, host := range hosts {
+			remoteLive, err := accountExists(ctx, cfg, name, host)
+			if err != nil {
+				return "", fmt.Errorf("checking remote account existence: %w", err)
+			}
+
+			fmt.Fprintf(&manifest, "extra_user %s remote %s exists=%s\n", name, host, strconv.FormatBool(remoteLive))
+
+			if !remoteLive {
+				continue
+			}
+
+			remoteGrants, err := accountGrants(ctx, cfg, name, host)
+			if err != nil {
+				return "", fmt.Errorf("reading remote account grants: %w", err)
+			}
+
+			for _, g := range remoteGrants {
+				fmt.Fprintf(&manifest, "extra_user %s remote %s grant: %s\n", name, host, g)
+			}
 		}
 	}
 

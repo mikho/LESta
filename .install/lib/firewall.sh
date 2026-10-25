@@ -28,6 +28,16 @@ FIREWALL_PORTS_DIR="${FIREWALL_DIR}/ports.d"
 NFT_TABLE_PATH="${FIREWALL_DIR}/lesta.nft"
 FIREWALL_UNIT_PATH="/etc/systemd/system/lesta-firewall.service"
 
+# Remote database access: the agent (database.tenant.v1) keeps the addresses
+# extra database users may connect from in two sets, db_remote_v4 and
+# db_remote_v6, and writes them to this nft script after every change (see
+# agent/internal/capability/mariadb/remote.go). The table below declares the
+# sets and lets only them reach the tenant MariaDB port; re-rendering never
+# empties them (a set declaration that already exists is a no-op), and the
+# unit loads this script again after the table at boot.
+FIREWALL_DB_REMOTE_PATH="${FIREWALL_DIR}/db-remote.nft"
+FIREWALL_DB_REMOTE_PORT=3307
+
 # manifest_extract_port_specs <file> -> "<protocol> <port>" lines, one per
 # ports[] entry whose direction is "inbound". Mirrors
 # manifest_artifact_sha256's own grep -o technique (lib/preflight.sh) for
@@ -133,6 +143,12 @@ firewall_render_and_apply() {
     # flushed (a no-op on an already-empty chain), then repopulated.
     {
         printf 'table inet lesta {\n'
+        printf '    set db_remote_v4 {\n'
+        printf '        type ipv4_addr;\n'
+        printf '    }\n'
+        printf '    set db_remote_v6 {\n'
+        printf '        type ipv6_addr;\n'
+        printf '    }\n'
         printf '    chain input {\n'
         printf '        type filter hook input priority 0; policy drop;\n'
         printf '    }\n'
@@ -150,6 +166,8 @@ firewall_render_and_apply() {
         if [ -n "${udp_rendered}" ]; then
             printf '        udp dport { %s } accept;\n' "${udp_rendered}"
         fi
+        printf '        ip saddr @db_remote_v4 tcp dport %s accept;\n' "${FIREWALL_DB_REMOTE_PORT}"
+        printf '        ip6 saddr @db_remote_v6 tcp dport %s accept;\n' "${FIREWALL_DB_REMOTE_PORT}"
         printf '    }\n'
         printf '}\n'
     } > "${NFT_TABLE_PATH}.tmp"
@@ -168,7 +186,13 @@ firewall_render_and_apply() {
         add_error nft_apply_failed "${out}" "${NFT_TABLE_PATH}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
-    add_change firewall.baseline.v1 applied "${NFT_TABLE_PATH}" "deny-by-default inet lesta table loaded (ssh 22, ${port_rules})"
+    # Normally a no-op (the sets kept their addresses), but it puts them back if the table was
+    # removed and recreated by hand.
+    if [ -f "${FIREWALL_DB_REMOTE_PATH}" ] && ! out=$(nft -f "${FIREWALL_DB_REMOTE_PATH}" 2>&1); then
+        add_error nft_apply_failed "${out}" "${FIREWALL_DB_REMOTE_PATH}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+    add_change firewall.baseline.v1 applied "${NFT_TABLE_PATH}" "deny-by-default inet lesta table loaded (ssh 22, ${port_rules}; tcp ${FIREWALL_DB_REMOTE_PORT} only from the remote database access sets)"
 
     {
         printf '[Unit]\n'
@@ -179,6 +203,8 @@ firewall_render_and_apply() {
         printf '[Service]\n'
         printf 'Type=oneshot\n'
         printf 'ExecStart=/usr/sbin/nft -f %s\n' "${NFT_TABLE_PATH}"
+        # "-": the agent writes this file only once a database user is given remote access.
+        printf 'ExecStart=-/usr/sbin/nft -f %s\n' "${FIREWALL_DB_REMOTE_PATH}"
         printf 'RemainAfterExit=yes\n'
         printf '\n'
         printf '[Install]\n'

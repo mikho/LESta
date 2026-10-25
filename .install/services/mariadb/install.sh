@@ -150,6 +150,9 @@ AGENT_BINARY_SRC="${REPO_ROOT}/agent/dist/lesta-agent-linux-amd64"
 TENANT_PORT=3307
 TENANT_DATADIR="/var/lib/lesta/mariadb/tenant"
 TENANT_AGENT_STATE_DIR="/var/lib/lesta/mariadb/tenant-agent-state"
+# The certificate and key the tenant instance presents to remote clients: seeded self-signed here,
+# replaced by the node hostname's certificate when the agent gives a database user remote access.
+TENANT_TLS_DIR="/var/lib/lesta/mariadb/tenant-tls"
 TENANT_SOCKET="/run/mysqld/mysqld.tenant.sock"
 TENANT_PIDFILE="/run/mysqld/mysqld.tenant.pid"
 TENANT_LOGFILE="/var/log/mysql/mariadb-tenant.log"
@@ -551,17 +554,19 @@ bootstrap_base() {
 # "own capability-scoped firewall phase" pattern.
 
 bootstrap_firewall_baseline_mariadb() {
-    log_info "bootstrap_firewall_baseline_mariadb: tcp/${CONTROL_PLANE_PORT} and tcp/${TENANT_PORT} stay loopback-only, so the manifest declares no inbound ports"
+    log_info "bootstrap_firewall_baseline_mariadb: tcp/${CONTROL_PLANE_PORT} stays loopback-only and tcp/${TENANT_PORT} opens only to remote database access addresses, so the manifest declares no inbound ports"
 
     install -d -m 0750 -o root -g lesta "${FIREWALL_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_DIR}" "failed to create ${FIREWALL_DIR}"
     install -d -m 0750 -o root -g lesta "${FIREWALL_PORTS_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${FIREWALL_PORTS_DIR}" "failed to create ${FIREWALL_PORTS_DIR}"
     add_change firewall.baseline.v1 ensured "${FIREWALL_DIR}" "directory present, mode 0750 root:lesta"
 
-    # Both instances bind 127.0.0.1 only, and the baseline's `iif lo accept` already
-    # covers them. The manifest declares no inbound ports, so this rewrites the
-    # fragment empty, which also closes 3306/3307 on a node an older release opened
-    # them on. Exposing a database instance is a manual admin decision: add a
-    # fragment under ${FIREWALL_PORTS_DIR} yourself.
+    # The baseline's `iif lo accept` covers local clients of both instances. The
+    # manifest declares no inbound ports, so this rewrites the fragment empty, which
+    # also closes 3306/3307 to everyone on a node an older release opened them on.
+    # The tenant port is reachable from outside only by the addresses in the
+    # remote database sets the agent fills (lib/firewall.sh). Exposing an
+    # instance to everyone is a manual admin decision: add a fragment under
+    # ${FIREWALL_PORTS_DIR} yourself.
     firewall_register_service_ports mariadb "${MARIADB_MANIFEST}"
     firewall_render_and_apply
 
@@ -1078,7 +1083,7 @@ CREDS
 install_mariadb_tenant() {
     log_info "install_mariadb_tenant: activating database.tenant.v1"
 
-    local out admin_password apparmor_local_mariadbd
+    local out admin_password apparmor_local_mariadbd tenant_conf_changed
 
     # mysql's own lesta-group membership (needed to traverse /var/lib/lesta
     # to reach this datadir) is granted once, shared by both instance
@@ -1099,10 +1104,40 @@ install_mariadb_tenant() {
     ratchet_root_owned_dir "${TENANT_AGENT_STATE_DIR}" 2750 lesta
     add_change database.tenant.v1 ensured "${TENANT_AGENT_STATE_DIR}" "agent state root present, mode 2750 root:lesta"
 
+    # --- TLS for remote access ----------------------------------------------
+    #
+    # Remote database users (an extra user with remote hosts) must connect over
+    # TLS, so the instance always has a certificate to present. A self-signed one
+    # is seeded the first time; the agent replaces both files with the node
+    # hostname's certificate and runs FLUSH SSL (agent/internal/capability/
+    # mariadb/remote.go), so a rerun never overwrites them. mariadbd reads the key
+    # as the mysql group.
+    install -d -m 0750 -o root -g mysql "${TENANT_TLS_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${TENANT_TLS_DIR}" "failed to create ${TENANT_TLS_DIR}"
+    if [ ! -s "${TENANT_TLS_DIR}/fullchain.pem" ] || [ ! -s "${TENANT_TLS_DIR}/privkey.pem" ]; then
+        command -v openssl >/dev/null 2>&1 || fail_step "${EXIT_MUTATION_FAILURE}" openssl_missing "" "openssl is needed to seed the tenant instance's certificate"
+        if ! out=$(openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
+            -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
+            -keyout "${TENANT_TLS_DIR}/privkey.pem.tmp" -out "${TENANT_TLS_DIR}/fullchain.pem.tmp" 2>&1); then
+            rm -f "${TENANT_TLS_DIR}/privkey.pem.tmp" "${TENANT_TLS_DIR}/fullchain.pem.tmp"
+            fail_step "${EXIT_MUTATION_FAILURE}" tls_seed_failed "${TENANT_TLS_DIR}" "$(printf '%s' "${out}" | tr '\n' ' ')"
+        fi
+        chown root:mysql "${TENANT_TLS_DIR}/privkey.pem.tmp" "${TENANT_TLS_DIR}/fullchain.pem.tmp"
+        chmod 0640 "${TENANT_TLS_DIR}/privkey.pem.tmp"
+        chmod 0644 "${TENANT_TLS_DIR}/fullchain.pem.tmp"
+        mv -f "${TENANT_TLS_DIR}/privkey.pem.tmp" "${TENANT_TLS_DIR}/privkey.pem"
+        mv -f "${TENANT_TLS_DIR}/fullchain.pem.tmp" "${TENANT_TLS_DIR}/fullchain.pem"
+        add_change database.tenant.v1 installed "${TENANT_TLS_DIR}" "self-signed certificate seeded for TLS connections, until the node hostname's certificate replaces it"
+    fi
+
     # --- [mysqld.tenant] config fragment: every instance-distinguishing key
     # explicitly set (see this file's own top comment for why omitting any
     # one of these risks silently sharing the control-plane instance's own
     # socket/datadir/port) -------------------------------------------------
+    #
+    # bind-address = *: remote access listens on every address. Nothing reaches
+    # the port from outside unless the agent put the client's address in the
+    # firewall's remote database sets (lib/firewall.sh), and only accounts the
+    # agent created for that address, which require TLS, accept it.
     cat > "${TENANT_CONF_FRAGMENT}.tmp" <<CONF
 # Managed by LESta. Do not edit by hand.
 #
@@ -1116,12 +1151,20 @@ port = ${TENANT_PORT}
 datadir = ${TENANT_DATADIR}
 socket = ${TENANT_SOCKET}
 pid-file = ${TENANT_PIDFILE}
-bind-address = 127.0.0.1
+bind-address = *
 log-error = ${TENANT_LOGFILE}
+ssl_cert = ${TENANT_TLS_DIR}/fullchain.pem
+ssl_key = ${TENANT_TLS_DIR}/privkey.pem
 CONF
+    # A changed fragment (an older release's, bound to 127.0.0.1 without TLS) needs the running
+    # instance restarted to take effect; an unchanged one never restarts it.
+    tenant_conf_changed=0
+    if ! cmp -s "${TENANT_CONF_FRAGMENT}.tmp" "${TENANT_CONF_FRAGMENT}"; then
+        tenant_conf_changed=1
+    fi
     mv -f "${TENANT_CONF_FRAGMENT}.tmp" "${TENANT_CONF_FRAGMENT}"
     chmod 0644 "${TENANT_CONF_FRAGMENT}"
-    add_change database.tenant.v1 installed "${TENANT_CONF_FRAGMENT}" "[mysqld.tenant] option group written with every instance-distinguishing key set explicitly (port ${TENANT_PORT}, datadir, socket, pid-file, bind-address, log-error)"
+    add_change database.tenant.v1 installed "${TENANT_CONF_FRAGMENT}" "[mysqld.tenant] option group written with every instance-distinguishing key set explicitly (port ${TENANT_PORT}, datadir, socket, pid-file, bind-address, log-error, ssl_cert, ssl_key)"
 
     # --- AppArmor: expected repeat of bind9's own gap for named/
     # /var/lib/lesta/bind, adapted for mariadbd's own profile -------------
@@ -1145,6 +1188,14 @@ CONF
             } >> "${apparmor_local_mariadbd}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_mariadbd}" "failed to append the ${TENANT_DATADIR} allowance to ${apparmor_local_mariadbd}"
             add_change database.tenant.v1 apparmor_extended "${apparmor_local_mariadbd}" "granted mariadbd read/write access to ${TENANT_DATADIR} via Ubuntu's own local-override include point"
         fi
+        if ! grep -qF "${TENANT_TLS_DIR}" "${apparmor_local_mariadbd}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: mariadbd must read the certificate it presents to remote clients.\n'
+                printf '%s/ r,\n' "${TENANT_TLS_DIR}"
+                printf '%s/* r,\n' "${TENANT_TLS_DIR}"
+            } >> "${apparmor_local_mariadbd}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_mariadbd}" "failed to append the ${TENANT_TLS_DIR} allowance to ${apparmor_local_mariadbd}"
+            add_change database.tenant.v1 apparmor_extended "${apparmor_local_mariadbd}" "granted mariadbd read access to ${TENANT_TLS_DIR}"
+        fi
 
         if command -v apparmor_parser >/dev/null 2>&1; then
             apparmor_parser -r /etc/apparmor.d/usr.sbin.mariadbd || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_reload_failed "${apparmor_local_mariadbd}" "apparmor_parser -r /etc/apparmor.d/usr.sbin.mariadbd failed"
@@ -1161,6 +1212,13 @@ CONF
         mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_tenant_enable_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change database.tenant.v1 enabled "" "systemctl enable --now mariadb@tenant.service succeeded (--defaults-group-suffix=.tenant, reading [mysqld.tenant])"
+
+    if [ "${tenant_conf_changed}" = "1" ]; then
+        if ! out=$(systemctl restart mariadb@tenant.service 2>&1); then
+            mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_tenant_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+        fi
+        add_change database.tenant.v1 restarted "" "mariadb@tenant.service restarted to load the changed [mysqld.tenant] option group"
+    fi
 
     mariadb_health_probe "${TENANT_SOCKET}" || mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_health_check_failed "${TENANT_SOCKET}" "a real SELECT 1 round-trip over ${TENANT_SOCKET} did not succeed within 60s of enabling mariadb@tenant.service"
     add_change database.tenant.v1 healthy "" "a real SELECT 1 round-trip over ${TENANT_SOCKET} succeeded"
@@ -1328,7 +1386,12 @@ bootstrap_node_health() {
     # The root applier applies this capability (see lib/applier.sh): it reads the administrator's
     # credential file and runs the SQL, so the unprivileged daemon holds no database credential.
     applier_install_unit
-    applier_allow_paths "${DATABASE_TENANT_CAPABILITY}" /var/lib/lesta
+    # Remote access: the applier copies the node hostname's certificate under /var/lib/lesta,
+    # writes the firewall's remote database sets and loads them with nft, which needs
+    # CAP_NET_ADMIN and a netlink socket.
+    applier_allow_paths "${DATABASE_TENANT_CAPABILITY}" /var/lib/lesta "${FIREWALL_DIR}"
+    applier_allow_capabilities "${DATABASE_TENANT_CAPABILITY}" CAP_NET_ADMIN
+    applier_allow_address_families "${DATABASE_TENANT_CAPABILITY}" AF_NETLINK
     applier_start
     add_change "${DATABASE_TENANT_CAPABILITY}" installed "${APPLIER_UNIT_PATH}" "root applier installed and started; ${DATABASE_TENANT_CAPABILITY} is applied by it"
 

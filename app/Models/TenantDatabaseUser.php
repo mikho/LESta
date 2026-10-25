@@ -20,16 +20,23 @@ use Illuminate\Support\Carbon;
  * the customer once; the panel never stores it, since nothing here needs it
  * again (Adminer signs in as the database's own user).
  *
+ * Remote access: remote_hosts lists the single addresses the user may also
+ * connect from over the network. The node gives each one its own TLS-only
+ * account copying the local one and opens the firewall to it; it needs the
+ * node hostname's certificate (Node::toolsWebDomain), which the instance
+ * presents.
+ *
  * @property int $id
  * @property string $uuid
  * @property int $tenant_database_id
  * @property string $label
  * @property string $username
  * @property DatabaseUserAccess $access
+ * @property list<string>|null $remote_hosts
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['tenant_database_id', 'label', 'username', 'access'])]
+#[Fillable(['tenant_database_id', 'label', 'username', 'access', 'remote_hosts'])]
 class TenantDatabaseUser extends Model
 {
     /** @use HasFactory<TenantDatabaseUserFactory> */
@@ -41,6 +48,11 @@ class TenantDatabaseUser extends Model
     public const MAX_PER_DATABASE = 20;
 
     /**
+     * The most remote hosts one user may connect from; the agent refuses more.
+     */
+    public const MAX_REMOTE_HOSTS = 20;
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -49,6 +61,7 @@ class TenantDatabaseUser extends Model
     {
         return [
             'access' => DatabaseUserAccess::class,
+            'remote_hosts' => 'array',
         ];
     }
 
@@ -67,6 +80,16 @@ class TenantDatabaseUser extends Model
     public static function deriveUsername(TenantDatabase $tenantDatabase, string $label): string
     {
         return "{$tenantDatabase->database_name}_{$label}";
+    }
+
+    /**
+     * The addresses the user may connect from over the network, never null.
+     *
+     * @return list<string>
+     */
+    public function remoteHosts(): array
+    {
+        return $this->remote_hosts ?? [];
     }
 
     /**

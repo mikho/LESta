@@ -133,8 +133,16 @@ class TenantDatabaseController extends Controller
                 'label' => $user->label,
                 'username' => $user->username,
                 'access' => $user->access->value,
+                'remote_hosts' => $user->remoteHosts(),
             ])->all(),
             'maxUsers' => TenantDatabaseUser::MAX_PER_DATABASE,
+            // Where remote clients connect, or null until the node hostname has a certificate,
+            // which remote access needs (ValidatesRemoteHosts).
+            'remoteAccess' => $tenantDatabase->node->toolsWebDomain() === null ? null : [
+                'host' => strtolower($tenantDatabase->node->hostname),
+                'port' => 3307,
+                'max_hosts' => TenantDatabaseUser::MAX_REMOTE_HOSTS,
+            ],
         ]);
     }
 

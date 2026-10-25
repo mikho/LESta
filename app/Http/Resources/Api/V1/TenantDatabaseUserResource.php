@@ -23,6 +23,7 @@ class TenantDatabaseUserResource extends ApiResource
             'label' => $this->label,
             'username' => $this->username,
             'access' => $this->access->value,
+            'remote_hosts' => $this->remoteHosts(),
             'created_at' => $this->timestamp($this->created_at),
         ];
     }

@@ -59,6 +59,24 @@ type Config struct {
 	// test harness, which already runs with whatever privilege `go test`
 	// itself has.
 	SudoBinary string
+	// AcmeCertsRoot is where tls.acme.v1 keeps issued certificates
+	// (<root>/<domain>/{fullchain,privkey}.pem); remote access copies the
+	// node hostname's from here. Empty, with TLSDir, skips the copy.
+	AcmeCertsRoot string
+	// TLSDir holds the certificate and key the tenant instance presents
+	// (its ssl_cert and ssl_key), which the installer seeds self-signed.
+	TLSDir string
+	// TLSGroup, when non-empty, owns the copied key so mariadbd (which
+	// runs as that group) can read it.
+	TLSGroup string
+	// FirewallElementsPath is the nft script holding the addresses remote
+	// database users may connect from, rewritten and loaded after every
+	// change. Empty skips the firewall entirely (the disposable test
+	// instance).
+	FirewallElementsPath string
+	// NftBinary is the nft executable. Empty means "nft" resolved via PATH.
+	// Fixed, for MariaDBBinary's reason.
+	NftBinary string
 }
 
 func (c Config) mariadbBinary() string {
@@ -77,6 +95,16 @@ func (c Config) command(ctx context.Context, args ...string) *exec.Cmd {
 	}
 
 	return exec.CommandContext(ctx, c.SudoBinary, append([]string{c.mariadbBinary()}, args...)...)
+}
+
+// nftCommand builds an nft invocation for args.
+func (c Config) nftCommand(ctx context.Context, args ...string) *exec.Cmd {
+	binary := c.NftBinary
+	if binary == "" {
+		binary = "nft"
+	}
+
+	return exec.CommandContext(ctx, binary, args...)
 }
 
 func (c Config) host() string {

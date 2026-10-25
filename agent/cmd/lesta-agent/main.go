@@ -537,6 +537,17 @@ func mariadbProductionConfig() mariadb.Config {
 		MariaDBBinary:     "mariadb",
 		DefaultsExtraFile: "/etc/lesta/mariadb-tenant-admin.cnf",
 		StateRoot:         "/var/lib/lesta/mariadb/tenant-agent-state",
+		// Remote access: the node hostname's certificate is copied from
+		// tls.acme.v1's root into the files the tenant instance presents,
+		// and the firewall's allow sets live in their own nft script, which
+		// lesta-firewall.service loads again at boot. All three paths are
+		// mariadb/install.sh's (TENANT_TLS_DIR) and lib/firewall.sh's
+		// (FIREWALL_DB_REMOTE_PATH).
+		AcmeCertsRoot:        "/var/lib/lesta/acme/certs",
+		TLSDir:               "/var/lib/lesta/mariadb/tenant-tls",
+		TLSGroup:             "mysql",
+		FirewallElementsPath: "/etc/lesta/firewall/db-remote.nft",
+		NftBinary:            "/usr/sbin/nft",
 		// No SudoBinary: the defaults file is root:lesta 0640, so the daemon
 		// runs the client as itself. The client can run shell commands, so it
 		// must never be run as root.

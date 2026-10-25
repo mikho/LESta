@@ -1134,7 +1134,7 @@ Needs the databases:read ability.
 
 ### `PATCH /accounts/{account}/databases/{database}/users/{user}`
 
-Change a user's access.
+Change a user's access or remote hosts.
 
 Needs the databases:write ability. Refused (403) while the account is suspended. The label and user name stay as they are.
 
@@ -2323,12 +2323,16 @@ All the fields of [Database](/docs/api-reference/chapter-14#database), and:
 | --- | --- | --- | --- |
 | `label` | string, matching `^[a-z][a-z0-9]{0,15}$` | yes | Not ro, and unique on the database. |
 | `access` | string: `full`, `read_only` | yes | full is what the database's own user may do; read_only is SELECT and SHOW VIEW. |
+| `remote_hosts` | list of string | no | Single IPv4 or IPv6 addresses the user may also connect from, over TLS, to the node hostname on port 3307. Not loopback, link-local, multicast or a range. Needs a certificate for the node hostname (422 without one). Empty for local access only. |
 
 ### <a id="databaseuserupdate"></a>DatabaseUserUpdate
 
+A field left out keeps its value.
+
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `access` | string: `full`, `read_only` | yes |  |
+| `access` | string: `full`, `read_only` | no |  |
+| `remote_hosts` | list of string | no | Single IPv4 or IPv6 addresses the user may also connect from, over TLS, to the node hostname on port 3307. Not loopback, link-local, multicast or a range. Needs a certificate for the node hostname (422 without one). Empty for local access only. |
 
 ### <a id="databaseuserwithpassword"></a>DatabaseUserWithPassword
 
@@ -2612,6 +2616,7 @@ An extra user on a database. Never its password.
 | `label` | string | yes |  |
 | `username` | string | yes |  |
 | `access` | string: `full`, `read_only` | yes |  |
+| `remote_hosts` | list of string | yes | The addresses the user may also connect from remotely; empty for local access only. |
 | `created_at` | string or null (date-time) | yes |  |
 
 ### <a id="cronjob"></a>CronJob

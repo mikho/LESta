@@ -2041,7 +2041,7 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
     patch:
       operationId: updateDatabaseUser
-      summary: Change a user's access
+      summary: Change a user's access or remote hosts
       description: Needs the databases:write ability. Refused (403) while the account is suspended. The label and user name stay as they are.
       parameters:
         - $ref: '#/components/parameters/AccountId'
@@ -4315,13 +4315,25 @@ components:
           type: string
           enum: [full, read_only]
           description: full is what the database's own user may do; read_only is SELECT and SHOW VIEW.
+        remote_hosts:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+          description: Single IPv4 or IPv6 addresses the user may also connect from, over TLS, to the node hostname on port 3307. Not loopback, link-local, multicast or a range. Needs a certificate for the node hostname (422 without one). Empty for local access only.
     DatabaseUserUpdate:
       type: object
-      required: [access]
+      description: A field left out keeps its value.
       properties:
         access:
           type: string
           enum: [full, read_only]
+        remote_hosts:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+          description: Single IPv4 or IPv6 addresses the user may also connect from, over TLS, to the node hostname on port 3307. Not loopback, link-local, multicast or a range. Needs a certificate for the node hostname (422 without one). Empty for local access only.
     DatabaseUserWithPassword:
       allOf:
         - $ref: '#/components/schemas/DatabaseUser'
@@ -4830,7 +4842,7 @@ components:
     DatabaseUser:
       description: An extra user on a database. Never its password.
       type: object
-      required: [id, label, username, access, created_at]
+      required: [id, label, username, access, remote_hosts, created_at]
       properties:
         id:
           type: string
@@ -4842,6 +4854,11 @@ components:
         access:
           type: string
           enum: [full, read_only]
+        remote_hosts:
+          type: array
+          items:
+            type: string
+          description: The addresses the user may also connect from remotely; empty for local access only.
         created_at:
           type: [string, 'null']
           format: date-time

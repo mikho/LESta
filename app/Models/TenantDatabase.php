@@ -183,9 +183,12 @@ class TenantDatabase extends Model
      * users lists every extra user, read fresh, each with a password only
      * when $userPasswords (TenantDatabaseUser id => plaintext) names it: the
      * user's creation or a rotation of its password, the same explicit rule.
+     * A user with remote access carries its remote_hosts, and then
+     * tls_hostname names the node's hostname, whose certificate the node
+     * presents to remote clients.
      *
      * @param  array<int, string>  $userPasswords
-     * @return array{database_name: string, database_user: string, password?: string, stats_user: string, stats_password?: string, users: list<array{name: string, access: string, password?: string}>, suspended: bool}
+     * @return array{database_name: string, database_user: string, password?: string, stats_user: string, stats_password?: string, users: list<array{name: string, access: string, password?: string, remote_hosts?: list<string>}>, tls_hostname?: string, suspended: bool}
      */
     public function toProvisioningPayload(bool $includePassword = false, ?string $plaintextPassword = null, ?string $statsPlaintextPassword = null, array $userPasswords = []): array
     {
@@ -215,6 +218,11 @@ class TenantDatabase extends Model
 
             if (isset($userPasswords[$user->id])) {
                 $entry['password'] = $userPasswords[$user->id];
+            }
+
+            if ($user->remoteHosts() !== []) {
+                $entry['remote_hosts'] = $user->remoteHosts();
+                $payload['tls_hostname'] = strtolower($this->node->hostname);
             }
 
             $payload['users'][] = $entry;

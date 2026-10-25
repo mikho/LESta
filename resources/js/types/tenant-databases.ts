@@ -41,4 +41,15 @@ export type TenantDatabaseUser = {
     label: string;
     username: string;
     access: 'full' | 'read_only';
+    remote_hosts: string[];
 };
+
+/**
+ * Where remote database clients connect (TenantDatabaseController::edit()'s `remoteAccess` prop),
+ * or null while the node hostname has no certificate, which remote access needs.
+ */
+export type TenantDatabaseRemoteAccess = {
+    host: string;
+    port: number;
+    max_hosts: number;
+} | null;

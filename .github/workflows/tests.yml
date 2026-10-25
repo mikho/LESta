@@ -633,10 +633,69 @@ jobs:
           curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:80/
           grep -q '443' /tmp/lesta-nft-3.txt && echo "443/tcp still allowed in the firewall table"
           grep -q '53' /tmp/lesta-nft-3.txt && echo "53 still allowed in the firewall table"
-          if grep -Eq '330[67]' /tmp/lesta-nft-3.txt; then echo "mariadb's loopback-only ports must never be opened in the firewall table"; exit 1; fi
+          if grep -q '3306' /tmp/lesta-nft-3.txt; then echo "the control-plane instance's port must never be opened in the firewall table"; exit 1; fi
+          if grep '3307' /tmp/lesta-nft-3.txt | grep -qv 'saddr @db_remote_v'; then echo "the tenant port may only be opened to the remote database access sets"; exit 1; fi
+          grep -q 'ip saddr @db_remote_v4 tcp dport 3307 accept' /tmp/lesta-nft-3.txt || { echo "expected the remote database access rule in the firewall table" >&2; exit 1; }
 
       - name: Re-apply mariadb (idempotent rerun must still succeed)
         run: sudo sh .install/services/mariadb/install.sh --apply --yes
+
+      - name: The tenant instance offers TLS on every address, with the seeded certificate
+        run: |
+          have_ssl=$(sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "SHOW GLOBAL VARIABLES LIKE 'have_ssl'" | cut -f2)
+          [ "${have_ssl}" = "YES" ] || { echo "the tenant instance should have TLS, have_ssl=${have_ssl}" >&2; exit 1; }
+          sudo ss -H -tln | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3307 ' || { echo "the tenant instance should listen on every address" >&2; sudo ss -H -tln; exit 1; }
+          sudo test -s /var/lib/lesta/mariadb/tenant-tls/fullchain.pem
+          [ "$(sudo stat -c '%U:%G %a' /var/lib/lesta/mariadb/tenant-tls/privkey.pem)" = "root:mysql 640" ]
+          sudo systemctl show -p RestrictAddressFamilies lesta-applier.service | grep -q AF_NETLINK || { echo "the applier should be allowed netlink" >&2; exit 1; }
+
+      - name: Remote database access through the real applier, nft and TLS (an extra user with remote hosts)
+        run: |
+          set -eu
+          agent=/var/lib/lesta/agent/bin/lesta-agent
+          host=ci-node.example.test
+          certs=/var/lib/lesta/acme/certs/${host}
+          sudo mkdir -p "${certs}"
+          sudo openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj "/CN=${host}" \
+            -addext "subjectAltName=IP:127.0.0.1" -keyout "${certs}/privkey.pem" -out "${certs}/fullchain.pem" 2>/dev/null
+          sudo cp "${certs}/fullchain.pem" /tmp/ci-node-ca.pem
+          sudo chmod 0644 /tmp/ci-node-ca.pem
+          resource=$(cat /proc/sys/kernel/random/uuid)
+          password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+          # envelope <operation> <desired_state_version> <payload>
+          envelope() {
+            printf '{"protocol_version":"1","capability":"database.tenant.v1","operation":"%s","resource_id":"%s","desired_state_version":%s,"idempotency_key":"%s","correlation_id":"%s","deadline":"%s","issued_at":"%s","request_digest":"sha256:%s","payload":%s}' \
+              "$1" "${resource}" "$2" "$(cat /proc/sys/kernel/random/uuid)" "$(cat /proc/sys/kernel/random/uuid)" \
+              "$(date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "$(printf '%s' "$3" | sha256sum | cut -d' ' -f1)" "$3"
+          }
+          base='"database_name":"lesta_0_ciremote","database_user":"lesta_0_ciremote","stats_user":"lesta_0_ciremote_ro"'
+          create="{${base},\"password\":\"${password}\",\"stats_password\":\"${password}\",\"users\":[{\"name\":\"lesta_0_ciremote_report\",\"access\":\"read_only\",\"password\":\"${password}\",\"remote_hosts\":[\"203.0.113.5\",\"2001:db8::5\"]}],\"tls_hostname\":\"${host}\",\"suspended\":false}"
+          out=$(envelope create 1 "${create}" | sudo -u lesta-agent -- "${agent}")
+          echo "${out}"
+          echo "${out}" | grep -Eq '"status": ?"applied"'
+
+          sudo nft list set inet lesta db_remote_v4 | grep -q '203.0.113.5'
+          sudo nft list set inet lesta db_remote_v6 | grep -q '2001:db8::5'
+          sudo cmp "${certs}/fullchain.pem" /var/lib/lesta/mariadb/tenant-tls/fullchain.pem
+          [ "$(sudo stat -c '%U:%G %a' /var/lib/lesta/mariadb/tenant-tls/privkey.pem)" = "root:mysql 640" ]
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "SHOW CREATE USER 'lesta_0_ciremote_report'@'203.0.113.5'" | grep -q 'REQUIRE SSL'
+          # FLUSH SSL loaded the node hostname's certificate: a client that trusts only it connects.
+          mariadb --host=127.0.0.1 --port=3307 --protocol=TCP --ssl --ssl-ca=/tmp/ci-node-ca.pem --ssl-verify-server-cert \
+            -u lesta_0_ciremote_report --password="${password}" -N -B -e "SHOW STATUS LIKE 'Ssl_cipher'" | grep -q .
+
+          # The boot path: the firewall unit loads the sets again after the table, even from nothing.
+          sudo nft delete table inet lesta
+          sudo systemctl restart lesta-firewall.service
+          sudo nft list set inet lesta db_remote_v4 | grep -q '203.0.113.5' || { echo "the remote access set should be loaded again at boot" >&2; exit 1; }
+          sudo nft list table inet lesta | grep -q 'ip saddr @db_remote_v4 tcp dport 3307 accept'
+
+          delete="{${base},\"users\":[{\"name\":\"lesta_0_ciremote_report\",\"access\":\"read_only\",\"remote_hosts\":[\"203.0.113.5\",\"2001:db8::5\"]}],\"tls_hostname\":\"${host}\",\"suspended\":false}"
+          out=$(envelope delete 2 "${delete}" | sudo -u lesta-agent -- "${agent}")
+          echo "${out}" | grep -Eq '"status": ?"applied"'
+          if sudo nft list set inet lesta db_remote_v4 | grep -q '203.0.113.5'; then echo "the delete should empty the remote access set" >&2; exit 1; fi
+          remaining=$(sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User LIKE 'lesta\\_0\\_ciremote%'")
+          [ "${remaining}" = "0" ] || { echo "the delete should drop every account, ${remaining} left" >&2; exit 1; }
 
       - name: Neither MariaDB instance keeps the stock test database or anonymous users
         run: |
@@ -3168,7 +3227,8 @@ jobs:
 
           sudo sh .install/scripts/install-selected.sh --apply --yes --services cron >/dev/null 2>&1
           sudo nft list table inet lesta | grep -q '8443' || { echo "expected 8443 to survive a later run without --management-port" >&2; exit 1; }
-          sudo nft list table inet lesta | grep -Eq '330[67]' && { echo "mariadb's ports must never be in the firewall table" >&2; exit 1; }
+          sudo nft list table inet lesta | grep -q '3306' && { echo "the control-plane instance's port must never be in the firewall table" >&2; exit 1; }
+          sudo nft list table inet lesta | grep '3307' | grep -qv 'saddr @db_remote_v' && { echo "the tenant port may only be opened to the remote database access sets" >&2; exit 1; }
           true
 
       # --- Scenario 29: combined installer, fail-closed missing prerequisite

@@ -34,4 +34,14 @@ class TenantDatabaseUserFactory extends Factory
     {
         return $this->state(['access' => DatabaseUserAccess::ReadOnly]);
     }
+
+    /**
+     * A user that may also connect from the given addresses.
+     *
+     * @param  list<string>  $hosts
+     */
+    public function remote(array $hosts = ['203.0.113.10']): static
+    {
+        return $this->state(['remote_hosts' => $hosts]);
+    }
 }

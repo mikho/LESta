@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 )
@@ -41,6 +42,16 @@ var extraUserSuffixPattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
 // panel's own limit.
 const maxExtraUsers = 20
 
+// maxRemoteHosts caps the addresses one extra user may connect from,
+// matching the panel's own limit.
+const maxRemoteHosts = 20
+
+// tlsHostnamePattern matches a lowercase DNS hostname: the node's own
+// hostname, whose certificate the tenant instance presents to remote
+// clients. It becomes a path segment under Config.AcmeCertsRoot, so a dot
+// may never start a label and nothing else may appear.
+var tlsHostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
+
 // extraUserPrivileges is the grant each extra user access level receives on
 // its database: full is what the database's own user has, read_only what
 // the statistics account has.
@@ -49,13 +60,15 @@ var extraUserPrivileges = map[string]string{
 	"read_only": statsPrivileges,
 }
 
-// User is one extra database user: a name, an access level, and a password
+// User is one extra database user: a name, an access level, a password
 // only in the operation that sets it (the user's creation or a rotation),
-// the same rule as the database's own credentials.
+// the same rule as the database's own credentials, and the addresses it may
+// also connect from over the network (remote access, TLS required).
 type User struct {
-	Name     string  `json:"name"`
-	Access   string  `json:"access"`
-	Password *string `json:"password,omitempty"`
+	Name        string   `json:"name"`
+	Access      string   `json:"access"`
+	Password    *string  `json:"password,omitempty"`
+	RemoteHosts []string `json:"remote_hosts,omitempty"`
 }
 
 // Payload is the database.tenant.v1 capability's request body: one fixed
@@ -76,7 +89,11 @@ type Payload struct {
 	StatsUser     string  `json:"stats_user"`
 	StatsPassword *string `json:"stats_password,omitempty"`
 	Users         []User  `json:"users,omitempty"`
-	Suspended     bool    `json:"suspended"`
+	// TLSHostname is the node's own hostname, present whenever an extra
+	// user has remote hosts: its certificate (Config.AcmeCertsRoot/
+	// <hostname>/) is what the tenant instance presents to remote clients.
+	TLSHostname string `json:"tls_hostname,omitempty"`
+	Suspended   bool   `json:"suspended"`
 }
 
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
@@ -172,9 +189,57 @@ func (p Payload) validateUsers() *ValidationError {
 		if u.Password != nil && !passwordPattern.MatchString(*u.Password) {
 			return &ValidationError{Code: "invalid_user_password", Message: "password must be exactly 48 lowercase hex characters", Field: field + ".password"}
 		}
+
+		if verr := validateRemoteHosts(u.RemoteHosts, field+".remote_hosts"); verr != nil {
+			return verr
+		}
+	}
+
+	if p.hasRemoteHosts() && !tlsHostnamePattern.MatchString(p.TLSHostname) {
+		return &ValidationError{Code: "tls_hostname_required", Message: "remote access needs tls_hostname, the node's own lowercase hostname", Field: "tls_hostname"}
 	}
 
 	return nil
+}
+
+// validateRemoteHosts checks one user's remote hosts: at most
+// maxRemoteHosts, each a single IPv4 or IPv6 address written the way
+// netip prints it (so it matches the client address MariaDB compares
+// against the account's host, and the firewall set entry), never a
+// loopback, unspecified, link-local or multicast address, nor an IPv4
+// address written as IPv6, and no duplicates. A host becomes part of a
+// quoted SQL account name, which this exact shape can never break out of.
+func validateRemoteHosts(hosts []string, field string) *ValidationError {
+	if len(hosts) > maxRemoteHosts {
+		return &ValidationError{Code: "too_many_remote_hosts", Message: fmt.Sprintf("at most %d remote hosts per user", maxRemoteHosts), Field: field}
+	}
+
+	seen := make(map[string]bool, len(hosts))
+	for i, host := range hosts {
+		addr, err := netip.ParseAddr(host)
+		if err != nil || addr.Zone() != "" || addr.Is4In6() || addr.String() != host ||
+			addr.IsLoopback() || addr.IsUnspecified() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsMulticast() {
+			return &ValidationError{Code: "invalid_remote_host", Message: "a remote host must be a single IPv4 or IPv6 address in canonical form, not loopback, unspecified, link-local or multicast", Field: fmt.Sprintf("%s[%d]", field, i)}
+		}
+
+		if seen[host] {
+			return &ValidationError{Code: "duplicate_remote_host", Message: "each remote host may appear only once per user", Field: fmt.Sprintf("%s[%d]", field, i)}
+		}
+		seen[host] = true
+	}
+
+	return nil
+}
+
+// hasRemoteHosts reports whether any extra user may connect remotely.
+func (p Payload) hasRemoteHosts() bool {
+	for _, u := range p.Users {
+		if len(u.RemoteHosts) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // requireNewUserPasswords returns a *ValidationError when a user not in
@@ -258,7 +323,7 @@ func (p Payload) marshalMeta() ([]byte, error) {
 	redacted.StatsPassword = nil
 	redacted.Users = make([]User, len(p.Users))
 	for i, u := range p.Users {
-		redacted.Users[i] = User{Name: u.Name, Access: u.Access}
+		redacted.Users[i] = User{Name: u.Name, Access: u.Access, RemoteHosts: u.RemoteHosts}
 	}
 
 	raw, err := json.Marshal(redacted)

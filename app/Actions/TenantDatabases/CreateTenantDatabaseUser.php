@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 class CreateTenantDatabaseUser
 {
     /**
-     * @param  array{label: string, access: string}  $data
+     * @param  array{label: string, access: string, remote_hosts?: list<string>}  $data
      * @return array{0: TenantDatabaseUser, 1: string} The user and its one-time plaintext password,
      *                                                 handed back only here and never stored.
      */
@@ -32,6 +32,7 @@ class CreateTenantDatabaseUser
                 'label' => $data['label'],
                 'username' => TenantDatabaseUser::deriveUsername($tenantDatabase, $data['label']),
                 'access' => DatabaseUserAccess::from($data['access']),
+                'remote_hosts' => $data['remote_hosts'] ?? [],
             ]);
 
             app(RecordsTenantDatabaseUserChange::class)->record($actor, $tenantDatabase, $databaseUser, 'tenant_database.user_created', $password);

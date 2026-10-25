@@ -52,7 +52,7 @@ type disposableMariaDB struct {
 // newDisposableMariaDB starts a fresh mariadbd process and registers its
 // teardown via t.Cleanup. The returned *disposableMariaDB's Config is ready
 // to hand to mariadb.New.
-func newDisposableMariaDB(t *testing.T) *disposableMariaDB {
+func newDisposableMariaDB(t *testing.T, extraArgs ...string) *disposableMariaDB {
 	t.Helper()
 
 	prefix := t.TempDir()
@@ -94,16 +94,16 @@ func newDisposableMariaDB(t *testing.T) *disposableMariaDB {
 		t.Fatalf("mariadb-install-db: %v: %s", err, out)
 	}
 
-	cmd := exec.Command("mariadbd",
+	cmd := exec.Command("mariadbd", append([]string{
 		"--no-defaults",
-		"--datadir="+dataDir,
-		"--socket="+socket,
-		"--port="+strconv.Itoa(port),
+		"--datadir=" + dataDir,
+		"--socket=" + socket,
+		"--port=" + strconv.Itoa(port),
 		"--bind-address=127.0.0.1",
-		"--pid-file="+pidPath,
+		"--pid-file=" + pidPath,
 		"--skip-networking=0",
-		"--log-error="+errorLog,
-	)
+		"--log-error=" + errorLog,
+	}, extraArgs...)...)
 	cmd.Env = append(os.Environ(), "TMPDIR="+scratchTmp)
 
 	if err := cmd.Start(); err != nil {
@@ -227,6 +227,24 @@ func (d *disposableMariaDB) adminSQL(script string) (string, error) {
 func (d *disposableMariaDB) connectAsTenant(databaseUser, password, database, sql string) (string, error) {
 	out, err := exec.Command("mariadb",
 		"--host=127.0.0.1", "--port="+strconv.Itoa(d.port), "--protocol=TCP",
+		"-u", databaseUser, "--password="+password,
+		"--batch", "--skip-column-names",
+		database, "-e", sql,
+	).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, out)
+	}
+
+	return string(out), nil
+}
+
+// connectOverTLS is connectAsTenant over TLS, verifying the server's
+// certificate against caFile: it succeeds only when the instance presents
+// that certificate.
+func (d *disposableMariaDB) connectOverTLS(databaseUser, password, database, caFile, sql string) (string, error) {
+	out, err := exec.Command("mariadb",
+		"--host=127.0.0.1", "--port="+strconv.Itoa(d.port), "--protocol=TCP",
+		"--ssl", "--ssl-ca="+caFile, "--ssl-verify-server-cert",
 		"-u", databaseUser, "--password="+password,
 		"--batch", "--skip-column-names",
 		database, "-e", sql,

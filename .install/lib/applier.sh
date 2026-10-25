@@ -11,6 +11,7 @@
 #   applier_allow_paths <capability> <path>…  the directories that capability writes
 #   applier_allow_capabilities <capability> <CAP_…>…  any extra Linux capabilities it needs
 #   applier_allow_syscalls <capability> <@group>…  any extra system call groups it needs
+#   applier_allow_address_families <capability> <AF_…>…  any extra socket families it needs
 #   applier_allow_setid_modes <capability>  let it set setuid and setgid bits
 #   applier_start                             enable and (re)start the unit
 #
@@ -156,6 +157,25 @@ applier_allow_capabilities() {
     chown root:root "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp"
     mv -f "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-capabilities.conf" "failed to write the applier capabilities drop-in for ${capability}"
+}
+
+# applier_allow_address_families <capability> <AF_…>…
+# Adds socket address families to what the applier may open while it applies <capability> (the unit
+# starts with AF_UNIX AF_INET AF_INET6). nft talks to the kernel over netlink, so the tenant database
+# needs AF_NETLINK to load the remote access sets.
+applier_allow_address_families() {
+    local capability="$1"
+
+    shift
+
+    install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
+
+    printf '[Service]\nRestrictAddressFamilies=%s\n' "$*" > "${APPLIER_DROPIN_DIR}/${capability}-families.conf.tmp"
+    chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}-families.conf.tmp"
+    chown root:root "${APPLIER_DROPIN_DIR}/${capability}-families.conf.tmp"
+    mv -f "${APPLIER_DROPIN_DIR}/${capability}-families.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-families.conf" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-families.conf" "failed to write the applier address family drop-in for ${capability}"
 }
 
 # applier_allow_syscalls <capability> <syscall group>…

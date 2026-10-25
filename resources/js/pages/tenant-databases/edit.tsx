@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useClipboard } from '@/hooks/use-clipboard';
 import { apiPost } from '@/lib/api';
 import { submitHandoff } from '@/lib/handoff';
@@ -25,6 +26,7 @@ import tenantDatabases from '@/routes/tenant-databases';
 import type { TenantDatabase } from '@/types';
 import type {
     AdminerSessionResponse,
+    TenantDatabaseRemoteAccess,
     TenantDatabaseUser,
 } from '@/types/tenant-databases';
 
@@ -216,18 +218,112 @@ function ConfirmUserAction({
 }
 
 /**
- * The database's extra users: each with full or read-only access, a new
- * password on request, and removal. Changing access saves as soon as it is
- * picked. A new or rotated password appears once, in the banner above.
+ * Edits the addresses one extra user may connect from over the network, one
+ * per line. Saving an empty list makes the user local only again.
+ */
+function RemoteHostsDialog({
+    tenantDatabase,
+    user,
+    remoteAccess,
+}: {
+    tenantDatabase: TenantDatabase;
+    user: TenantDatabaseUser;
+    remoteAccess: NonNullable<TenantDatabaseRemoteAccess>;
+}) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                    Remote access
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogTitle>Remote access for {user.username}</DialogTitle>
+                <DialogDescription>
+                    The IP addresses this user may connect from, one per line
+                    (at most {remoteAccess.max_hosts}). Clients connect to{' '}
+                    <span className="font-mono">
+                        {remoteAccess.host}:{remoteAccess.port}
+                    </span>{' '}
+                    and must use TLS. Leave it empty to allow local connections
+                    only.
+                </DialogDescription>
+
+                <Form
+                    {...TenantDatabaseUserController.update.form({
+                        tenantDatabase: tenantDatabase.uuid,
+                        user: user.uuid,
+                    })}
+                    options={{ preserveScroll: true }}
+                    onSuccess={() => setOpen(false)}
+                >
+                    {({ errors, processing }) => {
+                        const error =
+                            errors.remote_hosts ??
+                            Object.entries(errors).find(([field]) =>
+                                field.startsWith('remote_hosts.'),
+                            )?.[1];
+
+                        return (
+                            <div className="space-y-4">
+                                <div className="grid gap-2">
+                                    <Label
+                                        htmlFor={`remote-hosts-${user.uuid}`}
+                                    >
+                                        Allowed addresses
+                                    </Label>
+                                    <Textarea
+                                        id={`remote-hosts-${user.uuid}`}
+                                        name="remote_hosts"
+                                        rows={5}
+                                        defaultValue={user.remote_hosts.join(
+                                            '\n',
+                                        )}
+                                        placeholder={
+                                            '203.0.113.10\n2001:db8::10'
+                                        }
+                                        className="font-mono"
+                                    />
+                                    <InputError message={error} />
+                                </div>
+
+                                <DialogFooter className="gap-2">
+                                    <DialogClose asChild>
+                                        <Button variant="secondary">
+                                            Cancel
+                                        </Button>
+                                    </DialogClose>
+                                    <Button disabled={processing} asChild>
+                                        <button type="submit">Save</button>
+                                    </Button>
+                                </DialogFooter>
+                            </div>
+                        );
+                    }}
+                </Form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/**
+ * The database's extra users: each with full or read-only access, remote
+ * access from listed addresses, a new password on request, and removal.
+ * Changing access saves as soon as it is picked. A new or rotated password
+ * appears once, in the banner above.
  */
 function DatabaseUsersCard({
     tenantDatabase,
     users,
     maxUsers,
+    remoteAccess,
 }: {
     tenantDatabase: TenantDatabase;
     users: TenantDatabaseUser[];
     maxUsers: number;
+    remoteAccess: TenantDatabaseRemoteAccess;
 }) {
     return (
         <div className="space-y-4 rounded-lg border p-4">
@@ -237,6 +333,22 @@ function DatabaseUsersCard({
                 description="More users for this database, for another application or a person, each with full access or read-only access (it can read tables and views, never change them)."
             />
 
+            <p className="text-sm text-muted-foreground">
+                {remoteAccess ? (
+                    <>
+                        An extra user can also connect from other computers:
+                        give it the addresses under Remote access. Those
+                        connections go to{' '}
+                        <span className="font-mono">
+                            {remoteAccess.host}:{remoteAccess.port}
+                        </span>{' '}
+                        and must use TLS.
+                    </>
+                ) : (
+                    'Extra users connect from this server only. Remote access needs a certificate for the server hostname; ask your provider to set it up.'
+                )}
+            </p>
+
             {users.length > 0 && (
                 <ul className="divide-y rounded-md border">
                     {users.map((user) => (
@@ -244,9 +356,16 @@ function DatabaseUsersCard({
                             key={user.uuid}
                             className="flex flex-wrap items-center gap-3 p-3"
                         >
-                            <span className="min-w-0 flex-1 truncate font-mono text-sm">
-                                {user.username}
-                            </span>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate font-mono text-sm">
+                                    {user.username}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                    {user.remote_hosts.length > 0
+                                        ? `Remote from ${user.remote_hosts.join(', ')}`
+                                        : 'Local only'}
+                                </p>
+                            </div>
 
                             <Form
                                 {...TenantDatabaseUserController.update.form({
@@ -273,6 +392,14 @@ function DatabaseUsersCard({
                                     </select>
                                 )}
                             </Form>
+
+                            {remoteAccess && (
+                                <RemoteHostsDialog
+                                    tenantDatabase={tenantDatabase}
+                                    user={user}
+                                    remoteAccess={remoteAccess}
+                                />
+                            )}
 
                             <ConfirmUserAction
                                 form={TenantDatabaseUserController.rotatePassword.form(
@@ -375,11 +502,13 @@ export default function Edit({
     adminerAvailable,
     users,
     maxUsers,
+    remoteAccess,
 }: {
     tenantDatabase: TenantDatabase;
     adminerAvailable: boolean;
     users: TenantDatabaseUser[];
     maxUsers: number;
+    remoteAccess: TenantDatabaseRemoteAccess;
 }) {
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -449,6 +578,7 @@ export default function Edit({
                     tenantDatabase={tenantDatabase}
                     users={users}
                     maxUsers={maxUsers}
+                    remoteAccess={remoteAccess}
                 />
 
                 <div className="space-y-4 rounded-lg border p-4">

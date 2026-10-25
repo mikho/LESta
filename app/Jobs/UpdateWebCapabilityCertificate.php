@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesWebCapableNode;
+use App\Actions\TenantDatabases\RefreshRemoteAccessCertificate;
 use App\Enums\ProvisioningVerb;
 use App\Models\WebDomain;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,6 +20,9 @@ use Throwable;
  * web capability's update. If every attempt fails, the domain carries a
  * last_certificate_error saying the certificate is issued but not yet served,
  * instead of the failure only ever reaching the log.
+ *
+ * The node hostname's certificate is also what the tenant MariaDB instance presents to remote
+ * database clients, so a new one for that domain is handed to it as well.
  */
 class UpdateWebCapabilityCertificate implements ShouldQueue
 {
@@ -53,6 +57,10 @@ class UpdateWebCapabilityCertificate implements ShouldQueue
             (string) Str::uuid(),
             $webDomain->desired_state_version,
         );
+
+        if ($webDomain->isNodeToolsHost()) {
+            app(RefreshRemoteAccessCertificate::class)->handle($webDomain->node);
+        }
 
         if (str_starts_with((string) $webDomain->last_certificate_error, self::ERROR_PREFIX)) {
             $webDomain->forceFill(['last_certificate_error' => null])->save();

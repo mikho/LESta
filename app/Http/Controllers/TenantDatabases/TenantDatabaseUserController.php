@@ -24,7 +24,7 @@ class TenantDatabaseUserController extends Controller
 {
     public function store(StoreTenantDatabaseUserRequest $request, TenantDatabase $tenantDatabase): RedirectResponse
     {
-        /** @var array{label: string, access: string} $data */
+        /** @var array{label: string, access: string, remote_hosts?: list<string>} $data */
         $data = $request->validated();
         [$databaseUser, $password] = app(CreateTenantDatabaseUser::class)->handle($request->user(), $tenantDatabase, $data);
 
@@ -36,7 +36,7 @@ class TenantDatabaseUserController extends Controller
 
     public function update(UpdateTenantDatabaseUserRequest $request, TenantDatabase $tenantDatabase, TenantDatabaseUser $user): RedirectResponse
     {
-        /** @var array{access: string} $data */
+        /** @var array{access?: string, remote_hosts?: list<string>} $data */
         $data = $request->validated();
         app(UpdateTenantDatabaseUser::class)->handle($request->user(), $user, $data);
 

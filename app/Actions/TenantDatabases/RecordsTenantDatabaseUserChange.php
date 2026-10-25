@@ -38,7 +38,7 @@ class RecordsTenantDatabaseUserChange
             'auditable_id' => $tenantDatabase->getKey(),
             'action' => $action,
             'correlation_id' => $correlationId,
-            'metadata' => ['username' => $databaseUser->username, 'access' => $databaseUser->access->value],
+            'metadata' => ['username' => $databaseUser->username, 'access' => $databaseUser->access->value, 'remote_hosts' => $databaseUser->remoteHosts()],
         ]);
 
         app(RecordsProvisioningOperation::class)->record(
