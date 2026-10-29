@@ -302,7 +302,10 @@ class WebDomain extends Model
     {
         $node = $this->node;
 
-        return $node !== null && strtolower($this->domain) === strtolower($node->hostname);
+        // The platform's own domain only: a customer domain with the same name is never the tools host.
+        return $node !== null
+            && strtolower($this->domain) === strtolower($node->hostname)
+            && (bool) $this->account?->is_platform;
     }
 
     /**

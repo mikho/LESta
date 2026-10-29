@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Makes sure a node's own hostname has a web domain: the one vhost that hosts webmail and Adminer,
@@ -32,6 +33,12 @@ class EnsureNodeToolsDomain
                 ->first();
 
             if ($existing !== null) {
+                if (! $existing->account?->is_platform) {
+                    throw ValidationException::withMessages([
+                        'hostname' => __('A customer web domain already uses :hostname. Remove it before creating the node\'s own.', ['hostname' => $node->hostname]),
+                    ]);
+                }
+
                 return $existing;
             }
 

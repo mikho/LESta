@@ -25,7 +25,7 @@ function adminerReadyDatabase(bool $nginx = true, bool $adminer = true, bool $to
     }
 
     if ($toolsDomain) {
-        WebDomain::factory()->for($node)->create([
+        WebDomain::factory()->platformOwned()->for($node)->create([
             'domain' => $hostname,
             'certificate_issued_at' => $certified ? now() : null,
         ]);

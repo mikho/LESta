@@ -4,6 +4,7 @@ namespace App\Http\Requests\Domains;
 
 use App\Enums\PhpVersion;
 use App\Models\WebDomain;
+use App\Rules\AvailableWebHostname;
 use App\Rules\ValidDomainName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -49,7 +50,7 @@ class UpdateWebDomainRequest extends FormRequest
         $webDomain = $this->route('webDomain');
 
         return [
-            'domain' => ['required', 'string', new ValidDomainName, Rule::unique('web_domains', 'domain')->ignore($webDomain->id)],
+            'domain' => ['required', 'string', new ValidDomainName, new AvailableWebHostname($webDomain->id, (bool) $webDomain->account?->is_platform)],
             'web_template' => ['nullable', 'string', 'max:255'],
             'web_server' => ['nullable', 'string', Rule::in(['nginx', 'apache'])],
             'php_version' => ['nullable', 'string', Rule::in(array_column(PhpVersion::cases(), 'value'))],
@@ -62,7 +63,7 @@ class UpdateWebDomainRequest extends FormRequest
             'waf_excluded_rules' => ['array', 'max:100'],
             'waf_excluded_rules.*' => ['integer', 'between:1,999999999'],
             'aliases' => ['array'],
-            'aliases.*' => ['string', new ValidDomainName, Rule::unique('web_domain_aliases', 'alias')->ignore($webDomain->id, 'web_domain_id')],
+            'aliases.*' => ['string', 'distinct', 'different:domain', new ValidDomainName, new AvailableWebHostname($webDomain->id, (bool) $webDomain->account?->is_platform)],
         ];
     }
 }

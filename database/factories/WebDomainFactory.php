@@ -38,6 +38,16 @@ class WebDomainFactory extends Factory
         ];
     }
 
+    /**
+     * Owned by the hidden platform account: a node's own tools domain (webmail and Adminer).
+     */
+    public function platformOwned(): static
+    {
+        return $this->state(fn (): array => [
+            'account_id' => Account::factory()->create(['is_platform' => true])->id,
+        ]);
+    }
+
     public function suspended(): static
     {
         return $this->state(fn (): array => [

@@ -77,7 +77,7 @@ test('toProvisioningPayload reports a null php_socket when php_version is not se
 function toolsHostDomain(string $capability, array $domainAttributes = [], bool $withCapability = true, string $domain = 'node.example.test'): WebDomain
 {
     $node = Node::factory()->create(['hostname' => 'node.example.test']);
-    $webDomain = WebDomain::factory()->for($node)->create(array_merge([
+    $webDomain = WebDomain::factory()->platformOwned()->for($node)->create(array_merge([
         'domain' => $domain,
         'certificate_issued_at' => now(),
     ], $domainAttributes));

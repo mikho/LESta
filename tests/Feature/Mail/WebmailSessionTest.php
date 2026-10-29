@@ -15,7 +15,7 @@ use App\Models\WebmailAccessToken;
  */
 function webmailToolsDomain(Node $node, bool $certified = true): WebDomain
 {
-    return WebDomain::factory()->for($node)->create([
+    return WebDomain::factory()->platformOwned()->for($node)->create([
         'domain' => $node->hostname,
         'certificate_issued_at' => $certified ? now() : null,
     ]);

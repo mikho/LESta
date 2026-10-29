@@ -104,7 +104,7 @@ test('the node page reports the state of the tools address', function () {
             ->where('node.tools.webmail', ['declared' => true, 'available' => false])
             ->where('node.tools.adminer', ['declared' => false, 'available' => false]));
 
-    WebDomain::factory()->for($node)->create(['domain' => 'node.example.test', 'ssl_mode' => 'manual', 'certificate_issued_at' => null]);
+    WebDomain::factory()->platformOwned()->for($node)->create(['domain' => 'node.example.test', 'ssl_mode' => 'manual', 'certificate_issued_at' => null]);
 
     $this->actingAs($admin)->get(route('nodes.edit', $node))
         ->assertInertia(fn (Assert $page) => $page

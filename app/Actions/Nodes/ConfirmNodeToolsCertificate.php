@@ -30,6 +30,7 @@ class ConfirmNodeToolsCertificate
         $webDomain = WebDomain::query()
             ->where('node_id', $node->id)
             ->where('domain', WebDomain::normalizeDomain($node->hostname))
+            ->whereHas('account', fn ($account) => $account->where('is_platform', true))
             ->first();
 
         if ($webDomain === null || $webDomain->ssl_mode !== SslMode::Manual) {

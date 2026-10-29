@@ -25,7 +25,7 @@ function remoteAccessDatabase(bool $withCertificate = true): array
     $node = Node::factory()->create(['hostname' => 'Node-1.Example.test']);
     NodeCapability::factory()->for($node)->create(['capability' => 'database.tenant.v1']);
     if ($withCertificate) {
-        $toolsDomain = WebDomain::factory()->for($node)->create(['domain' => 'node-1.example.test', 'certificate_issued_at' => now()]);
+        $toolsDomain = WebDomain::factory()->platformOwned()->for($node)->create(['domain' => 'node-1.example.test', 'certificate_issued_at' => now()]);
         AccountNodeIdentity::factory()->for($toolsDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$toolsDomain->account_id]);
     }
     $tenantDatabase = TenantDatabase::factory()->for($node)->create(['database_name' => 'lesta_7_shop', 'database_user' => 'lesta_7_shop', 'stats_user' => 'lesta_7_shop_ro']);

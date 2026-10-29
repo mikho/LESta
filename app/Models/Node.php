@@ -170,7 +170,8 @@ class Node extends Model implements ProviderAdminManaged
     {
         return WebDomain::query()
             ->where('node_id', $this->id)
-            ->where('domain', strtolower($this->hostname))
+            ->where('domain', WebDomain::normalizeDomain($this->hostname))
+            ->whereHas('account', fn ($account) => $account->where('is_platform', true))
             ->whereNotNull('certificate_issued_at')
             ->first();
     }
