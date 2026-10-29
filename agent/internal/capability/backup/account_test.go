@@ -59,7 +59,8 @@ func newAccountHarness(t *testing.T) *accountHarness {
 	}
 
 	h.clientSink = filepath.Join(root, "client-input.sql")
-	h.cfg.ClientBinary = writeScript(t, root, "client", "#!/bin/sh\ncat >> "+h.clientSink+"\n")
+	// Keeps what the restore loads; answers the password hash query like the server would.
+	h.cfg.ClientBinary = writeScript(t, root, "client", "#!/bin/sh\ninput=$(cat)\ncase \"$input\" in *authentication_string*) echo '*0123456789ABCDEF0123456789ABCDEF01234567';; ALTER*) ;; *) printf '%s\\n' \"$input\" >> "+h.clientSink+";; esac\n")
 
 	socket := filepath.Join(root, "tenant.sock")
 	if err := os.WriteFile(socket, nil, 0o600); err != nil {
@@ -104,7 +105,7 @@ func (h *accountHarness) account(parts ...string) map[string]any {
 		"username":      h.username,
 		"web_resources": []string{h.siteID},
 		"mail_domains":  []string{"example.com"},
-		"databases":     []string{"shopdb"},
+		"databases":     []string{"lesta_1_shopdb"},
 		"parts":         parts,
 	}
 }
@@ -192,7 +193,7 @@ func TestAccountBackupAndRestoreThroughTheCapability(t *testing.T) {
 		t.Errorf("mail was not selected and must be untouched: %q", got)
 	}
 
-	if sql, _ := os.ReadFile(h.clientSink); !strings.Contains(string(sql), "CREATE DATABASE IF NOT EXISTS shopdb") {
+	if sql, _ := os.ReadFile(h.clientSink); !strings.Contains(string(sql), "CREATE DATABASE IF NOT EXISTS lesta_1_shopdb") {
 		t.Errorf("the database dump was not loaded: %q", sql)
 	}
 
@@ -428,7 +429,7 @@ func TestAccountBackupDownloadStreamsAPlainTarGzToTheUploadAddress(t *testing.T)
 		names[header.Name] = true
 	}
 
-	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/shopdb.sql"] || !names["files/"+h.siteID+"/random.bin"] {
+	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/lesta_1_shopdb.sql"] || !names["files/"+h.siteID+"/random.bin"] {
 		t.Errorf("unexpected archive content: %v", names)
 	}
 
@@ -600,7 +601,7 @@ func TestAccountBackupCopyUploadsAVerifiedPlainTarGzToTheAccountsStorage(t *test
 		names[header.Name] = true
 	}
 
-	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/shopdb.sql"] {
+	if !names["manifest.json"] || !names["files/"+h.siteID+"/index.html"] || !names["databases/lesta_1_shopdb.sql"] {
 		t.Errorf("unexpected object content: %v", names)
 	}
 

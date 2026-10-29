@@ -28,7 +28,9 @@ func TestAccountDumpsAndLoadsLogInAsTheConfiguredAccounts(t *testing.T) {
 	record := filepath.Join(dir, "args")
 	stub := filepath.Join(dir, "stub")
 
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho \"$@\" >> "+record+"\n"), 0o755); err != nil {
+	// Records each call; answers the password hash query like the server would.
+	script := "#!/bin/sh\necho \"$@\" >> " + record + "\ninput=$(cat)\ncase \"$input\" in *authentication_string*) echo '*0123456789ABCDEF0123456789ABCDEF01234567';; esac\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,24 +46,40 @@ func TestAccountDumpsAndLoadsLogInAsTheConfiguredAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := loadDatabase(context.Background(), cfg, "/run/t.sock", strings.NewReader("select 1;")); err != nil {
+	if err := loadDatabase(context.Background(), cfg, "/run/t.sock", "lesta_1_shop", strings.NewReader("select 1;")); err != nil {
 		t.Fatal(err)
 	}
 
 	raw, _ := os.ReadFile(record)
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "--defaults-extra-file=/etc/lesta/backup.cnf -S /run/t.sock") || !strings.HasSuffix(lines[0], "--databases shop") {
-		t.Errorf("dump arguments: %q", lines)
+	// dump, read the hash, add the temporary password, load, put the password back.
+	if len(lines) != 5 || !strings.HasPrefix(lines[0], "--defaults-extra-file=/etc/lesta/backup.cnf -S /run/t.sock") || !strings.HasSuffix(lines[0], "--databases shop") {
+		t.Fatalf("calls: %q", lines)
 	}
 
-	if lines[1] != "--defaults-extra-file=/etc/lesta/admin.cnf --protocol=tcp --host=127.0.0.1 --port=3307" {
-		t.Errorf("load arguments: %q", lines[1])
+	for _, i := range []int{1, 2, 4} {
+		if !strings.HasPrefix(lines[i], "--defaults-extra-file=/etc/lesta/admin.cnf --protocol=tcp --host=127.0.0.1 --port=3307") {
+			t.Errorf("administrator call %d: %q", i, lines[i])
+		}
+	}
+
+	load := lines[3]
+	if strings.Contains(load, "admin.cnf") || !strings.Contains(load, "--sandbox") || !strings.HasSuffix(load, "--database=lesta_1_shop") {
+		t.Errorf("the load must run as the database's own user, sandboxed, on its own database: %q", load)
 	}
 
 	for _, line := range lines {
 		if strings.Contains(line, "root") {
 			t.Errorf("no call may log in as root: %q", line)
+		}
+	}
+}
+
+func TestLoadDatabaseRefusesANameThatIsNotATenantDatabase(t *testing.T) {
+	for _, name := range []string{"mysql", "lesta_1_shop'; DROP", "lesta_2_other.secret", ""} {
+		if err := loadDatabase(context.Background(), Config{ClientBinary: "/bin/false"}, "/run/t.sock", name, strings.NewReader("")); err == nil {
+			t.Errorf("%q should be refused", name)
 		}
 	}
 }

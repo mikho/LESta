@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -398,7 +400,7 @@ func applyAccountRestore(ctx context.Context, cfg Config, req accountRequest, ar
 			return errors.New("this node's tenant database server is not running")
 		}
 
-		return loadDatabase(ctx, cfg, socket, sql)
+		return loadDatabase(ctx, cfg, socket, name, sql)
 	}
 
 	report, err := restoreAccountArchive(f, req.EncryptionKey, target)
@@ -463,18 +465,89 @@ func dumpOneDatabase(ctx context.Context, cfg Config, socket, name, out string) 
 	return nil
 }
 
-// loadDatabase feeds a dump to the tenant instance.
-func loadDatabase(ctx context.Context, cfg Config, socket string, sql io.Reader) error {
-	var stderr bytes.Buffer
+// restoreDatabasePattern is a tenant database name (TenantDatabase::deriveDatabaseName), which is
+// also the name of its own user. It is interpolated into SQL, so nothing else is accepted.
+var restoreDatabasePattern = regexp.MustCompile(`^lesta_[0-9]+_[a-z][a-z0-9_]{0,32}$`)
 
-	// The tenant database administrator is defined for 127.0.0.1, so with its option file the
-	// connection goes over TCP; without one this is root over the unix socket.
-	args := authArgs(cfg.TenantRestoreDefaults, "-S", socket)
-	if cfg.TenantRestoreDefaults != "" {
-		args = authArgs(cfg.TenantRestoreDefaults, "--protocol=tcp", "--host=127.0.0.1", "--port="+strconv.Itoa(cfg.TenantRestorePort))
+// restorePasswordHashPattern is a mysql_native_password hash as MariaDB stores it.
+var restorePasswordHashPattern = regexp.MustCompile(`^\*[0-9A-F]{40}$`)
+
+// loadDatabase feeds one database's dump to the tenant instance as that database's own user, never
+// as an administrator: an account backup can come from the customer (an imported copy), so its SQL
+// may only do what the customer's own database user may do, on that one database, and the client
+// runs in sandbox mode so the dump cannot run shell commands or read files (\!, source, tee).
+//
+// The node does not know the user's password, so for the length of the load the user gets a
+// second, random one beside it (MariaDB accepts either), and afterwards only its own again. The
+// objects in the dump keep working: they were defined by this same user, which may define them
+// again without any global privilege. A suspended database has no grants and cannot be restored.
+func loadDatabase(ctx context.Context, cfg Config, socket, name string, sql io.Reader) error {
+	if !restoreDatabasePattern.MatchString(name) {
+		return fmt.Errorf("%q is not a tenant database name", name)
 	}
 
-	cmd := exec.CommandContext(ctx, cfg.clientBinary(), args...)
+	admin := func(ctx context.Context, script string) (string, error) {
+		args := authArgs(cfg.TenantRestoreDefaults, "-S", socket)
+		if cfg.TenantRestoreDefaults != "" {
+			args = authArgs(cfg.TenantRestoreDefaults, "--protocol=tcp", "--host=127.0.0.1", "--port="+strconv.Itoa(cfg.TenantRestorePort))
+		}
+
+		var stdout, stderr bytes.Buffer
+		cmd := exec.CommandContext(ctx, cfg.clientBinary(), append(args, "--batch", "--skip-column-names")...)
+		cmd.Stdin = strings.NewReader(script)
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("%w: %s", err, bytes.TrimSpace(stderr.Bytes()))
+		}
+
+		return strings.TrimSpace(stdout.String()), nil
+	}
+
+	hash, err := admin(ctx, fmt.Sprintf("SELECT authentication_string FROM mysql.user WHERE User = '%s' AND Host = '127.0.0.1';\n", name))
+	if err != nil {
+		return fmt.Errorf("reading the database user: %w", err)
+	}
+	if !restorePasswordHashPattern.MatchString(hash) {
+		return fmt.Errorf("the database %s has no user of its own on this node to restore it as", name)
+	}
+
+	temporary, err := randomRestorePassword()
+	if err != nil {
+		return err
+	}
+
+	if _, err := admin(ctx, fmt.Sprintf(
+		"ALTER USER '%s'@'127.0.0.1' IDENTIFIED VIA mysql_native_password USING '%s' OR mysql_native_password USING PASSWORD('%s');\n",
+		name, hash, temporary,
+	)); err != nil {
+		return fmt.Errorf("preparing the database user for the restore: %w", err)
+	}
+
+	// Always put the user's own password back, even when the load or the context failed.
+	defer func() {
+		_, _ = admin(context.WithoutCancel(ctx), fmt.Sprintf("ALTER USER '%s'@'127.0.0.1' IDENTIFIED BY PASSWORD '%s';\n", name, hash))
+	}()
+
+	dir, err := os.MkdirTemp("", "lesta-restore-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	defaults := filepath.Join(dir, "client.cnf")
+	if err := os.WriteFile(defaults, []byte(fmt.Sprintf("[client]\nuser=%s\npassword=%s\n", name, temporary)), 0o600); err != nil {
+		return err
+	}
+
+	var stderr bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, cfg.clientBinary(),
+		"--defaults-extra-file="+defaults,
+		"--protocol=tcp", "--host=127.0.0.1", "--port="+strconv.Itoa(cfg.TenantRestorePort),
+		"--sandbox", "--database="+name,
+	)
 	cmd.Stdin = sql
 	cmd.Stderr = &stderr
 
@@ -483,6 +556,16 @@ func loadDatabase(ctx context.Context, cfg Config, socket string, sql io.Reader)
 	}
 
 	return nil
+}
+
+// randomRestorePassword is 48 random hex characters: nothing in it needs quoting in SQL.
+func randomRestorePassword() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(b), nil
 }
 
 // ---- daemon side ---------------------------------------------------------

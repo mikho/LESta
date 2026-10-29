@@ -51,6 +51,14 @@ type disposableDumpMariaDB struct {
 func newDisposableDumpMariaDB(t *testing.T) *disposableDumpMariaDB {
 	t.Helper()
 
+	return startDisposableDumpMariaDB(t, 0)
+}
+
+// startDisposableDumpMariaDB starts the instance; a non-zero port also listens on 127.0.0.1:port,
+// for accounts defined at 127.0.0.1 (the tenant instance's own users).
+func startDisposableDumpMariaDB(t *testing.T, port int) *disposableDumpMariaDB {
+	t.Helper()
+
 	prefix := t.TempDir()
 	dataDir := filepath.Join(prefix, "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
@@ -79,14 +87,18 @@ func newDisposableDumpMariaDB(t *testing.T) *disposableDumpMariaDB {
 		t.Fatalf("mariadb-install-db: %v: %s", err, out)
 	}
 
-	cmd := exec.Command("mariadbd",
+	networking := []string{"--skip-networking"}
+	if port != 0 {
+		networking = []string{"--bind-address=127.0.0.1", "--port=" + strconv.Itoa(port)}
+	}
+
+	cmd := exec.Command("mariadbd", append([]string{
 		"--no-defaults",
-		"--datadir="+dataDir,
-		"--socket="+socket,
-		"--skip-networking",
-		"--pid-file="+pidPath,
-		"--log-error="+errorLog,
-	)
+		"--datadir=" + dataDir,
+		"--socket=" + socket,
+		"--pid-file=" + pidPath,
+		"--log-error=" + errorLog,
+	}, networking...)...)
 	cmd.Env = append(os.Environ(), "TMPDIR="+scratchTmp)
 
 	if err := cmd.Start(); err != nil {
