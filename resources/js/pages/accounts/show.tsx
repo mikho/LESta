@@ -187,6 +187,7 @@ function ResellerAccountInput({ account }: { account: Account }) {
 export default function Show({
     account,
     packages,
+    canChangePackage,
     canManageReseller,
     canUpdateAccount,
     canSuspendAccount,
@@ -198,6 +199,7 @@ export default function Show({
 }: {
     account: Account;
     packages: AccountPackage[];
+    canChangePackage: boolean;
     canManageReseller: boolean;
     canUpdateAccount: boolean;
     canSuspendAccount: boolean;
@@ -257,32 +259,50 @@ export default function Show({
                                     />
                                 </div>
 
-                                <div className="grid gap-2">
-                                    <Label htmlFor="package_id">Package</Label>
+                                {canChangePackage ? (
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="package_id">
+                                            Package
+                                        </Label>
 
-                                    <Select
-                                        name="package_id"
-                                        defaultValue={String(
-                                            account.package_id,
-                                        )}
-                                    >
-                                        <SelectTrigger id="package_id">
-                                            <SelectValue placeholder="Select a package" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {packages.map((pkg) => (
-                                                <SelectItem
-                                                    key={pkg.id}
-                                                    value={String(pkg.id)}
-                                                >
-                                                    {pkg.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                        <Select
+                                            name="package_id"
+                                            defaultValue={String(
+                                                account.package_id,
+                                            )}
+                                        >
+                                            <SelectTrigger id="package_id">
+                                                <SelectValue placeholder="Select a package" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {packages.map((pkg) => (
+                                                    <SelectItem
+                                                        key={pkg.id}
+                                                        value={String(pkg.id)}
+                                                    >
+                                                        {pkg.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
 
-                                    <InputError message={errors.package_id} />
-                                </div>
+                                        <InputError
+                                            message={errors.package_id}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-1 text-sm">
+                                        <span className="font-medium">
+                                            Package
+                                        </span>
+                                        <span>
+                                            {account.package_name ?? '—'}
+                                        </span>
+                                        <span className="text-muted-foreground">
+                                            Your provider sets the package.
+                                        </span>
+                                    </div>
+                                )}
 
                                 <div className="flex items-center gap-4">
                                     <Button

@@ -141,11 +141,14 @@ class AccountController extends Controller
             'cronJobs',
         ]);
 
-        $packages = Package::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        // Only the provider sets the package (UpdateAccount); an owner sees which one it is.
+        $canChangePackage = $request->user()->hasPermission('accounts.update');
+        $packages = $canChangePackage ? Package::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']) : collect();
 
         return Inertia::render('accounts/show', [
             'account' => $this->presentForShow($account),
             'packages' => $packages,
+            'canChangePackage' => $canChangePackage,
             'canManageReseller' => $request->user()->hasPermission('accounts.update'),
             // Mirrors AccountPolicy::update/suspend/unsuspend/delete exactly (each is
             // owner-or-its-own-permission, not a single shared one) -- every one of

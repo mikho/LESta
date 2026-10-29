@@ -6,20 +6,25 @@ use App\Models\Membership;
 use App\Models\Package;
 use Illuminate\Auth\Access\AuthorizationException;
 
-test('an account owner can update their own account', function () {
+test('an account owner can update their own account, but not its package', function () {
     $account = Account::factory()->create(['name' => 'old-name']);
     $owner = Membership::factory()->for($account)->owner()->create()->user;
     $package = Package::factory()->create();
+    $current = $account->package_id;
 
     app(UpdateAccount::class)->handle($owner, $account, [
         'name' => 'new-name',
         'contact_email' => 'new@example.test',
-        'package_id' => $package->id,
+        'package_id' => $current,
     ]);
 
     expect($account->refresh()->name)->toBe('new-name')
         ->and($account->contact_email)->toBe('new@example.test')
-        ->and($account->package_id)->toBe($package->id);
+        ->and($account->package_id)->toBe($current);
+
+    expect(fn () => app(UpdateAccount::class)->handle($owner, $account, ['package_id' => $package->id]))
+        ->toThrow(AuthorizationException::class);
+    expect($account->refresh()->package_id)->toBe($current);
 });
 
 test('a non-owner member cannot update the account', function () {

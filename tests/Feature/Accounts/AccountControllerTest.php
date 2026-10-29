@@ -206,3 +206,25 @@ test('a member sees their own account on the "my account" list', function () {
             ->where('accounts.0.name', 'acme-inc')
         );
 });
+
+test('an owner cannot move their own account to another package, but can still rename it', function () {
+    $account = Account::factory()->create(['name' => 'old-name']);
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $unlimited = Package::factory()->create(['is_active' => true]);
+    $current = $account->package_id;
+
+    $this->actingAs($owner)
+        ->put(route('accounts.update', $account), ['name' => 'x', 'package_id' => $unlimited->id])
+        ->assertForbidden();
+    expect($account->refresh()->package_id)->toBe($current);
+
+    $this->actingAs($owner)
+        ->put(route('accounts.update', $account), ['name' => 'new-name', 'contact_email' => 'a@example.test'])
+        ->assertRedirect(route('accounts.show', $account));
+    expect($account->refresh()->name)->toBe('new-name')
+        ->and($account->package_id)->toBe($current);
+
+    $this->actingAs($owner)->get(route('accounts.show', $account))->assertInertia(fn ($page) => $page
+        ->where('canChangePackage', false)
+        ->where('packages', []));
+});

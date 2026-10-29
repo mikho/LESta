@@ -18,7 +18,7 @@ class UpdateAccountRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'contact_email' => ['nullable', 'email', 'max:255'],
-            'package_id' => ['required', Rule::exists('packages', 'id')],
+            'package_id' => ['sometimes', 'required', 'integer', Rule::exists('packages', 'id')],
         ];
     }
 }
