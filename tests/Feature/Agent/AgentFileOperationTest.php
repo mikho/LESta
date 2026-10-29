@@ -75,3 +75,32 @@ test('the poll endpoint never returns an operation belonging to a different node
 test('an unauthenticated poll request is rejected', function () {
     $this->postJson('/agent/v1/file-operations/poll')->assertUnauthorized();
 });
+
+test('a fast-lane operation is handed out once, and never by the heartbeat', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+    $webDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+
+    foreach (['files.manager.v1', 'tls.acme.v1'] as $capability) {
+        ProvisioningOperation::factory()->dispatched()->create([
+            'provisionable_type' => $webDomain->getMorphClass(),
+            'provisionable_id' => $webDomain->id,
+            'node_id' => $node->id,
+            'resource_id' => $webDomain->uuid,
+            'capability' => $capability,
+        ]);
+    }
+
+    $poll = fn () => $this->withHeader('Authorization', 'Bearer '.$credential)->postJson('/agent/v1/file-operations/poll')->json('pending_operations');
+
+    expect(collect($poll())->pluck('capability')->sort()->values()->all())->toBe(['files.manager.v1', 'tls.acme.v1'])
+        ->and($poll())->toBe([]);
+
+    $heartbeat = $this->withHeader('Authorization', 'Bearer '.$credential)->postJson('/agent/v1/heartbeat', [
+        'protocol_version' => '1', 'agent_version' => '1.0.0', 'ubuntu_release' => '24.04',
+        'architecture' => 'amd64', 'timestamp' => now()->toIso8601String(), 'capabilities' => [],
+    ]);
+    $heartbeat->assertOk();
+    expect($heartbeat->json('pending_operations'))->toBe([]);
+});

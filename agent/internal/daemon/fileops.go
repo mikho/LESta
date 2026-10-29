@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -56,6 +57,10 @@ type fileOpsPollResponse struct {
 // (operations.go) the general heartbeat loop already uses: the control
 // plane's own result-ingestion endpoint is entirely capability-agnostic,
 // so no separate results endpoint or handler is needed for this lane.
+// inFlight holds the idempotency keys of fast-lane operations still running. The panel hands each
+// one out once, but an operation is never started twice here either, whatever a poll returns.
+var inFlight sync.Map
+
 func pollAndDispatchFileOps(client *http.Client, cfg Config, credential string) error {
 	pending, err := pollFileOps(client, cfg, credential)
 	if err != nil {
@@ -63,7 +68,13 @@ func pollAndDispatchFileOps(client *http.Client, cfg Config, credential string) 
 	}
 
 	for _, envelope := range pending {
+		if _, running := inFlight.LoadOrStore(envelope.IdempotencyKey, struct{}{}); running {
+			continue
+		}
+
 		go func(envelope protocol.OperationEnvelope) {
+			defer inFlight.Delete(envelope.IdempotencyKey)
+
 			result, err := cfg.Dispatch(context.Background(), envelope)
 			if err != nil {
 				result = syntheticFailedResult(envelope, err)

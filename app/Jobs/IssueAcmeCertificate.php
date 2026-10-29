@@ -30,6 +30,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -55,6 +56,15 @@ use Throwable;
 class IssueAcmeCertificate implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * One run waits on the certificate authority (acme.challenge_timeout and acme.order_timeout)
+     * and on the node for each of its steps (acme.operation_timeout). Failures are retried by
+     * the renewal schedule's own backoff (isInBackoffWindow), never by the queue.
+     */
+    public int $timeout = 420;
+
+    public int $tries = 1;
 
     private Provisioner $provisioner;
 
@@ -333,25 +343,25 @@ class IssueAcmeCertificate implements ShouldQueue
     }
 
     /**
-     * Applies one provisioning operation directly against the real
-     * Provisioner, bypassing the queue entirely: this job already *is* the
-     * queued context, so dispatching another job just to immediately wait on
-     * it would be pointless indirection. Still creates a real
-     * ProvisioningOperation row first, for audit/observability parity with
-     * every other capability, and replicates
-     * DispatchProvisioningOperation::handle()'s own row-locking/
-     * status-writing pattern for this direct-call case.
+     * Applies one operation this job needs on the domain's own node and returns its result: the
+     * challenge, the certificate, or the cleanup, each a step the next one depends on. The row is
+     * recorded and committed with its node and Dispatched first. A provisioner that answers at
+     * once (the fake one) gives the result directly; the real one never does: the node takes the
+     * operation through its fast lane (ProvisioningOperation::FAST_LANE, every two seconds) and
+     * reports back over agent/v1/operation-results, so this waits for that report, at most
+     * acme.operation_timeout seconds.
      *
      * @param  array<string, mixed>  $payload
      */
     private function applyDirect(Model $provisionable, string $capability, ProvisioningVerb $operation, array $payload, int $desiredStateVersion): ProvisioningResult
     {
-        return DB::transaction(function () use ($provisionable, $capability, $operation, $payload, $desiredStateVersion): ProvisioningResult {
+        $row = DB::transaction(function () use ($provisionable, $capability, $operation, $payload, $desiredStateVersion): ProvisioningOperation {
             $resourceId = $provisionable->uuid; // @phpstan-ignore property.notFound
 
             $row = ProvisioningOperation::create([
                 'provisionable_type' => $provisionable->getMorphClass(),
                 'provisionable_id' => $provisionable->getKey(),
+                'node_id' => $provisionable->getAttribute('node_id'),
                 'resource_id' => $resourceId,
                 'capability' => $capability,
                 'operation' => $operation,
@@ -366,17 +376,19 @@ class IssueAcmeCertificate implements ShouldQueue
                 ], JSON_THROW_ON_ERROR)),
             ]);
 
-            $row = ProvisioningOperation::query()->whereKey($row->id)->lockForUpdate()->first();
-
             $row->forceFill([
                 'status' => ProvisioningStatus::Dispatched,
                 'dispatched_at' => now(),
-                'attempts' => $row->attempts + 1,
+                'attempts' => 1,
                 'deadline' => now()->addMinutes((int) config('provisioning.dispatch_deadline_minutes', 5)),
             ])->save();
 
-            $result = $this->provisioner->apply($row);
+            return $row;
+        });
 
+        $result = $this->provisioner->apply($row);
+
+        if ($result !== null) {
             $row->forceFill([
                 'status' => $result->status,
                 'observed_state_version' => $result->observedStateVersion,
@@ -387,7 +399,28 @@ class IssueAcmeCertificate implements ShouldQueue
             ])->save();
 
             return $result;
-        });
+        }
+
+        $waitUntil = now()->addSeconds((int) config('acme.operation_timeout', 60));
+
+        while (now()->lt($waitUntil)) {
+            $row->refresh();
+
+            if (! in_array($row->status, [ProvisioningStatus::Pending, ProvisioningStatus::Dispatched], true)) {
+                return new ProvisioningResult(
+                    $row->status,
+                    $row->observed_state_version,
+                    $row->observed_state_digest,
+                    $row->generation_id,
+                    $row->errors ?? [],
+                    $row->completed_at ?? now(),
+                );
+            }
+
+            Sleep::for(1)->second();
+        }
+
+        throw new \RuntimeException("The node did not apply the {$capability} {$operation->value} within ".config('acme.operation_timeout', 60).' seconds.');
     }
 
     private function isSuccessResult(ProvisioningResult $result): bool

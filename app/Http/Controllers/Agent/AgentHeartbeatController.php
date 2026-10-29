@@ -88,9 +88,12 @@ class AgentHeartbeatController extends Controller
             }
         });
 
+        // Fast-lane capabilities are only ever handed out by the fast lane
+        // (AgentFileOperationController), once each; never here as well.
         $pendingOperations = ProvisioningOperation::query()
             ->where('node_id', $node->id)
             ->where('status', ProvisioningStatus::Dispatched)
+            ->whereNotIn('capability', ProvisioningOperation::FAST_LANE)
             ->oldest('dispatched_at')
             ->limit(10)
             ->get()

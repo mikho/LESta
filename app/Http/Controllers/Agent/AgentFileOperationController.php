@@ -12,26 +12,33 @@ use Illuminate\Http\Request;
 class AgentFileOperationController extends Controller
 {
     /**
-     * files.manager.v1's own dedicated fast-lane poll: the exact same pending-operations query
-     * AgentHeartbeatController::store() already runs, filtered to this one capability, with none
-     * of that endpoint's own general heartbeat bookkeeping (Node::last_seen_at, per-capability
-     * status tracking) -- those stay owned entirely by the general heartbeat loop, never touched
-     * twice. Polled every 1-2 seconds (agent/internal/daemon's own fileops.go), so this returns
-     * as little as possible, as fast as possible.
+     * The node's fast lane (agent/internal/daemon fileops.go, every two seconds): its dispatched
+     * operations for the fast-lane capabilities (ProvisioningOperation::FAST_LANE). Each is handed
+     * out once: it is claimed here with a conditional update, so a poll that comes while it still
+     * runs, or a second poll racing this one, never gets it again. One that is never reported is
+     * failed by its deadline like any other. None of the heartbeat's own bookkeeping happens here.
      */
     public function poll(Request $request): JsonResponse
     {
         /** @var Node $node */
         $node = $request->attributes->get('node');
 
-        $pendingOperations = ProvisioningOperation::query()
+        $candidates = ProvisioningOperation::query()
             ->where('node_id', $node->id)
-            ->where('capability', 'files.manager.v1')
+            ->whereIn('capability', ProvisioningOperation::FAST_LANE)
             ->where('status', ProvisioningStatus::Dispatched)
+            ->whereNull('claimed_at')
             ->oldest('dispatched_at')
             ->limit(10)
-            ->get()
+            ->get();
+
+        $pendingOperations = $candidates
+            ->filter(fn (ProvisioningOperation $operation): bool => ProvisioningOperation::query()
+                ->whereKey($operation->id)
+                ->whereNull('claimed_at')
+                ->update(['claimed_at' => now()]) === 1)
             ->map(fn (ProvisioningOperation $operation): array => $operation->toEnvelopeArray())
+            ->values()
             ->all();
 
         return response()->json(['pending_operations' => $pendingOperations]);

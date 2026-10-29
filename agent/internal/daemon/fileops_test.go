@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,4 +112,50 @@ func TestFileOpsPollIntervalDefaultIsMuchTighterThanAHeartbeat(t *testing.T) {
 	if defaultFileOpsPollInterval >= typicalHeartbeatInterval {
 		t.Fatalf("defaultFileOpsPollInterval = %v, expected well under the typical %v heartbeat interval", defaultFileOpsPollInterval, typicalHeartbeatInterval)
 	}
+}
+
+// TestPollAndDispatchFileOpsNeverStartsARunningOperationTwice: a poll that returns an operation
+// still running from an earlier poll does not start it again.
+func TestPollAndDispatchFileOpsNeverStartsARunningOperationTwice(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/agent/v1/file-operations/poll" {
+			_ = json.NewEncoder(w).Encode(fileOpsPollResponse{
+				PendingOperations: []protocol.OperationEnvelope{{ProtocolVersion: "1", Capability: "files.manager.v1", Operation: protocol.OperationObserve, ResourceID: "res-2", IdempotencyKey: "idem-twice"}},
+			})
+
+			return
+		}
+
+		w.Write([]byte(`{"accepted":1}`))
+	}))
+	defer server.Close()
+
+	var started atomic.Int32
+	release := make(chan struct{})
+	finished := make(chan struct{})
+
+	cfg := Config{
+		ControlPlaneURL: server.URL,
+		Dispatch: func(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+			started.Add(1)
+			<-release
+			defer close(finished)
+
+			return protocol.ResultEnvelope{IdempotencyKey: op.IdempotencyKey, Status: protocol.StatusApplied, Errors: []protocol.ResultError{}}, nil
+		},
+	}
+
+	for range 3 {
+		if err := pollAndDispatchFileOps(server.Client(), cfg, "credential"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	if n := started.Load(); n != 1 {
+		t.Fatalf("the operation was started %d times, want 1", n)
+	}
+
+	close(release)
+	<-finished
 }

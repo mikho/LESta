@@ -35,6 +35,7 @@ use Illuminate\Support\Carbon;
  * @property array<string, mixed>|null $data
  * @property int $attempts
  * @property Carbon|null $dispatched_at
+ * @property Carbon|null $claimed_at
  * @property Carbon|null $completed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -42,6 +43,15 @@ use Illuminate\Support\Carbon;
 #[Fillable(['provisionable_type', 'provisionable_id', 'node_id', 'resource_id', 'capability', 'operation', 'status', 'desired_state_version', 'payload', 'correlation_id', 'idempotency_key', 'issued_at', 'request_digest'])]
 class ProvisioningOperation extends Model
 {
+    /**
+     * The capabilities a node takes through its fast lane (polled every two seconds) instead of
+     * the minute-long heartbeat: the file manager, which a person is waiting on, and ACME, whose
+     * challenge has to be served while the certificate authority checks it.
+     *
+     * @var list<string>
+     */
+    public const array FAST_LANE = ['files.manager.v1', 'tls.acme.v1'];
+
     /** @use HasFactory<ProvisioningOperationFactory> */
     use HasFactory;
 
@@ -67,6 +77,7 @@ class ProvisioningOperation extends Model
             'issued_at' => 'datetime',
             'deadline' => 'datetime',
             'dispatched_at' => 'datetime',
+            'claimed_at' => 'datetime',
             'completed_at' => 'datetime',
         ];
     }

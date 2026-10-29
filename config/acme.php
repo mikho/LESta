@@ -63,6 +63,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Node Operation Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Seconds IssueAcmeCertificate waits for the node to apply each of its
+    | steps (the challenge, the certificate, the cleanup). The node takes
+    | them through its fast lane, polled every two seconds.
+    |
+    */
+
+    'operation_timeout' => (int) env('ACME_OPERATION_TIMEOUT', 60),
+
+    /*
+    |--------------------------------------------------------------------------
     | Per-Domain Backoff
     |--------------------------------------------------------------------------
     |
