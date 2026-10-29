@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\DnsZone;
 use App\Models\User;
@@ -54,7 +55,8 @@ class DnsZonePolicy
 
     public function unsuspend(User $user, DnsZone $dnsZone): bool
     {
-        return $user->hasAccountRole($dnsZone->account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($dnsZone->account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLiftResource($user, $dnsZone->account, $dnsZone->suspension_source);
     }
 
     public function delete(User $user, DnsZone $dnsZone): bool

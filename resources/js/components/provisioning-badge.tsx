@@ -113,7 +113,10 @@ export function ResourceStatus({
                 <span className="text-red-700 dark:text-red-400">
                     {suspensionSource === 'cascade'
                         ? 'Suspended with the account'
-                        : 'Suspended'}
+                        : suspensionSource === 'provider' ||
+                            suspensionSource === 'reseller'
+                          ? 'Suspended by your provider'
+                          : 'Suspended'}
                 </span>
             ) : (
                 settled && <span className="text-muted-foreground">Active</span>

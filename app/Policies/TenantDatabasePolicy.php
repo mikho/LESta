@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\TenantDatabase;
 use App\Models\User;
@@ -53,7 +54,8 @@ class TenantDatabasePolicy
 
     public function unsuspend(User $user, TenantDatabase $tenantDatabase): bool
     {
-        return $user->hasAccountRole($tenantDatabase->account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($tenantDatabase->account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLiftResource($user, $tenantDatabase->account, $tenantDatabase->suspension_source);
     }
 
     public function delete(User $user, TenantDatabase $tenantDatabase): bool

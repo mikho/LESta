@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\CronJob;
 use App\Models\User;
@@ -53,7 +54,8 @@ class CronJobPolicy
 
     public function unsuspend(User $user, CronJob $cronJob): bool
     {
-        return $user->hasAccountRole($cronJob->account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($cronJob->account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLiftResource($user, $cronJob->account, $cronJob->suspension_source);
     }
 
     public function delete(User $user, CronJob $cronJob): bool

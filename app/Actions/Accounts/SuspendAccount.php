@@ -38,7 +38,7 @@ class SuspendAccount
         }
 
         DB::transaction(function () use ($actor, $account): void {
-            $account->suspend(SuspensionSource::Manual);
+            $account->suspend(app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $account));
 
             $account->webDomains()->whereNull('suspended_at')->get()
                 ->each(fn (WebDomain $d) => app(SuspendWebDomain::class)->handle($actor, $d, SuspensionSource::Cascade));

@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\MailDomain;
 use App\Models\User;
@@ -53,7 +54,8 @@ class MailDomainPolicy
 
     public function unsuspend(User $user, MailDomain $mailDomain): bool
     {
-        return $user->hasAccountRole($mailDomain->account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($mailDomain->account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLiftResource($user, $mailDomain->account, $mailDomain->suspension_source);
     }
 
     public function delete(User $user, MailDomain $mailDomain): bool

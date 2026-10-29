@@ -2,6 +2,7 @@
 
 namespace App\Actions\TenantDatabases;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesTenantDatabaseCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -15,9 +16,11 @@ use Illuminate\Support\Str;
 
 class SuspendTenantDatabase
 {
-    public function handle(User $actor, TenantDatabase $tenantDatabase, SuspensionSource $source = SuspensionSource::Manual): void
+    public function handle(User $actor, TenantDatabase $tenantDatabase, ?SuspensionSource $source = null): void
     {
         Gate::forUser($actor)->authorize('suspend', $tenantDatabase);
+
+        $source ??= app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $tenantDatabase->account);
 
         if ($tenantDatabase->isSuspended()) {
             return; // duplicate submission: no second audit row

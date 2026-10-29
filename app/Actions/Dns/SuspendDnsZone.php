@@ -2,6 +2,7 @@
 
 namespace App\Actions\Dns;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesDnsCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -16,9 +17,11 @@ use Illuminate\Support\Str;
 
 class SuspendDnsZone
 {
-    public function handle(User $actor, DnsZone $dnsZone, SuspensionSource $source = SuspensionSource::Manual): void
+    public function handle(User $actor, DnsZone $dnsZone, ?SuspensionSource $source = null): void
     {
         Gate::forUser($actor)->authorize('suspend', $dnsZone);
+
+        $source ??= app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $dnsZone->account);
 
         if ($dnsZone->isSuspended()) {
             return; // duplicate submission: no second audit row

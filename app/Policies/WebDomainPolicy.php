@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\User;
 use App\Models\WebDomain;
@@ -54,7 +55,8 @@ class WebDomainPolicy
 
     public function unsuspend(User $user, WebDomain $webDomain): bool
     {
-        return $user->hasAccountRole($webDomain->account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($webDomain->account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLiftResource($user, $webDomain->account, $webDomain->suspension_source);
     }
 
     public function delete(User $user, WebDomain $webDomain): bool

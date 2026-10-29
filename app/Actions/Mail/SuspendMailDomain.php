@@ -2,6 +2,7 @@
 
 namespace App\Actions\Mail;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesMailCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -16,9 +17,11 @@ use Illuminate\Support\Str;
 
 class SuspendMailDomain
 {
-    public function handle(User $actor, MailDomain $mailDomain, SuspensionSource $source = SuspensionSource::Manual): void
+    public function handle(User $actor, MailDomain $mailDomain, ?SuspensionSource $source = null): void
     {
         Gate::forUser($actor)->authorize('suspend', $mailDomain);
+
+        $source ??= app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $mailDomain->account);
 
         if ($mailDomain->isSuspended()) {
             return; // duplicate submission: no second audit row

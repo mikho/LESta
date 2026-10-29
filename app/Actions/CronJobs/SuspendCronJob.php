@@ -2,6 +2,7 @@
 
 namespace App\Actions\CronJobs;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesCronCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -15,9 +16,11 @@ use Illuminate\Support\Str;
 
 class SuspendCronJob
 {
-    public function handle(User $actor, CronJob $cronJob, SuspensionSource $source = SuspensionSource::Manual): void
+    public function handle(User $actor, CronJob $cronJob, ?SuspensionSource $source = null): void
     {
         Gate::forUser($actor)->authorize('suspend', $cronJob);
+
+        $source ??= app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $cronJob->account);
 
         if ($cronJob->isSuspended()) {
             return; // duplicate submission: no second audit row

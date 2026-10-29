@@ -2,6 +2,7 @@
 
 namespace App\Actions\Domains;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesWebCapableNode;
 use App\Enums\ProvisioningVerb;
@@ -15,9 +16,11 @@ use Illuminate\Support\Str;
 
 class SuspendWebDomain
 {
-    public function handle(User $actor, WebDomain $webDomain, SuspensionSource $source = SuspensionSource::Manual): void
+    public function handle(User $actor, WebDomain $webDomain, ?SuspensionSource $source = null): void
     {
         Gate::forUser($actor)->authorize('suspend', $webDomain);
+
+        $source ??= app(ResolvesSuspensionAuthority::class)->suspendingLevel($actor, $webDomain->account);
 
         if ($webDomain->isSuspended()) {
             return; // duplicate submission: no second audit row

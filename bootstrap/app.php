@@ -2,6 +2,7 @@
 
 use App\Exceptions\RendersApiProblem;
 use App\Http\Middleware\AuthenticateApiToken;
+use App\Http\Middleware\BlocksSuspendedAccountWrites;
 use App\Http\Middleware\HandleApiIdempotencyKey;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -47,6 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prependToPriorityList(before: ThrottleRequests::class, prepend: AuthenticateApiToken::class);
         $middleware->appendToPriorityList(after: SubstituteBindings::class, append: RequireApiAbility::class);
         $middleware->appendToPriorityList(after: RequireApiAbility::class, append: RequireApiPermission::class);
+        $middleware->appendToPriorityList(after: SubstituteBindings::class, append: BlocksSuspendedAccountWrites::class);
 
         // Which proxies are believed is set in AppServiceProvider from config('app.trusted_proxies')
         // (TRUSTED_PROXIES): the local machine by default, where nginx terminates TLS. Without
@@ -63,6 +65,7 @@ return Application::configure(basePath: dirname(__DIR__))
             SecurityHeaders::class,
             HandleAppearance::class,
             HandleInertiaRequests::class,
+            BlocksSuspendedAccountWrites::class,
             // Not AddLinkHeadersForPreloadedAssets: its Link header repeats every preload tag the page
             // already has and made the response header larger than nginx's default FastCGI buffer
             // once the security headers and encrypted cookies were added (a 502 from nginx).

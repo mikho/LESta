@@ -4,7 +4,7 @@ export type WebServer = 'nginx' | 'apache';
 
 export type PhpVersion = '8.1' | '8.2' | '8.3' | '8.4';
 
-export type SuspensionSource = 'manual' | 'cascade';
+export type SuspensionSource = 'manual' | 'cascade' | 'reseller' | 'provider';
 
 export type ProvisioningStatus =
     | 'pending'

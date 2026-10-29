@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Accounts\ResolvesSuspensionAuthority;
 use App\Models\Account;
 use App\Models\User;
 
@@ -48,7 +49,8 @@ class AccountPolicy
 
     public function unsuspend(User $user, Account $account): bool
     {
-        return $user->hasAccountRole($account, 'owner') || $user->hasPermission('accounts.unsuspend');
+        return ($user->hasAccountRole($account, 'owner') || $user->hasPermission('accounts.unsuspend'))
+            && app(ResolvesSuspensionAuthority::class)->mayLift($user, $account, $account->suspension_source);
     }
 
     public function delete(User $user, Account $account): bool
