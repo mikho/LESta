@@ -4,6 +4,7 @@ namespace App\Http\Requests\Dns;
 
 use App\Enums\DnsRecordType;
 use App\Rules\ValidDnsRecordName;
+use App\Rules\ValidDnsRecordValue;
 use App\Rules\ValidDnsTargetHostname;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -15,8 +16,8 @@ use Illuminate\Validation\Rule;
  * 1. No name+type uniqueness rule. Multiple A/NS/MX records sharing a name is valid, desired DNS
  *    (round-robin, multiple mail exchangers), the database's uniqueness constraint is on
  *    (zone, name, type, value), not (zone, name, type).
- * 2. No structured parsing of SRV's "weight port target" or CAA's "flags tag value" sub-fields.
- *    `value` stays one opaque string end-to-end, matching Phase 5's own already-made decision.
+ * 2. SRV, CAA and TXT values are checked against their own grammar (ValidDnsRecordValue): they
+ *    become zone file text, where a line break or a leading "$" would start a directive.
  *    Full type-specific wire-format validation is out of scope for this phase.
  */
 class StoreDnsRecordRequest extends FormRequest
@@ -50,7 +51,7 @@ class StoreDnsRecordRequest extends FormRequest
                 'A' => ['required', 'string', 'ip', 'ipv4'],
                 'AAAA' => ['required', 'string', 'ip', 'ipv6'],
                 'CNAME', 'NS', 'PTR', 'MX' => ['required', 'string', 'max:255', new ValidDnsTargetHostname],
-                'TXT', 'SRV', 'CAA' => ['required', 'string', 'max:2048'],
+                'TXT', 'SRV', 'CAA' => ['required', 'string', 'max:2048', new ValidDnsRecordValue($type)],
                 default => ['required', 'string', 'max:255'],
             },
         ];

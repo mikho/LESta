@@ -88,13 +88,9 @@ func (e *ValidationError) Error() string {
 // ParsePayload decodes and validates raw as a Payload. Unknown fields are a
 // hard decode error, matching the envelope decode discipline.
 //
-// Deliberately NOT validated here (inheriting StoreDnsRecordRequest's own
-// already-documented scope cuts): a record's Name against any hostname-shaped
-// pattern (Laravel's ValidDnsRecordName rule already enforces this), and a
-// record Value's per-type internal structure (SRV's "weight port target",
-// CAA's "flag tag value"). Value stays one opaque string end-to-end;
-// named-checkconf -z is the authoritative backstop for anything that would
-// corrupt zone-file syntax.
+// Every record's name and value are checked against their type's grammar
+// (values.go): they become zone file text, where a newline or a leading "$"
+// would start a line or directive of its own.
 func ParsePayload(raw json.RawMessage) (Payload, error) {
 	var p Payload
 
@@ -149,6 +145,14 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 				Message: fmt.Sprintf("%s records must not have a priority", r.Type),
 				Field:   field + ".priority",
 			}
+		}
+
+		if r.Priority != nil && (*r.Priority < 0 || *r.Priority > 65535) {
+			return Payload{}, &ValidationError{Code: "invalid_priority", Message: "priority must be between 0 and 65535", Field: field + ".priority"}
+		}
+
+		if verr := validateRecordValue(r, field); verr != nil {
+			return Payload{}, verr
 		}
 	}
 

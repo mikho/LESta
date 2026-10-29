@@ -131,28 +131,16 @@ func renderRecordLine(r Record) (string, error) {
 
 		return fmt.Sprintf("%s IN MX %d %s", r.Name, *r.Priority, fqdn(r.Value)), nil
 	case "SRV":
-		// value is already required (the opaque-string contract) to be the
-		// "weight port target" triplet, so priority + " " + value produces
-		// exactly BIND's real "priority weight port target" syntax. The
-		// target sub-field inside value is not FQDN-normalized here: this
-		// code has no way to know where it starts within the opaque string.
+		// value is "weight port target", checked by validateRecordValue, so
+		// priority + " " + value is BIND's "priority weight port target".
 		if r.Priority == nil {
 			return "", fmt.Errorf("SRV record %q has no priority", r.Name)
 		}
 
 		return fmt.Sprintf("%s IN SRV %d %s", r.Name, *r.Priority, r.Value), nil
 	case "CAA":
-		// Rendered fully verbatim, deliberately unescaped. value is already
-		// required (the same opaque-string contract as SRV) to be the
-		// complete "flag tag \"value\"" triplet, including its own literal
-		// quote characters as part of CAA's required presentation syntax.
-		// Unlike TXT below, where the whole value becomes the content of a
-		// single quoted string *this template constructs*, CAA's quotes are
-		// not ours to add or escape: escaping them here would double-encode
-		// an already well-formed tenant-supplied record and corrupt its
-		// meaning. named-checkconf -z is the backstop for any resulting
-		// zone-file syntax problem, exactly as for every other opaque-string
-		// field.
+		// value is the complete "flags tag \"value\"" triplet with its own
+		// quotes, checked by validateRecordValue, so it is rendered as is.
 		return fmt.Sprintf("%s IN CAA %s", r.Name, r.Value), nil
 	case "TXT":
 		return fmt.Sprintf("%s IN TXT %s", r.Name, renderTXTValue(r.Value)), nil

@@ -129,3 +129,33 @@ test('a dns record belonging to a different zone than the url cannot be updated,
         ])
         ->assertNotFound();
 });
+
+test('SRV, CAA and TXT values that would inject zone file lines are refused', function (string $type, ?int $priority, string $value) {
+    [, $owner, , $dnsZone] = actingAsOwnerWithDnsZoneAndCapableNode();
+
+    $this->actingAs($owner)
+        ->post(route('dns.records.store', $dnsZone), ['name' => '@', 'type' => $type, 'priority' => $priority, 'value' => $value])
+        ->assertSessionHasErrors('value');
+
+    expect(DnsRecord::where('dns_zone_id', $dnsZone->id)->exists())->toBeFalse();
+})->with([
+    'SRV with an $INCLUDE line' => ['SRV', 10, "0 0 x.\n\$INCLUDE /etc/shadow"],
+    'SRV with a comment' => ['SRV', 10, '0 0 x. ; y'],
+    'SRV port out of range' => ['SRV', 10, '5 70000 sip.example.com.'],
+    'CAA with a $GENERATE line' => ['CAA', null, "0 issue \"x\"\n\$GENERATE 1-9 a\$ A 1.2.3.4"],
+    'CAA without quotes' => ['CAA', null, '0 issue letsencrypt.org'],
+    'CAA unknown tag' => ['CAA', null, '0 evil "x"'],
+    'TXT with a line break' => ['TXT', null, "v=spf1\n\$TTL 1"],
+]);
+
+test('ordinary SRV, CAA and TXT values are accepted', function (string $type, ?int $priority, string $value) {
+    [, $owner, , $dnsZone] = actingAsOwnerWithDnsZoneAndCapableNode();
+
+    $this->actingAs($owner)
+        ->post(route('dns.records.store', $dnsZone), ['name' => '_sip._tcp', 'type' => $type, 'priority' => $priority, 'value' => $value])
+        ->assertSessionHasNoErrors();
+})->with([
+    'SRV' => ['SRV', 10, '5 5060 sip.example.com.'],
+    'CAA' => ['CAA', null, '0 issue "letsencrypt.org"'],
+    'TXT with quotes and semicolons' => ['TXT', null, 'v=spf1 mx -all; "quoted"'],
+]);
