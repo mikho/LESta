@@ -30,7 +30,7 @@ class DeleteOrphanedAccountNodeIdentity
         // guard pattern.
         if (! $identity->isOrphaned()) {
             throw ValidationException::withMessages([
-                'identity' => 'This identity still has cron jobs on this node and cannot be deleted.',
+                'identity' => 'This identity still owns websites, databases, mail, DNS zones or cron jobs on this node and cannot be deleted.',
             ]);
         }
 

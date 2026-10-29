@@ -188,6 +188,8 @@ class NodeController extends Controller
      */
     public function destroyOrphanedIdentity(Request $request, Node $node, AccountNodeIdentity $accountNodeIdentity): RedirectResponse
     {
+        abort_unless($accountNodeIdentity->node_id === $node->id, 404);
+
         app(DeleteOrphanedAccountNodeIdentity::class)->handle($request->user(), $accountNodeIdentity);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Identity deleted.')]);

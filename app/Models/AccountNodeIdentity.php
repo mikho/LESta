@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * A tenant account's own dedicated, per-node Linux system user
@@ -74,36 +75,50 @@ class AccountNodeIdentity extends Model implements ProviderAdminManaged
     }
 
     /**
-     * Scope to identities on $node whose (account_id, node_id) pair has zero remaining CronJob
-     * rows: the only real consumer of a per-account identity today. An orphaned identity's own
-     * job is done, but it is never auto-deleted (see App\Actions\Cron\DeleteOrphanedAccountNodeIdentity's
-     * own doc comment for why); this scope only ever powers the manual admin list/delete flow.
+     * The tables whose rows run as, or are owned by, an account's identity on a node: the web
+     * domains' files and SFTP, cron jobs, and the databases, mail and zones kept with them on the
+     * same node (account backups take all of these). An identity is orphaned only when its
+     * (account_id, node_id) pair has no row left in any of them.
+     *
+     * @var list<string>
+     */
+    public const array RESOURCE_TABLES = ['web_domains', 'cron_jobs', 'tenant_databases', 'mail_domains', 'dns_zones'];
+
+    /**
+     * Scope to identities on $node whose account has nothing left on that node (RESOURCE_TABLES).
+     * An orphaned identity is never auto-deleted (see DeleteOrphanedAccountNodeIdentity's own doc
+     * comment for why); this scope only powers the manual admin list and delete flow.
      *
      * @param  Builder<AccountNodeIdentity>  $query
      * @return Builder<AccountNodeIdentity>
      */
     public function scopeOrphanedOn(Builder $query, Node $node): Builder
     {
-        return $query
-            ->where('node_id', $node->id)
-            ->whereNotIn('account_id', function ($subQuery) use ($node): void {
-                $subQuery->select('account_id')
-                    ->from('cron_jobs')
-                    ->where('node_id', $node->id);
+        $query->where('node_id', $node->id);
+
+        foreach (self::RESOURCE_TABLES as $table) {
+            $query->whereNotIn('account_id', function ($subQuery) use ($table, $node): void {
+                $subQuery->select('account_id')->from($table)->where('node_id', $node->id);
             });
+        }
+
+        return $query;
     }
 
     /**
-     * Whether this identity is currently orphaned: its own (account_id, node_id) pair has no
-     * remaining CronJob rows. Re-checked live, never cached, since DeleteOrphanedAccountNodeIdentity
-     * must never trust a client-supplied assumption about this.
+     * Whether this identity is orphaned: its account has nothing left on its node. Re-checked
+     * live, never cached, since DeleteOrphanedAccountNodeIdentity must never trust a
+     * client-supplied assumption about this.
      */
     public function isOrphaned(): bool
     {
-        return ! CronJob::query()
-            ->where('account_id', $this->account_id)
-            ->where('node_id', $this->node_id)
-            ->exists();
+        foreach (self::RESOURCE_TABLES as $table) {
+            if (DB::table($table)->where('account_id', $this->account_id)->where('node_id', $this->node_id)->exists()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
