@@ -18,6 +18,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
+	"github.com/mikho/LESta/agent/internal/opctx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -319,6 +320,9 @@ func (c *Bind9Capability) observe(ctx context.Context, op protocol.OperationEnve
 // the NEW generation number NextGeneration just gave this rollback attempt,
 // so the restored generation is fully self-contained.
 func (c *Bind9Capability) recoverFromFailure(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool, code, message string) (protocol.ResultEnvelope, error) {
+	ctx, cancel := opctx.Rollback(ctx)
+	defer cancel()
+
 	if !requirePrior {
 		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})

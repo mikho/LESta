@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mikho/LESta/agent/internal/opctx"
 )
 
 // reload issues named's reload as its own separate step from activation.
@@ -100,6 +102,9 @@ func (c *Bind9Capability) waitHealthyGeneric(ctx context.Context) error {
 // picking up the new config, so a single immediate probe would be flaky;
 // polling within the operation's own deadline absorbs that race.
 func pollUntil(ctx context.Context, probe func() error) error {
+	ctx, cancel := opctx.HealthCheck(ctx)
+	defer cancel()
+
 	var lastErr error
 
 	for {

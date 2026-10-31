@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mikho/LESta/agent/internal/opctx"
 )
 
 // reload issues sshd's reload as its own separate step from activation.
@@ -72,6 +74,9 @@ func (c *IdentityCapability) waitHealthy(ctx context.Context) error {
 // done. A reload signal returns before sshd has necessarily finished
 // re-reading its config, so a single immediate probe would be flaky.
 func pollUntil(ctx context.Context, probe func() error) error {
+	ctx, cancel := opctx.HealthCheck(ctx)
+	defer cancel()
+
 	var lastErr error
 
 	for {

@@ -33,6 +33,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
+	"github.com/mikho/LESta/agent/internal/opctx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -299,6 +300,9 @@ func (c *PhpFpmCapability) observe(ctx context.Context, op protocol.OperationEnv
 // caller before this attempt ever touched anything). Rollback always
 // re-activates into oldVersion's own poolDir, never the failed attempt's.
 func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool, oldVersion, code, message string) (protocol.ResultEnvelope, error) {
+	ctx, cancel := opctx.Rollback(ctx)
+	defer cancel()
+
 	if !requirePrior {
 		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})

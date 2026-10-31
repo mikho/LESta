@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mikho/LESta/agent/internal/opctx"
 )
 
 // reload issues this version's own real php<version>-fpm systemd unit
@@ -75,6 +77,9 @@ func (c *PhpFpmCapability) waitHealthyGeneric(ctx context.Context, version strin
 // necessarily finished re-reading its config and (re)binding the pool's
 // socket, so a single immediate probe would be flaky.
 func pollUntil(ctx context.Context, probe func() error) error {
+	ctx, cancel := opctx.HealthCheck(ctx)
+	defer cancel()
+
 	var lastErr error
 
 	for {

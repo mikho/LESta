@@ -39,6 +39,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
+	"github.com/mikho/LESta/agent/internal/opctx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -322,6 +323,9 @@ func (c *IdentityCapability) observe(ctx context.Context, op protocol.OperationE
 // generation to fall back to, so the result is always failed, never
 // degraded.
 func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool, code, message string) (protocol.ResultEnvelope, error) {
+	ctx, cancel := opctx.Rollback(ctx)
+	defer cancel()
+
 	if !requirePrior {
 		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})

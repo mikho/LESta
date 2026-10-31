@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mikho/LESta/agent/internal/opctx"
 )
 
 // suspendedMarker is the fixed string baked into templates/suspended.html.
@@ -100,6 +102,9 @@ func (c *ApacheCapability) waitHealthyGeneric(ctx context.Context, ip string, po
 // finished picking up the new config, so a single immediate probe would be
 // flaky; polling within the operation's own deadline absorbs that race.
 func pollUntil(ctx context.Context, probe func() error) error {
+	ctx, cancel := opctx.HealthCheck(ctx)
+	defer cancel()
+
 	var lastErr error
 
 	for {

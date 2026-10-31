@@ -17,6 +17,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
+	"github.com/mikho/LESta/agent/internal/opctx"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -348,6 +349,9 @@ func (c *NginxCapability) observe(ctx context.Context, op protocol.OperationEnve
 // activated (if it got that far) is left as-is; there is no "prior good state"
 // to restore it to, only the fact that the attempt failed.
 func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool, code, message string) (protocol.ResultEnvelope, error) {
+	ctx, cancel := opctx.Rollback(ctx)
+	defer cancel()
+
 	if !requirePrior {
 		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})
