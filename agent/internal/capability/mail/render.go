@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // lsearchLine builds one "key: value\n" lsearch-format data line. No
@@ -74,8 +75,21 @@ type renderedData struct {
 // unlike BLF-CRYPT, which Dovecot implements itself rather than delegating
 // to the host's own crypt(3). Never MD5, per the Mail Threat Model's own
 // non-negotiable, correcting the legacy Vesta anti-pattern.
+//
+// The password goes in on stdin, never on argv, where any local user could
+// read it from /proc. Without -p and without a terminal, doveadm pw reads it
+// twice from stdin (prompt and confirmation); Setsid detaches the child from
+// any controlling terminal so it never reads /dev/tty instead. A mismatch
+// makes doveadm prompt again and hash whatever follows, so the plaintext may
+// not contain a line break (the payload only allows 48 hex characters).
 func (c *MailCapability) hashPassword(ctx context.Context, plaintext string) (string, error) {
-	cmd := exec.CommandContext(ctx, c.cfg.doveadmBinary(), "pw", "-s", "BLF-CRYPT", "-p", plaintext)
+	if plaintext == "" || strings.ContainsAny(plaintext, "\r\n") {
+		return "", fmt.Errorf("hashing password: refusing an empty password or one with a line break")
+	}
+
+	cmd := exec.CommandContext(ctx, c.cfg.doveadmBinary(), "pw", "-s", "BLF-CRYPT")
+	cmd.Stdin = strings.NewReader(plaintext + "\n" + plaintext + "\n")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	out, err := cmd.Output()
 	if err != nil {
