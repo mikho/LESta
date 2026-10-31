@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Agent\StoreEnrollmentRequest;
 use App\Models\Node;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 class AgentEnrollmentController extends Controller
 {
@@ -19,40 +20,50 @@ class AgentEnrollmentController extends Controller
     {
         $validated = $request->validated();
 
-        $node = Node::query()->where('uuid', $validated['node_uuid'])->first();
+        // The token is checked and spent in one transaction with the node row locked, so two
+        // requests carrying the same token can never both receive a credential.
+        $outcome = DB::transaction(function () use ($validated): string|JsonResponse {
+            $node = Node::query()->where('uuid', $validated['node_uuid'])->lockForUpdate()->first();
 
-        if ($node === null) {
-            return response()->json(['error' => 'Node not found.'], 404);
-        }
+            if ($node === null) {
+                return response()->json(['error' => 'Node not found.'], 404);
+            }
 
-        // Pending: first-time enrollment. Revoked: Node::issueEnrollmentToken() sets exactly
-        // this status when a fresh token is issued for an already-Enrolled node (credential
-        // rotation -- see IssueNodeEnrollmentToken action's own doc comment), and that fresh
-        // token must be able to complete enrollment the same way a first-time one does. Found
-        // deploying to a real node: without Revoked here, issuing a rotation token permanently
-        // revokes the live credential with no way to ever complete the rotation through this
-        // endpoint, even with a valid, unexpired token -- the feature could revoke but never
-        // actually rotate.
-        $tokenIsValid = in_array($node->enrollment_status, [NodeEnrollmentStatus::Pending, NodeEnrollmentStatus::Revoked], true)
-            && $node->enrollment_token_hash !== null
-            && $node->enrollment_token_expires_at !== null
-            && $node->enrollment_token_expires_at->isFuture()
-            && hash_equals($node->enrollment_token_hash, hash('sha256', $validated['enrollment_token']));
+            // Pending: first-time enrollment. Revoked: Node::issueEnrollmentToken() sets exactly
+            // this status when a fresh token is issued for an already-Enrolled node (credential
+            // rotation -- see IssueNodeEnrollmentToken action's own doc comment), and that fresh
+            // token must be able to complete enrollment the same way a first-time one does. Found
+            // deploying to a real node: without Revoked here, issuing a rotation token permanently
+            // revokes the live credential with no way to ever complete the rotation through this
+            // endpoint, even with a valid, unexpired token -- the feature could revoke but never
+            // actually rotate.
+            $tokenIsValid = in_array($node->enrollment_status, [NodeEnrollmentStatus::Pending, NodeEnrollmentStatus::Revoked], true)
+                && $node->enrollment_token_hash !== null
+                && $node->enrollment_token_expires_at !== null
+                && $node->enrollment_token_expires_at->isFuture()
+                && hash_equals($node->enrollment_token_hash, hash('sha256', $validated['enrollment_token']));
 
-        if (! $tokenIsValid) {
-            // Deliberately vague: never let a caller distinguish "wrong token" from "expired
-            // token" from "wrong node", which would otherwise act as an oracle.
-            return response()->json(['error' => 'Invalid or expired enrollment token.'], 422);
-        }
+            if (! $tokenIsValid) {
+                // Deliberately vague: never let a caller distinguish "wrong token" from "expired
+                // token" from "wrong node", which would otherwise act as an oracle.
+                return response()->json(['error' => 'Invalid or expired enrollment token.'], 422);
+            }
 
-        $credential = $node->completeEnrollment($validated['protocol_version'], $validated['agent_version']);
+            $credential = $node->completeEnrollment($validated['protocol_version'], $validated['agent_version']);
 
-        if (isset($validated['hostname']) && $validated['hostname'] !== $node->hostname) {
-            $node->forceFill(['hostname' => $validated['hostname']])->save();
+            if (isset($validated['hostname']) && $validated['hostname'] !== $node->hostname) {
+                $node->forceFill(['hostname' => $validated['hostname']])->save();
+            }
+
+            return $credential;
+        });
+
+        if ($outcome instanceof JsonResponse) {
+            return $outcome;
         }
 
         return response()->json([
-            'node_credential' => $credential,
+            'node_credential' => $outcome,
             'heartbeat_interval_seconds' => 60,
             'protocol_version' => '1',
         ]);

@@ -111,3 +111,30 @@ test('enrolling an unknown node uuid returns 404', function () {
 
     $response->assertStatus(404);
 });
+
+test('an enrollment token gives out one credential only', function () {
+    $node = Node::factory()->create();
+    $token = $node->issueEnrollmentToken();
+    $request = ['node_uuid' => $node->uuid, 'enrollment_token' => $token, 'agent_version' => '1.0.0', 'protocol_version' => '1'];
+
+    $first = $this->postJson('/agent/v1/enroll', $request)->assertOk();
+    $this->postJson('/agent/v1/enroll', $request)->assertStatus(422);
+
+    expect($node->refresh()->node_credential_hash)->toBe(hash('sha256', $first->json('node_credential')));
+});
+
+test('the hostname a node reports must be a domain name no other node has', function (string $hostname) {
+    Node::factory()->create(['hostname' => 'taken.example.com']);
+    $node = Node::factory()->create(['hostname' => 'node.example.com']);
+    $token = $node->issueEnrollmentToken();
+
+    $this->postJson('/agent/v1/enroll', [
+        'node_uuid' => $node->uuid,
+        'enrollment_token' => $token,
+        'hostname' => $hostname,
+        'agent_version' => '1.0.0',
+        'protocol_version' => '1',
+    ])->assertUnprocessable()->assertJsonValidationErrors('hostname');
+
+    expect($node->refresh()->hostname)->toBe('node.example.com');
+})->with(['taken.example.com', 'not a host', '-bad-.example.com']);
