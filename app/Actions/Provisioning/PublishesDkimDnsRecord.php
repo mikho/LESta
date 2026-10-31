@@ -35,6 +35,9 @@ use Illuminate\Support\Str;
  */
 class PublishesDkimDnsRecord
 {
+    /** A DER public key in base64: a 2048- or 4096-bit RSA key is well under 1000 characters. */
+    private const string PUBLIC_KEY_PATTERN = '/^[A-Za-z0-9+\/]{64,1024}={0,2}$/';
+
     public function handle(ProvisioningOperation $operation): void
     {
         $mailDomain = $operation->provisionable;
@@ -58,6 +61,18 @@ class PublishesDkimDnsRecord
             $publicKey = $entry['public_key'] ?? null;
 
             if (! is_string($selector) || $selector === '' || ! is_string($publicKey) || $publicKey === '') {
+                continue;
+            }
+
+            // The node's answer becomes a public DNS record, so only what the panel asked for is
+            // published: one of the selectors it gave this domain, with a key that is plain base64.
+            if (! in_array($selector, array_filter([$mailDomain->dkim_selector, $mailDomain->dkim_pending_selector]), true)
+                || preg_match(self::PUBLIC_KEY_PATTERN, $publicKey) !== 1) {
+                Log::warning('Not publishing a DKIM record the node reported for a selector or key this domain was not given.', [
+                    'mail_domain_id' => $mailDomain->id,
+                    'selector' => Str::limit($selector, 64),
+                ]);
+
                 continue;
             }
 

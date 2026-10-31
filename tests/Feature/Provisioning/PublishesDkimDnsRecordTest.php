@@ -12,6 +12,14 @@ use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
 
+/**
+ * A stand-in public key: base64, like the real DER key a node reports, and different per $label.
+ */
+function dkimTestKey(string $label): string
+{
+    return 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'.base64_encode(hash('sha256', $label, true));
+}
+
 function dkimCompletionOperation(MailDomain $mailDomain, array $overrides = []): ProvisioningOperation
 {
     return ProvisioningOperation::factory()->create(array_merge([
@@ -25,7 +33,7 @@ function dkimCompletionOperation(MailDomain $mailDomain, array $overrides = []):
         'data' => [
             'active' => [
                 'selector' => 'lesta1',
-                'public_key' => 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA'.'test-public-key-bytes',
+                'public_key' => dkimTestKey('active'),
             ],
         ],
     ], $overrides));
@@ -78,27 +86,27 @@ test('a changed public key updates the existing record in place rather than crea
 
     app(PublishesDkimDnsRecord::class)->handle(dkimCompletionOperation($mailDomain));
 
-    $rotated = dkimCompletionOperation($mailDomain, ['data' => ['active' => ['selector' => 'lesta1', 'public_key' => 'a-different-rotated-key']]]);
+    $rotated = dkimCompletionOperation($mailDomain, ['data' => ['active' => ['selector' => 'lesta1', 'public_key' => dkimTestKey('rotated')]]]);
     app(PublishesDkimDnsRecord::class)->handle($rotated);
 
     expect($dnsZone->records()->where('name', 'lesta1._domainkey')->count())->toBe(1);
 
     $record = $dnsZone->records()->where('name', 'lesta1._domainkey')->first();
-    expect($record->value)->toBe('v=DKIM1; k=rsa; p=a-different-rotated-key');
+    expect($record->value)->toBe('v=DKIM1; k=rsa; p='.dkimTestKey('rotated'));
 
     expect(AuditEvent::where('action', 'dns_record.dkim_updated')->where('auditable_id', $record->id)->exists())->toBeTrue();
 });
 
 test('a pending selector mid-rotation gets its own real DNS record published alongside the active one', function () {
     $account = Account::factory()->create();
-    $mailDomain = MailDomain::factory()->for($account)->create(['domain' => 'example.test', 'dkim_enabled' => true]);
+    $mailDomain = MailDomain::factory()->for($account)->create(['domain' => 'example.test', 'dkim_enabled' => true, 'dkim_pending_selector' => 'lesta2']);
     $dnsZone = DnsZone::factory()->for($account)->create(['domain' => 'example.test']);
     NodeCapability::factory()->for($dnsZone->node)->create(['capability' => 'dns.bind9.v1']);
 
     $operation = dkimCompletionOperation($mailDomain, [
         'data' => [
-            'active' => ['selector' => 'lesta1', 'public_key' => 'active-key-bytes'],
-            'pending' => ['selector' => 'lesta2', 'public_key' => 'pending-key-bytes'],
+            'active' => ['selector' => 'lesta1', 'public_key' => dkimTestKey('active')],
+            'pending' => ['selector' => 'lesta2', 'public_key' => dkimTestKey('pending')],
         ],
     ]);
 
@@ -108,9 +116,9 @@ test('a pending selector mid-rotation gets its own real DNS record published alo
     $pendingRecord = $dnsZone->records()->where('name', 'lesta2._domainkey')->first();
 
     expect($activeRecord)->not->toBeNull()
-        ->and($activeRecord->value)->toBe('v=DKIM1; k=rsa; p=active-key-bytes')
+        ->and($activeRecord->value)->toBe('v=DKIM1; k=rsa; p='.dkimTestKey('active'))
         ->and($pendingRecord)->not->toBeNull()
-        ->and($pendingRecord->value)->toBe('v=DKIM1; k=rsa; p=pending-key-bytes');
+        ->and($pendingRecord->value)->toBe('v=DKIM1; k=rsa; p='.dkimTestKey('pending'));
 });
 
 test('no matching dns zone for the account is a logged no-op, not an exception', function () {
@@ -194,3 +202,17 @@ test('a non-MailDomain provisionable is ignored', function () {
 
     expect(true)->toBeTrue();
 });
+
+test('a selector or key the domain was not given is never published', function (array $entry) {
+    $account = Account::factory()->create();
+    $mailDomain = MailDomain::factory()->for($account)->create(['domain' => 'example.test', 'dkim_enabled' => true]);
+    $dnsZone = DnsZone::factory()->for($account)->create(['domain' => 'example.test']);
+    NodeCapability::factory()->for($dnsZone->node)->create(['capability' => 'dns.bind9.v1']);
+
+    app(PublishesDkimDnsRecord::class)->handle(dkimCompletionOperation($mailDomain, ['data' => ['active' => $entry]]));
+
+    expect($dnsZone->records()->count())->toBe(0);
+})->with([
+    'another selector' => [['selector' => 'www', 'public_key' => dkimTestKey('x')]],
+    'a key that is not base64' => [['selector' => 'lesta1', 'public_key' => 'abc; v=spf1 +all']],
+]);
