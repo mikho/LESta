@@ -753,8 +753,11 @@ Include /usr/share/modsecurity-crs/rules/*.conf
 WAFCONF
     chmod 0644 /etc/lesta/waf/main.conf
 
+    # su: the directory is group-writable by www-data (the nginx workers write the audit logs), and
+    # logrotate skips every log in such a directory unless told which user and group to rotate as.
     cat > /etc/logrotate.d/lesta-waf <<'WAFLOGROTATE'
 /var/log/lesta/waf/*.audit.log {
+    su root www-data
     daily
     rotate 14
     compress
