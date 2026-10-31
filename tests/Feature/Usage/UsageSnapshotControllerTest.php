@@ -8,6 +8,7 @@ use App\Models\Node;
 use App\Models\UsageSnapshot;
 use App\Models\UsageSnapshotRollup;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('a guest is redirected to login', function () {
@@ -164,4 +165,23 @@ test('the own-account view never sets viewingAccount', function () {
             ->component('usage/index')
             ->where('viewingAccount', null)
         );
+});
+
+test('the usage page loads mailbox labels with the page, not once per row', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $node = Node::factory()->create();
+
+    foreach (range(1, 5) as $ignored) {
+        UsageSnapshot::factory()->for($account)->for($node)
+            ->for(MailAccount::factory()->for(MailDomain::factory()->for($account)->for($node)), 'snapshotable')
+            ->create();
+    }
+
+    DB::enableQueryLog();
+    $this->actingAs($owner)->get(route('usage.index'))->assertOk();
+
+    $mailDomainQueries = array_filter(DB::getQueryLog(), fn (array $query): bool => str_contains($query['query'], 'from `mail_domains`'));
+
+    expect($mailDomainQueries)->toHaveCount(1);
 });

@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Usage;
 use App\Concerns\ResolvesCurrentAccount;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
+use App\Models\MailAccount;
 use App\Models\Node;
 use App\Models\UsageSnapshot;
 use App\Models\UsageSnapshotRollup;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -70,7 +73,7 @@ class UsageSnapshotController extends Controller
         Gate::authorize('viewAny', [UsageSnapshot::class, $account]);
 
         $snapshots = $account->usageSnapshots()
-            ->with('snapshotable')
+            ->with($this->snapshotableWithLabel())
             ->orderByDesc('collected_at')
             ->paginate(20)
             ->withQueryString();
@@ -78,7 +81,7 @@ class UsageSnapshotController extends Controller
         $snapshots->through(fn (UsageSnapshot $snapshot): array => $this->presentForIndex($snapshot));
 
         $rollups = $account->usageSnapshotRollups()
-            ->with('snapshotable')
+            ->with($this->snapshotableWithLabel())
             ->orderByDesc('period')
             ->paginate(20, ['*'], 'rollups_page')
             ->withQueryString();
@@ -93,6 +96,17 @@ class UsageSnapshotController extends Controller
                 'name' => $account->name,
             ] : null,
         ]);
+    }
+
+    /**
+     * The measured resource and what its label needs (a mailbox's label names its domain), loaded
+     * with the page rather than once per row.
+     *
+     * @return array<string, Closure>
+     */
+    private function snapshotableWithLabel(): array
+    {
+        return ['snapshotable' => fn (MorphTo $morphTo) => $morphTo->morphWith([MailAccount::class => ['mailDomain']])];
     }
 
     /**
