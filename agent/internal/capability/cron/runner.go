@@ -34,7 +34,7 @@ const (
 )
 
 // executionLogEntry is one JSON-lines entry appended to
-// StateRoot/executions/<resource_id>.log.
+// StateRoot/executions/<run_as>/<resource_id>.log.
 type executionLogEntry struct {
 	StartedAt  string `json:"started_at"`
 	FinishedAt string `json:"finished_at"`
@@ -49,10 +49,10 @@ type executionLogEntry struct {
 // /etc/cron.d itself, not by this code) -- runAs is also this resource's own
 // per-account state key (see capability.go's own renderFragment doc comment
 // on why the crontab line carries it twice), so RunJob reads its sidecar
-// from, and appends its execution log under, StateRoot/accounts/<runAs>/...
-// exclusively: a directory this process's own real OS identity (runAs
-// itself, by construction) already has read/write access to via its own
-// primary group, without needing any elevated privilege. It reads the job's
+// from StateRoot/accounts/<runAs>/..., which runAs can read through its own
+// primary group, and appends its execution log to
+// StateRoot/executions/<runAs>/, which runAs owns (see ensureExecutionsDir).
+// Neither needs any elevated privilege. It reads the job's
 // real command from its JSON sidecar, execs it via `sh -c`, captures
 // combined stdout+stderr bounded to outputCapBytes, and appends one capped
 // execution-log entry. Returns the command's own exit code (or a synthetic
@@ -116,19 +116,15 @@ func boundOutput(output string) string {
 }
 
 // appendExecutionLog appends one JSON-lines entry to
-// StateRoot/accounts/<runAs>/executions/<resource_id>.log, creating the
-// account's own executions directory if missing and resetting the file
-// first if it already exceeds logCapBytes. Best-effort: a failure here must
-// never change the exit code RunJob returns, since the command itself
-// already ran to completion (or failed to start) by the time this is
-// called. This process is already running as runAs by the time it gets
-// here (cron's own identity switch happened before this binary was ever
-// exec'd), so it needs no elevated privilege to create this directory: it
-// already has write access to StateRoot/accounts/<runAs> via its own
-// primary group, the same access ensureAccountDir's own root:runAs mode
-// 2750 ownership grants it.
+// StateRoot/executions/<runAs>/<resource_id>.log, resetting the file first if
+// it already exceeds logCapBytes. Best-effort: a failure here must never
+// change the exit code RunJob returns, since the command itself already ran
+// to completion (or failed to start) by the time this is called. The
+// directory is created by the cron capability (ensureExecutionsDir), owned by
+// runAs, so this process, already running as runAs, can write to it; the
+// MkdirAll only matters for the test harness.
 func appendExecutionLog(cfg Config, runAs, resourceID string, started, finished time.Time, exitCode int, output string) {
-	dir := filepath.Join(accountDirFor(cfg.StateRoot, runAs), "executions")
+	dir := ExecutionsDirFor(cfg.StateRoot, runAs)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return
 	}

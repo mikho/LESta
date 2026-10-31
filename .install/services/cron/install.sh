@@ -441,11 +441,11 @@ install_cron() {
     # lesta-cron is deliberately NEVER added to the shared lesta group: since
     # Phase 21, its own cron-run wrapper invocation ("<AgentBinaryPath>
     # cron-run <resource_id> lesta-cron") reads its sidecar and writes its
-    # execution log under ${CRON_STATE_ROOT}/accounts/lesta-cron, a
-    # directory owned root:lesta-cron (its own primary group, created
-    # lazily by the agent's own ensureAccountDir the first time the
-    # self-test below runs a create), which lesta-cron already has access
-    # to via that primary group alone. And .install/lib/agent.sh's own
+    # execution log under ${CRON_STATE_ROOT}/accounts/lesta-cron and
+    # ${CRON_STATE_ROOT}/executions/lesta-cron, owned root:lesta-cron and
+    # lesta-cron:lesta (created lazily by the agent's own ensureAccountDir
+    # the first time the self-test below runs a create), which lesta-cron
+    # already has access to without the lesta group. And .install/lib/agent.sh's own
     # world-execute AGENT_BINARY_DEST (plus the world-traversable
     # /var/lib/lesta and /var/lib/lesta/agent directories) means reaching
     # the agent binary itself never required lesta group membership either.
@@ -504,9 +504,11 @@ install_cron() {
     ratchet_root_owned_dir "${CRON_STATE_ROOT}/jobs" 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/jobs" "failed to create ${CRON_STATE_ROOT}/jobs"
     add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/jobs" "generation-store bookkeeping directory present, mode 0770 root:lesta"
 
-    # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar and
-    # execution-log directory, owned root:<run_as> mode 2750 setgid) is
-    # deliberately NOT pre-created here: it is created lazily, on demand, by
+    # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar
+    # directory, owned root:<run_as> mode 2750 setgid) and
+    # ${CRON_STATE_ROOT}/executions/<run_as> (its execution logs, owned
+    # <run_as>:lesta mode 2750 setgid, so the daemon can report them) are
+    # deliberately NOT pre-created here: they are created lazily, on demand, by
     # the agent's own ensureAccountDir (agent/internal/capability/cron/
     # account.go) the first time any account -- including lesta-cron itself,
     # via the self-test just below -- gets its first cron job on this node.
@@ -604,15 +606,26 @@ run_node_health_selftest() {
     # payload.RunAs-derived shape (see agent/internal/capability/cron/
     # capability.go's own renderFragment doc comment on why run_as is
     # repeated as an explicit CLI argument, not just the crontab user-column).
+    # It runs as ${RUNNER_USER}, as cron would, not as root: only then does it
+    # prove the job user can read its sidecar and append its execution log.
     wrapper_status=0
-    "${AGENT_BINARY_DEST}" cron-run "${resource_id}" "${RUNNER_USER}" >/dev/null 2>&1 || wrapper_status=$?
+    runuser -u "${RUNNER_USER}" -- "${AGENT_BINARY_DEST}" cron-run "${resource_id}" "${RUNNER_USER}" >/dev/null 2>&1 || wrapper_status=$?
 
     if [ "${wrapper_status}" -ne 0 ]; then
         run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_wrapper_failed "${AGENT_BINARY_DEST}" "${AGENT_BINARY_DEST} cron-run ${resource_id} ${RUNNER_USER} exited ${wrapper_status}, expected 0"
     fi
 
-    log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 against the real sidecar"
+    # The daemon reports job runs from this log; without it the panel never
+    # shows a cron job's history.
+    execution_log="${CRON_STATE_ROOT}/executions/${RUNNER_USER}/${resource_id}.log"
+    if ! runuser -u lesta-agent -- test -r "${execution_log}"; then
+        run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
+        agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_execution_log_missing "${execution_log}" "the cron-run wrapper exited 0 but left no execution log the daemon can read at ${execution_log}"
+    fi
+    rm -f "${execution_log}"
+
+    log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 as ${RUNNER_USER} and wrote an execution log the daemon can read"
 
     # The create/delete round trip above already ran as lesta-agent and went through the root applier,
     # so it exercises the whole write path; the fragment ownership is checked by the applier's own tests.
@@ -629,6 +642,24 @@ run_node_health_selftest() {
     log_info "bootstrap_node_health self-test: create+delete both returned status=applied, wrapper exited 0, fragment removed after delete"
 }
 
+# cron_ensure_existing_execution_dirs gives every account that already had
+# cron jobs before execution logs moved to ${CRON_STATE_ROOT}/executions its
+# log directory, which the agent otherwise only creates on that account's
+# next cron change. Same ownership and mode as the agent's ensureExecutionsDir.
+cron_ensure_existing_execution_dirs() {
+    local account_dir account
+
+    for account_dir in "${CRON_STATE_ROOT}"/accounts/*/; do
+        [ -d "${account_dir}" ] || continue
+        account=$(basename "${account_dir}")
+        getent passwd "${account}" >/dev/null 2>&1 || continue
+
+        install -d -m 2750 -o "${account}" -g lesta "${CRON_STATE_ROOT}/executions/${account}" \
+            || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/executions/${account}" "failed to create ${CRON_STATE_ROOT}/executions/${account}"
+        add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/executions/${account}" "execution log directory present, mode 2750 ${account}:lesta"
+    done
+}
+
 bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary and running disposable self-test"
 
@@ -640,6 +671,7 @@ bootstrap_node_health() {
     add_change "${SCHEDULER_CRON_CAPABILITY}" installed "/etc/systemd/system/lesta-applier-tenant.service" "root applier (tenant instance) installed and started; ${SCHEDULER_CRON_CAPABILITY} is applied by it"
 
     run_node_health_selftest
+    cron_ensure_existing_execution_dirs
     agent_restart_daemon_if_enabled "${SCHEDULER_CRON_CAPABILITY}"
 
     checkpoint_write bootstrap_node_health "${MANIFEST_DIGEST}"

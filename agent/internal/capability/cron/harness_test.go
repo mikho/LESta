@@ -95,6 +95,13 @@ func requireChownableGroup(t *testing.T) {
 		t.Skipf("group %q has a non-numeric gid %q: %v", testRunAs, grp.Gid, err)
 	}
 
+	// ensureExecutionsDir also chowns the account's execution log directory
+	// to the user named run_as, so a same-named user must exist too, and be
+	// this process (an unprivileged process can only chown to itself).
+	if u, err := user.Lookup(testRunAs); err != nil || u.Uid != strconv.Itoa(os.Getuid()) {
+		t.Skipf("no user named %q that is this process (%v); skipping the real per-account directory-ownership tests", testRunAs, err)
+	}
+
 	// Mirrors ensureAccountDir's own os.Chown(dir, -1, gid) exactly: leaves
 	// the owner unchanged (it's this test process's own uid, exactly as
 	// ensureAccountDir leaves it as whatever created the directory, root in

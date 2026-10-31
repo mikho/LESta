@@ -582,7 +582,8 @@ func cronProductionConfig() cron.Config {
 		// cron-remove-fragment/cron-ensure-account-dir/cron-archive-state
 		// CLI modes, scoped by .install/services/cron/install.sh's own
 		// sudoers rule.
-		SudoBinary: "sudo",
+		SudoBinary:      "sudo",
+		ExecutionsGroup: "lesta",
 	}
 }
 

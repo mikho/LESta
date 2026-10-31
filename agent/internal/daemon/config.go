@@ -61,7 +61,7 @@ type Config struct {
 	Dispatch func(context.Context, protocol.OperationEnvelope) (protocol.ResultEnvelope, error)
 	// CronStateRoot is scheduler.account-cron.v1's own StateRoot (production:
 	// /var/lib/lesta/cron); this package only ever reads
-	// CronStateRoot/executions/*.log, matching runner.go's own log format,
+	// CronStateRoot/executions/*/*.log, matching runner.go's own log format,
 	// never any other file under this capability's own state root.
 	CronStateRoot string
 	// WatermarkPath is where this package persists, per resource_id, the

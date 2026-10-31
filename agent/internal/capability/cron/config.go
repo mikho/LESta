@@ -20,9 +20,10 @@ type Config struct {
 	//     own ensureAccountDir doc comment for why StateRoot/accounts/
 	//     <run_as> itself is owned root:<run_as> mode 2750 (setgid), never
 	//     group-readable by the broader shared `lesta` group.
-	//   - StateRoot/accounts/<run_as>/executions/<resource_id>.log: the
-	//     cron-run wrapper's own capped execution log for that account (see
-	//     runner.go), nested under the very same per-account owned root.
+	//   - StateRoot/executions/<run_as>/<resource_id>.log: the cron-run
+	//     wrapper's own capped execution log for that account (see
+	//     runner.go), owned by run_as and readable by ExecutionsGroup, so
+	//     the daemon can report it (see account.go's ensureExecutionsDir).
 	//
 	// StateRoot/jobs/<resource_id>/... (generation.Store's own idempotency/
 	// observe bookkeeping: manifests, current/previous symlinks) is
@@ -70,4 +71,8 @@ type Config struct {
 	// package's own disposable test harness, which already runs with
 	// whatever privilege `go test` itself has over its own temp tree.
 	SudoBinary string
+	// ExecutionsGroup is the group StateRoot/executions and each account's
+	// execution log directory belong to (production: "lesta", the daemon's
+	// group), so the unprivileged daemon can read and report job runs.
+	ExecutionsGroup string
 }

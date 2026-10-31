@@ -19,6 +19,7 @@ func newCapability(t *testing.T) (*cron.CronCapability, cron.Config) {
 		StateRoot:       t.TempDir(),
 		RunnerUser:      "lesta-cron",
 		AgentBinaryPath: "/var/lib/lesta/agent/bin/lesta-agent",
+		ExecutionsGroup: testRunAs,
 	}
 
 	return cron.New(cfg), cfg
@@ -225,4 +226,29 @@ func TestApplyRejectsACommandContainingANewline(t *testing.T) {
 		cronPayload("*", "*", "*", "*", "*", "echo hello\nrm -rf /", false)))
 	requireStatus(t, "create with a newline in command", result, err, protocol.StatusRejected)
 	requireErrorCode(t, "create with a newline in command", result, "invalid_command")
+}
+
+func TestCreatePreparesTheAccountsExecutionLogDirectory(t *testing.T) {
+	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
+
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), 1,
+		cronPayload("0", "3", "*", "*", "*", "true", false)))
+	requireApplied(t, "create", result, err)
+
+	root, err := os.Stat(filepath.Join(cfg.StateRoot, "executions"))
+	if err != nil {
+		t.Fatalf("expected StateRoot/executions to exist: %v", err)
+	}
+	if root.Mode().Perm() != 0o751 {
+		t.Fatalf("StateRoot/executions mode = %v, want 0751", root.Mode().Perm())
+	}
+
+	dir, err := os.Stat(cron.ExecutionsDirFor(cfg.StateRoot, testRunAs))
+	if err != nil {
+		t.Fatalf("expected the account's execution log directory to exist: %v", err)
+	}
+	if dir.Mode()&os.ModeSetgid == 0 || dir.Mode().Perm() != 0o750 {
+		t.Fatalf("execution log directory mode = %v, want setgid 0750", dir.Mode())
+	}
 }

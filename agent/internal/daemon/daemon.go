@@ -49,7 +49,9 @@ func Run(cfg Config) int {
 // runOneCycle sends one heartbeat, then, only if that succeeds, reports any
 // new cron execution-history entries and applies+reports any pending
 // provisioning operations the heartbeat carried back. A failed heartbeat is
-// a hard error that skips both reports for this cycle entirely.
+// a hard error that skips both reports for this cycle entirely. A failed
+// cron report is only logged: job history must never hold up provisioning,
+// and the watermark is unchanged, so the entries are sent next cycle.
 func runOneCycle(client *http.Client, cfg *Config, credential string) error {
 	pending, err := sendHeartbeat(client, cfg, credential)
 	if err != nil {
@@ -57,7 +59,7 @@ func runOneCycle(client *http.Client, cfg *Config, credential string) error {
 	}
 
 	if err := reportCronExecutions(client, *cfg, credential); err != nil {
-		return fmt.Errorf("cron execution report: %w", err)
+		log.Printf("cron execution report failed: %v", err)
 	}
 
 	if len(pending) > 0 {

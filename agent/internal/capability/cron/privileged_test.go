@@ -83,7 +83,7 @@ func TestEnsureAccountDirCreatesTheRealDirectory(t *testing.T) {
 	requireChownableGroup(t)
 
 	stateRoot := t.TempDir()
-	cfg := cron.Config{StateRoot: stateRoot}
+	cfg := cron.Config{StateRoot: stateRoot, ExecutionsGroup: testRunAs}
 
 	if code := cron.EnsureAccountDir(cfg, testRunAs); code != 0 {
 		t.Fatalf("EnsureAccountDir returned %d, want 0", code)
@@ -109,7 +109,7 @@ func TestEnsureAccountDirRejectsAnInvalidRunAs(t *testing.T) {
 
 func TestInstallSidecarWritesContentForAValidRunAsAndResourceID(t *testing.T) {
 	stateRoot := t.TempDir()
-	cfg := cron.Config{StateRoot: stateRoot}
+	cfg := cron.Config{StateRoot: stateRoot, ExecutionsGroup: testRunAs}
 
 	if code := cron.InstallSidecar(cfg, testRunAs, testValidResourceID, strings.NewReader(`{"command":"true"}`)); code != 0 {
 		t.Fatalf("InstallSidecar returned %d, want 0", code)
@@ -127,7 +127,7 @@ func TestInstallSidecarWritesContentForAValidRunAsAndResourceID(t *testing.T) {
 
 func TestInstallSidecarRejectsAnInvalidRunAsOrResourceID(t *testing.T) {
 	stateRoot := t.TempDir()
-	cfg := cron.Config{StateRoot: stateRoot}
+	cfg := cron.Config{StateRoot: stateRoot, ExecutionsGroup: testRunAs}
 
 	if code := cron.InstallSidecar(cfg, "../etc", testValidResourceID, strings.NewReader("malicious")); code == 0 {
 		t.Fatalf("InstallSidecar accepted a run_as containing a path separator; must reject before ever touching the filesystem")
@@ -140,7 +140,7 @@ func TestInstallSidecarRejectsAnInvalidRunAsOrResourceID(t *testing.T) {
 
 func TestRemoveSidecarRemovesAnExistingSidecarAndToleratesRepeat(t *testing.T) {
 	stateRoot := t.TempDir()
-	cfg := cron.Config{StateRoot: stateRoot}
+	cfg := cron.Config{StateRoot: stateRoot, ExecutionsGroup: testRunAs}
 
 	if code := cron.InstallSidecar(cfg, testRunAs, testValidResourceID, strings.NewReader(`{"command":"true"}`)); code != 0 {
 		t.Fatalf("InstallSidecar returned %d, want 0", code)

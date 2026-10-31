@@ -49,7 +49,7 @@ type cronExecutionsRequest struct {
 	Executions []reportedExecution `json:"executions"`
 }
 
-// reportCronExecutions scans CronStateRoot/executions/*.log for entries
+// reportCronExecutions scans CronStateRoot/executions/*/*.log for entries
 // beyond each file's own recorded watermark offset, POSTs any new entries
 // (capped at maxExecutionsPerCycle total) to the control plane, and, only
 // on a 2xx response, advances the watermark to the position actually
@@ -61,7 +61,7 @@ func reportCronExecutions(client *http.Client, cfg Config, credential string) er
 		return fmt.Errorf("reading watermark file: %w", err)
 	}
 
-	pattern := filepath.Join(cfg.CronStateRoot, "executions", "*.log")
+	pattern := filepath.Join(cfg.CronStateRoot, "executions", "*", "*.log")
 
 	matches, err := filepath.Glob(pattern)
 	if err != nil {

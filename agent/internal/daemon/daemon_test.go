@@ -249,3 +249,55 @@ func TestReadCredentialEmptyFile(t *testing.T) {
 		t.Fatal("expected an error for an empty credential file, got nil")
 	}
 }
+
+func TestRunOneCycleStillReportsOperationsWhenTheCronReportFails(t *testing.T) {
+	var operationResultsCalled atomic.Bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/v1/heartbeat":
+			_, _ = w.Write([]byte(`{"ack":true,"next_heartbeat_seconds":60,"pending_operations":[{"protocol_version":"1","capability":"web.nginx.v1","operation":"create","resource_id":"11111111-1111-1111-1111-111111111111","desired_state_version":1,"idempotency_key":"22222222-2222-2222-2222-222222222222","correlation_id":"33333333-3333-3333-3333-333333333333","deadline":"2026-01-01T00:05:00Z","issued_at":"2026-01-01T00:00:00Z","request_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","payload":{}}]}`))
+		case "/agent/v1/cron-executions":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/agent/v1/operation-results":
+			operationResultsCalled.Store(true)
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	writeExecutionLog(t, dir, "job-1", executionLogEntry{
+		StartedAt: "2026-01-01T00:00:00Z", FinishedAt: "2026-01-01T00:00:01Z", ExitCode: 0, Output: "ok",
+	})
+
+	cfg := &Config{
+		ControlPlaneURL:   server.URL,
+		HeartbeatInterval: 60,
+		CronStateRoot:     dir,
+		WatermarkPath:     filepath.Join(dir, "watermark.json"),
+		Dispatch: func(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+			return protocol.ResultEnvelope{
+				ProtocolVersion:      op.ProtocolVersion,
+				Capability:           op.Capability,
+				ResourceID:           op.ResourceID,
+				IdempotencyKey:       op.IdempotencyKey,
+				CorrelationID:        op.CorrelationID,
+				Status:               protocol.StatusApplied,
+				ObservedStateVersion: op.DesiredStateVersion,
+				ObservedStateDigest:  "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				GenerationID:         "gen-1",
+				Errors:               []protocol.ResultError{},
+				CompletedAt:          time.Now().UTC(),
+			}, nil
+		},
+	}
+
+	if err := runOneCycle(server.Client(), cfg, "credential"); err != nil {
+		t.Fatalf("runOneCycle returned error: %v", err)
+	}
+
+	if !operationResultsCalled.Load() {
+		t.Error("a failed cron report held up the operation results")
+	}
+}

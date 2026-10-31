@@ -86,7 +86,7 @@ func (c *CronCapability) removeFragment(resourceID string) error {
 // and never should), confirmed directly deploying to a real node.
 func (c *CronCapability) ensureAccountDirPrivileged(runAs string) error {
 	if c.cfg.SudoBinary == "" {
-		return ensureAccountDir(c.cfg.StateRoot, runAs)
+		return ensureAccountDir(c.cfg, runAs)
 	}
 
 	cmd := exec.Command(c.cfg.SudoBinary, c.cfg.AgentBinaryPath, "cron-ensure-account-dir", runAs) //nolint:gosec // fixed binary, argv-validated runAs, no shell
@@ -268,7 +268,7 @@ func EnsureAccountDir(cfg Config, runAs string) int {
 		return 1
 	}
 
-	if err := ensureAccountDir(cfg.StateRoot, runAs); err != nil {
+	if err := ensureAccountDir(cfg, runAs); err != nil {
 		fmt.Fprintln(os.Stderr, "cron-ensure-account-dir:", err)
 
 		return 1

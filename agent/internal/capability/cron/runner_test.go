@@ -39,7 +39,7 @@ func writeSidecar(t *testing.T, cfg cron.Config, runAs, resourceID, command stri
 func readLastLogEntry(t *testing.T, cfg cron.Config, runAs, resourceID string) testExecutionLogEntry {
 	t.Helper()
 
-	path := filepath.Join(cfg.StateRoot, "accounts", runAs, "executions", resourceID+".log")
+	path := filepath.Join(cron.ExecutionsDirFor(cfg.StateRoot, runAs), resourceID+".log")
 
 	f, err := os.Open(path)
 	if err != nil {

@@ -24,8 +24,8 @@ import (
 // parent directories) inherits its group ownership automatically, without
 // this function -- or capability.go's own writeFileAtomic -- needing to
 // chown each of them individually.
-func ensureAccountDir(stateRoot, runAs string) error {
-	dir := accountDirFor(stateRoot, runAs)
+func ensureAccountDir(cfg Config, runAs string) error {
+	dir := accountDirFor(cfg.StateRoot, runAs)
 
 	if err := os.MkdirAll(dir, 0o751); err != nil {
 		return fmt.Errorf("creating account directory %s: %w", dir, err)
@@ -59,7 +59,69 @@ func ensureAccountDir(stateRoot, runAs string) error {
 		return fmt.Errorf("chmodding %s to setgid 2750: %w", dir, err)
 	}
 
+	return ensureExecutionsDir(cfg, runAs)
+}
+
+// ensureExecutionsDir makes sure StateRoot/executions/<runAs> exists, owned
+// <runAs>:<ExecutionsGroup>, mode 2750. The job runs as runAs and appends its
+// log there; the unprivileged daemon, in ExecutionsGroup, reads and reports
+// it; no other tenant can enter it. StateRoot/executions itself is
+// root:<ExecutionsGroup> 0751, so the daemon can list the accounts and each
+// account can only traverse to its own directory.
+func ensureExecutionsDir(cfg Config, runAs string) error {
+	grp, err := user.LookupGroup(cfg.ExecutionsGroup)
+	if err != nil {
+		return fmt.Errorf("looking up the execution log group %s: %w", cfg.ExecutionsGroup, err)
+	}
+
+	gid, err := strconv.Atoi(grp.Gid)
+	if err != nil {
+		return fmt.Errorf("parsing gid %q for group %s: %w", grp.Gid, cfg.ExecutionsGroup, err)
+	}
+
+	owner, err := user.Lookup(runAs)
+	if err != nil {
+		return fmt.Errorf("looking up user %s: %w", runAs, err)
+	}
+
+	uid, err := strconv.Atoi(owner.Uid)
+	if err != nil {
+		return fmt.Errorf("parsing uid %q for user %s: %w", owner.Uid, runAs, err)
+	}
+
+	root := filepath.Join(cfg.StateRoot, "executions")
+	if err := os.MkdirAll(root, 0o751); err != nil {
+		return fmt.Errorf("creating %s: %w", root, err)
+	}
+
+	if err := os.Chown(root, -1, gid); err != nil {
+		return fmt.Errorf("chowning %s to group %s: %w", root, cfg.ExecutionsGroup, err)
+	}
+
+	if err := os.Chmod(root, 0o751); err != nil {
+		return fmt.Errorf("chmodding %s to 0751: %w", root, err)
+	}
+
+	dir := ExecutionsDirFor(cfg.StateRoot, runAs)
+	if err := os.Mkdir(dir, 0o750); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+
+	if err := os.Lchown(dir, uid, gid); err != nil {
+		return fmt.Errorf("chowning %s to %s:%s: %w", dir, runAs, cfg.ExecutionsGroup, err)
+	}
+
+	if err := os.Chmod(dir, os.ModeSetgid|0o750); err != nil {
+		return fmt.Errorf("chmodding %s to setgid 2750: %w", dir, err)
+	}
+
 	return nil
+}
+
+// ExecutionsDirFor returns StateRoot/executions/<runAs>, where runAs's jobs
+// append their execution logs and the daemon reads them.
+func ExecutionsDirFor(stateRoot, runAs string) string {
+	return filepath.Join(stateRoot, "executions", runAs)
 }
 
 // accountDirFor returns StateRoot/accounts/<runAs>, this account's own

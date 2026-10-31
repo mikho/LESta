@@ -12,7 +12,7 @@ import (
 func writeExecutionLog(t *testing.T, dir, resourceID string, entries ...executionLogEntry) string {
 	t.Helper()
 
-	execDir := filepath.Join(dir, "executions")
+	execDir := filepath.Join(dir, "executions", "lesta-t1")
 	if err := os.MkdirAll(execDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
