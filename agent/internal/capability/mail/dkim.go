@@ -37,14 +37,14 @@ func (c *MailCapability) dkimPublicKeyPath(domain, selector string) string {
 
 // ensureDKIMKey generates a real RSA keypair for domain if dkim is enabled
 // and no key exists yet. The private key is written mode 0640, owned
-// lesta-agent:lesta (the daemon's own real identity and primary group --
-// see .install/services/agent-daemon/install.sh), under DKIMKeyRoot and
+// root:<Config.SecretGroup> (lesta-mail in production, see
+// shareWithSecretGroup), under DKIMKeyRoot and
 // NEVER read back into this process's own return values, any generation
 // meta, or any ResultEnvelope field -- per the Mail Threat Model's own
 // non-negotiable prohibition, it must never leave this node. It is not
 // mode 0600: real signing happens inside the Exim daemon process (a
 // different system identity, Debian-exim on Debian/Ubuntu), which the
-// mail installer adds to the lesta group specifically so it can read this
+// mail installer adds to lesta-mail specifically so it can read this
 // file -- 0600 would make every real signing attempt fail outright with a
 // permission error, discovered while building that installer.
 //
