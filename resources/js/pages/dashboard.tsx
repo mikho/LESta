@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { usePollWhile } from '@/hooks/use-poll-while';
+import { formatBytes, formatRelative } from '@/lib/format';
 import { dashboard } from '@/routes';
 import cronJobs from '@/routes/cron-jobs';
 import dns from '@/routes/dns';
@@ -76,27 +77,6 @@ type NodeStatus = {
     services: { name: string; state: string }[];
     capabilities: { capability: string; status: string }[];
 };
-
-function timeAgo(value: string | null): string {
-    if (value === null) {
-        return 'never';
-    }
-
-    const seconds = Math.max(
-        0,
-        Math.round((Date.now() - new Date(value).getTime()) / 1000),
-    );
-
-    if (seconds < 60) {
-        return `${seconds} s ago`;
-    }
-
-    if (seconds < 3600) {
-        return `${Math.round(seconds / 60)} min ago`;
-    }
-
-    return `${Math.round(seconds / 3600)} h ago`;
-}
 
 function Dot({ tone }: { tone: 'up' | 'down' | 'unknown' }) {
     const colour = {
@@ -293,7 +273,12 @@ function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
                                 {node.heartbeat.online ? 'Online' : 'Offline'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                                Heartbeat {timeAgo(node.heartbeat.last_seen_at)}
+                                Heartbeat{' '}
+                                {node.heartbeat.last_seen_at === null
+                                    ? 'never'
+                                    : formatRelative(
+                                          node.heartbeat.last_seen_at,
+                                      )}
                             </p>
                         </div>
 
@@ -316,7 +301,10 @@ function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
                             </p>
                             {node.ping && (
                                 <p className="text-xs text-muted-foreground">
-                                    Checked {timeAgo(node.ping.at)}
+                                    Checked{' '}
+                                    {node.ping.at === null
+                                        ? 'never'
+                                        : formatRelative(node.ping.at)}
                                 </p>
                             )}
                         </div>
@@ -380,23 +368,6 @@ function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
             })}
         </ul>
     );
-}
-
-function formatBytes(bytes: number): string {
-    if (bytes < 1024) {
-        return `${bytes} B`;
-    }
-
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    let value = bytes / 1024;
-    let unit = 0;
-
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit++;
-    }
-
-    return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
 }
 
 function OverviewList({ overview }: { overview: Overview }) {

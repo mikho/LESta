@@ -2,12 +2,11 @@ import { Head, Link } from '@inertiajs/react';
 import {
     CustomerResourceIndex,
     formatCount,
-    formatDateTime,
-    formatRelative,
 } from '@/components/customer-resource-index';
 import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
+import { formatBytes, formatDateTime, formatRelative } from '@/lib/format';
 import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
 import type {
@@ -31,23 +30,6 @@ const resourceTypeLabels: Record<UsageResourceType, string> = {
     web_domain: 'Website',
     unknown: 'Unknown',
 };
-
-function formatBytes(bytes: number | null): string {
-    if (bytes === null) {
-        return '—';
-    }
-
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let value = bytes;
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-    }
-
-    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
 
 function formatMonth(period: string): string {
     return new Date(`${period}T00:00:00Z`).toLocaleDateString(undefined, {

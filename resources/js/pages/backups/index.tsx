@@ -13,6 +13,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { formatBytes } from '@/lib/format';
 import backups from '@/routes/backups';
 import type { Backup } from '@/types';
 
@@ -48,23 +49,6 @@ function StatusBadge({ status }: { status: Backup['status'] }) {
             {status.replace('_', ' ')}
         </span>
     );
-}
-
-function formatBytes(bytes: number | null): string {
-    if (bytes === null) {
-        return '—';
-    }
-
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let value = bytes;
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-    }
-
-    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 export default function Index({

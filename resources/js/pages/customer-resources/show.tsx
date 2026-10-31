@@ -1,10 +1,7 @@
 import { Head, Link } from '@inertiajs/react';
-import {
-    formatDateTime,
-    formatRelative,
-} from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { ProvisioningBadge } from '@/components/provisioning-badge';
+import { formatDateTime, formatRelative } from '@/lib/format';
 import accounts from '@/routes/accounts';
 
 type Fact = {

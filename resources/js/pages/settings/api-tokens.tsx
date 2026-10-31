@@ -11,6 +11,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { formatDateTime } from '@/lib/format';
+
+const formatDateTimeOr = (value: string | null): string =>
+    value === null ? 'Never' : formatDateTime(value);
 
 type ApiToken = {
     id: string;
@@ -44,10 +48,6 @@ const FAMILIES: { key: string; label: string }[] = [
     { key: 'usage', label: 'Usage' },
     { key: 'admin', label: 'Platform administration' },
 ];
-
-function formatDate(value: string | null): string {
-    return value === null ? 'Never' : new Date(value).toLocaleString();
-}
 
 /**
  * The newly created token, shown once: ApiTokenController::store() flashes it for exactly the next
@@ -287,9 +287,11 @@ export default function ApiTokens({
                                         </p>
                                         <p className="text-xs text-muted-foreground">
                                             Expires{' '}
-                                            {formatDate(token.expires_at)} ·
-                                            Last used{' '}
-                                            {formatDate(token.last_used_at)}
+                                            {formatDateTimeOr(token.expires_at)}{' '}
+                                            · Last used{' '}
+                                            {formatDateTimeOr(
+                                                token.last_used_at,
+                                            )}
                                             {token.last_used_ip &&
                                                 ` from ${token.last_used_ip}`}
                                         </p>

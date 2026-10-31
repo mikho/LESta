@@ -144,36 +144,6 @@ export function SuspensionCell({
  * dateStyle and timeStyle cannot be combined with timeZoneName, and the formatter throws a
  * TypeError ("Invalid option") if they are.
  */
-export const formatDateTime = (iso: string): string =>
-    new Date(iso).toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZoneName: 'short',
-    });
-
-export const formatRelative = (iso: string): string => {
-    const seconds = (new Date(iso).getTime() - Date.now()) / 1000;
-    const formatter = new Intl.RelativeTimeFormat(undefined, {
-        numeric: 'auto',
-    });
-    const units: [Intl.RelativeTimeFormatUnit, number][] = [
-        ['day', 86400],
-        ['hour', 3600],
-        ['minute', 60],
-    ];
-
-    for (const [unit, size] of units) {
-        if (Math.abs(seconds) >= size) {
-            return formatter.format(Math.round(seconds / size), unit);
-        }
-    }
-
-    return formatter.format(Math.round(seconds), 'second');
-};
-
 export const formatCount = (value: number | null | undefined): string =>
     value === null || value === undefined
         ? '—'

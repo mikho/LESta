@@ -11,6 +11,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { formatDateTime } from '@/lib/format';
+
+const formatDateTimeOr = (value: string | null): string =>
+    value === null ? '' : formatDateTime(value);
 
 type Delivery = {
     id: string;
@@ -48,10 +52,6 @@ const EVENT_LABELS: Record<string, string> = {
     'restore.finished': 'A restore is done or failed',
     ping: 'Test',
 };
-
-function formatDate(value: string | null): string {
-    return value === null ? '' : new Date(value).toLocaleString();
-}
 
 /**
  * The new webhook's signing secret, shown once: WebhookController::store() flashes it for the
@@ -280,7 +280,7 @@ export default function Webhooks({
                                             {webhook.disabled_at && (
                                                 <p className="text-xs text-destructive">
                                                     Switched off on{' '}
-                                                    {formatDate(
+                                                    {formatDateTimeOr(
                                                         webhook.disabled_at,
                                                     )}{' '}
                                                     after{' '}
@@ -321,7 +321,7 @@ export default function Webhooks({
                                                             className="border-t align-top"
                                                         >
                                                             <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground">
-                                                                {formatDate(
+                                                                {formatDateTimeOr(
                                                                     delivery.created_at,
                                                                 )}
                                                             </td>
@@ -341,7 +341,7 @@ export default function Webhooks({
                                                                     `HTTP ${delivery.response_status} · `}
                                                                 {delivery.error}
                                                                 {delivery.next_attempt_at &&
-                                                                    ` · next try ${formatDate(delivery.next_attempt_at)}`}
+                                                                    ` · next try ${formatDateTimeOr(delivery.next_attempt_at)}`}
                                                                 {delivery.attempts >
                                                                     1 &&
                                                                     ` · ${delivery.attempts} tries`}

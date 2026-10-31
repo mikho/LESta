@@ -27,6 +27,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatBytes } from '@/lib/format';
 
 type Part = 'files' | 'databases' | 'mail';
 
@@ -107,18 +108,6 @@ const PART_LABELS: Record<Part, string> = {
     databases: 'Databases',
     mail: 'Mailboxes',
 };
-
-function formatBytes(bytes: number | null): string {
-    if (bytes === null) {
-        return '';
-    }
-
-    if (bytes < 1024 * 1024) {
-        return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-    }
-
-    return `${(bytes / (1024 * 1024)).toFixed(bytes < 100 * 1024 * 1024 ? 1 : 0)} MB`;
-}
 
 function PartChecklist({
     available,
