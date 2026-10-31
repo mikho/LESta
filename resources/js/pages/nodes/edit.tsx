@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
 import NodeServiceController from '@/actions/App/Http/Controllers/Nodes/NodeServiceController';
-import { useConfirm } from '@/components/confirm-action-dialog';
+import {
+    ConfirmActionDialog,
+    useConfirm,
+} from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -1381,24 +1384,38 @@ export default function Edit({
                         }
                     />
 
-                    <Form
-                        {...(node.suspended_at
-                            ? NodeController.unsuspend.form(node)
-                            : NodeController.suspend.form(node))}
-                        options={{ preserveScroll: true }}
-                    >
-                        {({ processing }) => (
-                            <Button
-                                variant={
-                                    node.suspended_at ? 'default' : 'outline'
-                                }
-                                disabled={processing}
-                                data-test="toggle-suspend-node-button"
-                            >
-                                {node.suspended_at ? 'Unsuspend' : 'Suspend'}
-                            </Button>
-                        )}
-                    </Form>
+                    {node.suspended_at ? (
+                        <Form
+                            {...NodeController.unsuspend.form(node)}
+                            options={{ preserveScroll: true }}
+                        >
+                            {({ processing }) => (
+                                <Button
+                                    disabled={processing}
+                                    data-test="toggle-suspend-node-button"
+                                >
+                                    Unsuspend
+                                </Button>
+                            )}
+                        </Form>
+                    ) : (
+                        <ConfirmActionDialog
+                            form={NodeController.suspend.form(node)}
+                            title={`Suspend ${node.name}?`}
+                            description="Its capabilities are suspended with it: nothing is provisioned on this node until it is unsuspended."
+                            confirmLabel="Suspend node"
+                            confirmTestId="confirm-suspend-node-button"
+                            destructive
+                            trigger={
+                                <Button
+                                    variant="outline"
+                                    data-test="toggle-suspend-node-button"
+                                >
+                                    Suspend
+                                </Button>
+                            }
+                        />
+                    )}
                 </div>
 
                 <div className="space-y-4 rounded-lg border p-4">

@@ -73,6 +73,7 @@ test('a full create, issue-token, add-capability, suspend, unsuspend workflow wo
     expect(NodeCapability::where('node_id', $node->id)->where('capability', 'dns.bind9.v1')->exists())->toBeTrue();
 
     $page->click('[data-test="toggle-suspend-node-button"]')
+        ->click('[data-test="confirm-suspend-node-button"]')
         ->assertNoJavaScriptErrors();
 
     expect($node->refresh()->isSuspended())->toBeTrue();

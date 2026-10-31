@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import MailingListController from '@/actions/App/Http/Controllers/Mail/MailingListController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
@@ -203,24 +204,26 @@ export default function Lists({ mailDomain, lists, limits }: Props) {
                                         {mailDomain.domain}
                                     </p>
                                 </div>
-                                <Form
-                                    {...MailingListController.destroy.form({
+                                <ConfirmActionDialog
+                                    form={MailingListController.destroy.form({
                                         mailDomain: mailDomain.uuid,
                                         list: list.uuid,
                                     })}
-                                    options={{ preserveScroll: true }}
-                                >
-                                    {({ processing }) => (
+                                    title={`Delete ${list.local_part}@${mailDomain.domain}?`}
+                                    description="Mail to the list address bounces from now on, and its members are no longer kept."
+                                    confirmLabel="Delete list"
+                                    confirmTestId="confirm-delete-list-button"
+                                    destructive
+                                    trigger={
                                         <Button
                                             variant="outline"
                                             size="sm"
-                                            disabled={processing}
                                             aria-label={`Delete the list ${list.local_part}`}
                                         >
                                             Delete list
                                         </Button>
-                                    )}
-                                </Form>
+                                    }
+                                />
                             </div>
 
                             <Form

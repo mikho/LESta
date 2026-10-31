@@ -29,6 +29,7 @@ test('an owner adds and removes an IP rule from the access rules page', function
         ->assertSee('scanner')
         ->assertDontSee('No rules yet')
         ->click('[aria-label="Remove deny rule for 203.0.113.0/24"]')
+        ->click('[data-test="confirm-remove-ip-rule-button"]')
         ->assertSee('No rules yet. Every visitor is allowed.')
         ->assertNoJavaScriptErrors();
 });

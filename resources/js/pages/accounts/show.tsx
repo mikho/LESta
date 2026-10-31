@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import MembershipController from '@/actions/App/Http/Controllers/Memberships/MembershipController';
 import ImpersonationController from '@/actions/App/Http/Controllers/Support/ImpersonationController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -698,28 +699,38 @@ export default function Show({
                             }
                         />
 
-                        <Form
-                            {...(account.suspended_at
-                                ? AccountController.unsuspend.form(account)
-                                : AccountController.suspend.form(account))}
-                            options={{ preserveScroll: true }}
-                        >
-                            {({ processing }) => (
-                                <Button
-                                    variant={
-                                        account.suspended_at
-                                            ? 'default'
-                                            : 'outline'
-                                    }
-                                    disabled={processing}
-                                    data-test="toggle-suspend-account-button"
-                                >
-                                    {account.suspended_at
-                                        ? 'Unsuspend'
-                                        : 'Suspend'}
-                                </Button>
-                            )}
-                        </Form>
+                        {account.suspended_at ? (
+                            <Form
+                                {...AccountController.unsuspend.form(account)}
+                                options={{ preserveScroll: true }}
+                            >
+                                {({ processing }) => (
+                                    <Button
+                                        disabled={processing}
+                                        data-test="toggle-suspend-account-button"
+                                    >
+                                        Unsuspend
+                                    </Button>
+                                )}
+                            </Form>
+                        ) : (
+                            <ConfirmActionDialog
+                                form={AccountController.suspend.form(account)}
+                                title={`Suspend ${account.name}?`}
+                                description="Its sites, mail, databases and cron jobs stop until the account is unsuspended."
+                                confirmLabel="Suspend account"
+                                confirmTestId="confirm-suspend-account-button"
+                                destructive
+                                trigger={
+                                    <Button
+                                        variant="outline"
+                                        data-test="toggle-suspend-account-button"
+                                    >
+                                        Suspend
+                                    </Button>
+                                }
+                            />
+                        )}
                     </div>
                 )}
 

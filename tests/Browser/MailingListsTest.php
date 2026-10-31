@@ -32,6 +32,7 @@ test('an owner creates a list, adds members and deletes it from the mailing list
         ->click('[aria-label="Remove bob@example.com from news"]')
         ->assertDontSee('bob@example.com')
         ->click('[aria-label="Delete the list news"]')
+        ->click('[data-test="confirm-delete-list-button"]')
         ->assertSee('No mailing lists yet.')
         ->assertNoJavaScriptErrors();
 });

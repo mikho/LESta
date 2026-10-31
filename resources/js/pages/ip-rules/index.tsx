@@ -1,5 +1,6 @@
 import { Form, Head, Link } from '@inertiajs/react';
 import IpRuleController from '@/actions/App/Http/Controllers/IpRules/IpRuleController';
+import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { NoAccountNotice } from '@/components/no-account-notice';
@@ -170,25 +171,29 @@ export default function Index({ rules, limit }: Props) {
                                             {rule.note}
                                         </td>
                                         <td className="p-3 text-right">
-                                            <Form
-                                                {...IpRuleController.destroy.form(
+                                            <ConfirmActionDialog
+                                                form={IpRuleController.destroy.form(
                                                     rule.uuid,
                                                 )}
-                                                options={{
-                                                    preserveScroll: true,
-                                                }}
-                                            >
-                                                {({ processing }) => (
+                                                title={`Remove the ${rule.action} rule for ${rule.cidr}?`}
+                                                description={
+                                                    rule.action === 'deny'
+                                                        ? 'These addresses can reach your sites again.'
+                                                        : 'These addresses are no longer let through ahead of your other rules.'
+                                                }
+                                                confirmLabel="Remove rule"
+                                                confirmTestId="confirm-remove-ip-rule-button"
+                                                destructive
+                                                trigger={
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={processing}
                                                         aria-label={`Remove ${rule.action} rule for ${rule.cidr}`}
                                                     >
                                                         Remove
                                                     </Button>
-                                                )}
-                                            </Form>
+                                                }
+                                            />
                                         </td>
                                     </tr>
                                 ))}
