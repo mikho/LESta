@@ -179,6 +179,10 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 
 		if hdr.Typeflag == tar.TypeDir && strings.HasPrefix(hdr.Name, vmailPrefix) {
 			if rel := strings.TrimSuffix(strings.TrimPrefix(hdr.Name, vmailPrefix), "/"); rel != "" {
+				if !safeMailFolder(rel) {
+					return nil, nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
+				}
+
 				vmailFiles = append(vmailFiles, vmailFile{relPath: rel, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid, isDir: true})
 			}
 
@@ -200,6 +204,10 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 
 			dumps[capability] = content
 		case strings.HasPrefix(hdr.Name, vmailPrefix):
+			if !safeMailPath(strings.TrimPrefix(hdr.Name, vmailPrefix)) {
+				return nil, nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
+			}
+
 			content, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
@@ -208,7 +216,7 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 			vmailFiles = append(vmailFiles, vmailFile{
 				relPath: strings.TrimPrefix(hdr.Name, vmailPrefix),
 				content: content,
-				mode:    os.FileMode(hdr.Mode),
+				mode:    os.FileMode(hdr.Mode).Perm(),
 				uid:     hdr.Uid,
 				gid:     hdr.Gid,
 			})
@@ -225,7 +233,15 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 // numeric values, correct for restoring to the same node the backup was
 // taken on (this feature's own disclosed scope boundary -- restoring to a
 // different node isn't supported, see the vault decision log for why).
+// Mail is never root's and never world-accessible, so an entry owned by root
+// is refused and only the owner and group bits of a mode are kept.
 func restoreVMail(files []vmailFile, liveVMailRoot string) error {
+	for _, f := range files {
+		if f.uid == 0 || f.gid == 0 {
+			return fmt.Errorf("refusing %s: mail is never owned by root", f.relPath)
+		}
+	}
+
 	staging, err := os.MkdirTemp(filepath.Dir(liveVMailRoot), "vmail-restore-*")
 	if err != nil {
 		return fmt.Errorf("creating staging directory: %w", err)
@@ -258,7 +274,7 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 				return fmt.Errorf("restoring ownership of %s: %w", dest, err)
 			}
 
-			if err := os.Chmod(dest, f.mode); err != nil {
+			if err := os.Chmod(dest, f.mode&0o770); err != nil {
 				return fmt.Errorf("restoring the mode of %s: %w", dest, err)
 			}
 
@@ -269,7 +285,7 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 			return err
 		}
 
-		if err := os.WriteFile(dest, f.content, f.mode); err != nil {
+		if err := os.WriteFile(dest, f.content, f.mode&0o660); err != nil {
 			return fmt.Errorf("writing %s: %w", dest, err)
 		}
 
@@ -296,6 +312,12 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 		}
 
 		if err := os.Rename(stagedDomainDir, liveDomainDir); err != nil {
+			// Put the current mail back: left aside, the next restore would
+			// delete it.
+			if _, statErr := os.Stat(asideDir); statErr == nil {
+				_ = os.Rename(asideDir, liveDomainDir)
+			}
+
 			return fmt.Errorf("activating restored %s: %w", liveDomainDir, err)
 		}
 

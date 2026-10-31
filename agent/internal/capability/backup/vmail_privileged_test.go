@@ -180,3 +180,40 @@ func TestMailFilesSurviveThePackAndReadRoundTripWithFolders(t *testing.T) {
 		t.Errorf("unexpected round trip: %+v", got)
 	}
 }
+
+func TestAWholeNodeRestoreRefusesAMailPathOutsideItsDomain(t *testing.T) {
+	for _, name := range []string{"../escape/x", "example.com/../../etc/cron.d/x", "/etc/passwd"} {
+		archive := mailTar(t, []tar.Header{{Name: vmailPrefix + name, Mode: 0o600, Size: 1, Typeflag: tar.TypeReg}}, map[string]string{vmailPrefix + name: "x"})
+
+		if _, _, err := extractRestorable(archive.Bytes()); err == nil {
+			t.Errorf("%s: an unsafe mail path must be refused", name)
+		}
+	}
+}
+
+func TestRestoredMailIsNeverRootsNorWorldAccessible(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "vmail")
+
+	if err := restoreVMail([]vmailFile{{relPath: "example.com/bob/cur/1", content: []byte("x"), mode: 0o600}}, root); err == nil {
+		t.Error("a root-owned entry must be refused")
+	}
+
+	err := restoreVMail([]vmailFile{
+		{relPath: "example.com", mode: 0o777, uid: os.Getuid(), gid: os.Getgid(), isDir: true},
+		{relPath: "example.com/bob/cur/1", content: []byte("x"), mode: 0o666, uid: os.Getuid(), gid: os.Getgid()},
+	}, root)
+	if err != nil {
+		t.Fatalf("restoreVMail: %v", err)
+	}
+
+	for path, want := range map[string]os.FileMode{"example.com": 0o770, "example.com/bob/cur/1": 0o660} {
+		info, err := os.Stat(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if info.Mode().Perm()&0o007 != 0 || info.Mode().Perm()&^want != 0 {
+			t.Errorf("%s: mode %v, want no more than %v", path, info.Mode().Perm(), want)
+		}
+	}
+}
