@@ -4,15 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
-// usernamePattern mirrors identity/payload.go's own usernamePattern exactly
-// (agent/internal/capability/identity/payload.go): AccountUsername is always
-// the exact system_username system.account-identity.v1 already provisioned,
-// re-validated here from scratch since this is a real, separate process
-// boundary this package's own security boundary must hold on its own.
-var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// usernamePattern is the user a pool runs as: an account's Linux user
+// (validate.AccountUsernamePattern), never a system user such as mysql or the agent's own.
+var usernamePattern = validate.AccountUsernamePattern
 
 // Payload is the web.php-fpm.v1 capability's request body, matching
 // WebDomain::toPhpFpmProvisioningPayload()'s prose shape exactly.

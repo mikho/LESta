@@ -570,11 +570,11 @@ TMPFILES
 #
 # Self-test exercises exactly one representative version (8.3, Ubuntu's
 # own native package) with a real create-then-delete round trip against
-# the real, just-installed php8.3-fpm, using the already-existing
-# lesta-agent system identity as the throwaway pool's own user/group
-# (never a new tenant-facing identity, matching backup/cron's own
-# established self-test precedent of reusing an already-provisioned
-# identity rather than inventing a new one just for this).
+# the real, just-installed php8.3-fpm. The throwaway pool runs as
+# lesta-t0: shaped like an account's user (the agent refuses any other,
+# such as its own lesta-agent, which this test used to borrow), but no
+# account's (account ids start at 1). It is created here when missing,
+# without a home or a login shell.
 
 run_node_health_selftest() {
     local resource_id create_idem create_corr delete_idem delete_corr
@@ -587,12 +587,18 @@ run_node_health_selftest() {
     delete_idem=$(selftest_new_uuid)
     delete_corr=$(selftest_new_uuid)
 
+    if ! id lesta-t0 >/dev/null 2>&1; then
+        useradd --system --no-create-home --home-dir / --shell /usr/sbin/nologin lesta-t0 \
+            || fail_step "${EXIT_MUTATION_FAILURE}" useradd_failed "" "creating the self-test user lesta-t0 failed"
+        add_change "${WEB_PHP_FPM_CAPABILITY}" created "" "self-test user lesta-t0 (no home, no login), shaped like an account's user but no account's"
+    fi
+
     socket_path="${PHP_SOCKET_ROOT}/8.3/${resource_id}.sock"
     pool_path="${PHP_POOL_BASE_DIR}/8.3/fpm/pool.d/${resource_id}.conf"
 
     create_payload=$(json_join_object \
         "$(json_kv_raw "account_id" "1")" \
-        "$(json_kv_str "account_username" "lesta-agent")" \
+        "$(json_kv_str "account_username" "lesta-t0")" \
         "$(json_kv_str "php_version" "8.3")" \
         "$(json_kv_raw "suspended" "false")")
 

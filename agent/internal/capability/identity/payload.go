@@ -5,19 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
-// usernamePattern enforces standard Linux system-username constraints: a
-// leading lowercase letter, then up to 31 further lowercase letters,
-// digits, underscores, or hyphens (32 characters total, the traditional
-// glibc/useradd limit). Laravel computes every username deterministically
-// (see App\Actions\Cron\EnsuresAccountNodeIdentity's own
-// deterministicUsername), so this pattern is never the primary safeguard,
-// only defense in depth: this capability rejects anything that doesn't
-// match before ever handing the value to exec.Command, matching how
-// payload.go in every other capability in this module validates
-// tenant-influenced content before it reaches a shell/exec call.
-var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// usernamePattern is an account's Linux user (validate.AccountUsernamePattern): the only kind of
+// user this capability creates, deletes or gives an SFTP key, never root or a system user.
+var usernamePattern = validate.AccountUsernamePattern
 
 // sshPublicKeyPattern matches a single authorized_keys line: a supported key
 // type, one required base64-shaped field, and an optional comment. This

@@ -4,24 +4,23 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
-// runAsPattern enforces standard Linux system-username constraints on
-// RunAs, deliberately duplicated from internal/capability/identity's own
-// identical pattern rather than shared/imported (matching the
-// "duplicate, don't import" precedent internal/capability/acme's own
-// hostnamePattern doc comment already established for this module). RunAs
-// is embedded directly into a crontab fragment's own line AND used to build
-// this resource's own sidecar/execution-log filesystem paths (see
-// capability.go's own sidecarPath/executionLogPath), so rejecting anything
-// outside this charset before either use defends against both crontab-line
-// injection and path traversal via a "../"-laden value, even though Laravel
-// is the one computing this value deterministically and should never send
-// anything else.
-var runAsPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// runAsPattern is the user a job runs as: an account's Linux user (validate.AccountUsernamePattern)
+// or the fixed, non-root runner the cron installer creates for its self-test. It goes into the
+// crontab line and into paths, so nothing else is accepted: not root, not another system user.
+var runAsPattern = runAsMatcher{}
+
+// runAsMatcher matches an account's user or the fixed runner.
+type runAsMatcher struct{}
+
+func (runAsMatcher) MatchString(name string) bool {
+	return name == "lesta-cron" || validate.IsAccountUsername(name)
+}
 
 // Payload is the scheduler.account-cron.v1 capability's request body. The
 // five schedule fields are embedded directly into the crontab fragment's own
@@ -112,7 +111,7 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	if p.RunAs == "" || !runAsPattern.MatchString(p.RunAs) {
 		return Payload{}, &ValidationError{
 			Code:    "invalid_run_as",
-			Message: "run_as must be a non-empty string matching ^[a-z][a-z0-9_-]{0,31}$",
+			Message: "run_as must be an account's Linux user (lesta-t<id>) or lesta-cron",
 			Field:   "run_as",
 		}
 	}

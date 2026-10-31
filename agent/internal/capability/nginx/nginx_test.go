@@ -1011,8 +1011,12 @@ func selfSignedTestCertificate(t *testing.T, dir, domain string) (certPath, keyP
 		t.Fatalf("creating self-signed test certificate: %v", err)
 	}
 
-	certPath = filepath.Join(dir, "cert.pem")
-	keyPath = filepath.Join(dir, "key.pem")
+	// Laid out as tls.acme.v1 keeps them: <root>/<domain>/{fullchain,privkey}.pem.
+	if err := os.MkdirAll(filepath.Join(dir, domain), 0o755); err != nil {
+		t.Fatalf("creating the certificate directory: %v", err)
+	}
+	certPath = filepath.Join(dir, domain, "fullchain.pem")
+	keyPath = filepath.Join(dir, domain, "privkey.pem")
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {

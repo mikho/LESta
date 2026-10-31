@@ -6,20 +6,12 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
-// hostnamePattern matches a dot-separated ASCII hostname: labels of alphanumerics
-// and hyphens (never leading/trailing a label with a hyphen), at least two labels
-// (so a bare "localhost"-style single label is rejected; a real vhost domain
-// always has a TLD-shaped tail). Deliberately duplicated from the nginx
-// capability's identical pattern rather than shared/imported: this package does
-// not depend on internal/capability/nginx, matching the same "duplicate, don't
-// import" precedent bind9 already established for its own copy.
-// WebDomain::normalizeDomain already lower-cases and IDN-converts on the Laravel
-// side, so this only needs to validate the canonical ASCII form it is handed.
-// usernamePattern mirrors identity/payload.go's own usernamePattern: it is
-// joined into a filesystem path (the docroot) once php_socket is set.
-var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// usernamePattern is the account a domain belongs to (validate.AccountUsernamePattern).
+var usernamePattern = validate.AccountUsernamePattern
 
 var hostnamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
@@ -118,7 +110,13 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
 	}
 
-	if p.PhpSocket != "" && (p.PhpSocket[0] != '/' || !usernamePattern.MatchString(p.AccountUsername)) {
+	if (p.SSL.CertificatePath != "" || p.SSL.PrivateKeyPath != "") && !validate.IsCertificatePathFor(p.Domain, p.SSL.CertificatePath, p.SSL.PrivateKeyPath) {
+		return Payload{}, &ValidationError{Code: "invalid_certificate_path", Message: "the certificate and key must be this domain's own: <root>/<domain>/fullchain.pem and privkey.pem", Field: "ssl.certificate_path"}
+	}
+
+	// Rendered into the vhost as is: only safe characters. That it is this domain's own pool is
+	// checked against the operation's resource id in checkResourceBindings.
+	if p.PhpSocket != "" && (!validate.IsSafePath(p.PhpSocket) || !usernamePattern.MatchString(p.AccountUsername)) {
 		return Payload{}, &ValidationError{Code: "invalid_php_socket", Message: "php_socket must be an absolute path, with a valid account_username, when set", Field: "php_socket"}
 	}
 
@@ -135,4 +133,15 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 	}
 
 	return p, nil
+}
+
+// checkResourceBindings checks what ParsePayload cannot see alone: that the PHP socket is this
+// domain's own pool (…/<resource_id>.sock), so a domain can never hand its PHP to another
+// domain's pool, which would run it as that domain's account.
+func checkResourceBindings(p Payload, resourceID string) *ValidationError {
+	if p.PhpSocket != "" && !validate.IsPHPSocketFor(p.PhpSocket, resourceID) {
+		return &ValidationError{Code: "php_socket_not_own", Message: "php_socket must be this domain's own pool socket, named after its resource id", Field: "php_socket"}
+	}
+
+	return nil
 }

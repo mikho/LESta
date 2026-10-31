@@ -5,15 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
-// usernamePattern mirrors identity/payload.go's own usernamePattern
-// exactly, re-validated here from scratch since this is a real, separate
-// process boundary this package's own security boundary must hold on its
-// own.
-var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// usernamePattern is the account whose files are managed (validate.AccountUsernamePattern); the
+// file manager acts as that user, so it is never root or a system user.
+var usernamePattern = validate.AccountUsernamePattern
 
 // Payload is the files.manager.v1 capability's request body. Which fields
 // matter depends on the OperationEnvelope's own Operation:

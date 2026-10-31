@@ -21,7 +21,8 @@ import (
 // startFakePhpFpm serves FastCGI on a unix socket the way a domain's own
 // php-fpm pool would, answering every request with the SCRIPT_FILENAME apache
 // asked it to run, so a test can prove which file apache handed over.
-func startFakePhpFpm(t *testing.T) string {
+// startFakePhpFpm listens on <tempdir>/<resourceID>.sock, named like a domain's real pool socket.
+func startFakePhpFpm(t *testing.T, resourceID string) string {
 	t.Helper()
 
 	// Its own short temp dir: unix socket paths are limited to 108 bytes.
@@ -31,7 +32,7 @@ func startFakePhpFpm(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
-	socketPath := filepath.Join(dir, "php.sock")
+	socketPath := filepath.Join(dir, resourceID+".sock")
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -84,7 +85,8 @@ func getPath(t *testing.T, port int, domain, path string) (int, string) {
 // (not this capability's marker page) and hands .php files to that socket.
 func TestPhpDomainServesItsOwnDocrootAndHandsPhpToItsOwnSocket(t *testing.T) {
 	d := newDisposableApache(t)
-	socket := startFakePhpFpm(t)
+	resourceID := newTestUUID()
+	socket := startFakePhpFpm(t, resourceID)
 
 	cfg := d.Config
 	cfg.AccountsRoot = t.TempDir()
@@ -97,7 +99,6 @@ func TestPhpDomainServesItsOwnDocrootAndHandsPhpToItsOwnSocket(t *testing.T) {
 	}
 
 	capability := apache.New(cfg)
-	resourceID := newTestUUID()
 	domain := "php-site.contract.test"
 
 	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, phpPayload(domain, socket)))
@@ -130,7 +131,8 @@ func TestPhpDomainServesItsOwnDocrootAndHandsPhpToItsOwnSocket(t *testing.T) {
 // still wins over a php_socket.
 func TestPhpDomainStillServesTheMaintenancePageWhenSuspended(t *testing.T) {
 	d := newDisposableApache(t)
-	socket := startFakePhpFpm(t)
+	resourceID := newTestUUID()
+	socket := startFakePhpFpm(t, resourceID)
 
 	cfg := d.Config
 	cfg.AccountsRoot = t.TempDir()
@@ -139,7 +141,6 @@ func TestPhpDomainStillServesTheMaintenancePageWhenSuspended(t *testing.T) {
 	}
 
 	capability := apache.New(cfg)
-	resourceID := newTestUUID()
 	domain := "php-suspended.contract.test"
 
 	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1, phpPayload(domain, socket)))

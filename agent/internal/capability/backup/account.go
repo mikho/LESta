@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mikho/LESta/agent/internal/protocol"
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
 // This file is the per-account (tenant) mode of backup.encrypted-artifacts.v1.
@@ -38,7 +39,7 @@ import (
 // files-manager-apply.
 
 var (
-	accountUsernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+	accountUsernamePattern = validate.AccountUsernamePattern
 	accountResourcePattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	accountDomainPattern   = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 	accountDatabasePattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,64}$`)

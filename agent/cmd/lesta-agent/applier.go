@@ -9,8 +9,10 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -151,48 +153,90 @@ func applierInstanceNamed(name string) (applierInstance, bool) {
 	return applierInstance{}, false
 }
 
+// hostedResourceIDPattern is the only resource_id an applier accepts: a lower-case UUID, which is
+// what the panel and every self-test send. Capabilities build paths and names from it, so it is
+// checked once here for all of them, before any capability sees the operation.
+var hostedResourceIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+var (
+	hostedMu sync.Mutex
+	// hostedInstances keeps one instance per capability for the life of the applier, so its
+	// idempotency receipts survive between operations: a redelivered operation (its result was
+	// lost on the way back) is answered from the receipt instead of being applied again.
+	hostedInstances = map[string]protocol.Capability{}
+	// hostedLocks applies one operation per capability at a time: two operations rendering,
+	// activating and reloading the same server at once would undo each other.
+	hostedLocks = map[string]*sync.Mutex{}
+)
+
 // dispatchHosted applies op inside an applier, as root, for a capability that instance hosts. Each
 // capability gets the production configuration it has when it runs as root, so it runs its tools
-// directly rather than through sudo.
+// directly rather than through sudo. The file manager is not serialized: a person waits on it, and
+// each of its operations is contained on its own.
 func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
-	var capability protocol.Capability
+	if !hostedResourceIDPattern.MatchString(op.ResourceID) {
+		return protocol.ResultEnvelope{}, fmt.Errorf("resource_id %q is not a lower-case UUID", op.ResourceID)
+	}
 
-	switch op.Capability {
-	case dnsBind9Capability:
-		capability = bind9.New(bind9AppliedConfig())
-	case webNginxCapability:
-		capability = nginx.New(nginxAppliedConfig())
-	case webPhpFpmCapability:
-		capability = phpfpm.New(phpFpmAppliedConfig())
-	case webApacheCapability:
-		capability = apache.New(apacheAppliedConfig())
-	case mailSmtpImapCapability:
-		capability = mail.New(mailAppliedConfig())
-	case databaseTenantCapability:
-		// The tenant database administrator's credential is read here, as root: it is a root-only
-		// file, and the unprivileged daemon never holds it.
-		capability = mariadb.New(mariadbProductionConfig())
-	case tlsAcmeCapability:
-		capability = acme.New(acmeProductionConfig())
-	case serviceUninstallCapability:
-		capability = serviceuninstall.New(serviceuninstall.Config{Installer: installerScript()})
-	case serviceControlCapability:
-		capability = servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits})
-	case systemAccountIdentityCapability:
-		capability = identity.New(identityAppliedConfig())
-	case filesManagerCapability:
-		capability = files.New(filesAppliedConfig())
-	case schedulerCronCapability:
-		capability = cron.New(cronAppliedConfig())
-	case metricsUsageCapability:
-		capability = metrics.New(metricsProductionConfig())
-	case backupEncryptedArtifactsCapability:
-		capability = backup.New(backupAppliedConfig())
-	default:
-		return protocol.ResultEnvelope{}, fmt.Errorf("capability %q is not hosted by the applier", op.Capability)
+	hostedMu.Lock()
+	capability, ok := hostedInstances[op.Capability]
+	if !ok {
+		var err error
+		if capability, err = newHostedCapability(op.Capability); err != nil {
+			hostedMu.Unlock()
+
+			return protocol.ResultEnvelope{}, err
+		}
+		hostedInstances[op.Capability] = capability
+		hostedLocks[op.Capability] = &sync.Mutex{}
+	}
+	lock := hostedLocks[op.Capability]
+	hostedMu.Unlock()
+
+	if op.Capability != filesManagerCapability {
+		lock.Lock()
+		defer lock.Unlock()
 	}
 
 	return capability.Apply(ctx, op)
+}
+
+// newHostedCapability builds a capability with the configuration it has as root.
+func newHostedCapability(name string) (protocol.Capability, error) {
+	switch name {
+	case dnsBind9Capability:
+		return bind9.New(bind9AppliedConfig()), nil
+	case webNginxCapability:
+		return nginx.New(nginxAppliedConfig()), nil
+	case webPhpFpmCapability:
+		return phpfpm.New(phpFpmAppliedConfig()), nil
+	case webApacheCapability:
+		return apache.New(apacheAppliedConfig()), nil
+	case mailSmtpImapCapability:
+		return mail.New(mailAppliedConfig()), nil
+	case databaseTenantCapability:
+		// The tenant database administrator's credential is read here, as root: it is a root-only
+		// file, and the unprivileged daemon never holds it.
+		return mariadb.New(mariadbProductionConfig()), nil
+	case tlsAcmeCapability:
+		return acme.New(acmeProductionConfig()), nil
+	case serviceUninstallCapability:
+		return serviceuninstall.New(serviceuninstall.Config{Installer: installerScript()}), nil
+	case serviceControlCapability:
+		return servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits}), nil
+	case systemAccountIdentityCapability:
+		return identity.New(identityAppliedConfig()), nil
+	case filesManagerCapability:
+		return files.New(filesAppliedConfig()), nil
+	case schedulerCronCapability:
+		return cron.New(cronAppliedConfig()), nil
+	case metricsUsageCapability:
+		return metrics.New(metricsProductionConfig()), nil
+	case backupEncryptedArtifactsCapability:
+		return backup.New(backupAppliedConfig()), nil
+	default:
+		return nil, fmt.Errorf("capability %q is not hosted by the applier", name)
+	}
 }
 
 // filesAppliedConfig is the file manager's configuration for the applier: requests are applied in

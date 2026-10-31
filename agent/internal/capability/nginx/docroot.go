@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
 // docrootResourceIDPattern mirrors cron's own resourceIDPattern exactly: a
@@ -17,9 +19,8 @@ import (
 // root), not just an in-process call.
 var docrootResourceIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// docrootUsernamePattern mirrors identity/payload.go's own usernamePattern
-// exactly, re-validated here for the same reason.
-var docrootUsernamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+// docrootUsernamePattern is the account a docroot belongs to (validate.AccountUsernamePattern).
+var docrootUsernamePattern = validate.AccountUsernamePattern
 
 // ensureDocroot creates resourceID's own per-domain docroot directory
 // (Config.AccountsRoot/username/domains/resourceID/public) if it does not

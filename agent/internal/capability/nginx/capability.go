@@ -102,6 +102,10 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return c.rejectedFromValidationError(op, verr)
 	}
 
+	if verr := checkResourceBindings(payload, op.ResourceID); verr != nil {
+		return c.rejectedFromValidationError(op, verr)
+	}
+
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err

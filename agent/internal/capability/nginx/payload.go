@@ -7,6 +7,8 @@ import (
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/validate"
 )
 
 // hostnamePattern matches a dot-separated ASCII hostname: labels of alphanumerics
@@ -233,16 +235,28 @@ func ParsePayload(raw json.RawMessage) (Payload, error) {
 		return Payload{}, &ValidationError{Code: "invalid_account_id", Message: "account_id must be a positive integer", Field: "account_id"}
 	}
 
-	if p.PhpSocket != "" && !docrootUsernamePattern.MatchString(p.AccountUsername) {
+	if (p.PhpSocket != "" || p.AccountUsername != "") && !docrootUsernamePattern.MatchString(p.AccountUsername) {
 		return Payload{}, &ValidationError{Code: "invalid_account_username", Message: "account_username is required and must be a valid system username when php_socket is set", Field: "account_username"}
 	}
 
-	if p.WebmailSocket != "" && !strings.HasPrefix(p.WebmailSocket, "/") {
-		return Payload{}, &ValidationError{Code: "invalid_webmail_socket", Message: "webmail_socket must be an absolute path when set", Field: "webmail_socket"}
+	// Every path below is rendered into the vhost as is: only safe characters, and the
+	// certificate must be this domain's own (validate.IsSafePath, IsCertificatePathFor). The PHP
+	// socket must also be this domain's own pool, checked against the operation's resource id in
+	// checkResourceBindings.
+	if p.PhpSocket != "" && !validate.IsSafePath(p.PhpSocket) {
+		return Payload{}, &ValidationError{Code: "invalid_php_socket", Message: "php_socket must be an absolute path of letters, digits, '.', '_', '-' and '/'", Field: "php_socket"}
 	}
 
-	if p.AdminerSocket != "" && !strings.HasPrefix(p.AdminerSocket, "/") {
-		return Payload{}, &ValidationError{Code: "invalid_adminer_socket", Message: "adminer_socket must be an absolute path when set", Field: "adminer_socket"}
+	if p.WebmailSocket != "" && !validate.IsSafePath(p.WebmailSocket) {
+		return Payload{}, &ValidationError{Code: "invalid_webmail_socket", Message: "webmail_socket must be an absolute path of letters, digits, '.', '_', '-' and '/'", Field: "webmail_socket"}
+	}
+
+	if p.AdminerSocket != "" && !validate.IsSafePath(p.AdminerSocket) {
+		return Payload{}, &ValidationError{Code: "invalid_adminer_socket", Message: "adminer_socket must be an absolute path of letters, digits, '.', '_', '-' and '/'", Field: "adminer_socket"}
+	}
+
+	if (p.SSL.CertificatePath != "" || p.SSL.PrivateKeyPath != "") && !validate.IsCertificatePathFor(p.Domain, p.SSL.CertificatePath, p.SSL.PrivateKeyPath) {
+		return Payload{}, &ValidationError{Code: "invalid_certificate_path", Message: "the certificate and key must be this domain's own: <root>/<domain>/fullchain.pem and privkey.pem", Field: "ssl.certificate_path"}
 	}
 
 	switch p.WafMode {
@@ -442,4 +456,15 @@ func (p Payload) redirectRules() []redirectRule {
 	}
 
 	return rules
+}
+
+// checkResourceBindings checks what ParsePayload cannot see alone: that the PHP socket is this
+// domain's own pool (…/<resource_id>.sock), so a domain can never hand its PHP to another
+// domain's pool, which would run it as that domain's account.
+func checkResourceBindings(p Payload, resourceID string) *ValidationError {
+	if p.PhpSocket != "" && !validate.IsPHPSocketFor(p.PhpSocket, resourceID) {
+		return &ValidationError{Code: "php_socket_not_own", Message: "php_socket must be this domain's own pool socket, named after its resource id", Field: "php_socket"}
+	}
+
+	return nil
 }
