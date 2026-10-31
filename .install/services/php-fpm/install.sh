@@ -503,6 +503,38 @@ disable_default_pool() {
     fi
 }
 
+# ensure_idle_pool <version>: a php-fpm with no pool at all does not start, and its package then
+# never finishes configuring (dpkg leaves it half-configured, and every later apt-get on the node
+# fails on it). With the default www pool disabled, a version no site uses yet has no pool, so it
+# gets this one: it runs as nobody, its socket is root's alone, and ondemand starts no worker
+# until something connects, which nothing does. Only written where pool.d already exists: on a
+# fresh install the package's own www pool starts it, and this is added right after.
+ensure_idle_pool() {
+    local version="$1" pool_dir
+
+    pool_dir="${PHP_POOL_BASE_DIR}/${version}/fpm/pool.d"
+
+    [ -d "${pool_dir}" ] || return 0
+    [ -f "${pool_dir}/lesta-idle.conf" ] && return 0
+
+    cat > "${pool_dir}/lesta-idle.conf.tmp" <<IDLEPOOL
+; Managed by LESta (.install/services/php-fpm/install.sh): keeps php${version}-fpm able to start
+; while no site uses this version. Nothing connects to it.
+[lesta-idle]
+user = nobody
+group = nogroup
+listen = /run/php/php${version}-fpm-lesta-idle.sock
+listen.owner = root
+listen.group = root
+listen.mode = 0600
+pm = ondemand
+pm.max_children = 1
+IDLEPOOL
+    chmod 0644 "${pool_dir}/lesta-idle.conf.tmp"
+    mv -f "${pool_dir}/lesta-idle.conf.tmp" "${pool_dir}/lesta-idle.conf"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${pool_dir}/lesta-idle.conf" "idle pool written so php${version}-fpm starts while no site uses it"
+}
+
 install_php_fpm() {
     log_info "install_php_fpm: installing php-fpm ${PHP_VERSIONS} and activating ${WEB_PHP_FPM_CAPABILITY}"
 
@@ -512,6 +544,8 @@ install_php_fpm() {
 
     for version in ${PHP_VERSIONS}; do
         pkgs="${pkgs} php${version}-fpm"
+        # Before apt: a package left half-configured by an earlier run can then finish.
+        ensure_idle_pool "${version}"
     done
 
     # shellcheck disable=SC2086
@@ -523,6 +557,7 @@ install_php_fpm() {
 
     for version in ${PHP_VERSIONS}; do
         disable_default_pool "${version}"
+        ensure_idle_pool "${version}"
 
         # 0770 root:lesta, not the package's own default 0755 root:root:
         # the real lesta-agent-daemon systemd unit runs as the
