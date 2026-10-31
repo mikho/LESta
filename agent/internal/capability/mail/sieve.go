@@ -96,9 +96,9 @@ func renderSieveScript(a Account, antispam bool) string {
 
 	if a.ForwardTo != nil {
 		if a.ForwardOnly {
-			fmt.Fprintf(&b, "redirect %q;\n", *a.ForwardTo)
+			fmt.Fprintf(&b, "redirect %s;\n", sieveQuote(*a.ForwardTo))
 		} else {
-			fmt.Fprintf(&b, "redirect :copy %q;\n", *a.ForwardTo)
+			fmt.Fprintf(&b, "redirect :copy %s;\n", sieveQuote(*a.ForwardTo))
 		}
 	}
 
@@ -108,7 +108,7 @@ func renderSieveScript(a Account, antispam bool) string {
 			message = *a.AutoreplyMessage
 		}
 
-		fmt.Fprintf(&b, "vacation :days 1 %q;\n", message)
+		fmt.Fprintf(&b, "vacation :days 1 %s;\n", sieveQuote(message))
 	}
 
 	return b.String()
@@ -125,6 +125,32 @@ func splitSenders(entries []string) (addresses, domains []string) {
 	}
 
 	return addresses, domains
+}
+
+// sieveQuote renders s as a Sieve quoted string (RFC 5228 s2.4.2), where
+// only backslash and double quote are escaped and a line break is literal. Go's
+// %q is not that: its \n reaches the recipient as a plain "n". Carriage returns
+// and other control characters except tab are dropped.
+func sieveQuote(s string) string {
+	var b strings.Builder
+
+	b.WriteByte('"')
+	for _, r := range strings.ReplaceAll(s, "\r\n", "\n") {
+		switch {
+		case r == '\\' || r == '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+
+	return b.String()
 }
 
 // sieveList renders validated entries as a Sieve string list. The entries
