@@ -123,3 +123,12 @@ test('a non-admin cannot search reseller candidates', function () {
         ->getJson(route('accounts.reseller-candidates', $account).'?q=x')
         ->assertForbidden();
 });
+
+test('an account owner cannot use the reseller candidate search to list other customers', function () {
+    $membership = Membership::factory()->owner()->create();
+    Account::factory()->create(['name' => 'another-customer']);
+
+    $this->actingAs($membership->user)
+        ->getJson(route('accounts.reseller-candidates', $membership->account).'?q=another')
+        ->assertForbidden();
+});

@@ -188,6 +188,10 @@ class AccountController extends Controller
     {
         Gate::authorize('update', $account);
 
+        // The search lists other customers' accounts, so it is for those who may assign a reseller
+        // (AssignAccountToReseller), not for an owner who may only update their own account.
+        abort_unless($request->user()->hasPermission('accounts.update'), 403);
+
         $search = trim((string) $request->string('q'));
 
         $candidates = Account::query()
