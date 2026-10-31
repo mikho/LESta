@@ -856,11 +856,13 @@ BACKUPSQL
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
 
-    cat > "${defaults_file}.tmp" <<DEFAULTS
+    # umask 077: the file holds a password and must never exist world-readable.
+    (umask 077 && cat > "${defaults_file}.tmp" <<DEFAULTS
 [client]
 user=${BACKUP_USER}
 password=${backup_password}
 DEFAULTS
+    )
     chmod 0600 "${defaults_file}.tmp"
     chown root:root "${defaults_file}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${defaults_file}" "failed to make ${defaults_file} root-only"
     mv -f "${defaults_file}.tmp" "${defaults_file}"
@@ -889,11 +891,13 @@ RESTORESQL
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
 
-    cat > "${defaults_file}.tmp" <<DEFAULTS
+    # umask 077: the file holds a password and must never exist world-readable.
+    (umask 077 && cat > "${defaults_file}.tmp" <<DEFAULTS
 [client]
 user=${RESTORE_USER}
 password=${restore_password}
 DEFAULTS
+    )
     chmod 0600 "${defaults_file}.tmp"
     chown root:root "${defaults_file}.tmp" || fail_step "${EXIT_MUTATION_FAILURE}" chown_failed "${defaults_file}" "failed to make ${defaults_file} root-only"
     mv -f "${defaults_file}.tmp" "${defaults_file}"
@@ -1058,7 +1062,8 @@ APPSQL
     fi
     add_change database.control-plane.v1 installed "" "database ${CONTROL_PLANE_APP_DB} and dedicated application account ${CONTROL_PLANE_APP_USER}@127.0.0.1 created, schema-scoped, never WITH GRANT OPTION"
 
-    cat > "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" <<CREDS
+    # umask 077: the file holds a password and must never exist world-readable.
+    (umask 077 && cat > "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" <<CREDS
 DB_CONNECTION=mariadb
 DB_HOST=127.0.0.1
 DB_PORT=${CONTROL_PLANE_PORT}
@@ -1066,6 +1071,7 @@ DB_DATABASE=${CONTROL_PLANE_APP_DB}
 DB_USERNAME=${CONTROL_PLANE_APP_USER}
 DB_PASSWORD=${app_password}
 CREDS
+    )
     chmod 0600 "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp"
     chown root:root "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" 2>/dev/null || true
     mv -f "${CONTROL_PLANE_APP_CREDENTIALS_FILE}.tmp" "${CONTROL_PLANE_APP_CREDENTIALS_FILE}"
@@ -1274,11 +1280,13 @@ ADMINSQL
     fi
     add_change database.tenant.v1 installed "" "dedicated admin account ${TENANT_ADMIN_USER}@127.0.0.1 created with ALL PRIVILEGES ... WITH GRANT OPTION"
 
-    cat > "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" <<DEFAULTS
+    # umask 077: the file holds a password and must never exist world-readable.
+    (umask 077 && cat > "${TENANT_ADMIN_DEFAULTS_FILE}.tmp" <<DEFAULTS
 [client]
 user=${TENANT_ADMIN_USER}
 password=${admin_password}
 DEFAULTS
+    )
     # Root only. The mariadb capability is applied by the root applier, which reads this file; the
     # unprivileged daemon never holds the database administrator's credential. (For a while it was
     # readable by the agent's group so the daemon could run the client without sudo.)

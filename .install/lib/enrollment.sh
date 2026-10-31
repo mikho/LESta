@@ -79,7 +79,7 @@ enrollment_write_credential() {
     local credential="$1"
 
     install -d -m 0750 -o lesta-agent -g lesta /etc/lesta/agent 2>/dev/null || true
-    printf '%s' "${credential}" > /etc/lesta/agent/node-credential.tmp
+    (umask 077 && printf '%s' "${credential}" > /etc/lesta/agent/node-credential.tmp)
     chmod 0600 /etc/lesta/agent/node-credential.tmp
     chown lesta-agent:lesta /etc/lesta/agent/node-credential.tmp 2>/dev/null || true
     mv -f /etc/lesta/agent/node-credential.tmp /etc/lesta/agent/node-credential

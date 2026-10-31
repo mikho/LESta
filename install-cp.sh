@@ -191,13 +191,25 @@ set_env_value() {
     key="$1"
     value="$2"
 
-    env_key="${key}" env_value="${value}" awk '
+    # Written under umask 077 and given the final mode before it replaces the .env, so the secrets
+    # are never world-readable, not even while the script waits at a prompt.
+    (umask 077 && env_key="${key}" env_value="${value}" awk '
         BEGIN { done = 0; k = ENVIRON["env_key"]; v = ENVIRON["env_value"] }
         index($0, k "=") == 1 { print k "=" v; done = 1; next }
         { print }
         END { if (!done) print k "=" v }
-    ' "${ENV_FILE}" > "${ENV_FILE}.tmp" || fail_mutation "failed to update ${key} in ${ENV_FILE}"
+    ' "${ENV_FILE}" > "${ENV_FILE}.tmp") || fail_mutation "failed to update ${key} in ${ENV_FILE}"
+    restrict_env_mode "${ENV_FILE}.tmp"
     mv "${ENV_FILE}.tmp" "${ENV_FILE}" || fail_mutation "failed to write ${ENV_FILE}"
+}
+
+# restrict_env_mode <file>: mode 0640, group www-data (the web server's) when it exists.
+restrict_env_mode() {
+    chmod 0640 "$1" || fail_mutation "failed to restrict $1 to mode 0640"
+
+    if getent group www-data >/dev/null 2>&1; then
+        chgrp www-data "$1" || printf 'install-cp.sh: warning: could not give group www-data read access to %s; the web server may not be able to read it\n' "$1" >&2
+    fi
 }
 
 # The .env holds APP_KEY (which decrypts every encrypted column: backup keys, storage keys, tenant
@@ -207,11 +219,7 @@ set_env_value() {
 secure_env_file() {
     [ -f "${ENV_FILE}" ] || return 0
 
-    chmod 0640 "${ENV_FILE}" || fail_mutation "failed to restrict ${ENV_FILE} to mode 0640"
-
-    if getent group www-data >/dev/null 2>&1; then
-        chgrp www-data "${ENV_FILE}" || printf 'install-cp.sh: warning: could not give group www-data read access to %s; the web server may not be able to read it\n' "${ENV_FILE}" >&2
-    fi
+    restrict_env_mode "${ENV_FILE}"
 
     # storage/ holds logs and staged backup files; the web server and queue worker run as www-data.
     if [ -d storage ]; then
@@ -226,7 +234,8 @@ secure_env_file() {
 configure_env_file() {
     if [ ! -f "${ENV_FILE}" ]; then
         [ -f ".env.example" ] || fail_mutation ".env.example not found -- cannot create ${ENV_FILE}"
-        cp ".env.example" "${ENV_FILE}"
+        (umask 077 && cp ".env.example" "${ENV_FILE}") || fail_mutation "failed to create ${ENV_FILE}"
+        restrict_env_mode "${ENV_FILE}"
         printf 'install-cp.sh: created %s from .env.example\n' "${ENV_FILE}"
     fi
 
