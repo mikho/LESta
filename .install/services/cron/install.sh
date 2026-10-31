@@ -507,7 +507,7 @@ install_cron() {
     # ${CRON_STATE_ROOT}/accounts/<run_as> (each account's own sidecar
     # directory, owned root:<run_as> mode 2750 setgid) and
     # ${CRON_STATE_ROOT}/executions/<run_as> (its execution logs, owned
-    # <run_as>:lesta mode 2750 setgid, so the daemon can report them) are
+    # <run_as>:lesta mode 0750, so the daemon can report them) are
     # deliberately NOT pre-created here: they are created lazily, on demand, by
     # the agent's own ensureAccountDir (agent/internal/capability/cron/
     # account.go) the first time any account -- including lesta-cron itself,
@@ -654,10 +654,15 @@ cron_ensure_existing_execution_dirs() {
         account=$(basename "${account_dir}")
         getent passwd "${account}" >/dev/null 2>&1 || continue
 
-        install -d -m 2750 -o "${account}" -g lesta "${CRON_STATE_ROOT}/executions/${account}" \
+        install -d -m 0750 -o "${account}" -g lesta "${CRON_STATE_ROOT}/executions/${account}" \
             || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${CRON_STATE_ROOT}/executions/${account}" "failed to create ${CRON_STATE_ROOT}/executions/${account}"
-        add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/executions/${account}" "execution log directory present, mode 2750 ${account}:lesta"
+        add_change "${SCHEDULER_CRON_CAPABILITY}" ensured "${CRON_STATE_ROOT}/executions/${account}" "execution log directory present, mode 0750 ${account}:lesta"
     done
+
+    # Logs an earlier version wrote 0640 in the job user's own group, which the daemon cannot read.
+    if [ -d "${CRON_STATE_ROOT}/executions" ]; then
+        find "${CRON_STATE_ROOT}/executions" -mindepth 2 -maxdepth 2 -type f -name '*.log' -exec chmod 0644 {} + 2>/dev/null || true
+    fi
 }
 
 bootstrap_node_health() {

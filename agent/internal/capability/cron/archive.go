@@ -14,7 +14,7 @@ import (
 // cmd/lesta-agent/main.go's own "cron-archive-state" dispatch) exists for
 // exactly one caller: backup.encrypted-artifacts.v1's own archive step,
 // invoked via sudo (backup.Config's own SudoBinary/AgentBinaryPath) because
-// StateRoot/accounts/<run_as> is deliberately root:<run_as> mode 2750 --
+// StateRoot/accounts/<run_as> is deliberately root:<run_as> mode 0750 --
 // readable only by root and that account's own dedicated Linux user, never
 // the shared lesta group the real unprivileged lesta-agent-daemon runs as
 // (see ensureAccountDir's own doc comment on why). This is a narrow,

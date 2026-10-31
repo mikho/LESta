@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // maxExecutionsPerCycle caps the total number of execution-log entries read
@@ -18,6 +20,10 @@ import (
 // leftover is naturally retried next cycle, since the watermark for a file
 // hit by the cap is only advanced past the lines actually parsed.
 const maxExecutionsPerCycle = 500
+
+// maxExecutionLogRead bounds what one cycle reads from one log: four times the
+// runner's own 1 MiB cap.
+const maxExecutionLogRead = 4 << 20
 
 // watermarkFile is the on-disk record of, per resource_id, the byte offset
 // already successfully reported to the control plane.
@@ -85,7 +91,12 @@ func reportCronExecutions(client *http.Client, cfg Config, credential string) er
 
 		entries, offset, err := readNewEntries(path, watermark.Offsets[resourceID], maxExecutionsPerCycle-len(batch))
 		if err != nil {
-			return fmt.Errorf("reading execution log %s: %w", path, err)
+			// Only this file is skipped: the directories belong to the
+			// accounts, and one account's bad file must not stop every
+			// other account's history.
+			log.Printf("skipping execution log %s: %v", path, err)
+
+			continue
 		}
 
 		for _, entry := range entries {
@@ -125,26 +136,36 @@ func reportCronExecutions(client *http.Client, cfg Config, credential string) er
 // offset actually reached (the position immediately after the last fully
 // parsed line).
 func readNewEntries(path string, offset int64, limit int) ([]executionLogEntry, int64, error) {
-	info, err := os.Stat(path)
+	// The log's directory belongs to the job's own account, so whatever is
+	// named *.log there is the tenant's: never follow a symlink (it could point
+	// at a file only this daemon can read, which would then be reported as job
+	// output), never block on a FIFO, and read regular files only.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, offset, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, offset, fmt.Errorf("%s is not a regular file", path)
 	}
 
 	if info.Size() < offset {
 		offset = 0
 	}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, offset, err
-	}
-	defer f.Close()
-
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return nil, offset, err
 	}
 
-	reader := bufio.NewReader(f)
+	// The runner keeps a log under its cap; a tenant can write a bigger file
+	// themselves, so no more than maxExecutionLogRead is read in one cycle.
+	reader := bufio.NewReader(io.LimitReader(f, maxExecutionLogRead))
 
 	var entries []executionLogEntry
 

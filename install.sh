@@ -251,7 +251,7 @@ run_apply() {
     fi
 
     printf 'install.sh: done. .install/ and agent/dist/ are now present at %s.\n' "${DEST}"
-    printf 'Next: %s/.install/services/agent-daemon/install.sh --apply --yes --node-uuid <node_uuid> --enrollment-token <token> --control-plane-url https://your-lesta-domain.example\n' "${DEST}"
+    printf 'Next: LESTA_ENROLLMENT_TOKEN=<token> %s/.install/services/agent-daemon/install.sh --apply --yes --node-uuid <node_uuid> --control-plane-url https://your-lesta-domain.example\n' "${DEST}"
     printf '(see the Installation Guide, Chapter 3, for issuing that enrollment token first)\n'
 }
 

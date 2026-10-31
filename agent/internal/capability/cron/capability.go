@@ -126,9 +126,9 @@ func (c *CronCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 		return protocol.ResultEnvelope{}, err
 	}
 
-	// The account's own owned root must exist (root:<run_as> mode 2750,
-	// setgid) before writeFileAtomic's own MkdirAll creates the ordinary
-	// 0755 jobs/sidecar subdirectory nested inside it: the outer directory
+	// The account's own owned root must exist (root:<run_as> mode 0750)
+	// before writeSidecar creates the jobs/sidecar subdirectory nested
+	// inside it: the outer directory
 	// is what actually restricts traversal to this one account's own
 	// dedicated Linux user, so it must be established with the right
 	// ownership first, not left to MkdirAll's own default mode.

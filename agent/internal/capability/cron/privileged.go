@@ -101,13 +101,13 @@ func (c *CronCapability) ensureAccountDirPrivileged(runAs string) error {
 // installSidecar writes content to this resource's own JSON sidecar,
 // either directly (cfg.SudoBinary empty) or via this same binary's own
 // "cron-install-sidecar" CLI mode under sudo: sidecarPath's own parent,
-// StateRoot/accounts/<run_as>, is root:<run_as> mode 2750 (ensureAccountDir,
+// StateRoot/accounts/<run_as>, is root:<run_as> mode 0750 (ensureAccountDir,
 // deliberately never group-readable by the shared lesta group -- see its
 // own doc comment), so the real unprivileged lesta-agent-daemon can never
 // write there directly, confirmed empirically deploying to a real node.
 func (c *CronCapability) installSidecar(runAs, resourceID string, content []byte) error {
 	if c.cfg.SudoBinary == "" {
-		return writeFileAtomic(sidecarPathFor(c.cfg.StateRoot, runAs, resourceID), content, 0o640)
+		return writeSidecar(c.cfg.StateRoot, runAs, resourceID, content)
 	}
 
 	cmd := exec.Command(c.cfg.SudoBinary, c.cfg.AgentBinaryPath, "cron-install-sidecar", runAs, resourceID) //nolint:gosec // fixed binary, argv-validated runAs/resource_id, no shell
@@ -219,7 +219,7 @@ func InstallSidecar(cfg Config, runAs, resourceID string, r io.Reader) int {
 		return 1
 	}
 
-	if err := writeFileAtomic(sidecarPathFor(cfg.StateRoot, runAs, resourceID), content, 0o640); err != nil {
+	if err := writeSidecar(cfg.StateRoot, runAs, resourceID, content); err != nil {
 		fmt.Fprintln(os.Stderr, "cron-install-sidecar:", err)
 
 		return 1

@@ -289,3 +289,45 @@ func TestReadWatermarkMissingFileReturnsEmptyMap(t *testing.T) {
 		t.Errorf("Offsets = %+v, want an empty, non-nil map", wm.Offsets)
 	}
 }
+
+func TestReportCronExecutionsNeverFollowsASymlinkAndStillReportsTheOthers(t *testing.T) {
+	dir := t.TempDir()
+
+	secret := filepath.Join(t.TempDir(), "node-credential")
+	if err := os.WriteFile(secret, []byte(`{"started_at":"x","finished_at":"x","exit_code":0,"output":"the node credential"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	accountDir := filepath.Join(dir, "executions", "lesta-t2")
+	if err := os.MkdirAll(accountDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(accountDir, "planted.log")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeExecutionLog(t, dir, "job-1", executionLogEntry{StartedAt: "2026-01-01T00:00:00Z", FinishedAt: "2026-01-01T00:00:01Z", ExitCode: 0, Output: "ok"})
+
+	var reported []reportedExecution
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req cronExecutionsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decoding request: %v", err)
+		}
+
+		reported = append(reported, req.Executions...)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := Config{ControlPlaneURL: server.URL, CronStateRoot: dir, WatermarkPath: filepath.Join(dir, "watermark.json")}
+
+	if err := reportCronExecutions(server.Client(), cfg, "credential"); err != nil {
+		t.Fatalf("reportCronExecutions: %v", err)
+	}
+
+	if len(reported) != 1 || reported[0].ResourceID != "job-1" {
+		t.Fatalf("reported %+v, want only job-1 (the symlinked log must be skipped)", reported)
+	}
+}

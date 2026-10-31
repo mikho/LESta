@@ -18,7 +18,7 @@ type Config struct {
 	//     never embedded in the crontab fragment itself. Per-account, not a
 	//     single shared StateRoot/jobs/sidecar/ directory: see account.go's
 	//     own ensureAccountDir doc comment for why StateRoot/accounts/
-	//     <run_as> itself is owned root:<run_as> mode 2750 (setgid), never
+	//     <run_as> itself is owned root:<run_as> mode 0750, never
 	//     group-readable by the broader shared `lesta` group.
 	//   - StateRoot/executions/<run_as>/<resource_id>.log: the cron-run
 	//     wrapper's own capped execution log for that account (see
@@ -64,7 +64,7 @@ type Config struct {
 	// /etc/cron.d refuses to honor any fragment not owned by root;
 	// ensureAccountDir's own chown to a tenant-specific group requires
 	// root too; and the sidecar's own parent directory, root:<run_as>
-	// mode 2750, is deliberately never group-readable by the shared lesta
+	// mode 0750, is deliberately never group-readable by the shared lesta
 	// group either), while .install/services/cron/install.sh's own
 	// sudoers rule scopes exactly which subcommands may run this way.
 	// Empty means perform every action directly in-process, matching this

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -147,11 +148,15 @@ func appendExecutionLog(cfg Config, runAs, resourceID string, started, finished 
 		return
 	}
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	// 0644, whatever the job's umask: the daemon reads it as "other", and only
+	// the owner and the daemon's group can reach it (ensureExecutionsDir).
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+
+	_ = f.Chmod(0o644)
 
 	line = append(line, '\n')
 	_, _ = f.Write(line)

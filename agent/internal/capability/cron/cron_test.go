@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 
 	"github.com/mikho/LESta/agent/internal/capability/cron"
@@ -248,7 +251,33 @@ func TestCreatePreparesTheAccountsExecutionLogDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected the account's execution log directory to exist: %v", err)
 	}
-	if dir.Mode()&os.ModeSetgid == 0 || dir.Mode().Perm() != 0o750 {
-		t.Fatalf("execution log directory mode = %v, want setgid 0750", dir.Mode())
+	if dir.Mode().Perm() != 0o750 {
+		t.Fatalf("execution log directory mode = %v, want 0750", dir.Mode())
+	}
+}
+
+func TestASidecarIsReadableByItsAccountsGroupWithoutRelyingOnSetgid(t *testing.T) {
+	capability, cfg := newCapability(t)
+	requireChownableGroup(t)
+
+	resourceID := newTestUUID()
+	result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(), 1,
+		cronPayload("0", "3", "*", "*", "*", "true", false)))
+	requireApplied(t, "create", result, err)
+
+	grp, err := user.LookupGroup(testRunAs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{sidecarPath(cfg, testRunAs, resourceID), filepath.Dir(sidecarPath(cfg, testRunAs, resourceID))} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if gid := strconv.Itoa(int(info.Sys().(*syscall.Stat_t).Gid)); gid != grp.Gid {
+			t.Errorf("%s has group %s, want %s (%s)", path, gid, grp.Gid, testRunAs)
+		}
 	}
 }
