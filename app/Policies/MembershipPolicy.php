@@ -35,9 +35,22 @@ class MembershipPolicy
      * permissions the acting admin holds, since there is no tenant identity
      * behind it to swap into.
      */
+    /**
+     * Only a customer's own sign-in may be borrowed: never the admin's own, never a user who holds
+     * a node administrator grant or belongs to an account that is a reseller, since signing in as
+     * one of those reaches far more than one customer's hosting. (A customer is never staff too:
+     * Membership refuses that.)
+     */
     public function impersonate(User $admin, Membership $membership): bool
     {
-        return $admin->hasPermission('memberships.impersonate') && $membership->account_id !== null;
+        if (! $admin->hasPermission('memberships.impersonate') || $membership->account_id === null || $membership->user_id === $admin->id) {
+            return false;
+        }
+
+        $target = $membership->user;
+
+        return ! $target->nodeAdminGrants()->exists()
+            && ! $target->memberships()->whereHas('account.managedAccounts')->exists();
     }
 
     private function isAccountOwner(User $user, Membership $membership): bool

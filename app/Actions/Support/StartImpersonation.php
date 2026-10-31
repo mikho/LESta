@@ -30,9 +30,14 @@ class StartImpersonation
             ],
         ]);
 
+        // The admin's own password confirmation must not carry over: it is what the customer's
+        // security settings would otherwise accept as the customer's (LimitsImpersonation refuses
+        // those pages too, and ends the impersonation after a while).
+        session()->forget('auth.password_confirmed_at');
         session([
             'impersonator_id' => $admin->id,
             'impersonated_membership_id' => $membership->id,
+            'impersonation_started_at' => now()->getTimestamp(),
         ]);
         Auth::loginUsingId($membership->user_id);
         request()->session()->regenerate();

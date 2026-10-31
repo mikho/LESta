@@ -90,6 +90,12 @@ class AuditEvent extends Model
                 request()->attributes->set('api_audit_events', [...request()->attributes->get('api_audit_events', []), $event]);
             }
 
+            // While an admin is signed in as a customer, the row names the customer as its actor
+            // and the admin who was really acting in its metadata.
+            if (request()->hasSession() && ($impersonatorId = request()->session()->get('impersonator_id')) !== null) {
+                $event->metadata = [...($event->metadata ?? []), 'impersonator_id' => (int) $impersonatorId];
+            }
+
             $event->account_id ??= $event->resolveAccountId();
 
             $event->previous_hash = static::query()->orderByDesc('id')->value('hash');

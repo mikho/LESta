@@ -6,6 +6,7 @@ use App\Http\Middleware\BlocksSuspendedAccountWrites;
 use App\Http\Middleware\HandleApiIdempotencyKey;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\LimitsImpersonation;
 use App\Http\Middleware\RequireApiAbility;
 use App\Http\Middleware\RequireApiPermission;
 use App\Http\Middleware\SecurityHeaders;
@@ -66,6 +67,7 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleAppearance::class,
             HandleInertiaRequests::class,
             BlocksSuspendedAccountWrites::class,
+            LimitsImpersonation::class,
             // Not AddLinkHeadersForPreloadedAssets: its Link header repeats every preload tag the page
             // already has and made the response header larger than nginx's default FastCGI buffer
             // once the security headers and encrypted cookies were added (a 502 from nginx).
