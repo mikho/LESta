@@ -351,13 +351,14 @@ func apacheAppliedConfig() apache.Config {
 }
 
 // mailAppliedConfig is the mail configuration for the applier: reloads run directly, and what Exim
-// and Dovecot must read but others must not (DKIM keys, the password file) goes to the group the
-// mail services belong to, since a file written as root would otherwise be root's alone.
+// and Dovecot must read but others must not (DKIM keys, the password file) goes to lesta-mail, the
+// group only the mail services belong to (the mail installer's MAIL_SECRET_GROUP), since a file
+// written as root would otherwise be root's alone.
 func mailAppliedConfig() mail.Config {
 	cfg := mailProductionConfig()
 	cfg.EximReloadCommand = []string{"/usr/bin/systemctl", "reload", "exim4"}
 	cfg.DovecotReloadCommand = []string{"/usr/bin/systemctl", "reload", "dovecot"}
-	cfg.SecretGroup = "lesta"
+	cfg.SecretGroup = "lesta-mail"
 
 	return cfg
 }

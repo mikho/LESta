@@ -145,6 +145,9 @@ EXIM_SPOOL_DIR="/var/spool/exim4"
 
 DOVECOT_CONF_PATH="/etc/dovecot/dovecot.conf"
 LESTA_DOVECOT_CONF="/etc/dovecot/lesta.conf"
+# MAIL_SECRET_GROUP owns what Exim and Dovecot must read but nothing else may. It must match the
+# agent's mailAppliedConfig SecretGroup (agent/cmd/lesta-agent/applier.go).
+MAIL_SECRET_GROUP="lesta-mail"
 DOVECOT_LIVE_DIR="/etc/dovecot/lesta.d"
 DOVECOT_PASSWD_PATH="/etc/dovecot/lesta.d/passwd"
 
@@ -866,11 +869,11 @@ service lmtp {
 
 service auth {
   # Dovecot drops supplementary groups when a service drops privileges, so
-  # the dovecot user's own lesta group membership (granted below) alone
+  # the dovecot user's own ${MAIL_SECRET_GROUP} membership (granted below) alone
   # never reaches this process; extra_groups is Dovecot's own documented
   # per-service setting for exactly this. Needed to read DovecotPasswdPath
-  # under /etc/dovecot/lesta.d (root:lesta 0770).
-  extra_groups = lesta
+  # under /etc/dovecot/lesta.d (root:${MAIL_SECRET_GROUP} 0640).
+  extra_groups = ${MAIL_SECRET_GROUP}
   unix_listener auth-client {
     mode = 0660
     user = Debian-exim
@@ -1198,25 +1201,39 @@ install_mail() {
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" validated "" "exim4 -bV passed against the real, live-resolved config"
 
+    # The mail services read their secrets (DKIM private keys, the Dovecot
+    # password file) through a group of their own, MAIL_SECRET_GROUP, never
+    # the shared lesta group: bind, mysql and www-data are lesta members too,
+    # and none of them may read a mailbox's password hash or sign mail. An
+    # earlier version used lesta; the members leave it and the files move.
+    if ! getent group "${MAIL_SECRET_GROUP}" >/dev/null 2>&1; then
+        groupadd --system "${MAIL_SECRET_GROUP}" || fail_step "${EXIT_MUTATION_FAILURE}" groupadd_failed /etc/group "failed to create group ${MAIL_SECRET_GROUP}"
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" created /etc/group "created system group ${MAIL_SECRET_GROUP}"
+    fi
+
     # Debian-exim (Exim's own real system identity) needs to read
-    # EXIM_DATA_DIR's own lookup files (see acl_check_rcpt's own lsearch
-    # references above) and DKIM_KEY_ROOT's own private keys (0640, see
-    # dkim.go's own doc comment) to actually sign outgoing mail.
-    usermod -aG lesta Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta Debian-exim failed"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the lesta group, so Exim can read its own lookup data and DKIM private keys"
+    # DKIM_KEY_ROOT's own private keys (0640, see dkim.go's own doc comment)
+    # to actually sign outgoing mail.
+    usermod -aG "${MAIL_SECRET_GROUP}" Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG ${MAIL_SECRET_GROUP} Debian-exim failed"
+    ratchet_leave_group Debian-exim lesta
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim is in ${MAIL_SECRET_GROUP}, not lesta, so Exim can read the DKIM private keys and nothing else of LESta's"
 
     # The identical grant for Dovecot's own auth process (user dovecot):
-    # DovecotPasswdPath lives under /etc/dovecot/lesta.d, root:lesta 0770 so
-    # the unprivileged lesta-agent can write it. Without this, every IMAP
+    # DovecotPasswdPath lives under /etc/dovecot/lesta.d, its file
+    # root:${MAIL_SECRET_GROUP} 0640 (the root applier writes it). Without this, every IMAP
     # login and every LMTP delivery fails at the passdb/userdb lookup with
     # "missing +x perm: /etc/dovecot/lesta.d, we're not in group lesta" --
     # found on lesta-cp-01's first real mail install. Invisible to CI: its
     # self-test only renders the passwd file, never authenticates against it.
     # Group membership alone isn't enough (Dovecot drops supplementary groups
-    # per service); lesta.conf's own `service auth { extra_groups = lesta }`
+    # per service); lesta.conf's own `service auth { extra_groups = lesta-mail }`
     # is what actually reaches the auth process.
-    usermod -aG lesta dovecot || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta dovecot failed"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "dovecot added to the lesta group, so Dovecot's own auth process can read its own passwd-file under /etc/dovecot/lesta.d"
+    usermod -aG "${MAIL_SECRET_GROUP}" dovecot || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG ${MAIL_SECRET_GROUP} dovecot failed"
+    ratchet_leave_group dovecot lesta
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "dovecot is in ${MAIL_SECRET_GROUP}, not lesta, so Dovecot's own auth process can read its own passwd-file under /etc/dovecot/lesta.d"
+
+    # Files an earlier version gave to lesta.
+    find "${DKIM_KEY_ROOT}" "${DOVECOT_LIVE_DIR}" -group lesta -exec chgrp -h "${MAIL_SECRET_GROUP}" {} + 2>/dev/null || true
 
     # Debian-exim also needs real access to clamd's own Unix socket
     # (CLAMD_SOCKET) to actually connect for av_scanner scanning: ClamAV's
@@ -1268,8 +1285,8 @@ install_mail() {
     ratchet_root_owned_dir "${EXIM_DATA_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${EXIM_DATA_DIR}" "failed to create ${EXIM_DATA_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${EXIM_DATA_DIR}" "lookup-data directory present, mode 0770 root:lesta"
 
-    ratchet_root_owned_dir "${DKIM_KEY_ROOT}" 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0770 root:lesta"
+    ratchet_root_owned_dir "${DKIM_KEY_ROOT}" 0750 "${MAIL_SECRET_GROUP}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DKIM_KEY_ROOT}" "failed to create ${DKIM_KEY_ROOT}"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DKIM_KEY_ROOT}" "DKIM key root present, mode 0750 root:${MAIL_SECRET_GROUP}"
 
     # root:vmail 2770, not root:lesta 0770: Dovecot's LMTP delivery runs as
     # vmail and must read each domain's own sieve scripts (rendered by the
