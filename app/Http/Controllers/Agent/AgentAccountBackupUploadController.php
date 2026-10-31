@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AccountBackupDownload;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -29,47 +30,57 @@ class AgentAccountBackupUploadController extends Controller
             abort(404);
         }
 
-        $download = AccountBackupDownload::query()
-            ->where('token_hash', AccountBackupDownload::hashToken($token))
-            ->where('status', 'pending')
-            ->where('expires_at', '>', now())
-            ->first();
+        // One chunk at a time per download: with the row locked, two chunks sent at once cannot both
+        // pass the offset check and append twice.
+        $tooLarge = DB::transaction(function () use ($request, $token): bool {
+            $download = AccountBackupDownload::query()
+                ->where('token_hash', AccountBackupDownload::hashToken($token))
+                ->where('status', 'pending')
+                ->where('expires_at', '>', now())
+                ->lockForUpdate()
+                ->first();
 
-        abort_if($download === null, 404);
+            abort_if($download === null, 404);
 
-        $chunk = $request->getContent();
+            $chunk = $request->getContent();
 
-        if (strlen($chunk) > self::MAX_CHUNK_BYTES) {
-            abort(413, 'The chunk is too large.');
-        }
+            if (strlen($chunk) > self::MAX_CHUNK_BYTES) {
+                abort(413, 'The chunk is too large.');
+            }
 
-        $path = $download->path ?? 'account-backup-downloads/'.$download->uuid.'.tar.gz';
-        $disk = Storage::disk('local');
+            $path = $download->path ?? 'account-backup-downloads/'.$download->uuid.'.tar.gz';
+            $disk = Storage::disk('local');
 
-        $received = $disk->exists($path) ? $disk->size($path) : 0;
+            $received = $disk->exists($path) ? $disk->size($path) : 0;
 
-        if ((int) $request->query('offset', -1) !== $received) {
-            abort(409, 'Expected the next chunk at offset '.$received.'.');
-        }
+            if ((int) $request->query('offset', -1) !== $received) {
+                abort(409, 'Expected the next chunk at offset '.$received.'.');
+            }
 
-        if ($received + strlen($chunk) > AccountBackupDownload::MAX_BYTES) {
-            $this->fail($download, $path, __('The backup is larger than the download limit.'));
+            if ($received + strlen($chunk) > AccountBackupDownload::MAX_BYTES) {
+                // Answered outside the transaction, so the failure is kept.
+                $this->fail($download, $path, __('The backup is larger than the download limit.'));
 
-            abort(413, 'The backup is too large.');
-        }
+                return true;
+            }
 
-        if ($chunk !== '') {
-            $disk->makeDirectory('account-backup-downloads');
-            file_put_contents($disk->path($path), $chunk, FILE_APPEND | LOCK_EX);
-        }
+            if ($chunk !== '') {
+                $disk->makeDirectory('account-backup-downloads');
+                file_put_contents($disk->path($path), $chunk, FILE_APPEND | LOCK_EX);
+            }
 
-        $download->forceFill(['path' => $path, 'size_bytes' => $received + strlen($chunk)]);
+            $download->forceFill(['path' => $path, 'size_bytes' => $received + strlen($chunk)]);
 
-        if ($request->boolean('final')) {
-            $download->forceFill(['status' => 'ready', 'expires_at' => now()->addMinutes(AccountBackupDownload::READY_MINUTES)]);
-        }
+            if ($request->boolean('final')) {
+                $download->forceFill(['status' => 'ready', 'expires_at' => now()->addMinutes(AccountBackupDownload::READY_MINUTES)]);
+            }
 
-        $download->save();
+            $download->save();
+
+            return false;
+        });
+
+        abort_if($tooLarge, 413, 'The backup is too large.');
 
         return response()->noContent();
     }

@@ -15,6 +15,7 @@ use App\Models\AccountBackupImport;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -144,51 +145,70 @@ class AccountBackupImportController extends Controller
 
         Gate::authorize('create', [AccountBackup::class, $account]);
 
-        $chunk = $request->getContent();
+        // One chunk at a time per upload: with the row locked, two chunks sent at once cannot both
+        // pass the offset check and append twice. Every answer is returned, never thrown, so what
+        // failUpload records is kept. The import itself starts after the commit.
+        $outcome = DB::transaction(function () use ($request, $import): JsonResponse|string {
+            $import = AccountBackupImport::query()->whereKey($import->id)->lockForUpdate()->firstOrFail();
 
-        if (strlen($chunk) > self::MAX_CHUNK_BYTES) {
-            return response()->json(['message' => __('The chunk is too large.')], 413);
+            if ($import->status !== 'uploading') {
+                return response()->json(['message' => __('The upload is out of step. Start it again.'), 'received' => $import->size_bytes], 409);
+            }
+
+            $chunk = $request->getContent();
+
+            if (strlen($chunk) > self::MAX_CHUNK_BYTES) {
+                return response()->json(['message' => __('The chunk is too large.')], 413);
+            }
+
+            $path = $import->path ?? 'account-backup-imports/'.$import->uuid.'.tar.gz';
+            $disk = Storage::disk('local');
+            $received = $disk->exists($path) ? $disk->size($path) : 0;
+
+            if ((int) $request->query('offset', -1) !== $received) {
+                return response()->json(['message' => __('The upload is out of step. Start it again.'), 'received' => $received], 409);
+            }
+
+            if ($received === 0 && $chunk !== '' && ! str_starts_with($chunk, "\x1f\x8b")) {
+                return $this->failUpload($import, __('That is not a backup file. Choose the .tar.gz file you downloaded or copied.'));
+            }
+
+            if ($received + strlen($chunk) > AccountBackupImport::MAX_BYTES) {
+                return $this->failUpload($import, __('That file is larger than the 4 GB import limit.'));
+            }
+
+            if ($chunk !== '') {
+                $disk->makeDirectory('account-backup-imports');
+                file_put_contents($disk->path($path), $chunk, FILE_APPEND | LOCK_EX);
+            }
+
+            $import->forceFill(['path' => $path, 'size_bytes' => $received + strlen($chunk)]);
+
+            if (! $request->boolean('final')) {
+                $import->save();
+
+                return response()->json(['received' => $import->size_bytes]);
+            }
+
+            if ($import->size_bytes === 0) {
+                return $this->failUpload($import, __('The file is empty.'));
+            }
+
+            $token = bin2hex(random_bytes(32));
+
+            $import->forceFill(['status' => 'ready', 'token_hash' => AccountBackupImport::hashToken($token), 'expires_at' => now()->addHours(AccountBackupImport::KEEP_HOURS)])->save();
+
+            return $token;
+        });
+
+        if ($outcome instanceof JsonResponse) {
+            return $outcome;
         }
 
-        $path = $import->path ?? 'account-backup-imports/'.$import->uuid.'.tar.gz';
-        $disk = Storage::disk('local');
-        $received = $disk->exists($path) ? $disk->size($path) : 0;
-
-        if ((int) $request->query('offset', -1) !== $received) {
-            return response()->json(['message' => __('The upload is out of step. Start it again.'), 'received' => $received], 409);
-        }
-
-        if ($received === 0 && $chunk !== '' && ! str_starts_with($chunk, "\x1f\x8b")) {
-            return $this->failUpload($import, __('That is not a backup file. Choose the .tar.gz file you downloaded or copied.'));
-        }
-
-        if ($received + strlen($chunk) > AccountBackupImport::MAX_BYTES) {
-            return $this->failUpload($import, __('That file is larger than the 4 GB import limit.'));
-        }
-
-        if ($chunk !== '') {
-            $disk->makeDirectory('account-backup-imports');
-            file_put_contents($disk->path($path), $chunk, FILE_APPEND | LOCK_EX);
-        }
-
-        $import->forceFill(['path' => $path, 'size_bytes' => $received + strlen($chunk)]);
-
-        if (! $request->boolean('final')) {
-            $import->save();
-
-            return response()->json(['received' => $import->size_bytes]);
-        }
-
-        if ($import->size_bytes === 0) {
-            return $this->failUpload($import, __('The file is empty.'));
-        }
-
-        $token = bin2hex(random_bytes(32));
-
-        $import->forceFill(['status' => 'ready', 'token_hash' => AccountBackupImport::hashToken($token), 'expires_at' => now()->addHours(AccountBackupImport::KEEP_HOURS)])->save();
+        $import->refresh();
 
         try {
-            app(ImportAccountBackup::class)->fromUpload($request->user(), $import, $token);
+            app(ImportAccountBackup::class)->fromUpload($request->user(), $import, $outcome);
         } catch (NoBackupCapableNodeAvailableException|ValidationException $e) {
             $message = $e instanceof ValidationException ? collect($e->errors())->flatten()->first() : __('Backups are not available on :node.', ['node' => $import->node->name]);
 

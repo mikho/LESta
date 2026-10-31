@@ -377,3 +377,23 @@ test('copying needs a destination and a finished backup, and an owner', function
 
     expect($account->backupDestination()->count())->toBe(0);
 });
+
+test('an upload that grows past the download limit fails the download and keeps that', function () {
+    [, , $owner, $backup] = accountWithCompletedBackup();
+    $this->actingAs($owner)->post(route('account-backups.prepare-download', $backup));
+    $token = uploadTokenFor($backup);
+    $download = $backup->downloads()->sole();
+
+    // A sparse file just under the limit, so nothing near 4 GB is written.
+    $path = 'account-backup-downloads/'.$download->uuid.'.tar.gz';
+    Storage::disk('local')->makeDirectory('account-backup-downloads');
+    $file = fopen(Storage::disk('local')->path($path), 'c');
+    ftruncate($file, AccountBackupDownload::MAX_BYTES - 1);
+    fclose($file);
+    $download->forceFill(['path' => $path])->save();
+
+    putChunk($token, AccountBackupDownload::MAX_BYTES - 1, 'xy')->assertStatus(413);
+
+    expect($download->refresh()->status)->toBe('failed')
+        ->and(Storage::disk('local')->exists($path))->toBeFalse();
+});
