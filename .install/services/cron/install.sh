@@ -548,7 +548,18 @@ install_cron() {
 # itself (the piece no other installer's own self-test has an equivalent
 # of) works against the real, just-installed binary.
 run_node_health_selftest() {
-    local resource_id create_idem create_corr delete_idem delete_corr payload envelope agent_out agent_status status_line fragment_path wrapper_status
+    local resource_id create_idem create_corr delete_idem delete_corr payload envelope agent_out agent_status status_line fragment_path wrapper_status leftover
+
+    # A fragment that runs as ${RUNNER_USER} is always an earlier self-test's: no account's job runs
+    # as that user. One left by a self-test that failed half way runs every minute and fails, since
+    # its sidecar is gone, so it is removed with its log before this one starts.
+    for leftover in "${FRAGMENT_DIR}"/lesta-*; do
+        [ -f "${leftover}" ] || continue
+        if grep -Eq "^[^#]*[[:space:]]${RUNNER_USER}[[:space:]]" "${leftover}"; then
+            rm -f "${leftover}" "${CRON_STATE_ROOT}/executions/${RUNNER_USER}/${leftover##*/lesta-}.log"
+            add_change "${SCHEDULER_CRON_CAPABILITY}" removed "${leftover}" "crontab fragment left by an earlier self-test removed"
+        fi
+    done
 
     resource_id=$(selftest_new_uuid)
     create_idem=$(selftest_new_uuid)
@@ -623,7 +634,6 @@ run_node_health_selftest() {
         run_node_health_selftest_delete "${SCHEDULER_CRON_CAPABILITY}" "${resource_id}" "${payload}" "${delete_idem}" "${delete_corr}" || true
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_execution_log_missing "${execution_log}" "the cron-run wrapper exited 0 but left no execution log the daemon can read at ${execution_log}"
     fi
-    rm -f "${execution_log}"
 
     log_info "bootstrap_node_health self-test: cron-run wrapper exited 0 as ${RUNNER_USER} and wrote an execution log the daemon can read"
 
@@ -637,6 +647,9 @@ run_node_health_selftest() {
     if [ -f "${fragment_path}" ]; then
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_fragment_not_removed "${fragment_path}" "delete returned status=applied but the crontab fragment still exists at ${fragment_path}"
     fi
+
+    # After the delete: until then cron itself may run the every-minute job and log it again.
+    rm -f "${execution_log}"
 
     add_change "${SCHEDULER_CRON_CAPABILITY}" installed_structural_only "${AGENT_BINARY_DEST}" "self-test create-then-delete of a throwaway cron job against the real, just-installed cron returned status=applied both times; the cron-run wrapper was also invoked directly against the real sidecar and exited 0; remote control-plane registration is not yet built, so ${SCHEDULER_CRON_CAPABILITY} is structurally installed and health-checked but NOT YET control-plane-registered"
     log_info "bootstrap_node_health self-test: create+delete both returned status=applied, wrapper exited 0, fragment removed after delete"
