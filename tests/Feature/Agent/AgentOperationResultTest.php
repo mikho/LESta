@@ -1,9 +1,13 @@
 <?php
 
+use App\Actions\Provisioning\CompletesProvisioningOperation;
+use App\Actions\Provisioning\TriggersAcmeCertificateIssuance;
+use App\Actions\Webhooks\QueuesFinishedWebhookEvents;
 use App\Enums\ProvisioningStatus;
 use App\Models\Node;
 use App\Models\ProvisioningOperation;
 use App\Models\WebDomain;
+use App\Services\Provisioning\ProvisioningResult;
 
 function operationResultsPayload(array $results): array
 {
@@ -135,4 +139,51 @@ test('an unauthenticated operation-results request is rejected', function () {
     $response = $this->postJson('/agent/v1/operation-results', operationResultsPayload([]));
 
     $response->assertStatus(401);
+});
+
+test('an operation is completed and its hooks run once, even when two reports race', function () {
+    $node = Node::factory()->create();
+    $operation = dispatchedOperationFor($node);
+    $first = ProvisioningOperation::find($operation->id);
+    $second = ProvisioningOperation::find($operation->id);
+
+    $this->mock(QueuesFinishedWebhookEvents::class)
+        ->shouldReceive('handle')->once();
+
+    $result = new ProvisioningResult(
+        status: ProvisioningStatus::Applied,
+        observedStateVersion: $operation->desired_state_version,
+        observedStateDigest: 'sha256:'.hash('sha256', 'result'),
+        generationId: 'generation-1',
+        errors: [],
+        completedAt: now(),
+    );
+
+    $action = app(CompletesProvisioningOperation::class);
+
+    expect($action->handle($first, $result))->toBeTrue()
+        ->and($action->handle($second, $result))->toBeFalse()
+        ->and($operation->fresh()->status)->toBe(ProvisioningStatus::Applied);
+});
+
+test('a hook that throws does not keep the ones after it from running', function () {
+    $node = Node::factory()->create();
+    $operation = dispatchedOperationFor($node);
+
+    $this->mock(TriggersAcmeCertificateIssuance::class)
+        ->shouldReceive('handle')->once()->andThrow(new RuntimeException('hook failed'));
+    $this->mock(QueuesFinishedWebhookEvents::class)
+        ->shouldReceive('handle')->once();
+
+    $completed = app(CompletesProvisioningOperation::class)->handle($operation, new ProvisioningResult(
+        status: ProvisioningStatus::Applied,
+        observedStateVersion: $operation->desired_state_version,
+        observedStateDigest: 'sha256:'.hash('sha256', 'result'),
+        generationId: 'generation-1',
+        errors: [],
+        completedAt: now(),
+    ));
+
+    expect($completed)->toBeTrue()
+        ->and($operation->fresh()->status)->toBe(ProvisioningStatus::Applied);
 });

@@ -57,9 +57,9 @@ class AgentOperationResultController extends Controller
                 data: $entry['data'] ?? null,
             );
 
-            app(CompletesProvisioningOperation::class)->handle($operation, $result);
-
-            $accepted++;
+            if (app(CompletesProvisioningOperation::class)->handle($operation, $result)) {
+                $accepted++;
+            }
         }
 
         return response()->json(['accepted' => $accepted]);

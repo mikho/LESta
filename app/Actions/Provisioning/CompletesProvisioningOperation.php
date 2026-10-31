@@ -5,6 +5,7 @@ namespace App\Actions\Provisioning;
 use App\Actions\Webhooks\QueuesFinishedWebhookEvents;
 use App\Models\ProvisioningOperation;
 use App\Services\Provisioning\ProvisioningResult;
+use Throwable;
 
 /**
  * Writes a provisioner's terminal ProvisioningResult onto its ProvisioningOperation row and
@@ -26,8 +27,18 @@ class CompletesProvisioningOperation
         private RecordsNodeServiceRemoval $recordsNodeServiceRemoval,
     ) {}
 
-    public function handle(ProvisioningOperation $operation, ProvisioningResult $result): void
+    /**
+     * Completes the operation and runs the hooks, once: the row is claimed with a compare-and-set on
+     * the status it was read with, so a result reported twice (a daemon resending a batch, two
+     * requests racing) completes it only the first time. Each hook runs on its own, so one that
+     * throws is reported and the others still run.
+     *
+     * @return bool whether this call completed the operation (false when another already had)
+     */
+    public function handle(ProvisioningOperation $operation, ProvisioningResult $result): bool
     {
+        $readStatus = $operation->getOriginal('status');
+
         $operation->forceFill([
             'status' => $result->status,
             'observed_state_version' => $result->observedStateVersion,
@@ -36,19 +47,43 @@ class CompletesProvisioningOperation
             'errors' => $result->errors,
             'completed_at' => $result->completedAt,
             'data' => $result->data,
-        ])->save();
+        ]);
 
-        $this->triggersAcmeCertificateIssuance->handle($operation);
-        $this->recordsBackupArtifact->handle($operation);
-        $this->recordsUsageSnapshot->handle($operation);
-        $this->publishesDkimDnsRecord->handle($operation);
-        $this->preparesBackupDownload->handle($operation);
-        $this->cascadesRestoreIntoResync->handle($operation);
-        $this->recordsAccountBackupResult->handle($operation);
-        $this->recordsNodeServiceState->handle($operation);
-        $this->recordsNodeServiceRemoval->handle($operation);
+        $claimed = ProvisioningOperation::query()
+            ->whereKey($operation->getKey())
+            ->where('status', $readStatus)
+            ->update($operation->getDirty());
 
-        // Last, so the events see every record above as already updated.
-        app(QueuesFinishedWebhookEvents::class)->handle($operation);
+        if ($claimed === 0) {
+            $operation->refresh();
+
+            return false;
+        }
+
+        $operation->syncOriginal();
+
+        $hooks = [
+            $this->triggersAcmeCertificateIssuance,
+            $this->recordsBackupArtifact,
+            $this->recordsUsageSnapshot,
+            $this->publishesDkimDnsRecord,
+            $this->preparesBackupDownload,
+            $this->cascadesRestoreIntoResync,
+            $this->recordsAccountBackupResult,
+            $this->recordsNodeServiceState,
+            $this->recordsNodeServiceRemoval,
+            // Last, so the events see every record above as already updated.
+            app(QueuesFinishedWebhookEvents::class),
+        ];
+
+        foreach ($hooks as $hook) {
+            try {
+                $hook->handle($operation);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return true;
     }
 }
