@@ -262,6 +262,15 @@ uninstall_remove_service() {
         rm -f /etc/cron.d/lesta-*
     fi
 
+    uninstall_remove_applier_dropins "${manifest}"
+
+    # The addresses given remote database access go with the tenant database.
+    if [ "${service_id}" = "mariadb" ]; then
+        nft flush set inet lesta db_remote_v4 >/dev/null 2>&1 || true
+        nft flush set inet lesta db_remote_v6 >/dev/null 2>&1 || true
+        rm -f "${FIREWALL_DB_REMOTE_PATH:-/etc/lesta/firewall/db-remote.nft}"
+    fi
+
     if [ -n "${data_root}" ] && [ "${data_root_quarantined}" != "1" ] && [ -e "${data_root}" ]; then
         rm -rf "${data_root}"
     fi
@@ -272,6 +281,35 @@ uninstall_remove_service() {
             uninstall_reload_php_fpm
             ;;
     esac
+}
+
+# uninstall_remove_applier_dropins <manifest> -> removes the drop-ins that gave the appliers what
+# the service's capabilities needed (paths, Linux capabilities, address families, system calls),
+# named after the capabilities its manifest provides, and restarts every applier that is running so
+# none keeps those privileges.
+uninstall_remove_applier_dropins() {
+    local manifest="$1" capability dir suffix removed=0 unit
+
+    for capability in $(manifest_extract_array "${manifest}" provides); do
+        for dir in /etc/systemd/system/lesta-applier*.service.d; do
+            [ -d "${dir}" ] || continue
+            for suffix in "" -capabilities -families -syscalls -setid -protected; do
+                if [ -e "${dir}/${capability}${suffix}.conf" ]; then
+                    rm -f "${dir}/${capability}${suffix}.conf"
+                    removed=1
+                fi
+            done
+        done
+    done
+
+    [ "${removed}" -eq 1 ] || return 0
+
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    for unit in $(systemctl list-units --state=active --plain --no-legend 'lesta-applier*.service' 2>/dev/null | awk '{print $1}'); do
+        # The maintenance applier is the one running this removal; it holds no drop-ins of a service.
+        [ "${unit}" = "lesta-applier-maintenance.service" ] && continue
+        systemctl restart "${unit}" >/dev/null 2>&1 || true
+    done
 }
 
 # uninstall_remove_php_fpm_pools -> removes web.php-fpm.v1's own per-domain
