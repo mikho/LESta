@@ -52,11 +52,12 @@ Do this in the LESta admin app first, before touching the server:
 3. **On the node**, run the agent daemon installer with that token:
 
     ```
-    .install/services/agent-daemon/install.sh --apply --yes \
+    LESTA_ENROLLMENT_TOKEN=<token> .install/services/agent-daemon/install.sh --apply --yes \
         --node-uuid <node_uuid> \
-        --enrollment-token <token> \
         --control-plane-url https://your-lesta-domain.example
     ```
+
+    The token goes in the environment, not on the command line, where any local user could read it while the installer runs. The control plane address must be https.
 
     This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness, capabilities and service states back to LESta from here on.
 

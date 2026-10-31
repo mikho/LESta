@@ -37,9 +37,11 @@ enrollment_post_bootstrap() {
         "$(json_kv_str "protocol_version" "${protocol_version}")")
 
     response_file=$(mktemp)
-    http_code=$(curl -fsS -o "${response_file}" -w '%{http_code}' -X POST \
+    # The body (it holds the token) goes in on stdin, never on curl's command line, which any local
+    # user can read; https only, so it never travels in clear.
+    http_code=$(printf '%s' "${payload}" | curl -fsS --proto '=https' -o "${response_file}" -w '%{http_code}' -X POST \
         -H 'Content-Type: application/json' \
-        -d "${payload}" \
+        --data-binary @- \
         "${control_plane_url}/agent/v1/enroll") || {
         rm -f "${response_file}"
         return 1

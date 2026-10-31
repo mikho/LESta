@@ -113,14 +113,18 @@ CONTROL_PLANE_URL=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version --node-uuid <uuid> --enrollment-token <token> --control-plane-url <url> [--yes] [--help]
+Usage: LESTA_ENROLLMENT_TOKEN=<token> install.sh --dry-run|--apply|--version --node-uuid <uuid> --control-plane-url <url> [--yes] [--help]
 
   --dry-run             Run preflight and report what would change. No mutation.
   --apply               Apply the installer. Requires --yes.
   --version             Print installer version and exit.
   --node-uuid           The node's own uuid, matching the Node record created on the control plane.
-  --enrollment-token    A one-time token issued by `php artisan lesta:nodes:issue-enrollment-token`.
-  --control-plane-url   The base URL of the control plane, e.g. https://panel.example.
+  --control-plane-url   The base URL of the control plane, https only, e.g. https://panel.example.
+  --enrollment-token    Deprecated: any local user can read a command line while it runs. Pass the
+                        token in LESTA_ENROLLMENT_TOKEN instead.
+
+  LESTA_ENROLLMENT_TOKEN  The one-time token issued by `php artisan lesta:nodes:issue-enrollment-token`
+                          or the node's page in the panel.
   --yes                 Required with --apply: non-interactive confirmation.
   --help                Print this message.
 USAGE
@@ -213,8 +217,14 @@ validate_args() {
     if ! validate_node_uuid; then
         fail_invocation "--node-uuid is required and must be a valid uuid (got: '${NODE_UUID}')"
     fi
-    [ -n "${ENROLLMENT_TOKEN}" ] || fail_invocation "--enrollment-token is required"
+    [ -n "${ENROLLMENT_TOKEN}" ] || ENROLLMENT_TOKEN="${LESTA_ENROLLMENT_TOKEN:-}"
+    [ -n "${ENROLLMENT_TOKEN}" ] || fail_invocation "LESTA_ENROLLMENT_TOKEN is required"
     [ -n "${CONTROL_PLANE_URL}" ] || fail_invocation "--control-plane-url is required"
+    # The node sends its enrollment token, and from then on its credential, to this address.
+    case "${CONTROL_PLANE_URL}" in
+        https://?*) ;;
+        *) fail_invocation "--control-plane-url must be an https address (got: '${CONTROL_PLANE_URL}')" ;;
+    esac
 
     if [ "${MODE}" = "apply" ] && [ "${YES}" -ne 1 ]; then
         fail_invocation "--apply requires --yes"
@@ -399,13 +409,9 @@ bootstrap_node_health() {
     log_info "bootstrap_node_health: installing agent binary"
 
     agent_install_binary "${AGENT_BINARY_SRC}" "${NODE_HEALTH_MANIFEST}"
-    # A no-op on a fresh enrollment (the service doesn't exist yet --
-    # bootstrap_agent_daemon below does the real first enable+start with
-    # this same binary already in place); on a re-run against an already-
-    # enrolled node, this is what actually gets the new binary generation
-    # running, since bootstrap_agent_daemon's own `enable --now` does
-    # nothing to a service that's already active.
-    agent_restart_daemon_if_enabled "${AGENT_DAEMON_CAPABILITY}"
+    # No restart here: bootstrap_agent_daemon below rewrites the daemon's
+    # unit and config first, then restarts it once, so it never runs the new
+    # binary with the old unit or config.
 
     checkpoint_write bootstrap_node_health "${MANIFEST_DIGEST}"
     log_info "bootstrap_node_health complete"
@@ -494,7 +500,7 @@ bootstrap_agent_daemon() {
     add_change "${AGENT_DAEMON_CAPABILITY}" installed "${DAEMON_UNIT_PATH}" "systemd unit written"
 
     daemon_enable_and_start
-    add_change "${AGENT_DAEMON_CAPABILITY}" enabled "" "systemctl enable --now lesta-agent-daemon succeeded"
+    add_change "${AGENT_DAEMON_CAPABILITY}" enabled "" "systemctl enable + restart lesta-agent-daemon succeeded"
 
     # Self-test: confirm the daemon process is genuinely active before
     # checkpointing. A real first-heartbeat proof (polling Node.last_seen_at

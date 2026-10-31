@@ -85,5 +85,8 @@ UNIT
 # +starts the daemon unit.
 daemon_enable_and_start() {
     systemctl daemon-reload
-    systemctl enable --now lesta-agent-daemon
+    systemctl enable lesta-agent-daemon
+    # restart, not start: on a node already enrolled the daemon is running, and must pick up the
+    # binary, unit and config just written.
+    systemctl restart lesta-agent-daemon
 }
