@@ -5,7 +5,6 @@ namespace App\Actions\Dns;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesDnsCapableNode;
 use App\Enums\ProvisioningVerb;
-use App\Enums\SuspensionSource;
 use App\Models\AuditEvent;
 use App\Models\DnsRecord;
 use App\Models\DnsZone;
@@ -30,7 +29,7 @@ class UnsuspendDnsZone
 
             // Reactivate only cascade-sourced records; a manually-suspended record stays
             // suspended through a zone-level unsuspend.
-            $recordsUnsuspended = $dnsZone->records()->where('suspension_source', SuspensionSource::Cascade)->get()
+            $recordsUnsuspended = $dnsZone->records()->suspendedByCascade()->get()
                 ->each(fn (DnsRecord $r) => $r->unsuspend())
                 ->count();
 

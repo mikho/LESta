@@ -3,6 +3,7 @@
 namespace App\Concerns;
 
 use App\Enums\SuspensionSource;
+use Illuminate\Database\Eloquent\Builder;
 
 trait Suspendable
 {
@@ -21,8 +22,12 @@ trait Suspendable
         return $this->suspended_at !== null;
     }
 
-    public function wasSuspendedByCascade(): bool
+    /**
+     * Only what was suspended because its parent was (an account, a zone, a mail domain, a node),
+     * which is what lifting the parent's suspension brings back.
+     */
+    public function scopeSuspendedByCascade(Builder $query): void
     {
-        return $this->suspension_source === SuspensionSource::Cascade;
+        $query->where('suspension_source', SuspensionSource::Cascade);
     }
 }

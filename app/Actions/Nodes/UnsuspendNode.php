@@ -2,7 +2,6 @@
 
 namespace App\Actions\Nodes;
 
-use App\Enums\SuspensionSource;
 use App\Models\AuditEvent;
 use App\Models\Node;
 use App\Models\NodeCapability;
@@ -27,7 +26,7 @@ class UnsuspendNode
             // Reactivate only cascade-sourced capabilities. A manually-suspended capability
             // (suspension_source !== Cascade) stays suspended — this is decision 2's proof.
             $node->capabilities()
-                ->where('suspension_source', SuspensionSource::Cascade)
+                ->suspendedByCascade()
                 ->get()
                 ->each(fn (NodeCapability $capability) => $capability->unsuspend());
 

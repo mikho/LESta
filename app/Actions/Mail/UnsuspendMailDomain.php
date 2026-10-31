@@ -5,7 +5,6 @@ namespace App\Actions\Mail;
 use App\Actions\Provisioning\RecordsProvisioningOperation;
 use App\Actions\Provisioning\ResolvesMailCapableNode;
 use App\Enums\ProvisioningVerb;
-use App\Enums\SuspensionSource;
 use App\Models\AuditEvent;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
@@ -30,7 +29,7 @@ class UnsuspendMailDomain
 
             // Reactivate only cascade-sourced accounts; a manually-suspended account stays
             // suspended through a domain-level unsuspend.
-            $accountsUnsuspended = $mailDomain->accounts()->where('suspension_source', SuspensionSource::Cascade)->get()
+            $accountsUnsuspended = $mailDomain->accounts()->suspendedByCascade()->get()
                 ->each(fn (MailAccount $a) => $a->unsuspend())
                 ->count();
 
