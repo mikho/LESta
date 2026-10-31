@@ -302,7 +302,7 @@ jobs:
           # never exists in this repository). Verified separately (locally,
           # with -x and the correct working directory) that following those
           # sources turns up nothing SC1091 was hiding.
-          shellcheck --shell=sh --severity=style -e SC1091 install.sh install-cp.sh .github/scripts/test-install-cp-platform-reqs.sh .github/scripts/test-install-cp-env-mode.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh
+          shellcheck --shell=sh --severity=style -e SC1091 install.sh install-cp.sh .github/scripts/test-install-cp-platform-reqs.sh .github/scripts/test-install-cp-env-mode.sh .install/lib/*.sh .install/scripts/install-selected.sh .install/services/nginx/install.sh .install/services/bind9/install.sh .install/services/apache/install.sh .install/services/mariadb/install.sh .install/services/cron/install.sh .install/services/agent-daemon/install.sh .install/services/backups/install.sh .install/services/mail/install.sh .install/services/php-fpm/install.sh .install/services/adminer/install.sh .install/services/webmail/install.sh .install/scripts/build-release.sh
 
       - name: Root install.sh -- argument validation (help/version/dry-run/invalid invocation)
         run: |
