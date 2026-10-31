@@ -197,8 +197,10 @@ test('an account owner cannot use the admin surface on their own account', funct
     ApiToken::factory()->for($membership->user)->withPlaintext('lesta_owner_admin')->create(['abilities' => ['admin:read', 'admin:write']]);
     $auth = ['Authorization' => 'Bearer lesta_owner_admin'];
 
-    $this->getJson('/api/v1/admin/accounts/'.$membership->account->public_id, $auth)->assertForbidden();
-    $this->postJson('/api/v1/admin/accounts/'.$membership->account->public_id.'/suspend', [], $auth)->assertForbidden();
+    // Such a token cannot be created (CreateApiToken), and one that exists anyway is refused
+    // outright: admin abilities belong to platform users only (AuthenticateApiToken).
+    $this->getJson('/api/v1/admin/accounts/'.$membership->account->public_id, $auth)->assertUnauthorized();
+    $this->postJson('/api/v1/admin/accounts/'.$membership->account->public_id.'/suspend', [], $auth)->assertUnauthorized();
 
     expect($membership->account->refresh()->isSuspended())->toBeFalse();
 });

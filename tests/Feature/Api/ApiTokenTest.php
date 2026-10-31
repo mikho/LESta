@@ -1,9 +1,11 @@
 <?php
 
+use App\Enums\RoleScope;
 use App\Models\Account;
 use App\Models\ApiToken;
 use App\Models\AuditEvent;
 use App\Models\Membership;
+use App\Models\Role;
 use Illuminate\Support\Facades\RateLimiter;
 
 function confirmedSession(): array
@@ -138,4 +140,26 @@ test('only the token user revokes it, and a revoked token stops working', functi
     expect(AuditEvent::where('action', 'api_token.revoked')->where('auditable_id', $token->id)->exists())->toBeTrue();
 
     $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_mine'])->assertUnauthorized();
+});
+
+test('a token stops working once its user loses the role it was created with', function () {
+    $membership = Membership::factory()->owner()->create();
+    ApiToken::factory()->for($membership->user)->withPlaintext('lesta_owner')->create();
+    ApiToken::factory()->for($membership->user)->withPlaintext('lesta_restricted')->create(['account_id' => $membership->account_id]);
+
+    $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_owner'])->assertOk();
+
+    // No longer an owner of anything: tokens are no longer for this user at all.
+    $membership->forceFill(['role_id' => Role::query()->firstOrCreate(['name' => 'member'], ['scope' => RoleScope::Account])->id])->save();
+
+    $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_owner'])->assertUnauthorized();
+    $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_restricted'])->assertUnauthorized();
+});
+
+test('a token restricted to an account stops working when its user no longer owns that account', function () {
+    $user = Membership::factory()->owner()->create()->user;
+    $other = Membership::factory()->owner()->create();
+    ApiToken::factory()->for($user)->withPlaintext('lesta_elsewhere')->create(['account_id' => $other->account_id]);
+
+    $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_elsewhere'])->assertUnauthorized();
 });

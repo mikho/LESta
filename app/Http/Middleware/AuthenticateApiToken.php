@@ -49,6 +49,10 @@ class AuthenticateApiToken
             throw new ApiProblemException(401, 'invalid-token', 'Missing, invalid, revoked or expired API token.');
         }
 
+        if (! $this->userMayStillHold($token)) {
+            throw new ApiProblemException(401, 'token-no-longer-allowed', 'The user of this API token no longer has the role it was created with.');
+        }
+
         if ($token->last_used_at === null || $token->last_used_at->diffInSeconds(now()) >= self::TOUCH_EVERY_SECONDS || $token->last_used_ip !== $request->ip()) {
             $token->forceFill(['last_used_at' => now(), 'last_used_ip' => $request->ip()])->saveQuietly();
         }
@@ -58,5 +62,25 @@ class AuthenticateApiToken
         $request->attributes->set('api_token', $token);
 
         return $next($request);
+    }
+
+    /**
+     * What CreateApiToken required when the token was made must still hold: its user may use API
+     * tokens, a token with the admin abilities belongs to a platform user, and a token restricted
+     * to an account belongs to that account's owner. A token never outlives the role that allowed it.
+     */
+    private function userMayStillHold(ApiToken $token): bool
+    {
+        $user = $token->user;
+
+        if (! $user->can('create', ApiToken::class)) {
+            return false;
+        }
+
+        if (array_intersect($token->abilities, ApiToken::ADMIN_ABILITIES) !== [] && ! $user->isPlatformUser()) {
+            return false;
+        }
+
+        return $token->account_id === null || ($token->account !== null && $user->hasAccountRole($token->account, 'owner'));
     }
 }
