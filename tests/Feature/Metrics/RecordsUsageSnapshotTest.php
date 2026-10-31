@@ -144,3 +144,23 @@ test('a non-MetricsCollection provisionable is ignored', function () {
 
     expect(true)->toBeTrue();
 });
+
+test('a node cannot record usage for resources on another node', function () {
+    $node = Node::factory()->create();
+    $otherNode = Node::factory()->create();
+    $collection = MetricsCollection::factory()->for($node)->create();
+
+    $mailAccount = MailAccount::factory()->for(MailDomain::factory()->for($otherNode))->create();
+    $tenantDatabase = TenantDatabase::factory()->for($otherNode)->create();
+    $webDomain = WebDomain::factory()->for($otherNode)->create();
+
+    app(RecordsUsageSnapshot::class)->handle(metricsCollectionOperation($collection, [
+        'data' => [
+            'mail_accounts' => [['resource_uuid' => $mailAccount->uuid, 'disk_bytes' => 1]],
+            'tenant_databases' => [['resource_uuid' => $tenantDatabase->uuid, 'disk_bytes' => 1]],
+            'web_resources' => [['resource_uuid' => $webDomain->uuid, 'request_count' => 1, 'bytes_sent' => 1]],
+        ],
+    ]));
+
+    expect(UsageSnapshot::count())->toBe(0);
+});

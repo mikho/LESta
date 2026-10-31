@@ -17,7 +17,8 @@ use App\Models\WebDomain;
  * capability's own partial-failure status, see agent/internal/capability/metrics's own doc
  * comment) is treated the same as a success here: whichever resources it DID measure still get
  * real UsageSnapshot rows, exactly matching the capability's own "one bad resource never loses
- * every other resource's real data" design.
+ * every other resource's real data" design. Only resources on the node the collection ran on
+ * are recorded: a node reporting another node's resource ids is ignored for those.
  */
 class RecordsUsageSnapshot
 {
@@ -52,7 +53,9 @@ class RecordsUsageSnapshot
         $collectedAt = $operation->completed_at ?? now();
 
         foreach ($data['mail_accounts'] ?? [] as $entry) {
-            $account = MailAccount::query()->where('uuid', $entry['resource_uuid'] ?? null)->with('mailDomain')->first();
+            $account = MailAccount::query()->where('uuid', $entry['resource_uuid'] ?? null)
+                ->whereHas('mailDomain', fn ($query) => $query->where('node_id', $collection->node_id))
+                ->with('mailDomain')->first();
             if ($account === null) {
                 continue;
             }
@@ -68,7 +71,7 @@ class RecordsUsageSnapshot
         }
 
         foreach ($data['tenant_databases'] ?? [] as $entry) {
-            $database = TenantDatabase::query()->where('uuid', $entry['resource_uuid'] ?? null)->first();
+            $database = TenantDatabase::query()->where('uuid', $entry['resource_uuid'] ?? null)->where('node_id', $collection->node_id)->first();
             if ($database === null) {
                 continue;
             }
@@ -84,7 +87,7 @@ class RecordsUsageSnapshot
         }
 
         foreach ($data['web_resources'] ?? [] as $entry) {
-            $domain = WebDomain::query()->where('uuid', $entry['resource_uuid'] ?? null)->first();
+            $domain = WebDomain::query()->where('uuid', $entry['resource_uuid'] ?? null)->where('node_id', $collection->node_id)->first();
             if ($domain === null) {
                 continue;
             }
