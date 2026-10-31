@@ -3,15 +3,9 @@
 // seen, so a duplicate delivery of the same request can be answered without
 // redoing the underlying work.
 //
-// The store is in-memory only, deliberately. The agent itself is a one-shot
-// stdin/stdout process (see cmd/lesta-agent), not a daemon, so a disk-backed
-// store would not actually help production idempotency across separate process
-// invocations without the network transport and retry semantics that are out of
-// scope for this phase; it would only add complexity the phase doesn't need. In
-// exchange, an in-memory store is exactly what the shared contract suite needs:
-// within a single test (or a single real agent invocation that happens to see
-// the same envelope twice), a duplicate idempotency key is recognized and
-// answered from the receipt, never re-rendered.
+// Store is in memory: each capability keeps one for the operations it sees
+// during the life of its process. Dir (dir.go) keeps receipts on disk, so the
+// applier can answer a redelivered operation after it restarted.
 package idempotency
 
 import (

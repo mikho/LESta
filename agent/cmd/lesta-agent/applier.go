@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -31,6 +32,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
 	"github.com/mikho/LESta/agent/internal/capability/servicecontrol"
 	"github.com/mikho/LESta/agent/internal/capability/serviceuninstall"
+	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
 
@@ -198,8 +200,41 @@ func dispatchHosted(ctx context.Context, op protocol.OperationEnvelope) (protoco
 		defer lock.Unlock()
 	}
 
-	return capability.Apply(ctx, op)
+	// Receipts on disk answer an operation redelivered after the applier
+	// restarted, which the capability's in-memory receipts no longer know. Only
+	// an applied operation keeps one: a failed one is tried again. Observe
+	// changes nothing and the file manager's operations are a person's own
+	// clicks, so neither keeps one.
+	remember := op.Operation != protocol.OperationObserve && op.Capability != filesManagerCapability
+	receipts := idempotency.NewDir(filepath.Join(appliedReceiptsRoot, op.Capability), appliedReceiptMaxAge)
+
+	if remember {
+		if prior, ok := receipts.Lookup(op.IdempotencyKey); ok && prior.Capability == op.Capability && prior.ResourceID == op.ResourceID {
+			if prior.Status == protocol.StatusApplied || prior.Status == protocol.StatusAlreadyApplied {
+				prior.Status = protocol.StatusAlreadyApplied
+			}
+
+			return prior, nil
+		}
+	}
+
+	result, err := capability.Apply(ctx, op)
+	if err == nil && remember && (result.Status == protocol.StatusApplied || result.Status == protocol.StatusAlreadyApplied) {
+		if recordErr := receipts.Record(op.IdempotencyKey, result); recordErr != nil {
+			log.Printf("applier: keeping the receipt of %s %s: %v", op.Capability, op.IdempotencyKey, recordErr)
+		}
+	}
+
+	return result, err
 }
+
+// appliedReceiptsRoot holds the applier's receipts on disk, one folder per
+// capability (see dispatchHosted); a variable only so tests can move it.
+var appliedReceiptsRoot = "/var/lib/lesta/agent/applier-receipts"
+
+// appliedReceiptMaxAge is how long a receipt is kept: far longer than the
+// panel ever redelivers an operation.
+const appliedReceiptMaxAge = 30 * 24 * time.Hour
 
 // newHostedCapability builds a capability with the configuration it has as root.
 func newHostedCapability(name string) (protocol.Capability, error) {
