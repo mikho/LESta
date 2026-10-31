@@ -168,7 +168,12 @@ BACKUP_CONTROL_PLANE_DEFAULTS_FILE="/etc/lesta/mariadb-backup-control-plane.cnf"
 RESTORE_USER="lesta_restore"
 RESTORE_TENANT_DEFAULTS_FILE="/etc/lesta/mariadb-restore-tenant.cnf"
 RESTORE_CONTROL_PLANE_DEFAULTS_FILE="/etc/lesta/mariadb-restore-control-plane.cnf"
-MARIADB_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
+# The keyring lives outside /etc/apt/trusted.gpg.d, so apt trusts it only for the MariaDB repository
+# (its signed-by), never for Ubuntu's own. MARIADB_KEYRING_FINGERPRINTS are the primary keys the
+# Foundation's keyring holds; the download is refused unless it holds exactly these.
+MARIADB_KEYRING="/etc/apt/keyrings/lesta-mariadb.gpg"
+MARIADB_LEGACY_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
+MARIADB_KEYRING_FINGERPRINTS="13CFDE6DD9EE9784F41AF0F670E4618A8167EE24 177F4010FE56CA3336300305F1656F24C74CD1D8 199369E5404BD5FC7D2FE43BCBCB082A1BB943DB 4C470FFFEFC4D3DC59778655CE1A3DD5E3C94F49 7B963F525AD3AE6259058D30135659E928C12247"
 MARIADB_SOURCES_LIST="/etc/apt/sources.list.d/mariadb.list"
 MARIADB_PINNED_SERIES="11.4"
 
@@ -685,12 +690,22 @@ ensure_mariadb_package_installed() {
         # mariadb-deb-files.md / gpg.md: key fingerprint 177F 4010 FE56 CA33
         # 3630 0305 F165 6F24 C74C D1D8, "MariaDB Community Server Debian /
         # Ubuntu key") and writes the sources list entry by hand instead.
-        if ! out=$(curl -fsSL -o "${MARIADB_KEYRING}" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
+        install -d -m 0755 /etc/apt/keyrings
+        if ! out=$(curl -fsSL --proto '=https' -o "${MARIADB_KEYRING}.tmp" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
+            rm -f "${MARIADB_KEYRING}.tmp"
             add_error mariadb_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_KEYRING}"
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
-        chmod 0644 "${MARIADB_KEYRING}"
-        add_change mariadb installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing key (fingerprint 177F4010FE56CA333630 0305F1656F24C74CD1D8) downloaded to the modern apt trusted-keyring location"
+        # shellcheck disable=SC2086 # the fingerprints are one word each
+        if ! verify_keyring_fingerprints "${MARIADB_KEYRING}.tmp" ${MARIADB_KEYRING_FINGERPRINTS}; then
+            rm -f "${MARIADB_KEYRING}.tmp"
+            add_error mariadb_keyring_unexpected "the downloaded MariaDB keyring does not hold exactly the pinned keys (${MARIADB_KEYRING_FINGERPRINTS}); refusing to trust it" "${MARIADB_KEYRING}"
+            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+        fi
+        chmod 0644 "${MARIADB_KEYRING}.tmp"
+        mv -f "${MARIADB_KEYRING}.tmp" "${MARIADB_KEYRING}"
+        rm -f "${MARIADB_LEGACY_KEYRING}"
+        add_change mariadb installed "${MARIADB_KEYRING}" "MariaDB Foundation's release signing keyring downloaded, its keys checked against the pinned fingerprints, and trusted for the MariaDB repository only"
 
         cat > "${MARIADB_SOURCES_LIST}.tmp" <<SOURCES
 # MariaDB ${MARIADB_PINNED_SERIES} LTS repository (MariaDB Foundation), pinned to the

@@ -45,3 +45,20 @@ verify_sha256() {
 compute_manifest_digest() {
     printf 'sha256:%s\n' "$(cat "$@" | sha256sum | awk '{print $1}')"
 }
+
+# verify_keyring_fingerprints <keyring_file> <fingerprint>... -> 0 when the
+# keyring's primary keys are exactly the given full fingerprints (in any
+# order), 1 otherwise. Requiring the exact set, not just the expected key, is
+# what pins it: a forged file could carry the real public key next to its own.
+verify_keyring_fingerprints() {
+    local keyring="$1" actual expected
+
+    shift
+
+    actual=$(gpg --show-keys --with-colons "${keyring}" 2>/dev/null \
+        | awk -F: '/^pub/ { primary = 1; next } /^fpr/ { if (primary) print $10; primary = 0 }' \
+        | sort)
+    expected=$(printf '%s\n' "$@" | sort)
+
+    [ -n "${actual}" ] && [ "${actual}" = "${expected}" ]
+}

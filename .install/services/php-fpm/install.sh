@@ -101,8 +101,11 @@ PHP_FPM_STATE_ROOT="/var/lib/lesta/php-fpm"
 # .install/INSTALLER-CONTRACT.md's own "Supply chain" section -- mirrors
 # mariadb/install.sh's own manual keyring + hand-written sources.list
 # discipline exactly.
-PHP_PPA_KEY_FINGERPRINT="4F4EA0AAE5267A6C"
-PHP_PPA_KEYRING="/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg"
+# Outside /etc/apt/trusted.gpg.d, so apt trusts the key for the PPA only (its signed-by), never for
+# Ubuntu's own repositories; the download is refused unless it is exactly PHP_PPA_KEY_FULL_FINGERPRINT.
+PHP_PPA_KEYRING="/etc/apt/keyrings/lesta-ondrej-php.gpg"
+PHP_PPA_LEGACY_KEYRING="/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg"
+PHP_PPA_KEY_FULL_FINGERPRINT="14AA40EC0831756756D7F66C4F4EA0AAE5267A6C"
 PHP_PPA_SOURCES_LIST="/etc/apt/sources.list.d/ondrej-php.list"
 
 SUDOERS_LESTA_PHP_FPM_PATH="/etc/sudoers.d/lesta-php-fpm"
@@ -393,7 +396,9 @@ ensure_ondrej_php_repo() {
         return 0
     fi
 
-    foreign_source=$(grep -rl 'ppa\.launchpadcontent\.net/ondrej/php' /etc/apt/sources.list.d/ 2>/dev/null | head -1 || true)
+    # LESta's own list is never foreign: one left from before the key moved out of trusted.gpg.d is
+    # rewritten below.
+    foreign_source=$(grep -rl 'ppa\.launchpadcontent\.net/ondrej/php' /etc/apt/sources.list.d/ 2>/dev/null | grep -vxF "${PHP_PPA_SOURCES_LIST}" | head -1 || true)
 
     if [ -n "${foreign_source}" ]; then
         add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${foreign_source}" "ondrej/php PPA already pinned by the base image under a different file; reusing it instead of writing a conflicting duplicate"
@@ -401,25 +406,33 @@ ensure_ondrej_php_repo() {
         return 0
     fi
 
-    log_info "ensure_ondrej_php_repo: pinning the ondrej/php PPA (key fingerprint ${PHP_PPA_KEY_FINGERPRINT})"
+    log_info "ensure_ondrej_php_repo: pinning the ondrej/php PPA (key fingerprint ${PHP_PPA_KEY_FULL_FINGERPRINT})"
 
-    if ! out=$(curl -fsSL -o "${PHP_PPA_KEYRING}" \
-        "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&exact=on&search=0x${PHP_PPA_KEY_FINGERPRINT}" 2>&1); then
+    install -d -m 0755 /etc/apt/keyrings
+    if ! out=$(curl -fsSL --proto '=https' -o "${PHP_PPA_KEYRING}" \
+        "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&exact=on&search=0x${PHP_PPA_KEY_FULL_FINGERPRINT}" 2>&1); then
+        rm -f "${PHP_PPA_KEYRING}"
         add_error ondrej_php_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${PHP_PPA_KEYRING}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
 
     # keyserver.ubuntu.com's own "mr" (machine-readable) export returns a
     # bare ASCII-armored public key block, not a binary keyring gpg
-    # expects in /etc/apt/trusted.gpg.d/ -- dearmor it in place.
+    # expects for signed-by -- dearmor it in place.
     if ! out=$(gpg --dearmor --yes --output "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEYRING}" 2>&1); then
         rm -f "${PHP_PPA_KEYRING}" "${PHP_PPA_KEYRING}.tmp"
         add_error ondrej_php_keyring_dearmor_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${PHP_PPA_KEYRING}"
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
+    if ! verify_keyring_fingerprints "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEY_FULL_FINGERPRINT}"; then
+        rm -f "${PHP_PPA_KEYRING}" "${PHP_PPA_KEYRING}.tmp"
+        add_error ondrej_php_keyring_unexpected "the downloaded key is not exactly ${PHP_PPA_KEY_FULL_FINGERPRINT}; refusing to trust it" "${PHP_PPA_KEYRING}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
     mv -f "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEYRING}"
     chmod 0644 "${PHP_PPA_KEYRING}"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${PHP_PPA_KEYRING}" "ondrej/php PPA's own release signing key (fingerprint ${PHP_PPA_KEY_FINGERPRINT}) downloaded and dearmored to the modern apt trusted-keyring location"
+    rm -f "${PHP_PPA_LEGACY_KEYRING}"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${PHP_PPA_KEYRING}" "ondrej/php PPA's release signing key (fingerprint ${PHP_PPA_KEY_FULL_FINGERPRINT}) downloaded, checked, and trusted for the PPA only"
 
     codename=$(preflight_os_release_field VERSION_CODENAME)
 

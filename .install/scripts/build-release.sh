@@ -66,7 +66,9 @@ BUNDLE_MANIFEST_FILENAME="bundle-manifest.json"
 # mariadb/install.sh's own identical constants and codename mapping (see
 # mariadb_repo_codename below) -- these two files are the only two places
 # this repo-registration sequence may ever appear.
-MARIADB_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
+MARIADB_KEYRING="/etc/apt/keyrings/lesta-mariadb.gpg"
+MARIADB_LEGACY_KEYRING="/etc/apt/trusted.gpg.d/mariadb-keyring-2019.gpg"
+MARIADB_KEYRING_FINGERPRINTS="13CFDE6DD9EE9784F41AF0F670E4618A8167EE24 177F4010FE56CA3336300305F1656F24C74CD1D8 199369E5404BD5FC7D2FE43BCBCB082A1BB943DB 4C470FFFEFC4D3DC59778655CE1A3DD5E3C94F49 7B963F525AD3AE6259058D30135659E928C12247"
 MARIADB_SOURCES_LIST="/etc/apt/sources.list.d/mariadb.list"
 MARIADB_PINNED_SERIES="11.4"
 
@@ -279,10 +281,19 @@ register_mariadb_repo() {
 
     printf 'build-release.sh: registering MariaDB Foundation apt repository (codename %s, series %s) on this build host\n' "${codename}" "${MARIADB_PINNED_SERIES}" >&2
 
-    if ! out=$(curl -fsSL -o "${MARIADB_KEYRING}" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
+    install -d -m 0755 /etc/apt/keyrings
+    if ! out=$(curl -fsSL --proto '=https' -o "${MARIADB_KEYRING}.tmp" "https://supplychain.mariadb.com/mariadb-keyring-2019.gpg" 2>&1); then
+        rm -f "${MARIADB_KEYRING}.tmp"
         fail "failed to fetch MariaDB Foundation's release signing key: ${out}"
     fi
-    chmod 0644 "${MARIADB_KEYRING}"
+    # shellcheck disable=SC2086 # the fingerprints are one word each
+    if ! verify_keyring_fingerprints "${MARIADB_KEYRING}.tmp" ${MARIADB_KEYRING_FINGERPRINTS}; then
+        rm -f "${MARIADB_KEYRING}.tmp"
+        fail "the downloaded MariaDB keyring does not hold exactly the pinned keys (${MARIADB_KEYRING_FINGERPRINTS})"
+    fi
+    chmod 0644 "${MARIADB_KEYRING}.tmp"
+    mv -f "${MARIADB_KEYRING}.tmp" "${MARIADB_KEYRING}"
+    rm -f "${MARIADB_LEGACY_KEYRING}"
 
     cat > "${MARIADB_SOURCES_LIST}.tmp" <<SOURCES
 # MariaDB ${MARIADB_PINNED_SERIES} LTS repository (MariaDB Foundation), pinned to the
