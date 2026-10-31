@@ -1,7 +1,9 @@
 <?php
 
 use App\Enums\ProvisioningStatus;
+use App\Enums\ProvisioningVerb;
 use App\Jobs\DispatchProvisioningOperation;
+use App\Models\AccountBackup;
 use App\Models\ProvisioningOperation;
 use Illuminate\Support\Facades\Queue;
 
@@ -58,4 +60,23 @@ test('the backstop command still re-dispatches stale pending operations alongsid
     });
 
     expect($overdue->refresh()->status)->toBe(ProvisioningStatus::Failed);
+});
+
+test('a backup whose operation passes its deadline is marked failed, not left running', function () {
+    $backup = AccountBackup::factory()->create();
+
+    ProvisioningOperation::factory()->dispatched()->create([
+        'provisionable_type' => $backup->getMorphClass(),
+        'provisionable_id' => $backup->id,
+        'node_id' => $backup->node_id,
+        'resource_id' => $backup->uuid,
+        'capability' => 'backup.encrypted-artifacts.v1',
+        'operation' => ProvisioningVerb::Create,
+        'deadline' => now()->subMinute(),
+    ]);
+
+    $this->artisan('provisioning:dispatch-pending')->assertExitCode(0);
+
+    expect($backup->refresh()->status)->toBe(ProvisioningStatus::Failed)
+        ->and($backup->error_message)->toBe('Operation exceeded its dispatch deadline without a result from the node.');
 });
