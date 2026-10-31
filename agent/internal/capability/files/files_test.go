@@ -443,7 +443,7 @@ func TestDeleteRefusesTheDocrootItself(t *testing.T) {
 func TestCreateFileAndDirectoryAreOwnedByTheRealAccountIdentity(t *testing.T) {
 	requireRootAndUseradd(t)
 
-	username := "lestafiles" + newTestUUID()[:8]
+	username := newTestAccountUsername()
 	if out, err := exec.Command("useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", username).CombinedOutput(); err != nil {
 		t.Fatalf("creating real test user %s: %v: %s", username, err, out)
 	}
@@ -483,7 +483,7 @@ func TestCreateFileAndDirectoryAreOwnedByTheRealAccountIdentity(t *testing.T) {
 func TestCreateRejectsAnAlreadyExistingPath(t *testing.T) {
 	requireRootAndUseradd(t)
 
-	username := "lestafiles" + newTestUUID()[:8]
+	username := newTestAccountUsername()
 	if out, err := exec.Command("useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", username).CombinedOutput(); err != nil {
 		t.Fatalf("creating real test user %s: %v: %s", username, err, out)
 	}

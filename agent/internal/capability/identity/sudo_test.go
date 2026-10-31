@@ -53,7 +53,7 @@ func TestSudoBinaryRoutesUseraddAndUserdelCorrectly(t *testing.T) {
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
-	username := "lestasudo" + newTestUUID()[:8]
+	username := newTestAccountUsername()
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
@@ -143,7 +143,7 @@ func TestSudoBinaryRoutesChrootTreeCreationCorrectly(t *testing.T) {
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
-	username := "lestachroot" + newTestUUID()[:8]
+	username := newTestAccountUsername()
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
@@ -181,7 +181,7 @@ func TestSudoBinaryRoutesAuthorizedKeysWriteCorrectly(t *testing.T) {
 	ctx := context.Background()
 
 	resourceID := newTestUUID()
-	username := "lestakeys" + newTestUUID()[:8]
+	username := newTestAccountUsername()
 	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtwD2qnFPvtF/VPln8VOdBVqoPaj9I6J9J5lvBAPw32 test"
 
 	created, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(),

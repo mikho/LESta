@@ -1,6 +1,8 @@
 package identity_test
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"os/user"
 
 	"github.com/mikho/LESta/agent/internal/validate"
@@ -16,4 +18,10 @@ func init() {
 			validate.AllowAccountUsernameForTesting(group.Name)
 		}
 	}
+}
+
+// newTestAccountUsername returns a fresh name of the shape every real account's user has
+// (lesta-t<digits>), for the root-only tests that create a real system user.
+func newTestAccountUsername() string {
+	return fmt.Sprintf("lesta-t9%08d", rand.IntN(100_000_000))
 }

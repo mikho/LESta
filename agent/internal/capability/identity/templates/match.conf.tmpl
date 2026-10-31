@@ -2,6 +2,8 @@ Match User {{.Username}}
     ChrootDirectory {{.ChrootRoot}}
     ForceCommand internal-sftp
     AllowTcpForwarding no
+    AllowStreamLocalForwarding no
     AllowAgentForwarding no
+    PermitTunnel no
     X11Forwarding no
     PermitTTY no

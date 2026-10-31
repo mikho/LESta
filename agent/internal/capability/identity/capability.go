@@ -177,10 +177,6 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 		return protocol.ResultEnvelope{}, err
 	}
 
-	if err := writeAuthorizedKeysPrivileged(c.cfg, payload.Username, renderAuthorizedKeys(payload.SshPublicKey)); err != nil {
-		return protocol.ResultEnvelope{}, err
-	}
-
 	digest, err := generation.ComputeDigest(c.cfg.SftpConfigDir)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
@@ -200,6 +196,13 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 
 	if healthErr := c.waitHealthy(ctx); healthErr != nil {
 		return c.recoverFromFailure(ctx, op, requirePrior, "health_check_failed", healthErr.Error())
+	}
+
+	// The key goes live only now, once sshd is running with this account's
+	// chroot Match block: written earlier, it would let the account log in
+	// unconfined until the reload, and stay behind after a failed create.
+	if err := writeAuthorizedKeysPrivileged(c.cfg, payload.Username, renderAuthorizedKeys(payload.SshPublicKey)); err != nil {
+		return protocol.ResultEnvelope{}, err
 	}
 
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)

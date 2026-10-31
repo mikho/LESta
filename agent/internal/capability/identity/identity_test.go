@@ -160,7 +160,7 @@ func TestCreateAndDeleteRoundTripAgainstARealSystemUser(t *testing.T) {
 	sshd := newDisposableSshd(t)
 	capability := identity.New(sshd.reloadConfig())
 	resourceID := newTestUUID()
-	username := "lestatest" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+	username := newTestAccountUsername()
 	createKey := newTestUUID()
 
 	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, createKey,
@@ -250,7 +250,7 @@ func TestRealAuthenticatedSftpSessionUploadsDownloadsAndCannotEscapeChroot(t *te
 	sshd := newDisposableSshd(t)
 	capability := identity.New(sshd.reloadConfig())
 	resourceID := newTestUUID()
-	username := "lestatest" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+	username := newTestAccountUsername()
 
 	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
@@ -354,7 +354,7 @@ func TestDeleteWithPurgeDataRemovesTheAccountsFilesToo(t *testing.T) {
 	sshd := newDisposableSshd(t)
 	capability := identity.New(sshd.reloadConfig())
 	resourceID := newTestUUID()
-	username := "lestapurge" + strings.ReplaceAll(newTestUUID(), "-", "")[:8]
+	username := newTestAccountUsername()
 
 	created, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(),
 		map[string]any{"username": username}))
