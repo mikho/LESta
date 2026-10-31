@@ -189,8 +189,8 @@ class BackupController extends Controller
     }
 
     /**
-     * Shape a backup for the index listing. No App\Http\Resources in this app; inline shaping
-     * matches the existing precedent (NodeController).
+     * Shape a backup for the index listing. Panel pages shape their props inline;
+     * App\Http\Resources\Api is the public API's.
      *
      * @return array<string, mixed>
      */

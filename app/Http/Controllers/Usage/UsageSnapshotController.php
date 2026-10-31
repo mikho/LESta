@@ -112,8 +112,8 @@ class UsageSnapshotController extends Controller
     /**
      * Shape a usage snapshot for the index listing, including a human-readable label for its
      * own polymorphic snapshotable (a MailAccount, TenantDatabase, or WebDomain) since the raw
-     * morph type/id pair means nothing to a user. No App\Http\Resources in this app; inline
-     * shaping matches the existing precedent (NodeController).
+     * morph type/id pair means nothing to a user. Panel pages shape their props inline;
+     * App\Http\Resources\Api is the public API's.
      *
      * @return array<string, mixed>
      */

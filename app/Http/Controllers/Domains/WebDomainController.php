@@ -252,8 +252,8 @@ class WebDomainController extends Controller
     }
 
     /**
-     * Shape a web domain for the frontend. No App\Http\Resources in this app; inline shaping
-     * matches the only existing precedent (ProfileController).
+     * Shape a web domain for the frontend. Panel pages shape their props inline;
+     * App\Http\Resources\Api is the public API's.
      *
      * @return array<string, mixed>
      */
