@@ -142,9 +142,25 @@ NAMES
 # failed, or the daemon-reload's own output if dpkg succeeded but that
 # failed (empty on overall success). Returns 0 on success, 1 otherwise.
 install_offline_bundle_debs() {
-    local bundle_dir="$1" out
+    local bundle_dir="$1" out name names
 
-    if out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1) || out=$(dpkg -i "${bundle_dir}"/*.deb 2>&1); then
+    # Only the packages bundle-manifest.json declares, which verify_offline_bundle_artifacts has
+    # checked against their sha256: any other .deb lying in the directory is never installed. The
+    # function's own positional parameters hold the list (POSIX sh has no arrays).
+    names=$(offline_bundle_artifact_names "${bundle_dir}/${BUNDLE_MANIFEST_FILENAME}")
+    set --
+    while IFS= read -r name; do
+        [ -n "${name}" ] && set -- "$@" "${bundle_dir}/${name}"
+    done <<NAMES
+${names}
+NAMES
+
+    if [ "$#" -eq 0 ]; then
+        printf 'the offline bundle manifest declares no packages'
+        return 1
+    fi
+
+    if out=$(dpkg -i "$@" 2>&1) || out=$(dpkg -i "$@" 2>&1); then
         if out=$(systemctl daemon-reload 2>&1); then
             return 0
         fi
