@@ -109,3 +109,18 @@ test('deleting a role still assigned to a user fails validation instead of a raw
 
     expect(Role::find($role->id))->not->toBeNull();
 });
+
+test('an account role such as owner can be neither renamed nor deleted', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $owner = Role::query()->firstOrCreate(['name' => 'owner'], ['scope' => RoleScope::Account]);
+
+    $this->actingAs($admin)
+        ->put(route('roles.update', $owner), ['name' => 'renamed', 'permissions' => []])
+        ->assertSessionHasErrors('role');
+
+    $this->actingAs($admin)
+        ->delete(route('roles.destroy', $owner))
+        ->assertSessionHasErrors('role');
+
+    expect($owner->refresh()->name)->toBe('owner');
+});
