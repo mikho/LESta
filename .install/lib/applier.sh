@@ -84,6 +84,11 @@ UNIT
             cat <<'UNIT'
 
 # Sandbox. ReadWritePaths is extended per capability by a drop-in (applier_allow_paths).
+# Whatever a drop-in allows, these stay read-only (the more specific path wins): the agent binary,
+# which every instance and the unsandboxed maintenance instance run as root, and the units and
+# rules that decide what runs as root. Without this, a bug in any sandboxed capability could
+# become unsandboxed root on the next restart.
+ReadOnlyPaths=-/var/lib/lesta/agent/bin -/etc/systemd -/etc/sudoers -/etc/sudoers.d -/etc/lesta/installer-root
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -139,6 +144,31 @@ applier_allow_paths() {
     chown root:root "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp"
     mv -f "${APPLIER_DROPIN_DIR}/${capability}.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}.conf" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}.conf" "failed to write the applier drop-in for ${capability}"
+}
+
+# applier_protect_paths <capability> <path>…
+# Keeps the given paths read-only while the applier applies <capability>, inside a directory
+# applier_allow_paths made writable (identity needs /etc for useradd, but never /etc/cron.d).
+applier_protect_paths() {
+    local capability="$1"
+
+    shift
+
+    install -d -m 0755 -o root -g root "${APPLIER_DROPIN_DIR}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${APPLIER_DROPIN_DIR}" "failed to create the applier drop-in directory"
+
+    local paths=""
+    local path
+
+    for path in "$@"; do
+        paths="${paths} -${path}"
+    done
+
+    printf '[Service]\nReadOnlyPaths=%s\n' "${paths# }" > "${APPLIER_DROPIN_DIR}/${capability}-protected.conf.tmp"
+    chmod 0644 "${APPLIER_DROPIN_DIR}/${capability}-protected.conf.tmp"
+    chown root:root "${APPLIER_DROPIN_DIR}/${capability}-protected.conf.tmp"
+    mv -f "${APPLIER_DROPIN_DIR}/${capability}-protected.conf.tmp" "${APPLIER_DROPIN_DIR}/${capability}-protected.conf" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${APPLIER_DROPIN_DIR}/${capability}-protected.conf" "failed to write the applier drop-in for ${capability}"
 }
 
 # applier_allow_capabilities <capability> <linux capability>…

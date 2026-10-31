@@ -535,6 +535,14 @@ bootstrap_applier_identity() {
     applier_select_instance identity
     applier_install_unit
     applier_allow_paths system.account-identity.v1 /etc /var/lib/lesta
+    # /etc is writable for useradd alone: what runs as root on a schedule or at login, how sshd
+    # itself is configured, and the other services' configuration stay read-only here.
+    applier_protect_paths system.account-identity.v1 \
+        /etc/cron.d /etc/crontab /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly \
+        /etc/pam.d /etc/security /etc/ld.so.preload /etc/ld.so.conf /etc/ld.so.conf.d \
+        /etc/profile /etc/profile.d /etc/environment /etc/bash.bashrc /etc/apt /etc/sysctl.d \
+        /etc/modprobe.d /etc/udev /etc/init.d /etc/rc.local /etc/ssh/sshd_config \
+        /etc/nginx /etc/apache2 /etc/php /etc/exim4 /etc/dovecot /etc/bind /etc/mysql /etc/lesta/tls
     applier_allow_capabilities system.account-identity.v1 CAP_SETUID CAP_SETGID
     applier_allow_syscalls system.account-identity.v1 @privileged
     applier_start
