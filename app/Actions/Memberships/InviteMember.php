@@ -93,6 +93,12 @@ class InviteMember
         $user = User::where('email', $email)->first();
 
         if ($user !== null) {
+            // An address a user changed their profile to is theirs only once they confirm it:
+            // until then it could be someone else's, typed in to be handed this membership.
+            if ($user->email_verified_at === null) {
+                throw ValidationException::withMessages(['email' => __('The owner of :email has not confirmed that address yet. Ask them to confirm it from their profile first.', ['email' => $email])]);
+            }
+
             return $user;
         }
 

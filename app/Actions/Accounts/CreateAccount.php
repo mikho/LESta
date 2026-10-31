@@ -80,6 +80,11 @@ class CreateAccount
         $owner = User::where('email', $ownerEmail)->first();
 
         if ($owner !== null) {
+            // See InviteMember::resolveUser: an unconfirmed address may be someone else's.
+            if ($owner->email_verified_at === null) {
+                throw ValidationException::withMessages(['owner_email' => __('The owner of :email has not confirmed that address yet. Ask them to confirm it from their profile first.', ['email' => $ownerEmail])]);
+            }
+
             return $owner;
         }
 

@@ -97,3 +97,12 @@ test('a plain tenant account owner never gets a node admin grant just by being a
 
     expect($owner->hasNodeAdminGrant($node))->toBeFalse();
 });
+
+test('node admin access is never granted to an address its user has not confirmed', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $claimed = User::factory()->unverified()->create();
+
+    expect(fn () => app(GrantNodeAdmin::class)->handle($admin, Node::factory()->create(), $claimed->email))
+        ->toThrow(ValidationException::class)
+        ->and(NodeAdminGrant::where('user_id', $claimed->id)->exists())->toBeFalse();
+});

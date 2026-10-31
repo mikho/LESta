@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Support\Facades\Notification;
 
 test('profile page is displayed', function () {
     $user = User::factory()->create();
@@ -13,6 +15,7 @@ test('profile page is displayed', function () {
 });
 
 test('profile information can be updated', function () {
+    Notification::fake();
     $user = User::factory()->create();
 
     $response = $this
@@ -20,6 +23,7 @@ test('profile information can be updated', function () {
         ->patch(route('profile.update'), [
             'name' => 'Test User',
             'email' => 'test@example.com',
+            'current_password' => 'password',
         ]);
 
     $response
@@ -31,7 +35,19 @@ test('profile information can be updated', function () {
     expect($user->name)->toBe('Test User');
     expect($user->email)->toBe('test@example.com');
     expect($user->email_verified_at)->toBeNull();
+    Notification::assertSentTo($user, VerifyEmail::class);
 });
+
+test('a new email address needs the current password', function (?string $password) {
+    $user = User::factory()->create();
+    $email = $user->email;
+
+    $this->actingAs($user)
+        ->patch(route('profile.update'), array_filter(['name' => 'Test User', 'email' => 'someone-else@example.com', 'current_password' => $password]))
+        ->assertSessionHasErrors('current_password');
+
+    expect($user->refresh()->email)->toBe($email);
+})->with([null, 'wrong-password']);
 
 test('email verification status is unchanged when the email address is unchanged', function () {
     $user = User::factory()->create();

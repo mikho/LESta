@@ -34,6 +34,11 @@ class GrantNodeAdmin
             ]);
         }
 
+        // See InviteMember::resolveUser: an unconfirmed address may be someone else's.
+        if ($user->email_verified_at === null) {
+            throw ValidationException::withMessages(['email' => __('The owner of :email has not confirmed that address yet. Ask them to confirm it from their profile first.', ['email' => $email])]);
+        }
+
         return DB::transaction(function () use ($actor, $node, $user): NodeAdminGrant {
             $grant = NodeAdminGrant::query()->firstOrCreate([
                 'user_id' => $user->id,

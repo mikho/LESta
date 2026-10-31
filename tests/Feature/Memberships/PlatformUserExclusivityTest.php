@@ -50,3 +50,21 @@ test('the membership model itself refuses to mix platform and account membership
     expect(fn () => Membership::create(['user_id' => $member->id, 'account_id' => null, 'role_id' => $platformRole->id]))
         ->toThrow(LogicException::class);
 });
+
+test('an address its user has not confirmed is never handed a membership or an account', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $claimed = User::factory()->unverified()->create(['email' => 'victim@example.com']);
+    $actor = Membership::factory()->providerAdmin()->create()->user;
+
+    expect(fn () => app(InviteMember::class)->handle($owner, $account, 'Victim', 'victim@example.com', 'member'))
+        ->toThrow(ValidationException::class)
+        ->and(fn () => app(CreateAccount::class)->handle($actor, [
+            'name' => 'Victim Corp',
+            'contact_email' => null,
+            'package_id' => Package::factory()->create()->id,
+            'owner_name' => 'Victim',
+            'owner_email' => 'victim@example.com',
+        ]))->toThrow(ValidationException::class)
+        ->and($claimed->memberships()->exists())->toBeFalse();
+});
