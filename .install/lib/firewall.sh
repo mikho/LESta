@@ -159,6 +159,9 @@ firewall_render_and_apply() {
         printf '        ct state established,related accept;\n'
         printf '        iif lo accept;\n'
         printf '        icmp type echo-request accept;\n'
+        # IPv6 needs these: neighbour and router discovery are not "related" to any connection, so
+        # without them the node cannot even resolve its gateway's address over IPv6.
+        printf '        icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept;\n'
         printf '        tcp dport 22 accept;\n'
         if [ -n "${tcp_rendered}" ]; then
             printf '        tcp dport { %s } accept;\n' "${tcp_rendered}"
@@ -197,8 +200,12 @@ firewall_render_and_apply() {
     {
         printf '[Unit]\n'
         printf 'Description=LESta firewall baseline (nftables)\n'
-        printf 'After=network-pre.target\n'
-        printf 'Before=network.target\n'
+        # Like nftables.service: loaded before any network is configured, so no interface is ever up
+        # without the rules.
+        printf 'DefaultDependencies=no\n'
+        printf 'Wants=network-pre.target\n'
+        printf 'Before=network-pre.target shutdown.target\n'
+        printf 'Conflicts=shutdown.target\n'
         printf '\n'
         printf '[Service]\n'
         printf 'Type=oneshot\n'
