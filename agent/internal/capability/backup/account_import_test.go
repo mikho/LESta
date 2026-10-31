@@ -42,10 +42,12 @@ func plainBackupOf(t *testing.T, h *accountHarness, parts ...string) []byte {
 // importToken is the one-time token the fake panel accepts for a file to import.
 var importToken = strings.Repeat("cd", 32)
 
+// serveImport serves body as the panel's one-time import address, over TLS like
+// the real one.
 func serveImport(t *testing.T, body []byte) string {
 	t.Helper()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method", http.StatusMethodNotAllowed)
 
@@ -92,13 +94,14 @@ func TestAccountImportFromTheControlPlaneThenRestore(t *testing.T) {
 	h := newAccountHarness(t)
 	plain := plainBackupOf(t, h, "files", "databases")
 
+	sourceURL := serveImport(t, plain)
 	capability := backup.New(h.cfg)
 	ctx := context.Background()
 	key := newTestEncryptionKey()
 	resourceID := newTestUUID()
 
 	imported, err := capability.Apply(ctx, newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{
-		"encryption_key": key, "account": h.account("files", "databases", "mail"), "source_url": serveImport(t, plain), "source_token": importToken,
+		"encryption_key": key, "account": h.account("files", "databases", "mail"), "source_url": sourceURL, "source_token": importToken,
 	}))
 	requireStatus(t, "import", imported, err, protocol.StatusApplied)
 
@@ -146,13 +149,13 @@ func TestAccountImportRefusesFilesThatAreNotThisAccountsBackup(t *testing.T) {
 		"bad manifest":      tarGz(t, map[string]string{"manifest.json": "{}"}, []string{"manifest.json"}),
 	}
 
-	capability := backup.New(h.cfg)
-
 	for name, body := range cases {
 		resourceID := newTestUUID()
+		sourceURL := serveImport(t, body)
+		capability := backup.New(h.cfg)
 
 		result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, resourceID, newTestUUID(), map[string]any{
-			"encryption_key": newTestEncryptionKey(), "account": h.account("files"), "source_url": serveImport(t, body), "source_token": importToken,
+			"encryption_key": newTestEncryptionKey(), "account": h.account("files"), "source_url": sourceURL, "source_token": importToken,
 		}))
 		requireStatus(t, name, result, err, protocol.StatusFailed)
 		requireErrorCode(t, name, result, "import_invalid")
@@ -172,6 +175,40 @@ func TestAccountImportRefusesABadSourceAddress(t *testing.T) {
 	}))
 	requireStatus(t, "bad address", result, err, protocol.StatusFailed)
 	requireErrorCode(t, "bad address", result, "import_fetch_failed")
+}
+
+func TestAccountImportRefusesPlainHTTPAndRedirects(t *testing.T) {
+	h := newAccountHarness(t)
+
+	var redirected bool
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected = true
+	}))
+	t.Cleanup(target.Close)
+
+	redirector := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/agent/v1/account-backup-imports/elsewhere", http.StatusFound)
+	}))
+	t.Cleanup(redirector.Close)
+
+	client := redirector.Client()
+	h.cfg.UploadClient = client
+	capability := backup.New(h.cfg)
+
+	for name, sourceURL := range map[string]string{
+		"plain http": strings.Replace(redirector.URL, "https://", "http://", 1) + "/agent/v1/account-backup-imports",
+		"redirect":   redirector.URL + "/agent/v1/account-backup-imports",
+	} {
+		result, err := capability.Apply(context.Background(), newOp(protocol.OperationCreate, newTestUUID(), newTestUUID(), map[string]any{
+			"encryption_key": newTestEncryptionKey(), "account": h.account("files"), "source_url": sourceURL, "source_token": importToken,
+		}))
+		requireStatus(t, name, result, err, protocol.StatusFailed)
+		requireErrorCode(t, name, result, "import_fetch_failed")
+	}
+
+	if redirected {
+		t.Error("the import followed a redirect")
+	}
 }
 
 func TestAccountImportFromTheAccountsOwnStorage(t *testing.T) {

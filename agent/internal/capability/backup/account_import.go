@@ -44,11 +44,22 @@ const (
 
 // importSourceClient is the HTTP client used to fetch the file from the panel.
 func (c Config) importSourceClient() *http.Client {
-	if c.UploadClient != nil {
-		return c.UploadClient
+	return withoutRedirects(c.UploadClient, importTimeout)
+}
+
+// withoutRedirects returns a copy of client (a new one with timeout when nil)
+// that returns a redirect as the response instead of following it: the panel's
+// addresses never redirect, and following one would carry the request, and its
+// bearer token, somewhere else.
+func withoutRedirects(client *http.Client, timeout time.Duration) *http.Client {
+	c := http.Client{Timeout: timeout}
+	if client != nil {
+		c = *client
 	}
 
-	return &http.Client{Timeout: importTimeout}
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+	return &c
 }
 
 // fetchImport copies the source into tmp: from the panel's one-time address, or
@@ -60,7 +71,7 @@ func fetchImport(ctx context.Context, cfg Config, req accountRequest, tmp io.Wri
 
 	if req.SourceURL != "" {
 		target, err := url.Parse(req.SourceURL)
-		if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" || target.RawQuery != "" || !importPathPattern.MatchString(target.Path) {
+		if err != nil || target.Scheme != "https" || target.Host == "" || target.RawQuery != "" || !importPathPattern.MatchString(target.Path) {
 			return errors.New("the source address is not a one-time backup import address")
 		}
 

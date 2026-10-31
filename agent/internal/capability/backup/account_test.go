@@ -69,6 +69,13 @@ func newAccountHarness(t *testing.T) *accountHarness {
 
 	h.cfg.DatabaseDumpSockets = map[string]string{"database.tenant.v1": socket}
 
+	// The panel's addresses are https only. Every httptest TLS server presents
+	// the same certificate, so a client from one of them trusts the fake panels
+	// the tests start.
+	trust := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(trust.Close)
+	h.cfg.UploadClient = trust.Client()
+
 	h.siteDir = filepath.Join(h.cfg.AccountsRoot, h.username, "domains", h.siteID, "public")
 	h.mailDir = filepath.Join(h.cfg.VMailRoot, "example.com")
 
@@ -332,7 +339,7 @@ func newFakePanel(t *testing.T) *fakePanel {
 
 	p := &fakePanel{}
 
-	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 

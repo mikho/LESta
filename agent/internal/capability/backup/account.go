@@ -714,7 +714,7 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 	}
 
 	target, err := url.Parse(req.UploadURL)
-	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" || target.RawQuery != "" || !uploadPathPattern.MatchString(target.Path) {
+	if err != nil || target.Scheme != "https" || target.Host == "" || target.RawQuery != "" || !uploadPathPattern.MatchString(target.Path) {
 		return accountError("invalid_upload_url", "the upload address is not a one-time backup upload address")
 	}
 
@@ -766,11 +766,7 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 }
 
 func (c Config) uploadClient() *http.Client {
-	if c.UploadClient != nil {
-		return c.UploadClient
-	}
-
-	return &http.Client{Timeout: 2 * time.Minute}
+	return withoutRedirects(c.UploadClient, 2*time.Minute)
 }
 
 // uploadChunk PUTs one chunk at offset, retrying a failed attempt a few times.
