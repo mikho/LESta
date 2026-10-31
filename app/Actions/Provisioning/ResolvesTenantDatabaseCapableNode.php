@@ -2,12 +2,13 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\NoTenantDatabaseCapableNodeAvailableException;
 use App\Models\Node;
 
 class ResolvesTenantDatabaseCapableNode
 {
-    private const CAPABILITY = 'database.tenant.v1';
+    private const NodeCapabilityType CAPABILITY = NodeCapabilityType::DatabaseTenant;
 
     /**
      * Pick the first non-suspended node with an active database.tenant.v1 capability.
@@ -16,15 +17,10 @@ class ResolvesTenantDatabaseCapableNode
      */
     public function resolve(): array
     {
-        $node = Node::query()
-            ->whereNull('suspended_at')
-            ->whereHas('capabilities', function ($query): void {
-                $query->where('capability', self::CAPABILITY)->whereNull('suspended_at');
-            })
-            ->first();
+        $node = Node::firstWithActiveCapability(self::CAPABILITY);
 
         if ($node !== null) {
-            return [$node, self::CAPABILITY];
+            return [$node, self::CAPABILITY->value];
         }
 
         throw new NoTenantDatabaseCapableNodeAvailableException;
@@ -36,13 +32,8 @@ class ResolvesTenantDatabaseCapableNode
      */
     public function resolveFor(Node $node): string
     {
-        $active = $node->capabilities()
-            ->where('capability', self::CAPABILITY)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if ($active) {
-            return self::CAPABILITY;
+        if ($node->hasCapability(self::CAPABILITY)) {
+            return self::CAPABILITY->value;
         }
 
         throw new NoTenantDatabaseCapableNodeAvailableException;

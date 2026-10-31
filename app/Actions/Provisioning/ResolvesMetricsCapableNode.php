@@ -2,12 +2,13 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\NoMetricsCapableNodeAvailableException;
 use App\Models\Node;
 
 class ResolvesMetricsCapableNode
 {
-    private const CAPABILITY = 'metrics.usage.v1';
+    private const NodeCapabilityType CAPABILITY = NodeCapabilityType::MetricsUsage;
 
     /**
      * Resolve the active metrics capability for an already-known node. Mirrors
@@ -18,13 +19,8 @@ class ResolvesMetricsCapableNode
      */
     public function resolveFor(Node $node): string
     {
-        $active = $node->capabilities()
-            ->where('capability', self::CAPABILITY)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if ($active) {
-            return self::CAPABILITY;
+        if ($node->hasCapability(self::CAPABILITY)) {
+            return self::CAPABILITY->value;
         }
 
         throw new NoMetricsCapableNodeAvailableException;
@@ -37,9 +33,6 @@ class ResolvesMetricsCapableNode
      */
     public function isAvailableFor(Node $node): bool
     {
-        return $node->capabilities()
-            ->where('capability', self::CAPABILITY)
-            ->whereNull('suspended_at')
-            ->exists();
+        return $node->hasCapability(self::CAPABILITY);
     }
 }

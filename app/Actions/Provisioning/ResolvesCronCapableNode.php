@@ -2,12 +2,13 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\NoCronCapableNodeAvailableException;
 use App\Models\Node;
 
 class ResolvesCronCapableNode
 {
-    private const CAPABILITY = 'scheduler.account-cron.v1';
+    private const NodeCapabilityType CAPABILITY = NodeCapabilityType::SchedulerCron;
 
     /**
      * Pick the first non-suspended node with an active scheduler.account-cron.v1 capability.
@@ -16,15 +17,10 @@ class ResolvesCronCapableNode
      */
     public function resolve(): array
     {
-        $node = Node::query()
-            ->whereNull('suspended_at')
-            ->whereHas('capabilities', function ($query): void {
-                $query->where('capability', self::CAPABILITY)->whereNull('suspended_at');
-            })
-            ->first();
+        $node = Node::firstWithActiveCapability(self::CAPABILITY);
 
         if ($node !== null) {
-            return [$node, self::CAPABILITY];
+            return [$node, self::CAPABILITY->value];
         }
 
         throw new NoCronCapableNodeAvailableException;
@@ -36,13 +32,8 @@ class ResolvesCronCapableNode
      */
     public function resolveFor(Node $node): string
     {
-        $active = $node->capabilities()
-            ->where('capability', self::CAPABILITY)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if ($active) {
-            return self::CAPABILITY;
+        if ($node->hasCapability(self::CAPABILITY)) {
+            return self::CAPABILITY->value;
         }
 
         throw new NoCronCapableNodeAvailableException;

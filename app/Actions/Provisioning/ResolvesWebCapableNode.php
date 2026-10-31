@@ -2,6 +2,7 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\NoWebCapableNodeAvailableException;
 use App\Models\Node;
 
@@ -28,12 +29,7 @@ class ResolvesWebCapableNode
     public function resolve(string $webServer = 'nginx'): array
     {
         if ($webServer === 'apache') {
-            $node = Node::query()
-                ->whereNull('suspended_at')
-                ->whereHas('capabilities', function ($query): void {
-                    $query->where('capability', 'web.apache.v1')->whereNull('suspended_at');
-                })
-                ->first();
+            $node = Node::firstWithActiveCapability(NodeCapabilityType::WebApache);
 
             if ($node === null) {
                 throw new NoWebCapableNodeAvailableException;
@@ -42,16 +38,11 @@ class ResolvesWebCapableNode
             return [$node, $this->apacheCapabilitiesFor($node)];
         }
 
-        foreach (['web.nginx.v1', 'web.apache.v1'] as $capability) {
-            $node = Node::query()
-                ->whereNull('suspended_at')
-                ->whereHas('capabilities', function ($query) use ($capability): void {
-                    $query->where('capability', $capability)->whereNull('suspended_at');
-                })
-                ->first();
+        foreach ([NodeCapabilityType::WebNginx, NodeCapabilityType::WebApache] as $capability) {
+            $node = Node::firstWithActiveCapability($capability);
 
             if ($node !== null) {
-                return [$node, [$capability]];
+                return [$node, [$capability->value]];
             }
         }
 
@@ -77,14 +68,9 @@ class ResolvesWebCapableNode
             return $this->apacheCapabilitiesFor($node);
         }
 
-        foreach (['web.nginx.v1', 'web.apache.v1'] as $capability) {
-            $active = $node->capabilities()
-                ->where('capability', $capability)
-                ->whereNull('suspended_at')
-                ->exists();
-
-            if ($active) {
-                return [$capability];
+        foreach ([NodeCapabilityType::WebNginx, NodeCapabilityType::WebApache] as $capability) {
+            if ($node->hasCapability($capability)) {
+                return [$capability->value];
             }
         }
 
@@ -96,20 +82,12 @@ class ResolvesWebCapableNode
      */
     private function apacheCapabilitiesFor(Node $node): array
     {
-        $apacheActive = $node->capabilities()
-            ->where('capability', 'web.apache.v1')
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if (! $apacheActive) {
+        if (! $node->hasCapability(NodeCapabilityType::WebApache)) {
             throw new NoWebCapableNodeAvailableException;
         }
 
-        $nginxActive = $node->capabilities()
-            ->where('capability', 'web.nginx.v1')
-            ->whereNull('suspended_at')
-            ->exists();
-
-        return $nginxActive ? ['web.apache.v1', 'web.nginx.v1'] : ['web.apache.v1'];
+        return $node->hasCapability(NodeCapabilityType::WebNginx)
+            ? [NodeCapabilityType::WebApache->value, NodeCapabilityType::WebNginx->value]
+            : [NodeCapabilityType::WebApache->value];
     }
 }

@@ -151,6 +151,18 @@ class Node extends Model implements ProviderAdminManaged
     }
 
     /**
+     * The first node that is not suspended and has a non-suspended capability of the given type:
+     * where a new resource goes when nothing has placed it yet.
+     */
+    public static function firstWithActiveCapability(NodeCapabilityType $type): ?self
+    {
+        return static::query()
+            ->whereNull('suspended_at')
+            ->whereHas('capabilities', fn ($query) => $query->where('capability', $type->value)->whereNull('suspended_at'))
+            ->first();
+    }
+
+    /**
      * Whether this node has a non-suspended capability of the given type declared.
      */
     public function hasCapability(NodeCapabilityType $type): bool

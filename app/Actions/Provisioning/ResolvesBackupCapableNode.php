@@ -2,12 +2,13 @@
 
 namespace App\Actions\Provisioning;
 
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\NoBackupCapableNodeAvailableException;
 use App\Models\Node;
 
 class ResolvesBackupCapableNode
 {
-    private const CAPABILITY = 'backup.encrypted-artifacts.v1';
+    private const NodeCapabilityType CAPABILITY = NodeCapabilityType::BackupEncryptedArtifacts;
 
     /**
      * Pick the given node if it has an active backup.encrypted-artifacts.v1 capability. Unlike
@@ -17,13 +18,8 @@ class ResolvesBackupCapableNode
      */
     public function resolveFor(Node $node): string
     {
-        $active = $node->capabilities()
-            ->where('capability', self::CAPABILITY)
-            ->whereNull('suspended_at')
-            ->exists();
-
-        if ($active) {
-            return self::CAPABILITY;
+        if ($node->hasCapability(self::CAPABILITY)) {
+            return self::CAPABILITY->value;
         }
 
         throw new NoBackupCapableNodeAvailableException;
