@@ -25,6 +25,8 @@ trait Suspendable
     /**
      * Only what was suspended because its parent was (an account, a zone, a mail domain, a node),
      * which is what lifting the parent's suspension brings back.
+     *
+     * @param  Builder<static>  $query
      */
     public function scopeSuspendedByCascade(Builder $query): void
     {

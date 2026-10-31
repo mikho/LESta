@@ -30,6 +30,9 @@ class DashboardController extends Controller
     {
         $account = $this->resolveAccount($request->user());
 
+        // Counted once, for both the summary and the package limits.
+        $account?->loadCount(['webDomains', 'dnsZones', 'mailDomains', 'tenantDatabases', 'cronJobs']);
+
         return Inertia::render('dashboard', [
             'account' => $account === null ? null : $this->presentAccount($account),
             'overview' => $account === null ? null : $this->presentOverview($account, $request->user()),
@@ -59,25 +62,28 @@ class DashboardController extends Controller
         $attention = [];
         $applying = 0;
 
+        // Only the resources whose latest change is still running or went wrong are read; the rest
+        // are not loaded at all.
         foreach ($sources as [$kind, $query, $nameColumn, $route]) {
-            foreach ($query->with('latestProvisioningOperation')->get() as $resource) {
+            $applying += (clone $query)
+                ->whereHas('latestProvisioningOperation', fn ($operation) => $operation->whereIn('status', ['pending', 'dispatched']))
+                ->count();
+
+            $needsAttention = $query
+                ->whereHas('latestProvisioningOperation', fn ($operation) => $operation->whereIn('status', ['failed', 'rejected', 'degraded']))
+                ->with('latestProvisioningOperation')
+                ->get();
+
+            foreach ($needsAttention as $resource) {
                 $operation = $resource->latestProvisioningOperation;
-                $status = $operation?->status->value;
-
-                if (in_array($status, ['pending', 'dispatched'], true)) {
-                    $applying++;
-                }
-
-                if (in_array($status, ['failed', 'rejected', 'degraded'], true)) {
-                    $message = $operation->errors[0]['message'] ?? null;
-                    $attention[] = [
-                        'kind' => $kind,
-                        'name' => (string) $resource->getAttribute($nameColumn),
-                        'url' => route($route, $resource),
-                        'status' => $status,
-                        'error' => is_string($message) ? $message : null,
-                    ];
-                }
+                $message = $operation->errors[0]['message'] ?? null;
+                $attention[] = [
+                    'kind' => $kind,
+                    'name' => (string) $resource->getAttribute($nameColumn),
+                    'url' => route($route, $resource),
+                    'status' => $operation->status->value,
+                    'error' => is_string($message) ? $message : null,
+                ];
             }
         }
 
@@ -173,11 +179,11 @@ class DashboardController extends Controller
         $limits = PackageLimit::query()->where('package_id', $account->package_id)->pluck('limit_value', 'resource_type');
 
         $resources = [
-            ['key' => 'web_domains', 'label' => 'Web domains', 'used' => $account->webDomains()->count()],
-            ['key' => 'dns_zones', 'label' => 'DNS zones', 'used' => $account->dnsZones()->count()],
-            ['key' => 'mail_domains', 'label' => 'Mail domains', 'used' => $account->mailDomains()->count()],
-            ['key' => 'tenant_databases', 'label' => 'Databases', 'used' => $account->tenantDatabases()->count()],
-            ['key' => 'cron_jobs', 'label' => 'Cron jobs', 'used' => $account->cronJobs()->count()],
+            ['key' => 'web_domains', 'label' => 'Web domains', 'used' => $account->web_domains_count],
+            ['key' => 'dns_zones', 'label' => 'DNS zones', 'used' => $account->dns_zones_count],
+            ['key' => 'mail_domains', 'label' => 'Mail domains', 'used' => $account->mail_domains_count],
+            ['key' => 'tenant_databases', 'label' => 'Databases', 'used' => $account->tenant_databases_count],
+            ['key' => 'cron_jobs', 'label' => 'Cron jobs', 'used' => $account->cron_jobs_count],
         ];
 
         $latestDisk = UsageSnapshot::query()
@@ -214,14 +220,14 @@ class DashboardController extends Controller
         return [
             'name' => $account->name,
             'suspended_at' => $account->suspended_at?->toIso8601String(),
-            'web_domains_count' => $account->webDomains()->count(),
-            'dns_zones_count' => $account->dnsZones()->count(),
-            'mail_domains_count' => $account->mailDomains()->count(),
+            'web_domains_count' => $account->web_domains_count,
+            'dns_zones_count' => $account->dns_zones_count,
+            'mail_domains_count' => $account->mail_domains_count,
             'mail_accounts_count' => MailAccount::query()
-                ->whereIn('mail_domain_id', $account->mailDomains()->pluck('id'))
+                ->whereIn('mail_domain_id', $account->mailDomains()->select('id'))
                 ->count(),
-            'tenant_databases_count' => $account->tenantDatabases()->count(),
-            'cron_jobs_count' => $account->cronJobs()->count(),
+            'tenant_databases_count' => $account->tenant_databases_count,
+            'cron_jobs_count' => $account->cron_jobs_count,
         ];
     }
 }
