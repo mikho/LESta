@@ -22,29 +22,40 @@ class WebhookTarget
      */
     public function problem(string $url): ?string
     {
+        return $this->check($url)['problem'];
+    }
+
+    /**
+     * Resolves $url's host once and checks every address. The send must be pinned to the address
+     * returned here, never to a second lookup: that one could answer differently (DNS rebinding).
+     *
+     * @return array{address: string|null, problem: string|null} an address to pin, or why there is none
+     */
+    public function check(string $url): array
+    {
         $parts = parse_url($url);
 
         if ($parts === false || ($parts['scheme'] ?? '') !== 'https' || ! isset($parts['host'])) {
-            return __('The address must start with https:// and name a host.');
+            return ['address' => null, 'problem' => __('The address must start with https:// and name a host.')];
         }
 
         if (isset($parts['user']) || isset($parts['pass'])) {
-            return __('The address may not contain a user name or password.');
+            return ['address' => null, 'problem' => __('The address may not contain a user name or password.')];
         }
 
         $addresses = $this->addresses($parts['host']);
 
         if ($addresses === []) {
-            return __('The host :host could not be found.', ['host' => $parts['host']]);
+            return ['address' => null, 'problem' => __('The host :host could not be found.', ['host' => $parts['host']])];
         }
 
         foreach ($addresses as $address) {
             if (! $this->isPublic($address)) {
-                return __('The host :host has a private or reserved address; webhooks go to public addresses only.', ['host' => $parts['host']]);
+                return ['address' => null, 'problem' => __('The host :host has a private or reserved address; webhooks go to public addresses only.', ['host' => $parts['host']])];
             }
         }
 
-        return null;
+        return ['address' => $addresses[0], 'problem' => null];
     }
 
     /**

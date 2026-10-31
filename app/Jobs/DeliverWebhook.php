@@ -79,7 +79,7 @@ class DeliverWebhook implements ShouldQueue
     private function send(WebhookDelivery $delivery, WebhookTarget $target): array
     {
         $url = $delivery->webhook->url;
-        $problem = $target->problem($url);
+        ['address' => $address, 'problem' => $problem] = $target->check($url);
 
         if ($problem !== null) {
             return [null, $problem];
@@ -87,7 +87,6 @@ class DeliverWebhook implements ShouldQueue
 
         $host = (string) parse_url($url, PHP_URL_HOST);
         $port = (int) (parse_url($url, PHP_URL_PORT) ?? 443);
-        $address = $target->addresses($host)[0];
         $body = (string) json_encode($delivery->payload, JSON_UNESCAPED_SLASHES);
         $timestamp = time();
 

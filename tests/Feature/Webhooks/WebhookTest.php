@@ -241,3 +241,25 @@ test('a finished restore is sent once', function () {
     expect($sent->event)->toBe('restore.finished')
         ->and($sent->payload['data']['backup']['last_restore']['status'])->toBe('applied');
 });
+
+test('a send resolves the host once, so a host that changes its answer cannot redirect it inside the network', function () {
+    Http::fake(['*' => Http::response('', 200)]);
+
+    // Public on the first lookup, loopback on every one after (DNS rebinding).
+    $target = new class extends WebhookTarget
+    {
+        public int $lookups = 0;
+
+        public function addresses(string $host): array
+        {
+            return $this->lookups++ === 0 ? ['93.184.215.14'] : ['127.0.0.1'];
+        }
+    };
+
+    $delivery = WebhookDelivery::factory()->for(Webhook::factory()->create(['url' => 'https://rebinding.example.com/x']))->create();
+
+    (new DeliverWebhook($delivery->id))->handle($target);
+
+    expect($target->lookups)->toBe(1)
+        ->and($delivery->refresh()->status)->toBe('delivered');
+});
