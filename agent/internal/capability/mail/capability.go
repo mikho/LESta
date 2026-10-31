@@ -143,12 +143,6 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 		}
 	}
 
-	if payload.DkimRetireSelector != nil {
-		if err := c.retireDKIMKey(payload.Domain, *payload.DkimRetireSelector); err != nil {
-			return protocol.ResultEnvelope{}, fmt.Errorf("retiring DKIM key for %s: %w", payload.Domain, err)
-		}
-	}
-
 	// The mailboxes before this change, to remove the mail of the ones it
 	// takes away once it has taken effect.
 	var previous Payload
@@ -194,6 +188,20 @@ func (c *MailCapability) applyDomain(ctx context.Context, op protocol.OperationE
 				leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
 			}
 		}
+	}
+
+	// Only now that signing has moved on for good: retired before the apply,
+	// a failed apply would roll back to a selector whose key is gone.
+	if payload.DkimRetireSelector != nil {
+		if err := c.retireDKIMKey(payload.Domain, *payload.DkimRetireSelector); err != nil {
+			leftovers = append(leftovers, protocol.ResultError{Code: "dkim_key_not_retired", Message: err.Error()})
+		}
+	}
+
+	if domains, err := c.activeDomains(op.ResourceID, payload); err != nil {
+		leftovers = append(leftovers, protocol.ResultError{Code: "credentials_not_pruned", Message: err.Error()})
+	} else if err := c.pruneCredentials(domains); err != nil {
+		leftovers = append(leftovers, protocol.ResultError{Code: "credentials_not_pruned", Message: err.Error()})
 	}
 
 	result, err := c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
@@ -372,6 +380,12 @@ func (c *MailCapability) applyDelete(ctx context.Context, op protocol.OperationE
 		if err := remove(deletedPayload.Domain, ""); err != nil {
 			leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: err.Error()})
 		}
+	}
+
+	if domains, err := c.listKnownDomains(op.ResourceID); err != nil {
+		leftovers = append(leftovers, protocol.ResultError{Code: "credentials_not_pruned", Message: err.Error()})
+	} else if err := c.pruneCredentials(domains); err != nil {
+		leftovers = append(leftovers, protocol.ResultError{Code: "credentials_not_pruned", Message: err.Error()})
 	}
 
 	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)

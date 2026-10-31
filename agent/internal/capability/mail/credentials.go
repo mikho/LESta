@@ -77,3 +77,36 @@ func (c *MailCapability) saveCredentials(hashes map[string]string) error {
 
 	return nil
 }
+
+// pruneCredentials drops every archived hash whose address is no longer a
+// mailbox of any of domains (every domain on this node), so an address that is
+// deleted and later created again never inherits the old password. It runs
+// only after an apply succeeded: a rollback may still need the hash of a
+// mailbox the failed apply removed.
+func (c *MailCapability) pruneCredentials(domains []Payload) error {
+	hashes, err := c.loadCredentials()
+	if err != nil {
+		return err
+	}
+
+	current := make(map[string]bool)
+	for _, d := range domains {
+		for _, a := range d.Accounts {
+			current[a.LocalPart+"@"+d.Domain] = true
+		}
+	}
+
+	pruned := false
+	for address := range hashes {
+		if !current[address] {
+			delete(hashes, address)
+			pruned = true
+		}
+	}
+
+	if !pruned {
+		return nil
+	}
+
+	return c.saveCredentials(hashes)
+}
