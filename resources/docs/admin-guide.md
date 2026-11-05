@@ -214,7 +214,17 @@ The panel's `.env` holds `APP_KEY` (which decrypts every stored secret: backup k
 
 ---
 
-## Chapter 10: Running list of gaps
+## Chapter 10: Legal pages and cookie consent
+
+The panel serves public `/privacy`, `/terms` and `/cookies` pages, linked from every footer. They show your business details from the `.env` file, and print "not configured" for anything left empty:
+
+`LEGAL_COMPANY_NAME`, `LEGAL_REGISTRATION_NUMBER`, `LEGAL_VAT_NUMBER`, `LEGAL_ADDRESS`, `LEGAL_CONTACT_EMAIL`, `LEGAL_PRIVACY_EMAIL`, `LEGAL_GOVERNING_LAW`, `LEGAL_UPDATED_AT`.
+
+Set them, then run `php artisan config:cache`. The page texts are drafts: have them reviewed before you rely on them. A cookie banner asks visitors about the theme and sidebar preference cookies; declining stores nothing. Fonts are served from the panel itself and the panel loads no third-party scripts. Outgoing mail carries a footer with the privacy link.
+
+---
+
+## Chapter 11: Running list of gaps
 
 1. There is no picker for which capabilities `install-selected.sh` has already detected versus what you still need to declare by hand, declaring a capability in the admin app is always a separate, manual step from actually installing it on the server (see the Installation Guide). Installing a service from the panel is not possible; uninstalling is (Chapter 5).
 2. Resellers cannot create new accounts themselves (by design, deferred).

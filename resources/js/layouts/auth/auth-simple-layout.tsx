@@ -1,5 +1,6 @@
 import { Link } from '@inertiajs/react';
 import AppLogoIcon from '@/components/app-logo-icon';
+import { LegalFooter } from '@/components/legal-footer';
 import { home } from '@/routes';
 import type { AuthLayoutProps } from '@/types';
 
@@ -33,6 +34,7 @@ export default function AuthSimpleLayout({
                     {children}
                 </div>
             </div>
+            <LegalFooter />
         </div>
     );
 }

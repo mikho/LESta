@@ -19,3 +19,14 @@ export type AuthLayoutProps = {
     title?: string;
     description?: string;
 };
+
+export type LegalDetails = {
+    company_name: string | null;
+    registration_number: string | null;
+    vat_number: string | null;
+    address: string | null;
+    contact_email: string | null;
+    privacy_email: string | null;
+    governing_law: string | null;
+    updated_at: string | null;
+};

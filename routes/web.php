@@ -5,6 +5,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
 
+Route::inertia('privacy', 'legal/privacy')->name('legal.privacy');
+Route::inertia('terms', 'legal/terms')->name('legal.terms');
+Route::inertia('cookies', 'legal/cookies')->name('legal.cookies');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 });

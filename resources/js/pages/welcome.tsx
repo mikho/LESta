@@ -1,5 +1,6 @@
 import { Head, Link, usePage } from '@inertiajs/react';
 import AppLogoIcon from '@/components/app-logo-icon';
+import { LegalFooter } from '@/components/legal-footer';
 import { Button } from '@/components/ui/button';
 import { dashboard, login } from '@/routes';
 
@@ -29,6 +30,8 @@ export default function Welcome() {
                         {auth.user ? 'Go to dashboard' : 'Log in'}
                     </Link>
                 </Button>
+
+                <LegalFooter />
             </div>
         </>
     );

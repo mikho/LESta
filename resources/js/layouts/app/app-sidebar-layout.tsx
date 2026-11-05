@@ -3,6 +3,7 @@ import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
 import { ImpersonationBanner } from '@/components/impersonation-banner';
+import { LegalFooter } from '@/components/legal-footer';
 import type { AppLayoutProps } from '@/types';
 
 export default function AppSidebarLayout({
@@ -24,6 +25,7 @@ export default function AppSidebarLayout({
                 <div id="main-content" tabIndex={-1} className="outline-none">
                     {children}
                 </div>
+                <LegalFooter />
             </AppContent>
         </AppShell>
     );

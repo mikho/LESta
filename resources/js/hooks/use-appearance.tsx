@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { hasPreferenceConsent } from '@/hooks/use-cookie-consent';
 
 export type ResolvedAppearance = 'light' | 'dark';
 export type Appearance = ResolvedAppearance | 'system';
@@ -21,7 +22,7 @@ const prefersDark = (): boolean => {
 };
 
 const setCookie = (name: string, value: string, days = 365): void => {
-    if (typeof document === 'undefined') {
+    if (typeof document === 'undefined' || !hasPreferenceConsent()) {
         return;
     }
 
@@ -32,6 +33,10 @@ const setCookie = (name: string, value: string, days = 365): void => {
 const getStoredAppearance = (): Appearance => {
     if (typeof window === 'undefined') {
         return 'system';
+    }
+
+    if (!hasPreferenceConsent()) {
+        return currentAppearance;
     }
 
     return (localStorage.getItem('appearance') as Appearance) || 'system';
@@ -75,7 +80,7 @@ export function initializeTheme(): void {
         return;
     }
 
-    if (!localStorage.getItem('appearance')) {
+    if (hasPreferenceConsent() && !localStorage.getItem('appearance')) {
         localStorage.setItem('appearance', 'system');
         setCookie('appearance', 'system');
     }
@@ -101,8 +106,10 @@ export function useAppearance(): UseAppearanceReturn {
     const updateAppearance = (mode: Appearance): void => {
         currentAppearance = mode;
 
-        // Store in localStorage for client-side persistence...
-        localStorage.setItem('appearance', mode);
+        // Store in localStorage for client-side persistence, only with consent...
+        if (hasPreferenceConsent()) {
+            localStorage.setItem('appearance', mode);
+        }
 
         // Store in cookie for SSR...
         setCookie('appearance', mode);

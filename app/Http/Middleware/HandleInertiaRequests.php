@@ -41,6 +41,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
+            'legal' => config('legal'),
             'auth' => [
                 'user' => $request->user(),
                 'is_provider_admin' => $request->user()?->isProviderAdmin() ?? false,

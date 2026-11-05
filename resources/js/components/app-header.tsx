@@ -82,7 +82,13 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                                     size="icon"
                                     className="mr-2 h-[34px] w-[34px]"
                                 >
-                                    <Menu className="h-5 w-5" />
+                                    <Menu
+                                        className="h-5 w-5"
+                                        aria-hidden="true"
+                                    />
+                                    <span className="sr-only">
+                                        Open navigation menu
+                                    </span>
                                 </Button>
                             </SheetTrigger>
                             <SheetContent

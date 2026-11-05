@@ -129,7 +129,8 @@ Separate from your hosting account — these control your own login, not anythin
 
 - **Profile** (`/settings/profile`): your name and email, and a way to delete your own login entirely (not your hosting account — ask your administrator if you actually want the account gone, see Chapter 2).
 - **Security** (`/settings/security`): change your password, turn on two-factor authentication (with recovery codes), and register passkeys.
-- **Appearance**: light/dark/system theme.
+- **Appearance**: light/dark/system theme. The choice is remembered only if you accepted preference cookies in the banner; if you declined, it resets when you close the browser.
+- **Privacy, terms and cookies** (`/privacy`, `/terms`, `/cookies`): public pages, linked from every page footer. The cookie page lets you change your cookie choice, and the privacy page explains what is stored and how to ask for deletion or access.
 - **API tokens** (`/settings/api-tokens`, account owners only): tokens that let your own scripts use the LESta API. See the **API Guide**.
 - **Webhooks** (`/settings/webhooks`, account owners only): an address of yours that LESta calls when a change finishes on the server (applied or failed), when a backup is ready or failed, and when a restore finishes. The address must be HTTPS and public. When you add one, its **signing secret** is shown once: your receiver uses it to check each call came from LESta (the API Guide shows how). Each webhook lists its last deliveries, whether they arrived and what your receiver answered. **Send a test** sends a harmless `ping`. A delivery that fails is tried again for about a day; a webhook whose deliveries keep failing switches itself off, and sending a test switches it back on.
 
@@ -154,3 +155,4 @@ If you contact support about a problem with your account, an administrator may b
 1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "Your accounts" to reach the others.
 2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "New password" (which invalidates the old one immediately).
 3. No self-service sign-up, ever, by design — only an administrator (or later, a reseller) can create your account.
+4. There is no personal data export yet; deleting your login is available on the profile page, and the privacy policy gives an address for other requests.
