@@ -692,8 +692,13 @@ PLACEHOLDER
     # was the actual blocker in every observed failure. Both gaps are
     # real and independent -- this one is defense in depth, matching
     # lesta-agent's own existing group membership.)
-    usermod -aG lesta bind || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta bind failed"
-    add_change dns.bind9.v1 group_membership_granted "" "bind added to the lesta group, so named can traverse /var/lib/lesta/bind to read zone data"
+    # named joins its own group, lesta-bind, which owns only /var/lib/lesta/bind. Membership of the
+    # shared lesta group would let a compromised named read every other service's state.
+    getent group lesta-bind >/dev/null 2>&1 || groupadd --system lesta-bind \
+        || fail_step "${EXIT_MUTATION_FAILURE}" groupadd_failed /etc/group "failed to create group lesta-bind"
+    usermod -aG lesta-bind bind || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta-bind bind failed"
+    ratchet_leave_group bind lesta
+    add_change dns.bind9.v1 group_membership_granted "" "bind added to the lesta-bind group, so named can read zone data under /var/lib/lesta/bind (and no other lesta state)"
 
     # Ubuntu's bind9 package ships an AppArmor profile for /usr/sbin/named
     # (/etc/apparmor.d/usr.sbin.named) that allow-lists only /etc/bind/**,
@@ -736,8 +741,12 @@ PLACEHOLDER
     # same reasoning as BIND9_LIVE_DIR above. Still readable to `bind`
     # (already a member of group lesta) for zone data after named drops
     # privilege -- widening only adds group write, removes nothing.
-    ratchet_root_owned_dir /var/lib/lesta/bind 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
-    add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 0770 root:lesta"
+    ratchet_root_owned_dir /var/lib/lesta/bind 0750 lesta-bind || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/bind "failed to create /var/lib/lesta/bind"
+    # What an earlier installer left in group lesta moves to lesta-bind, and every directory keeps the
+    # setgid bit so the applier's new zone generations inherit the group (it cannot set it itself).
+    chgrp -R lesta-bind /var/lib/lesta/bind || fail_step "${EXIT_MUTATION_FAILURE}" chgrp_failed /var/lib/lesta/bind "failed to move /var/lib/lesta/bind to group lesta-bind"
+    find /var/lib/lesta/bind -type d -exec chmod g+s {} + || fail_step "${EXIT_MUTATION_FAILURE}" chmod_failed /var/lib/lesta/bind "failed to set the setgid bit under /var/lib/lesta/bind"
+    add_change dns.bind9.v1 ensured /var/lib/lesta/bind "state directory present, mode 2750 root:lesta-bind"
 
     # The daemon has no sudo rule any more: everything it used to run as root is done by the root
     # applier (see lib/applier.sh). A rule written by an earlier version of this installer is removed.

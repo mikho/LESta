@@ -792,8 +792,10 @@ SOURCES
     # 13 'Permission denied')" and failed its own health probe, since mysql
     # still wasn't a lesta group member at that point. Moving the grant here,
     # before either instance phase runs, fixes both orders at once.
-    usermod -aG lesta mysql || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta mysql failed"
-    add_change mariadb group_membership_granted "" "mysql added to the lesta group, so mariadbd's own worker (both instances) can traverse /var/lib/lesta to reach its own datadir"
+    # mysql no longer joins the lesta group: /var/lib/lesta is traversable by anyone (0751) and each
+    # instance's datadir is owned by mysql, so the membership only gave a compromised mariadbd
+    # (reachable by tenant SQL) read access to the agent's state. An earlier installer added it.
+    ratchet_leave_group mysql lesta
 
     log_info "ensure_mariadb_package_installed complete"
 }
