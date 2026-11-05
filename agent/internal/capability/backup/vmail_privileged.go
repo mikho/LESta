@@ -139,6 +139,8 @@ func readMailFiles(r io.Reader) ([]vmailFile, error) {
 
 	var files []vmailFile
 
+	budget := newRestoreBudget()
+
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -168,7 +170,11 @@ func readMailFiles(r io.Reader) ([]vmailFile, error) {
 			return nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
 		}
 
-		content, err := io.ReadAll(tr)
+		if err := budget.take(hdr.Size); err != nil {
+			return nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
+		}
+
+		content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
 		}
@@ -214,8 +220,10 @@ func safeMailPath(name string) bool {
 func archiveMailStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "backup-archive-mail-state")
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &limitedBuffer{max: maxNodeArchiveBytes}
+
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
@@ -227,9 +235,9 @@ func archiveMailStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath
 
 // restoreVMailPrivileged hands the mailbox files to the root helper.
 func restoreVMailPrivileged(ctx context.Context, sudoBinary, agentBinaryPath string, files []vmailFile) error {
-	var request bytes.Buffer
+	request := &limitedBuffer{max: maxNodeArchiveBytes}
 
-	gz := gzip.NewWriter(&request)
+	gz := gzip.NewWriter(request)
 	tw := tar.NewWriter(gz)
 
 	for _, f := range files {
@@ -260,7 +268,7 @@ func restoreVMailPrivileged(ctx context.Context, sudoBinary, agentBinaryPath str
 	}
 
 	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "backup-restore-mail-files")
-	cmd.Stdin = &request
+	cmd.Stdin = request
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -62,9 +62,9 @@ func dirHasContent(root string) bool {
 // stays bounded. A future pass can revisit this if a real deployment's own
 // state roots or database dumps ever grow large enough for it to matter.
 func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, stateRoots map[string]string, included []string, dumps map[string][]byte, dumpedCapabilities []string) ([]byte, error) {
-	var buf bytes.Buffer
+	buf := &limitedBuffer{max: maxNodeArchiveBytes}
 
-	gz := gzip.NewWriter(&buf)
+	gz := gzip.NewWriter(buf)
 	tw := tar.NewWriter(gz)
 
 	for _, capability := range included {
@@ -158,8 +158,10 @@ func addBytesToTar(tw *tar.Writer, content []byte, name string) error {
 func archiveCronStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "cron-archive-state")
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &limitedBuffer{max: maxNodeArchiveBytes}
+
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {

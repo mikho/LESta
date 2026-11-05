@@ -162,7 +162,9 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 	included := discoverIncludedCapabilities(c.cfg.StateRoots)
 	artifactPath := filepath.Join(c.cfg.ArtifactsRoot, op.ResourceID+".tar.enc")
 
-	if sealed, err := os.ReadFile(artifactPath); err == nil {
+	if checkArtifactSize(artifactPath, maxNodeArchiveBytes) != nil {
+		// Too large to replay-check in memory; fall through, the archive step reports it.
+	} else if sealed, err := os.ReadFile(artifactPath); err == nil {
 		replayIncluded := mergeIncludedCapabilities(included, discoverPresentDumpSockets(c.cfg.DatabaseDumpSockets))
 
 		return c.applied(op, protocol.StatusAlreadyApplied, artifactPath, sealed, replayIncluded), nil
@@ -280,6 +282,10 @@ func (c *BackupCapability) applyObserve(op protocol.OperationEnvelope) (protocol
 	if !isWithinRoot(cleaned, c.cfg.ArtifactsRoot) {
 		return c.rejected(op, "artifact_path_outside_root",
 			fmt.Sprintf("artifact_path %q is not within the owned artifacts root %q", *payload.ArtifactPath, c.cfg.ArtifactsRoot), "artifact_path")
+	}
+
+	if err := checkArtifactSize(cleaned, maxNodeDownloadBytes); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return c.failed(op, "artifact_too_large", err.Error()+"; the artifact stays on the node")
 	}
 
 	sealed, err := os.ReadFile(cleaned)

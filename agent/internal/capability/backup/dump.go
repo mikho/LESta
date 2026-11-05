@@ -132,8 +132,10 @@ func dumpSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string
 		cmd = exec.CommandContext(ctx, sudoBinary, append([]string{mariadbDumpBinary()}, args...)...)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &limitedBuffer{max: maxNodeArchiveBytes}
+
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {

@@ -77,6 +77,10 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 		return c.applyAccountRestoreOp(ctx, op, payload)
 	}
 
+	if err := checkArtifactSize(cleaned, maxNodeArchiveBytes); err != nil && !os.IsNotExist(err) {
+		return c.failed(op, "artifact_too_large", err.Error())
+	}
+
 	sealed, err := os.ReadFile(cleaned)
 	if os.IsNotExist(err) {
 		return c.rejected(op, "artifact_not_found", fmt.Sprintf("no artifact exists at %q", *payload.ArtifactPath), "artifact_path")
@@ -168,6 +172,8 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 	dumps := make(map[string][]byte)
 	var vmailFiles []vmailFile
 
+	budget := newRestoreBudget()
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -197,7 +203,11 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 		case strings.HasSuffix(hdr.Name, "/dump.sql"):
 			capability := strings.TrimSuffix(hdr.Name, "/dump.sql")
 
-			content, err := io.ReadAll(tr)
+			if err := budget.take(hdr.Size); err != nil {
+				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
+			}
+
+			content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
 			if err != nil {
 				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
 			}
@@ -208,7 +218,11 @@ func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error)
 				return nil, nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
 			}
 
-			content, err := io.ReadAll(tr)
+			if err := budget.take(hdr.Size); err != nil {
+				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
+			}
+
+			content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
 			if err != nil {
 				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
 			}
