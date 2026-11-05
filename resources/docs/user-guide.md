@@ -127,7 +127,7 @@ If your account hasn't been fully set up yet, this page (like Domains, DNS, Mail
 
 Separate from your hosting account — these control your own login, not anything you host.
 
-- **Profile** (`/settings/profile`): your name and email, and a way to delete your own login entirely (not your hosting account — ask your administrator if you actually want the account gone, see Chapter 2).
+- **Profile** (`/settings/profile`): your name and email, and **Download my data** (a JSON file with the personal data we hold about you, asks for your password again), and a way to delete your own login entirely (not your hosting account — ask your administrator if you actually want the account gone, see Chapter 2). The only owner of an account cannot delete their login until another owner exists, and the last full administrator cannot either.
 - **Security** (`/settings/security`): change your password, turn on two-factor authentication (with recovery codes), and register passkeys.
 - **Appearance**: light/dark/system theme. The choice is remembered only if you accepted preference cookies in the banner; if you declined, it resets when you close the browser.
 - **Privacy, terms and cookies** (`/privacy`, `/terms`, `/cookies`): public pages, linked from every page footer. The cookie page lets you change your cookie choice, and the privacy page explains what is stored and how to ask for deletion or access.
@@ -155,4 +155,4 @@ If you contact support about a problem with your account, an administrator may b
 1. **No account switcher** — the dashboard only ever reflects your first account if you belong to several; use "Your accounts" to reach the others.
 2. Mailbox and database passwords are genuinely one-time — there's no "show password again" anywhere, only "New password" (which invalidates the old one immediately).
 3. No self-service sign-up, ever, by design — only an administrator (or later, a reseller) can create your account.
-4. There is no personal data export yet; deleting your login is available on the profile page, and the privacy policy gives an address for other requests.
+4. The data download covers your profile, memberships, passkeys, API tokens, webhooks you created and the audit events you caused. Content you host (files, mail, databases) is yours already and is not part of it.

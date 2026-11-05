@@ -17,6 +17,11 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('settings/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
+    // The export holds the same personal data the profile page shows, so it asks for the password again.
+    Route::get('settings/profile/export', [ProfileController::class, 'export'])
+        ->middleware(RequirePassword::class)
+        ->name('profile.export');
+
     Route::get('settings/security', [SecurityController::class, 'edit'])
         ->middleware(RequirePassword::class)
         ->name('security.edit');

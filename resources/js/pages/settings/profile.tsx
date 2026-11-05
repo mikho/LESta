@@ -147,6 +147,22 @@ export default function Profile({ status }: { status?: string }) {
                 </Form>
             </div>
 
+            <div className="space-y-6">
+                <Heading
+                    variant="small"
+                    title="Download your data"
+                    description="A JSON file with the personal data we hold about you"
+                />
+                <Button variant="outline" asChild>
+                    <a
+                        href={ProfileController.export.url()}
+                        data-test="export-data-link"
+                    >
+                        Download my data
+                    </a>
+                </Button>
+            </div>
+
             <DeleteUser />
         </>
     );

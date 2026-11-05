@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Actions\Users\ExportUserData;
+use App\Actions\Users\ListUserDeletionBlockers;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Models\AuditEvent;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProfileController extends Controller
 {
@@ -51,9 +56,24 @@ class ProfileController extends Controller
     /**
      * Delete the user's profile.
      */
-    public function destroy(ProfileDeleteRequest $request): RedirectResponse
+    public function destroy(ProfileDeleteRequest $request, ListUserDeletionBlockers $blockers): RedirectResponse
     {
         $user = $request->user();
+
+        $reasons = $blockers->handle($user);
+
+        if ($reasons !== []) {
+            return back()->withErrors(['deletion' => implode(' ', $reasons)]);
+        }
+
+        AuditEvent::create([
+            'actor_type' => $user->getMorphClass(),
+            'actor_id' => $user->getKey(),
+            'auditable_type' => $user->getMorphClass(),
+            'auditable_id' => $user->getKey(),
+            'action' => 'user.deleted',
+            'correlation_id' => (string) Str::uuid(),
+        ]);
 
         Auth::logout();
 
@@ -63,5 +83,19 @@ class ProfileController extends Controller
         $request->session()->regenerateToken();
 
         return redirect('/');
+    }
+
+    /**
+     * Download everything the panel holds about the signed-in user as JSON.
+     */
+    public function export(Request $request, ExportUserData $export): StreamedResponse
+    {
+        $data = $export->handle($request->user());
+
+        return response()->streamDownload(
+            fn () => print json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            'my-data-'.now()->format('Ymd').'.json',
+            ['Content-Type' => 'application/json'],
+        );
     }
 }
