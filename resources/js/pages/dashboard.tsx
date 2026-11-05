@@ -74,9 +74,70 @@ type NodeStatus = {
     agent_version: string | null;
     heartbeat: { online: boolean; last_seen_at: string | null };
     ping: { ok: boolean; ms: number | null; at: string } | null;
+    resources: NodeResources | null;
     services: { name: string; state: string }[];
     capabilities: { capability: string; status: string }[];
 };
+
+type NodeResources = {
+    load_1: number;
+    load_5: number;
+    load_15: number;
+    cpu_count: number;
+    processes: number;
+    memory_total_kb: number;
+    memory_available_kb: number;
+    swap_total_kb: number;
+    swap_free_kb: number;
+    uptime_seconds: number;
+};
+
+/** Load, memory, threads and uptime from the node's last heartbeat. */
+function NodeResourceLine({ resources }: { resources: NodeResources }) {
+    const memoryUsed =
+        resources.memory_total_kb === 0
+            ? 0
+            : Math.round(
+                  ((resources.memory_total_kb - resources.memory_available_kb) /
+                      resources.memory_total_kb) *
+                      100,
+              );
+    const loadPercent = Math.round(
+        (resources.load_1 / resources.cpu_count) * 100,
+    );
+    const days = Math.floor(resources.uptime_seconds / 86400);
+
+    return (
+        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground md:order-last md:col-span-4">
+            <div>
+                <dt className="inline">Load </dt>
+                <dd className="inline text-foreground">
+                    {resources.load_1.toFixed(2)} ({loadPercent}% of{' '}
+                    {resources.cpu_count} cores)
+                </dd>
+            </div>
+            <div>
+                <dt className="inline">Memory </dt>
+                <dd className="inline text-foreground">
+                    {memoryUsed}% of{' '}
+                    {formatBytes(resources.memory_total_kb * 1024)}
+                </dd>
+            </div>
+            <div>
+                <dt className="inline">Threads </dt>
+                <dd className="inline text-foreground">
+                    {resources.processes}
+                </dd>
+            </div>
+            <div>
+                <dt className="inline">Up </dt>
+                <dd className="inline text-foreground">
+                    {days > 0 ? `${days} d` : '< 1 d'}
+                </dd>
+            </div>
+        </dl>
+    );
+}
 
 function Dot({ tone }: { tone: 'up' | 'down' | 'unknown' }) {
     const colour = {
@@ -308,6 +369,10 @@ function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
                                 </p>
                             )}
                         </div>
+
+                        {node.heartbeat.online && node.resources && (
+                            <NodeResourceLine resources={node.resources} />
+                        )}
 
                         <div className="min-w-0 text-sm">
                             {node.services.length === 0 ? (

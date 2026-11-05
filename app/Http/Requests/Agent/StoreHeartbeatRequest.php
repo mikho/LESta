@@ -26,6 +26,17 @@ class StoreHeartbeatRequest extends FormRequest
             'services' => ['sometimes', 'nullable', 'array', 'max:64'],
             'services.*.name' => ['required_with:services', 'string', 'max:128', 'regex:/^[A-Za-z0-9@._-]+$/'],
             'services.*.state' => ['required_with:services', 'string', 'max:32'],
+            'resources' => ['sometimes', 'nullable', 'array'],
+            'resources.load_1' => ['required_with:resources', 'numeric', 'min:0', 'max:100000'],
+            'resources.load_5' => ['required_with:resources', 'numeric', 'min:0', 'max:100000'],
+            'resources.load_15' => ['required_with:resources', 'numeric', 'min:0', 'max:100000'],
+            'resources.cpu_count' => ['required_with:resources', 'integer', 'min:1', 'max:4096'],
+            'resources.processes' => ['required_with:resources', 'integer', 'min:0', 'max:100000000'],
+            'resources.memory_total_kb' => ['required_with:resources', 'integer', 'min:0'],
+            'resources.memory_available_kb' => ['required_with:resources', 'integer', 'min:0'],
+            'resources.swap_total_kb' => ['required_with:resources', 'integer', 'min:0'],
+            'resources.swap_free_kb' => ['required_with:resources', 'integer', 'min:0'],
+            'resources.uptime_seconds' => ['required_with:resources', 'integer', 'min:0'],
         ];
     }
 }

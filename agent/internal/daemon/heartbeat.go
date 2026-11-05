@@ -38,6 +38,7 @@ type heartbeatRequest struct {
 	Architecture    string             `json:"architecture"`
 	Capabilities    []capabilityStatus `json:"capabilities"`
 	Services        []serviceStatus    `json:"services"`
+	Resources       *nodeResources     `json:"resources,omitempty"`
 	Timestamp       string             `json:"timestamp"`
 }
 
@@ -78,6 +79,7 @@ func sendHeartbeat(client *http.Client, cfg *Config, credential string) ([]proto
 	}
 
 	req.Capabilities, req.Services = capabilityHealth(cfg)
+	req.Resources = readNodeResources("/proc")
 
 	body, err := json.Marshal(req)
 	if err != nil {

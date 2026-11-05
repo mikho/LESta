@@ -88,7 +88,7 @@ test('the ping output parser reads the time and nothing else', function () {
 test('a provider admin sees every node on the dashboard', function () {
     $admin = Membership::factory()->providerAdmin()->create()->user;
     $online = Node::factory()->create(['name' => 'a-node']);
-    $online->forceFill(['last_seen_at' => now()->subSeconds(30), 'service_states' => [['name' => 'nginx', 'state' => 'active']], 'ping_ok' => true, 'ping_ms' => 0.5, 'pinged_at' => now()])->save();
+    $online->forceFill(['last_seen_at' => now()->subSeconds(30), 'service_states' => [['name' => 'nginx', 'state' => 'active']], 'ping_ok' => true, 'ping_ms' => 0.5, 'pinged_at' => now(), 'resources' => ['cpu_count' => 4, 'load_1' => 0.5]])->save();
     $offline = Node::factory()->create(['name' => 'b-node']);
     $offline->forceFill(['last_seen_at' => now()->subMinutes(10)])->save();
 
@@ -98,6 +98,8 @@ test('a provider admin sees every node on the dashboard', function () {
         ->where('nodeStatus.0.heartbeat.online', true)
         ->where('nodeStatus.0.ping.ms', 0.5)
         ->where('nodeStatus.0.services.0.state', 'active')
+        ->where('nodeStatus.0.resources.cpu_count', 4)
+        ->where('nodeStatus.1.resources', null)
         ->where('nodeStatus.1.heartbeat.online', false)
         ->where('nodeStatus.1.ping', null));
 });

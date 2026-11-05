@@ -31,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $suspended_at
  * @property SuspensionSource|null $suspension_source
  * @property list<array{name: string, state: string}>|null $service_states
+ * @property array<string, int|float>|null $resources
  * @property bool|null $ping_ok
  * @property float|null $ping_ms
  * @property Carbon|null $pinged_at
@@ -88,6 +89,7 @@ class Node extends Model implements ProviderAdminManaged
             'enrollment_status' => NodeEnrollmentStatus::class,
             'last_seen_at' => 'datetime',
             'service_states' => 'array',
+            'resources' => 'array',
             'ping_ok' => 'boolean',
             'ping_ms' => 'float',
             'pinged_at' => 'datetime',

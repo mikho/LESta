@@ -237,3 +237,35 @@ test('a heartbeat does not return a dispatched operation belonging to a differen
 
     $response->assertOk()->assertJson(['pending_operations' => []]);
 });
+
+test('a heartbeat stores the host resources and an invalid figure is refused', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $resources = [
+        'load_1' => 0.5, 'load_5' => 0.4, 'load_15' => 0.3, 'cpu_count' => 4, 'processes' => 300,
+        'memory_total_kb' => 4096000, 'memory_available_kb' => 2048000,
+        'swap_total_kb' => 0, 'swap_free_kb' => 0, 'uptime_seconds' => 86400,
+    ];
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['resources' => $resources]))
+        ->assertOk();
+
+    expect($node->fresh()->resources)->toMatchArray(['cpu_count' => 4, 'processes' => 300]);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['resources' => [...$resources, 'cpu_count' => 0]]))
+        ->assertUnprocessable();
+});
+
+test('a heartbeat without resources keeps the last ones', function () {
+    $node = Node::factory()->create(['resources' => ['cpu_count' => 2]]);
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload())
+        ->assertOk();
+
+    expect($node->fresh()->resources)->toBe(['cpu_count' => 2]);
+});

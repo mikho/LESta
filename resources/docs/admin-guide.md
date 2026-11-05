@@ -30,7 +30,7 @@ LESta has no single "admin" flag. Access is built from a few independent pieces 
 
 ### The dashboard
 
-As a platform administrator your dashboard shows **Node status** for every node (a node admin sees only their own nodes): whether the node's agent is **online** (it reported in the last three minutes), the **ping** time from the panel to the node (checked every minute), and every service the node runs, with failed or stopped ones in red. It refreshes every 30 seconds. The node's name links to its page (Chapter 5).
+As a platform administrator your dashboard shows **Node status** for every node (a node admin sees only their own nodes): whether the node's agent is **online** (it reported in the last three minutes), the **ping** time from the panel to the node (checked every minute), and every service the node runs, with failed or stopped ones in red. Below each online node a line shows the host's current **load** (1-minute average, and as a share of its cores), **memory** in use, the number of **threads**, and **uptime**, as the agent last read them from the kernel (agent 1.0.86 and later; an older agent shows nothing). It refreshes every 30 seconds. The node's name links to its page (Chapter 5).
 
 ---
 

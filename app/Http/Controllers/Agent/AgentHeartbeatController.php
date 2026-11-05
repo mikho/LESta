@@ -62,6 +62,11 @@ class AgentHeartbeatController extends Controller
                 )])->save();
             }
 
+            // Only an agent that reads /proc sends this; an older one leaves the last figures.
+            if (is_array($validated['resources'] ?? null)) {
+                $node->forceFill(['resources' => $validated['resources']])->save();
+            }
+
             $reportedHealth = array_column($validated['capabilities'] ?? [], 'health_state', 'capability');
 
             foreach ($node->capabilities as $capability) {
