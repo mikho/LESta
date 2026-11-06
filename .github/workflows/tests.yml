@@ -2272,7 +2272,9 @@ jobs:
       - name: "Scenario 17 setup: purge any pre-installed MySQL/MariaDB so the offline install starts from a genuinely clean slate"
         run: |
           sudo systemctl stop mysql mariadb 2>/dev/null || true
-          sudo apt-get purge -y mysql-server mysql-server-core-* mysql-client-core-* mariadb-server mariadb-server-core-* 2>/dev/null || true
+          # Every mysql-* and mariadb-* package: the 26.04 runner image also has mysql-client, mysql-common and
+          # the versioned client/server cores, whose files collide with MariaDB's.
+          sudo apt-get purge -y 'mysql-*' 'mariadb-*' 2>/dev/null || true
           sudo apt-get autoremove -y
           sudo rm -rf /var/lib/mysql /etc/mysql
 
