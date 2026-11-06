@@ -190,6 +190,10 @@ class WebDomainController extends Controller
      */
     public function updateSshKey(UpdateSshPublicKeyRequest $request, WebDomain $webDomain): RedirectResponse
     {
+        // Authorized before the identity is backfilled, so a caller who may not change the key
+        // never causes the identity to be created.
+        Gate::authorize('update', $webDomain);
+
         // Backfills the identity exactly like edit() above -- a client may reasonably submit
         // this route without ever having loaded the edit page first (a saved bookmark, a
         // scripted client), and the identity is otherwise guaranteed to exist by the time any

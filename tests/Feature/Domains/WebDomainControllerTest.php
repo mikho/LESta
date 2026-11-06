@@ -248,6 +248,8 @@ test('a non-owner member cannot update the account\'s ssh public key', function 
     $this->actingAs($member)
         ->put(route('domains.update-ssh-key', $webDomain), ['ssh_public_key' => validSshPublicKeyLine()])
         ->assertForbidden();
+
+    expect(AccountNodeIdentity::where('account_id', $account->id)->exists())->toBeFalse();
 });
 
 test('the customer pages carry the latest operation\'s status, the reason the node gave and when it moved', function () {
