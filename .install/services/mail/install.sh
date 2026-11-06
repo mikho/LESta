@@ -1220,6 +1220,14 @@ install_mail() {
     ratchet_root_owned_dir "${DOVECOT_LIVE_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${DOVECOT_LIVE_DIR}" "failed to create ${DOVECOT_LIVE_DIR}"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" ensured "${DOVECOT_LIVE_DIR}" "directory present, mode 0770 root:lesta"
 
+    # The fragment names MAIL_SECRET_GROUP (service auth extra_groups), and Dovecot's own postinst
+    # starts the service when dovecot-imapd/-lmtpd are installed below and fails on a group that
+    # does not exist, so the group has to exist before the fragment is written.
+    if ! getent group "${MAIL_SECRET_GROUP}" >/dev/null 2>&1; then
+        groupadd --system "${MAIL_SECRET_GROUP}" || fail_step "${EXIT_MUTATION_FAILURE}" groupadd_failed /etc/group "failed to create group ${MAIL_SECRET_GROUP}"
+        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" created /etc/group "created system group ${MAIL_SECRET_GROUP}"
+    fi
+
     mail_write_file "${LESTA_DOVECOT_CONF}" "$(render_dovecot_conf)" 0644
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
 
