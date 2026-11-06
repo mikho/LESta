@@ -15,7 +15,7 @@ test('a platform administrator cannot be invited into an account', function () {
     $admin = Membership::factory()->providerAdmin()->create()->user;
 
     expect(fn () => app(InviteMember::class)->handle($owner, $account, $admin->name, $admin->email, 'member'))
-        ->toThrow(ValidationException::class);
+        ->toThrow(ValidationException::class, 'This email address cannot be invited to the account.');
 
     expect(Membership::where('user_id', $admin->id)->whereNotNull('account_id')->exists())->toBeFalse();
 });

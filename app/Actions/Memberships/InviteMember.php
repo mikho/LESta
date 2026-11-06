@@ -44,7 +44,7 @@ class InviteMember
 
             if ($user->isPlatformUser()) {
                 throw ValidationException::withMessages([
-                    'email' => 'A platform administrator cannot be a member of a hosting account.',
+                    'email' => 'This email address cannot be invited to the account.',
                 ]);
             }
 
