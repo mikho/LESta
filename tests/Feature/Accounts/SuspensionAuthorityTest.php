@@ -8,10 +8,11 @@ use App\Models\Membership;
 use App\Models\Node;
 use App\Models\NodeCapability;
 use App\Models\Package;
+use App\Models\User;
 use App\Models\WebDomain;
 
 /**
- * @return array{0: Account, 1: \App\Models\User, 2: WebDomain}
+ * @return array{0: Account, 1: User, 2: WebDomain}
  */
 function suspendableAccountWithDomain(): array
 {

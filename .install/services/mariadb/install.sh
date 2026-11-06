@@ -1137,7 +1137,7 @@ install_mariadb_tenant() {
     if [ ! -s "${TENANT_TLS_DIR}/fullchain.pem" ] || [ ! -s "${TENANT_TLS_DIR}/privkey.pem" ]; then
         command -v openssl >/dev/null 2>&1 || fail_step "${EXIT_MUTATION_FAILURE}" openssl_missing "" "openssl is needed to seed the tenant instance's certificate"
         if ! out=$(openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
-            -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
+            -subj "/CN=$( (hostname -f 2>/dev/null || hostname) | cut -c1-64)" \
             -keyout "${TENANT_TLS_DIR}/privkey.pem.tmp" -out "${TENANT_TLS_DIR}/fullchain.pem.tmp" 2>&1); then
             rm -f "${TENANT_TLS_DIR}/privkey.pem.tmp" "${TENANT_TLS_DIR}/fullchain.pem.tmp"
             fail_step "${EXIT_MUTATION_FAILURE}" tls_seed_failed "${TENANT_TLS_DIR}" "$(printf '%s' "${out}" | tr '\n' ' ')"

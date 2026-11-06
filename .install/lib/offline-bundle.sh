@@ -142,7 +142,7 @@ NAMES
 # failed, or the daemon-reload's own output if dpkg succeeded but that
 # failed (empty on overall success). Returns 0 on success, 1 otherwise.
 install_offline_bundle_debs() {
-    local bundle_dir="$1" out name names
+    local bundle_dir="$1" out name names attempt
 
     # Only the packages bundle-manifest.json declares, which verify_offline_bundle_artifacts has
     # checked against their sha256: any other .deb lying in the directory is never installed. The
@@ -161,9 +161,17 @@ NAMES
     fi
 
     if out=$(dpkg -i "$@" 2>&1) || out=$(dpkg -i "$@" 2>&1); then
-        if out=$(systemctl daemon-reload 2>&1); then
-            return 0
-        fi
+        # Installing libc6 makes systemd re-execute itself, and for a moment its control socket
+        # refuses connections ("Transport endpoint is not connected", seen on Ubuntu 26.04), so
+        # the reload is retried briefly.
+        attempt=0
+        while [ "${attempt}" -lt 10 ]; do
+            if out=$(systemctl daemon-reload 2>&1); then
+                return 0
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
         printf '%s' "${out}"
         return 1
     fi
