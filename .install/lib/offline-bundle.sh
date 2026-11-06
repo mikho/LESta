@@ -141,24 +141,13 @@ NAMES
 # On stdout: the failed pass's own captured output, if both dpkg passes
 # failed, or the daemon-reload's own output if dpkg succeeded but that
 # failed (empty on overall success). Returns 0 on success, 1 otherwise.
-# offline_bundle_wait_for_systemd polls for up to 30 seconds until systemd accepts a command again.
+# offline_bundle_wait_for_systemd waits until systemd accepts a command again.
 offline_bundle_wait_for_systemd() {
-    local waited=0
-
-    while [ "${waited}" -lt 30 ]; do
-        if systemctl daemon-reload >/dev/null 2>&1; then
-            return 0
-        fi
-
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    return 0
+    systemctl_daemon_reload_retry >/dev/null || true
 }
 
 install_offline_bundle_debs() {
-    local bundle_dir="$1" out name names attempt
+    local bundle_dir="$1" out name names
 
     # Only the packages bundle-manifest.json declares, which verify_offline_bundle_artifacts has
     # checked against their sha256: any other .deb lying in the directory is never installed. The
@@ -180,17 +169,9 @@ NAMES
     # fails a maintainer script's systemctl call with "Transport endpoint is not connected"; once
     # systemd answers again, the second attempt finishes the configuration.
     if out=$(dpkg -i "$@" 2>&1) || { offline_bundle_wait_for_systemd; out=$(dpkg -i "$@" 2>&1); }; then
-        # Installing libc6 makes systemd re-execute itself, and for a moment its control socket
-        # refuses connections ("Transport endpoint is not connected", seen on Ubuntu 26.04), so
-        # the reload is retried briefly.
-        attempt=0
-        while [ "${attempt}" -lt 10 ]; do
-            if out=$(systemctl daemon-reload 2>&1); then
-                return 0
-            fi
-            attempt=$((attempt + 1))
-            sleep 1
-        done
+        if out=$(systemctl_daemon_reload_retry); then
+            return 0
+        fi
         printf '%s' "${out}"
         return 1
     fi
@@ -458,7 +439,7 @@ offline_bundle_rollback_generation() {
     # than correctly comparing against the generation actually running now.
     offline_bundle_snapshot_current "${service}" "${previous_dir}"
 
-    if ! out=$(systemctl daemon-reload 2>&1); then
+    if ! out=$(systemctl_daemon_reload_retry); then
         log_error "offline_bundle_rollback_generation: systemctl daemon-reload failed while rolling back ${service}: ${out}"
         return 2
     fi

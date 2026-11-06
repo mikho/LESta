@@ -91,3 +91,23 @@ run_cleanup() {
         done
     fi
 }
+
+# systemctl_daemon_reload_retry runs "systemctl daemon-reload" and tries again for up to ten
+# seconds on failure: right after a libc6 upgrade systemd re-executes itself and for a moment
+# refuses connections ("Transport endpoint is not connected", seen on Ubuntu 26.04). On failure
+# it prints systemctl's last output and returns 1.
+systemctl_daemon_reload_retry() {
+    local out attempt=0
+
+    while [ "${attempt}" -lt 10 ]; do
+        if out=$(systemctl daemon-reload 2>&1); then
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+
+    printf '%s' "${out}"
+    return 1
+}
