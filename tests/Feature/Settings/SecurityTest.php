@@ -102,3 +102,24 @@ test('correct password must be provided to update password', function () {
         ->assertSessionHasErrors('current_password')
         ->assertRedirect(route('security.edit'));
 });
+
+test('changing the password invalidates the user other sessions', function () {
+    $user = User::factory()->create();
+    $oldHash = $user->password;
+
+    $this->actingAs($user)
+        ->withSession(['auth.password_confirmed_at' => time(), 'password_hash_web' => $oldHash])
+        ->put(route('user-password.update'), [
+            'current_password' => 'password',
+            'password' => 'new-password',
+            'password_confirmation' => 'new-password',
+        ])
+        ->assertSessionHasNoErrors();
+
+    $this->flushSession();
+
+    $this->actingAs($user->refresh())
+        ->withSession(['password_hash_web' => $oldHash])
+        ->get(route('profile.edit'))
+        ->assertRedirect(route('login'));
+});
