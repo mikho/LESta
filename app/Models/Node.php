@@ -6,6 +6,7 @@ use App\Concerns\Suspendable;
 use App\Contracts\ProviderAdminManaged;
 use App\Enums\NodeCapabilityType;
 use App\Enums\NodeEnrollmentStatus;
+use App\Enums\PhpVersion;
 use App\Enums\SuspensionSource;
 use Database\Factories\NodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @property int $id
@@ -32,6 +34,7 @@ use Illuminate\Support\Carbon;
  * @property SuspensionSource|null $suspension_source
  * @property list<array{name: string, state: string}>|null $service_states
  * @property array<string, int|float>|null $resources
+ * @property list<string>|null $php_versions
  * @property bool|null $ping_ok
  * @property float|null $ping_ms
  * @property Carbon|null $pinged_at
@@ -90,6 +93,7 @@ class Node extends Model implements ProviderAdminManaged
             'last_seen_at' => 'datetime',
             'service_states' => 'array',
             'resources' => 'array',
+            'php_versions' => 'array',
             'ping_ok' => 'boolean',
             'ping_ms' => 'float',
             'pinged_at' => 'datetime',
@@ -167,6 +171,38 @@ class Node extends Model implements ProviderAdminManaged
     /**
      * Whether this node has a non-suspended capability of the given type declared.
      */
+    /**
+     * The PHP versions a domain on this node can use: the ones its agent reported installed, or
+     * every version the panel knows when the node has not reported any (an older agent, or PHP
+     * not installed yet), so nothing is restricted without evidence.
+     *
+     * @return list<string>
+     */
+    public function availablePhpVersions(): array
+    {
+        $all = array_column(PhpVersion::cases(), 'value');
+        $reported = array_values(array_intersect($all, $this->php_versions ?? []));
+
+        return $reported === [] ? $all : $reported;
+    }
+
+    /**
+     * @throws ValidationException when this node reported its PHP versions and $version is not one of them
+     */
+    public function assertPhpVersionAvailable(?string $version): void
+    {
+        if ($version === null || in_array($version, $this->availablePhpVersions(), true)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'php_version' => __('PHP :version is not installed on this server. Available: :available.', [
+                'version' => $version,
+                'available' => implode(', ', $this->availablePhpVersions()),
+            ]),
+        ]);
+    }
+
     public function hasCapability(NodeCapabilityType $type): bool
     {
         return $this->capabilities()

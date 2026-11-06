@@ -116,9 +116,9 @@ Usage: build-release.sh --ubuntu-release <version> --output-dir <path>
                                mariadb-client, since those packages live
                                outside Ubuntu's own default archive. Fails
                                closed if this build host's Ubuntu VERSION_ID
-                               has no verified MariaDB 11.4 repository
-                               codename mapping (mirroring
-                               mariadb/install.sh's own disclosed 26.04 gap).
+                               has no verified MariaDB repository codename
+                               mapping (11.4 on 24.04, 11.8 on 26.04, as in
+                               mariadb/install.sh).
   --help                       Print this message and exit.
 
 Downloads --package's own named package(s) and their full install-time
@@ -247,10 +247,9 @@ validate_ubuntu_release() {
 # mariadb_repo_codename <version_id> -> prints the MariaDB Foundation apt
 # repository's own codename for this Ubuntu VERSION_ID, or fails closed.
 # Must stay in lockstep with mariadb/install.sh's own
-# preflight_check_mariadb_repo_available: same mapping, same disclosed
-# 26.04 gap (MariaDB Foundation's 11.4 repository currently publishes noble
-# and jammy only), duplicated here rather than sourced since this script
-# never sources a leaf installer file.
+# preflight_check_mariadb_repo_available: same mapping (11.4 on noble, 11.8 on
+# resolute, because 11.4 publishes no resolute suite), duplicated here rather
+# than sourced since this script never sources a leaf installer file.
 mariadb_repo_codename() {
     local version_id="$1"
 
@@ -260,7 +259,9 @@ mariadb_repo_codename() {
             return 0
             ;;
         26.04)
-            fail "MariaDB Foundation's apt repository for MariaDB ${MARIADB_PINNED_SERIES} LTS does not currently publish an Ubuntu 26.04 (resolute) suite -- it currently publishes noble (24.04) and jammy (22.04) only (see mariadb/install.sh's own top comment for the sources). Refusing to build a --mariadb-repo bundle on this build host's OS release rather than substitute an unapproved version."
+            MARIADB_PINNED_SERIES="11.8"
+            printf 'resolute'
+            return 0
             ;;
         *)
             fail "detected Ubuntu VERSION_ID=${version_id} on this build host, which has no verified MariaDB Foundation repository codename mapping"
@@ -278,6 +279,10 @@ register_mariadb_repo() {
 
     os_version_id=$(preflight_os_release_field VERSION_ID)
     codename=$(mariadb_repo_codename "${os_version_id}")
+    # The series is set inside a command substitution above, so derive it again here.
+    case "${os_version_id}" in
+        26.04) MARIADB_PINNED_SERIES="11.8" ;;
+    esac
 
     printf 'build-release.sh: registering MariaDB Foundation apt repository (codename %s, series %s) on this build host\n' "${codename}" "${MARIADB_PINNED_SERIES}" >&2
 

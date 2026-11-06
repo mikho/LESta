@@ -15,6 +15,7 @@ var supportedPhpVersions = map[string]bool{
 	"8.2": true,
 	"8.3": true,
 	"8.4": true,
+	"8.5": true,
 }
 
 // Config parameterizes PhpFpmCapability by root paths and invocation

@@ -14,6 +14,7 @@ use App\Models\ProvisioningOperation;
 use App\Models\WebDomain;
 use App\Models\WebDomainAlias;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Validation\ValidationException;
 
 test('an owner can update a web domain, bumping the desired state version and replacing aliases', function () {
     $node = Node::factory()->create();
@@ -274,4 +275,22 @@ test('hotlink allowed hosts must be hostnames', function () {
     $this->actingAs($owner)
         ->put(route('domains.update', $webDomain), ['domain' => 'photos.example.com', 'hotlink_allowed_hosts' => ['evil.example; return 200']])
         ->assertSessionHasErrors('hotlink_allowed_hosts.0');
+});
+
+test('a PHP version the node did not report installed is refused, and any version is allowed when it reported none', function () {
+    $node = Node::factory()->create(['php_versions' => ['8.5']]);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.php-fpm.v1']);
+    $webDomain = WebDomain::factory()->for($node)->create(['domain' => 'php.example.com']);
+    AccountNodeIdentity::factory()->for($webDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$webDomain->account_id]);
+    $owner = Membership::factory()->for($webDomain->account)->owner()->create()->user;
+
+    expect(fn () => app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => 'php.example.com', 'php_version' => '8.4']))
+        ->toThrow(ValidationException::class, 'PHP 8.4 is not installed on this server. Available: 8.5.');
+
+    app(UpdateWebDomain::class)->handle($owner, $webDomain, ['domain' => 'php.example.com', 'php_version' => '8.5']);
+    expect($webDomain->fresh()->php_version->value)->toBe('8.5');
+
+    $node->forceFill(['php_versions' => null])->save();
+    expect($node->fresh()->availablePhpVersions())->toBe(['8.1', '8.2', '8.3', '8.4', '8.5']);
 });

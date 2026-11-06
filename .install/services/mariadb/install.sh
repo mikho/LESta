@@ -82,21 +82,12 @@
 # installer never manually initializes the datadir itself -- it only ensures
 # the directory exists, empty, and correctly owned (mysql:mysql) first.
 #
-# **Disclosed, real, verified gap (not a guess)**: MariaDB Foundation's own
-# apt repository for MariaDB 11.4 LTS currently publishes package metadata
-# for Ubuntu 24.04 (noble) and Ubuntu 22.04 (jammy) only -- confirmed
-# directly against MariaDB's own current documentation
-# (installing-mariadb-deb-files.md's own "We currently have APT repositories
-# for the following Linux distributions" list, which does not include
-# Ubuntu 26.04/resolute at all) and independently corroborated by multiple
-# current third-party install guides describing the exact same limitation
-# for Ubuntu 26.04 (Resolute Raccoon). Rather than silently falling back to
-# whatever MariaDB version Ubuntu's own default archive ships on 26.04
-# (which would violate the ADR's pinned-11.4-LTS requirement without saying
-# so), preflight_check_mariadb_repo_available below fails closed on 26.04
-# with an explicit, actionable error naming this exact gap. If MariaDB
-# Foundation later publishes a resolute suite for 11.4 (or the ADR is
-# amended), this mapping is the one place that needs updating.
+# **Series per Ubuntu release**: MariaDB Foundation's apt repository for the
+# 11.4 LTS series publishes Ubuntu 24.04 (noble) and 22.04 (jammy) only, and no
+# resolute (26.04) suite for it exists (checked 2026-11-06). Its next LTS, 11.8,
+# does publish resolute, so preflight_check_mariadb_repo_available pins 11.4 on
+# 24.04 and 11.8 on 26.04 (an amendment to ADR 0002 section 8, recorded there).
+# Ubuntu's own default-archive MariaDB is never used as a substitute.
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -412,8 +403,8 @@ emit_apply_success_and_exit() {
 # MARIADB_CODENAME global on success. Fails closed (rather than silently
 # falling back to whatever MariaDB version Ubuntu's own default archive
 # ships) for any VERSION_ID this installer does not have a *verified*
-# MariaDB-11.4 repository mapping for -- see this file's own top comment for
-# the real, disclosed Ubuntu 26.04 (resolute) gap this currently includes.
+# MariaDB repository mapping for -- see this file's own top comment for the
+# series each Ubuntu release gets.
 preflight_check_mariadb_repo_available() {
     local version_id="$1"
 
@@ -423,8 +414,9 @@ preflight_check_mariadb_repo_available() {
             return 0
             ;;
         26.04)
-            add_error mariadb_repo_unavailable "MariaDB Foundation's apt repository for MariaDB ${MARIADB_PINNED_SERIES} LTS does not currently publish an Ubuntu 26.04 (resolute) suite -- it currently publishes noble (24.04) and jammy (22.04) only. Installing Ubuntu's own default-archive MariaDB version instead would silently violate the ADR's pinned-11.4-LTS requirement, so this installer refuses to proceed on this OS release rather than substitute an unapproved version. This is a real, disclosed, currently-verified gap (see install.sh's own top comment for the sources), not a guess: if MariaDB Foundation later publishes a resolute suite for ${MARIADB_PINNED_SERIES}, or the ADR is amended to accept a different version on 26.04, this installer's own preflight_check_mariadb_repo_available is the one place that needs updating." "/etc/os-release"
-            return 1
+            MARIADB_PINNED_SERIES="11.8"
+            MARIADB_CODENAME="resolute"
+            return 0
             ;;
         *)
             add_error mariadb_repo_unmapped "detected Ubuntu VERSION_ID=${version_id}, which this installer has no verified MariaDB Foundation repository codename mapping for" "/etc/os-release"
@@ -476,7 +468,7 @@ run_preflight() {
     log_info "platform ok: ubuntu ${os_version_id} ${arch} kernel=$(uname -r)"
 
     # The repo-availability check can itself fail this node's OS release
-    # outright (the disclosed 26.04 gap); it must run before any apt
+    # outright (an unmapped release); it must run before any apt
     # mutation is attempted, matching every other hard preflight gate here.
     # Skipped entirely when --offline-bundle is given: the offline path
     # never registers the MariaDB Foundation repository at all (the .deb
@@ -485,6 +477,12 @@ run_preflight() {
     # must not be rejected here just because 26.04 has no *repository*
     # mapping; MARIADB_CODENAME is left unset in that case and never read by
     # the offline path.
+    # The series is chosen from the OS release on the offline path too, since the version check
+    # after installing the bundle compares against it.
+    case "${os_version_id}" in
+        26.04) MARIADB_PINNED_SERIES="11.8" ;;
+    esac
+
     if [ -z "${OFFLINE_BUNDLE}" ]; then
         if ! preflight_check_mariadb_repo_available "${os_version_id}"; then
             emit_result_and_exit failed "${EXIT_PREFLIGHT_CONFLICT}"

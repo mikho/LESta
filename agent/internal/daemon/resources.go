@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -92,3 +93,29 @@ func readSmallFile(path string) string {
 
 	return string(buffer[:n])
 }
+
+// installedPhpVersions lists the PHP-FPM versions installed on the node (/etc/php/<version>/fpm),
+// so the panel offers a domain only versions its node actually has. It is empty when PHP is not
+// installed, and the panel then applies no restriction.
+func installedPhpVersions(phpRoot string) []string {
+	entries, err := os.ReadDir(phpRoot)
+	if err != nil {
+		return nil
+	}
+
+	var versions []string
+
+	for _, entry := range entries {
+		if !phpVersionDir.MatchString(entry.Name()) {
+			continue
+		}
+
+		if _, err := os.Stat(filepath.Join(phpRoot, entry.Name(), "fpm", "php-fpm.conf")); err == nil {
+			versions = append(versions, entry.Name())
+		}
+	}
+
+	return versions
+}
+
+var phpVersionDir = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)

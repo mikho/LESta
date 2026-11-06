@@ -32,7 +32,7 @@ type Config struct {
 // FastCGI manager, the tenant database, cron and mail.
 var DefaultAllowedUnits = []string{
 	"nginx", "apache2", "named",
-	"php8.1-fpm", "php8.2-fpm", "php8.3-fpm", "php8.4-fpm",
+	"php8.1-fpm", "php8.2-fpm", "php8.3-fpm", "php8.4-fpm", "php8.5-fpm",
 	"mariadb@tenant", "cron", "exim4", "dovecot",
 }
 

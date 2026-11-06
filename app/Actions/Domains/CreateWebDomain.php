@@ -62,6 +62,8 @@ class CreateWebDomain
             [$node, $capabilities] = [$forcedNode, app(ResolvesWebCapableNode::class)->resolveFor($forcedNode, $data['web_server'] ?? 'nginx')];
         }
 
+        $node->assertPhpVersionAvailable($data['php_version'] ?? null);
+
         $ipAllocation = IpAllocation::query()
             ->where('node_id', $node->id)
             ->where('account_id', $account->id)

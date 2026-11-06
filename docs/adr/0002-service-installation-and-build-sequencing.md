@@ -219,7 +219,7 @@ The release check must also run `git archive` and inspect its contents. `.instal
 
 All eight items that were open questions as of the initial scaffolding pass have since been decided explicitly. None remain open as of this revision:
 
-1. **MariaDB version:** MariaDB 11.4 LTS only. MySQL compatibility is not a first-implementation goal.
+1. **MariaDB version:** MariaDB 11.4 LTS on Ubuntu 24.04, and MariaDB 11.8 LTS on Ubuntu 26.04 (amended 2026-11-06: the 11.4 repository has no resolute suite, 11.8 does). MySQL compatibility is not a first-implementation goal.
 2. **Ubuntu release support policy:** both 24.04 LTS and 26.04 LTS are supported simultaneously, tested independently, as already declared in every manifest's `supported_ubuntu` array.
 3. **ACME challenge mode:** both HTTP-01 and DNS-01 are supported. HTTP-01 depends only on the selected web profile and is available before BIND exists. DNS-01 additionally requires `dns.bind9.v1` to be registered and healthy at request time; this is a runtime capability check on the individual challenge, not an installer-time `depends_on` edge on the `acme` manifest, since ACME must be able to bootstrap and serve HTTP-01 before DNS is installed (see ordering rationale, steps 6-7).
 4. **Mail enablement:** explicit operator opt-in only, per node, after the mail threat model and operational readiness review pass. Mail is never enabled by default.

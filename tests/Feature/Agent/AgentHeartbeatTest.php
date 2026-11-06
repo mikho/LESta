@@ -269,3 +269,18 @@ test('a heartbeat without resources keeps the last ones', function () {
 
     expect($node->fresh()->resources)->toBe(['cpu_count' => 2]);
 });
+
+test('a heartbeat stores the installed PHP versions', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['php_versions' => ['8.4', '8.5']]))
+        ->assertOk();
+
+    expect($node->fresh()->php_versions)->toBe(['8.4', '8.5']);
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['php_versions' => ['not-a-version']]))
+        ->assertUnprocessable();
+});

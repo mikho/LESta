@@ -43,6 +43,10 @@ ADMINER_CAPABILITY="tools.adminer.v1"
 # package -- is always installed on any node that already has
 # web.php-fpm.v1 bootstrapped).
 ADMINER_PHP_VERSION="8.3"
+# Ubuntu 26.04 has no ondrej/php suite, so php-fpm/install.sh installs 8.5 only there.
+if [ "$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-}")" = "26.04" ]; then
+    ADMINER_PHP_VERSION="8.5"
+fi
 
 # Adminer's own MySQL driver needs mysqli, which php-fpm/install.sh never
 # installs. It only ever worked on lesta-cp-01 because something else had

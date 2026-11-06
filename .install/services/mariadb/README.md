@@ -14,6 +14,6 @@ The two instances use different mechanisms, because they start from different st
 
 `bootstrap_node_health`'s own self-test remains tenant-only by design: `database.control-plane.v1` has no Go agent dispatch at all, so its health check is the real `SELECT 1` probe run directly against the control-plane instance during its own install phase, nothing more.
 
-## Known gap: MariaDB Foundation's apt repository and Ubuntu 26.04
+## MariaDB series per Ubuntu release
 
-MariaDB Foundation's own apt repository for MariaDB 11.4 LTS currently publishes package metadata for Ubuntu 24.04 (noble) and 22.04 (jammy) only, confirmed against MariaDB's own documentation, which does not list Ubuntu 26.04 (resolute) among its supported distributions. `install.sh` fails closed with a clear `mariadb_repo_unavailable` preflight error on Ubuntu 26.04 rather than silently falling back to whatever MariaDB version Ubuntu's own default archive ships there (which would violate the ADR's pinned-11.4-LTS requirement without saying so). If MariaDB Foundation later publishes a `resolute` suite for 11.4, or the ADR is amended to accept a different version on 26.04, `install.sh`'s own `preflight_check_mariadb_repo_available` is the one place that needs updating.
+MariaDB Foundation's apt repository publishes the 11.4 LTS series for Ubuntu 24.04 (noble) and 22.04 (jammy) only, with no resolute suite. `install.sh` therefore pins **11.4 on Ubuntu 24.04 and 11.8 LTS on Ubuntu 26.04** (11.8 does publish resolute). This amends ADR 0002 section 8, which named 11.4 only. Ubuntu's own default-archive MariaDB is never substituted. `build-release.sh --mariadb-repo` follows the same mapping.

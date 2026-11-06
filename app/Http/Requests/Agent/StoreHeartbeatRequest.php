@@ -26,6 +26,8 @@ class StoreHeartbeatRequest extends FormRequest
             'services' => ['sometimes', 'nullable', 'array', 'max:64'],
             'services.*.name' => ['required_with:services', 'string', 'max:128', 'regex:/^[A-Za-z0-9@._-]+$/'],
             'services.*.state' => ['required_with:services', 'string', 'max:32'],
+            'php_versions' => ['sometimes', 'nullable', 'array', 'max:16'],
+            'php_versions.*' => ['string', 'regex:/^[0-9]+\.[0-9]+$/'],
             'resources' => ['sometimes', 'nullable', 'array'],
             'resources.load_1' => ['required_with:resources', 'numeric', 'min:0', 'max:100000'],
             'resources.load_5' => ['required_with:resources', 'numeric', 'min:0', 'max:100000'],

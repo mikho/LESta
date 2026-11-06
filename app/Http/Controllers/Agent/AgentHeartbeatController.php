@@ -62,6 +62,10 @@ class AgentHeartbeatController extends Controller
                 )])->save();
             }
 
+            if (array_key_exists('php_versions', $validated)) {
+                $node->forceFill(['php_versions' => array_values($validated['php_versions'] ?? [])])->save();
+            }
+
             // Only an agent that reads /proc sends this; an older one leaves the last figures.
             if (is_array($validated['resources'] ?? null)) {
                 $node->forceFill(['resources' => $validated['resources']])->save();

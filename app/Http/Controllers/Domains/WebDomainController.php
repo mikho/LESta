@@ -114,7 +114,7 @@ class WebDomainController extends Controller
                 'apache' => Node::query()->whereNull('suspended_at')
                     ->whereHas('capabilities', fn ($query) => $query->where('capability', NodeCapabilityType::WebApache->value)->whereNull('suspended_at'))
                     ->exists(),
-                'php_versions' => array_column(PhpVersion::cases(), 'value'),
+                'php_versions' => $node?->availablePhpVersions() ?? array_column(PhpVersion::cases(), 'value'),
             ],
         ]);
     }
@@ -266,6 +266,7 @@ class WebDomainController extends Controller
             'web_template' => $webDomain->web_template,
             'web_server' => $webDomain->web_server->value,
             'php_version' => $webDomain->php_version?->value,
+            'php_versions' => $webDomain->node?->availablePhpVersions() ?? array_column(PhpVersion::cases(), 'value'),
             'ssl_mode' => $webDomain->ssl_mode->value,
             'waf_mode' => $webDomain->waf_mode,
             'waf_preset' => $webDomain->waf_preset,

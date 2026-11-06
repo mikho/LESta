@@ -31,7 +31,7 @@
 #
 # **Bounded PHP version set, by design**: PHP_VERSIONS below names exactly
 # the versions Laravel's own App\Enums\PhpVersion allows a tenant to
-# select (8.1, 8.2, 8.3, 8.4) -- never an unbounded "whatever ondrej/php
+# select (8.1 to 8.5; a node installs the ones its Ubuntu release can, see select_php_versions) -- never an unbounded "whatever ondrej/php
 # ships," matching this project's own "no unrestricted service editor"
 # principle (ADR 0002). 8.3 is Ubuntu 24.04's own native package; the
 # other three come from the ondrej/php PPA.
@@ -47,6 +47,8 @@ WEB_PHP_FPM_CAPABILITY="web.php-fpm.v1"
 # supportedPhpVersions map and App\Enums\PhpVersion both allow. Keep all
 # three in lockstep.
 PHP_VERSIONS="8.1 8.2 8.3 8.4"
+PHP_USE_PPA=1
+SELFTEST_PHP_VERSION="8.3"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=$(CDPATH='' cd -- "${SCRIPT_DIR}/../.." && pwd)
@@ -252,7 +254,7 @@ emit_dry_run_result_and_exit() {
     install_state=$(preflight_classify_install_state)
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
-    add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway PHP 8.3 pool against the real, just-installed php8.3-fpm"
+    add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway PHP ${SELFTEST_PHP_VERSION} pool against the real, just-installed php8.3-fpm"
     add_change "${WEB_PHP_FPM_CAPABILITY}" would_install "" "the ondrej/php PPA would be pinned; php${PHP_VERSIONS# } (space-separated: ${PHP_VERSIONS}) would be installed via apt-get; each version's own pool.d directory would be created, mode 0770 root:lesta, with its default www pool disabled; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -535,12 +537,30 @@ IDLEPOOL
     add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${pool_dir}/lesta-idle.conf" "idle pool written so php${version}-fpm starts while no site uses it"
 }
 
+# select_php_versions narrows PHP_VERSIONS to what the node's Ubuntu release can install. The
+# ondrej/php PPA publishes no suite for 26.04 (resolute), so there PHP comes from Ubuntu's own
+# archive, which ships 8.5 only; 24.04 keeps 8.1 to 8.4 from the PPA.
+select_php_versions() {
+    if [ "$(preflight_os_release_field VERSION_ID)" = "26.04" ]; then
+        PHP_VERSIONS="8.5"
+        PHP_USE_PPA=0
+        SELFTEST_PHP_VERSION="8.5"
+    fi
+}
+
 install_php_fpm() {
     log_info "install_php_fpm: installing php-fpm ${PHP_VERSIONS} and activating ${WEB_PHP_FPM_CAPABILITY}"
 
     local version out pkgs=""
 
-    ensure_ondrej_php_repo
+    if [ "${PHP_USE_PPA}" -eq 1 ]; then
+        ensure_ondrej_php_repo
+    elif [ -e "${PHP_PPA_SOURCES_LIST}" ]; then
+        # A node upgraded from 24.04 (or an earlier run of this installer) still lists a PPA that
+        # has no suite for this release, which makes every apt-get update fail.
+        rm -f "${PHP_PPA_SOURCES_LIST}" || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${PHP_PPA_SOURCES_LIST}" "failed to remove the ondrej/php source"
+        add_change "${WEB_PHP_FPM_CAPABILITY}" removed "${PHP_PPA_SOURCES_LIST}" "ondrej/php PPA source removed: it publishes no suite for this Ubuntu release"
+    fi
 
     for version in ${PHP_VERSIONS}; do
         pkgs="${pkgs} php${version}-fpm"
@@ -616,7 +636,8 @@ TMPFILES
 
 # --- phase 4: bootstrap_node_health --------------------------------------
 #
-# Self-test exercises exactly one representative version (8.3, Ubuntu's
+# Self-test exercises exactly one representative version (8.3 where the PPA versions
+# exist, else the node's only one, see select_php_versions; 8.3 is Ubuntu 24.04's
 # own native package) with a real create-then-delete round trip against
 # the real, just-installed php8.3-fpm. The throwaway pool runs as
 # lesta-t0: shaped like an account's user (the agent refuses any other,
@@ -641,13 +662,13 @@ run_node_health_selftest() {
         add_change "${WEB_PHP_FPM_CAPABILITY}" created "" "self-test user lesta-t0 (no home, no login), shaped like an account's user but no account's"
     fi
 
-    socket_path="${PHP_SOCKET_ROOT}/8.3/${resource_id}.sock"
-    pool_path="${PHP_POOL_BASE_DIR}/8.3/fpm/pool.d/${resource_id}.conf"
+    socket_path="${PHP_SOCKET_ROOT}/${SELFTEST_PHP_VERSION}/${resource_id}.sock"
+    pool_path="${PHP_POOL_BASE_DIR}/${SELFTEST_PHP_VERSION}/fpm/pool.d/${resource_id}.conf"
 
     create_payload=$(json_join_object \
         "$(json_kv_raw "account_id" "1")" \
         "$(json_kv_str "account_username" "lesta-t0")" \
-        "$(json_kv_str "php_version" "8.3")" \
+        "$(json_kv_str "php_version" "${SELFTEST_PHP_VERSION}")" \
         "$(json_kv_raw "suspended" "false")")
 
     envelope=$(selftest_envelope "${WEB_PHP_FPM_CAPABILITY}" create "${resource_id}" "${create_idem}" "${create_corr}" 1 "${create_payload}")
@@ -691,7 +712,7 @@ run_node_health_selftest() {
         agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" selftest_pool_not_removed "${pool_path}" "delete returned status=applied but the pool fragment still exists at ${pool_path}"
     fi
 
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed_structural_only "${AGENT_BINARY_DEST}" "self-test create-then-delete of a throwaway PHP 8.3 pool against the real, just-installed php8.3-fpm returned status=applied both times, and a real unix socket genuinely accepted connections while the pool was live; remote control-plane registration is not yet built, so ${WEB_PHP_FPM_CAPABILITY} is structurally installed and health-checked but NOT YET control-plane-registered"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" installed_structural_only "${AGENT_BINARY_DEST}" "self-test create-then-delete of a throwaway PHP ${SELFTEST_PHP_VERSION} pool against the real, just-installed php${SELFTEST_PHP_VERSION}-fpm returned status=applied both times, and a real unix socket genuinely accepted connections while the pool was live; remote control-plane registration is not yet built, so ${WEB_PHP_FPM_CAPABILITY} is structurally installed and health-checked but NOT YET control-plane-registered"
     log_info "bootstrap_node_health self-test: create+delete both returned status=applied, pool fragment and socket removed after delete"
 }
 
@@ -725,6 +746,8 @@ main() {
     if [ "${MODE}" = "version" ]; then
         emit_version_and_exit
     fi
+
+    select_php_versions
 
     RUN_ID=$(run_generate_id)
     run_install_cleanup_trap

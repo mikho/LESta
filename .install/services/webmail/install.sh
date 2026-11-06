@@ -36,6 +36,10 @@ WEBMAIL_CAPABILITY="mail.webmail.v1"
 # php-fpm/install.sh's own PHP_VERSIONS list guarantees 8.3 (Ubuntu 24.04's
 # own native package) on any node that already has web.php-fpm.v1.
 WEBMAIL_PHP_VERSION="8.3"
+# Ubuntu 26.04 has no ondrej/php suite, so php-fpm/install.sh installs 8.5 only there.
+if [ "$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-}")" = "26.04" ]; then
+    WEBMAIL_PHP_VERSION="8.5"
+fi
 
 # php8.3-cli is listed explicitly even though php8.3-fpm normally pulls it in:
 # init_roundcube_db below runs Roundcube's own bin/initdb.sh through it.

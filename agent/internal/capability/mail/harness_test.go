@@ -212,7 +212,7 @@ func minimalDovecotConf(t *testing.T, prefix string) string {
 	}
 
 	if version := dovecotConfigVersion(t); !strings.HasPrefix(version, "2.3.") {
-		content = fmt.Sprintf("dovecot_config_version = %s\n", version) + content
+		content = fmt.Sprintf("dovecot_config_version = %s\ndovecot_storage_version = %s\n", version, version) + content
 	}
 
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

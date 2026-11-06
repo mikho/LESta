@@ -2,7 +2,7 @@ export type SslMode = 'none' | 'manual' | 'lets_encrypt';
 
 export type WebServer = 'nginx' | 'apache';
 
-export type PhpVersion = '8.1' | '8.2' | '8.3' | '8.4';
+export type PhpVersion = '8.1' | '8.2' | '8.3' | '8.4' | '8.5';
 
 export type SuspensionSource = 'manual' | 'cascade' | 'reseller' | 'provider';
 
@@ -24,6 +24,7 @@ export type WebDomain = {
     web_template: string;
     web_server: WebServer;
     php_version: PhpVersion | null;
+    php_versions: PhpVersion[];
     ssl_mode: SslMode;
     waf_mode: 'off' | 'detect' | 'block';
     waf_excluded_rules: number[];

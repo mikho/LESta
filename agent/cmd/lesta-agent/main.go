@@ -595,13 +595,11 @@ func cronProductionConfig() cron.Config {
 // externally overridable would let anything able to set this process's
 // environment redirect a privileged exec to an arbitrary executable.
 //
-// DovecotConfPath is LESta's own dedicated static config file (mirroring
-// nginx.conf's/named.conf's own real, operator-added include-line
-// prerequisite): `/etc/dovecot/lesta.conf`, expected to already be
-// `!include`d from `/etc/dovecot/dovecot.conf` -- Dovecot's own config
-// format assembles cleanly across multiple included files (its real
-// packaging already ships `!include_try conf.d/*.conf` by default), so
-// this mirrors nginx/bind9's pattern exactly.
+// DovecotConfPath is the main `/etc/dovecot/dovecot.conf`, into which LESta's own
+// `/etc/dovecot/lesta.conf` is `!include`d (mirroring nginx.conf's/named.conf's own real,
+// operator-added include-line prerequisite). It is only used for `sievec -c`, which needs a
+// complete config: Dovecot 2.4 requires dovecot_config_version and dovecot_storage_version,
+// which only the package's own dovecot.conf sets (and refuses to have set a second time).
 //
 // EximStaticConfPath is NOT the same shape, despite looking parallel: it
 // points straight at `/etc/exim4/exim4.conf` itself, not a separate
@@ -642,7 +640,7 @@ func mailProductionConfig() mail.Config {
 		EximReloadCommand:    []string{"sudo", "/usr/bin/systemctl", "reload", "exim4"},
 		DovecotReloadCommand: []string{"sudo", "/usr/bin/systemctl", "reload", "dovecot"},
 
-		DovecotConfPath:   "/etc/dovecot/lesta.conf",
+		DovecotConfPath:   "/etc/dovecot/dovecot.conf",
 		DovecotPasswdPath: "/etc/dovecot/lesta.d/passwd",
 		DoveadmBinary:     "doveadm",
 		DoveconfBinary:    "doveconf",
@@ -912,7 +910,7 @@ func daemonProductionConfig() daemon.Config {
 			webNginxCapability:       {"nginx"},
 			webApacheCapability:      {"apache2"},
 			dnsBind9Capability:       {"named"},
-			webPhpFpmCapability:      {"php8.1-fpm", "php8.2-fpm", "php8.3-fpm", "php8.4-fpm"},
+			webPhpFpmCapability:      {"php8.1-fpm", "php8.2-fpm", "php8.3-fpm", "php8.4-fpm", "php8.5-fpm"},
 			databaseTenantCapability: {"mariadb@tenant"},
 			schedulerCronCapability:  {"cron"},
 			mailSmtpImapCapability:   {"exim4", "dovecot"},

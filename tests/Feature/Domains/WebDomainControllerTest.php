@@ -280,5 +280,5 @@ test('the add domain form is told what the server offers, so it can default to P
     $this->actingAs($owner)->get(route('domains.create'))->assertInertia(fn (Assert $page) => $page
         ->where('offers.php', true)
         ->where('offers.automatic_https', true)
-        ->where('offers.php_versions', ['8.1', '8.2', '8.3', '8.4']));
+        ->where('offers.php_versions', ['8.1', '8.2', '8.3', '8.4', '8.5']));
 });

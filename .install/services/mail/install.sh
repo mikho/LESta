@@ -827,7 +827,7 @@ dovecot_login:
 EXIMCONF
 }
 
-# render_dovecot_conf prints the complete LESta-owned Dovecot fragment
+# render_dovecot_conf_23 prints the complete LESta-owned Dovecot 2.3 fragment
 # !include-d from dovecot.conf (see preflight_check_dovecot_include).
 # Virtual (non-system) mailboxes under a single shared vmail identity;
 # passdb reads DovecotPasswdPath's own BLF-CRYPT hashes directly (rendered
@@ -835,7 +835,7 @@ EXIMCONF
 # virtual account shares the same uid/gid/home pattern. imap is TLS-only
 # (imaps/993 only; the plaintext imap/143 listener is explicitly disabled,
 # matching this capability's own manifest, which declares no port 143).
-render_dovecot_conf() {
+render_dovecot_conf_23() {
     cat <<DOVECOTCONF
 # Managed entirely by LESta's mail installer
 # (.install/services/mail/install.sh). Any hand edits are overwritten on
@@ -895,6 +895,101 @@ protocol lmtp {
   plugin {
     sieve = ${SIEVE_DIR}/%d/%n.sieve
   }
+}
+DOVECOTCONF
+}
+
+# dovecot_series prints the installed Dovecot's major.minor ("2.3" on Ubuntu 24.04, "2.4" on
+# 26.04), or "2.3" when Dovecot cannot be run yet.
+dovecot_series() {
+    local version
+    version=$(dovecot --version 2>/dev/null | cut -d' ' -f1 | cut -d. -f1,2)
+    printf '%s' "${version:-2.3}"
+}
+
+# render_dovecot_conf prints the fragment for the installed Dovecot series.
+render_dovecot_conf() {
+    case "$(dovecot_series)" in
+        2.[4-9]) render_dovecot_conf_24 ;;
+        *) render_dovecot_conf_23 ;;
+    esac
+}
+
+# render_dovecot_conf_24 is the same fragment in Dovecot 2.4's syntax (Ubuntu 26.04): settings
+# renamed (mail_driver/mail_path, ssl_server_*), passdb and userdb with named drivers, %{...}
+# variables, and Pigeonhole's sieve_script block. dovecot_config_version is not set here: the
+# package's own dovecot.conf sets it and 2.4 refuses a second value. The stock lmtp protocol
+# block strips the domain from the login name, which the per-domain mail path needs, so it is
+# restored below.
+render_dovecot_conf_24() {
+    cat <<DOVECOTCONF
+# Managed entirely by LESta's mail installer
+# (.install/services/mail/install.sh). Any hand edits are overwritten on
+# the next --apply.
+
+protocols = imap lmtp
+
+mail_driver = maildir
+mail_path = ${VMAIL_HOME}/%{user | domain}/%{user | username}
+mail_uid = vmail
+mail_gid = vmail
+# Same on-disk layout as on Dovecot 2.3: INBOX is the root of the maildir and folders are
+# ".Name" directories inside it. The package's stock mail_inbox_path points at /var/mail.
+mail_inbox_path = ${VMAIL_HOME}/%{user | domain}/%{user | username}
+mailbox_list_layout = maildir++
+
+ssl = required
+ssl_server_cert_file = ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/fullchain.pem
+ssl_server_key_file = ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/privkey.pem
+
+service imap-login {
+  inet_listener imap {
+    port = 0
+  }
+  inet_listener imaps {
+    port = 993
+    ssl = yes
+  }
+}
+
+service lmtp {
+  unix_listener lmtp {
+    mode = 0666
+  }
+}
+
+service auth {
+  # extra_groups: see render_dovecot_conf_23.
+  extra_groups = ${MAIL_SECRET_GROUP}
+  unix_listener auth-client {
+    mode = 0660
+    user = Debian-exim
+  }
+}
+
+passdb passwd-file {
+  passwd_file_path = ${DOVECOT_PASSWD_PATH}
+  default_password_scheme = BLF-CRYPT
+}
+
+userdb static {
+  fields {
+    uid = vmail
+    gid = vmail
+    home = ${VMAIL_HOME}/%{user | domain}/%{user | username}
+  }
+}
+
+protocol lmtp {
+  auth_username_format = %{user | lower}
+  mail_plugins {
+    sieve = yes
+  }
+}
+
+sieve_script personal {
+  driver = file
+  path = ${SIEVE_DIR}/%{user | domain}/%{user | username}.sieve
 }
 DOVECOTCONF
 }

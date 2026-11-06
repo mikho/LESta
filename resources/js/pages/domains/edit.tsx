@@ -254,18 +254,25 @@ export default function Edit({
                                             <SelectItem value="none">
                                                 No PHP (plain HTML files only)
                                             </SelectItem>
-                                            <SelectItem value="8.1">
-                                                PHP 8.1
-                                            </SelectItem>
-                                            <SelectItem value="8.2">
-                                                PHP 8.2
-                                            </SelectItem>
-                                            <SelectItem value="8.3">
-                                                PHP 8.3
-                                            </SelectItem>
-                                            <SelectItem value="8.4">
-                                                PHP 8.4
-                                            </SelectItem>
+                                            {[
+                                                ...new Set([
+                                                    ...webDomain.php_versions,
+                                                    ...(webDomain.php_version
+                                                        ? [
+                                                              webDomain.php_version,
+                                                          ]
+                                                        : []),
+                                                ]),
+                                            ]
+                                                .sort()
+                                                .map((version) => (
+                                                    <SelectItem
+                                                        key={version}
+                                                        value={version}
+                                                    >
+                                                        PHP {version}
+                                                    </SelectItem>
+                                                ))}
                                         </SelectContent>
                                     </Select>
 

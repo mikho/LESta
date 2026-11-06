@@ -23,6 +23,8 @@ class UpdateWebDomain
     {
         Gate::forUser($actor)->authorize('update', $webDomain);
 
+        $webDomain->node->assertPhpVersionAvailable($data['php_version'] ?? null);
+
         return DB::transaction(function () use ($actor, $webDomain, $data): WebDomain {
             $previousPhpVersion = $webDomain->php_version;
 
