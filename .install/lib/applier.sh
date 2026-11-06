@@ -249,7 +249,10 @@ applier_allow_setid_modes() {
 applier_start() {
     # A failure here is a failed health check of the agent binary just installed (the applier is
     # that binary), so it rolls the binary back like a failed self-test does.
-    systemctl daemon-reload || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_failed "" "systemctl daemon-reload failed"
+    systemctl_daemon_reload_retry >/dev/null || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_failed "" "systemctl daemon-reload failed"
+    # A unit restarted by several installers in quick succession can hit systemd's start rate limit
+    # ("start of the service was attempted too often"); this clears the counter.
+    systemctl reset-failed "${APPLIER_UNIT_NAME}" >/dev/null 2>&1 || true
     systemctl enable "${APPLIER_UNIT_NAME}" >/dev/null 2>&1 || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "${APPLIER_UNIT_PATH}" "systemctl enable ${APPLIER_UNIT_NAME} failed"
     systemctl restart "${APPLIER_UNIT_NAME}" || agent_fail_selftest_with_rollback "${EXIT_HEALTH_FAILURE}" applier_start_failed "${APPLIER_UNIT_PATH}" "systemctl restart ${APPLIER_UNIT_NAME} failed with the agent binary just installed"
 
