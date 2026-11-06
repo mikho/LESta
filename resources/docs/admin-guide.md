@@ -149,6 +149,22 @@ Uninstall is refused, with the reason shown, while:
 
 Only one removal runs on a node at a time. When the node reports success, the panel removes the service's capabilities from the node by itself. A failed removal shows the node's error on the row.
 
+### Upgrading the agent
+
+The node's page has an **Agent upgrade** card. It shows the agent version the node reports, and **Upgrade agent** replaces the agent with the release this control plane carries (the newer build you got by updating the panel from git).
+
+A node never installs anything the panel alone asks for. The upgrade has to be **signed** with a private key that only you hold, and the node checks the signature against the public key it was installed with (`--upgrade-public-key`, see the Installation Guide). The signing happens in your browser: the private key is read there and never sent to the panel, and the panel never stores it.
+
+1. **Make a key.** Under **Upgrade keys**, give it a name and press **Create key pair**. Your browser makes the pair, the panel keeps the public half, and you download the private half as a `.pem` file. It is shown once and cannot be recovered, so keep it somewhere safe and separate (a password manager, an offline disk). One key can serve many nodes, or you can make one per node.
+2. **Install it on the node** with the agent installer's `--upgrade-public-key` (a node installed without one refuses every upgrade), then record on the node's page which key it trusts (**Key this node trusts**).
+3. **Upgrade.** Press **Upgrade agent**, check the version and the sha256 shown (compare the sha256 with the one the build published, since it is what you are signing), choose your private key file, and press **Sign and upgrade**. The request is valid for one hour.
+
+The node refuses an upgrade that is signed for another node, has expired, is not a newer version than the one running, or whose downloaded binary does not match the signed sha256. It keeps the previous binary, restarts its units onto the new one, and puts the previous binary back by itself if the daemon is not running the new version a minute later.
+
+To change keys without shell access, choose **Key after the upgrade** when you upgrade: the new public key is part of what you sign, and the node switches to it once the upgrade has succeeded. The old private key can then be retired.
+
+A browser that cannot sign with Ed25519 (older than Chrome 137, Firefox 129 or Safari 17) cannot upgrade or make keys.
+
 ### Node admin delegation
 
 Further down the same page, **Node admins** (only visible if you can manage this): grant a user (by email) full admin of this one node — they can manage it, its capabilities, and suspend it, but never reach any tenant's domains/mail/databases hosted on it. Only a platform admin can grant or revoke this; a delegated node admin can never grant further node admins themselves.

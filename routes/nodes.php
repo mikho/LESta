@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Nodes\NodeAgentUpgradeController;
 use App\Http\Controllers\Nodes\NodeCapabilityController;
 use App\Http\Controllers\Nodes\NodeController;
 use App\Http\Controllers\Nodes\NodeServiceController;
@@ -16,6 +17,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('nodes/{node}/unsuspend', [NodeController::class, 'unsuspend'])->name('nodes.unsuspend');
     Route::post('nodes/{node}/enable-scheduled-backups', [NodeController::class, 'enableScheduledBackups'])->name('nodes.enable-scheduled-backups');
     Route::post('nodes/{node}/disable-scheduled-backups', [NodeController::class, 'disableScheduledBackups'])->name('nodes.disable-scheduled-backups');
+    Route::get('nodes/{node}/agent-upgrade', [NodeAgentUpgradeController::class, 'show'])->name('nodes.agent-upgrade.show');
+    Route::post('nodes/{node}/agent-upgrade', [NodeAgentUpgradeController::class, 'store'])->name('nodes.agent-upgrade.store');
+    Route::put('nodes/{node}/upgrade-key', [NodeAgentUpgradeController::class, 'assignKey'])->name('nodes.upgrade-key.update');
+    Route::post('agent-upgrade-keys', [NodeAgentUpgradeController::class, 'storeKey'])->name('agent-upgrade-keys.store');
+    Route::delete('agent-upgrade-keys/{agentUpgradeKey}', [NodeAgentUpgradeController::class, 'destroyKey'])->name('agent-upgrade-keys.destroy');
     Route::post('nodes/{node}/enrollment-token', [NodeController::class, 'issueEnrollmentToken'])->name('nodes.enrollment-token');
     Route::post('nodes/{node}/tools-domain', [NodeController::class, 'createToolsDomain'])->name('nodes.tools-domain.store');
     Route::post('nodes/{node}/tools-domain/certificate', [NodeController::class, 'confirmToolsCertificate'])->name('nodes.tools-domain.certificate');

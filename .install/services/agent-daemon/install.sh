@@ -108,18 +108,23 @@ ERRORS=""
 NODE_UUID=""
 ENROLLMENT_TOKEN=""
 CONTROL_PLANE_URL=""
+UPGRADE_PUBLIC_KEY=""
+UPGRADE_PUBLIC_KEY_PATH="/etc/lesta/agent/upgrade-public-key"
 
 # --- usage / argument parsing ----------------------------------------------
 
 usage() {
     cat <<'USAGE' >&2
-Usage: LESTA_ENROLLMENT_TOKEN=<token> install.sh --dry-run|--apply|--version --node-uuid <uuid> --control-plane-url <url> [--yes] [--help]
+Usage: LESTA_ENROLLMENT_TOKEN=<token> install.sh --dry-run|--apply|--version --node-uuid <uuid> --control-plane-url <url> [--upgrade-public-key <key>] [--yes] [--help]
 
   --dry-run             Run preflight and report what would change. No mutation.
   --apply               Apply the installer. Requires --yes.
   --version             Print installer version and exit.
   --node-uuid           The node's own uuid, matching the Node record created on the control plane.
   --control-plane-url   The base URL of the control plane, https only, e.g. https://panel.example.
+  --upgrade-public-key  The base64 Ed25519 public key this node trusts for agent upgrades signed in the
+                        panel (node.agent-upgrade.v1). Without one the node refuses every upgrade
+                        request; later keys arrive inside signed upgrades. Safe to repeat.
   --enrollment-token    Deprecated: any local user can read a command line while it runs. Pass the
                         token in LESTA_ENROLLMENT_TOKEN instead.
 
@@ -174,6 +179,11 @@ parse_args() {
                 CONTROL_PLANE_URL="$2"
                 shift 2
                 ;;
+            --upgrade-public-key)
+                [ "$#" -ge 2 ] || fail_invocation "--upgrade-public-key requires a value"
+                UPGRADE_PUBLIC_KEY="$2"
+                shift 2
+                ;;
             --yes)
                 YES=1
                 shift
@@ -187,6 +197,27 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+# validate_upgrade_public_key: the base64 of exactly 32 bytes (an Ed25519 public key), or empty.
+validate_upgrade_public_key() {
+    [ -z "${UPGRADE_PUBLIC_KEY}" ] && return 0
+    printf '%s' "${UPGRADE_PUBLIC_KEY}" | grep -Eq '^[A-Za-z0-9+/]{43}=$' || return 1
+    [ "$(printf '%s' "${UPGRADE_PUBLIC_KEY}" | base64 -d 2>/dev/null | wc -c | tr -d ' ')" = "32" ]
+}
+
+# install_upgrade_public_key writes the key the node trusts for agent upgrades (root-owned, world-readable:
+# it is public). Nothing is written without --upgrade-public-key, so a re-run never drops a key.
+install_upgrade_public_key() {
+    [ -n "${UPGRADE_PUBLIC_KEY}" ] || return 0
+
+    printf '%s\n' "${UPGRADE_PUBLIC_KEY}" > "${UPGRADE_PUBLIC_KEY_PATH}.tmp" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${UPGRADE_PUBLIC_KEY_PATH}" "failed to write the upgrade public key"
+    chmod 0644 "${UPGRADE_PUBLIC_KEY_PATH}.tmp"
+    chown root:root "${UPGRADE_PUBLIC_KEY_PATH}.tmp"
+    mv -f "${UPGRADE_PUBLIC_KEY_PATH}.tmp" "${UPGRADE_PUBLIC_KEY_PATH}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${UPGRADE_PUBLIC_KEY_PATH}" "failed to move the upgrade public key into place"
+    add_change "${AGENT_DAEMON_CAPABILITY}" installed "${UPGRADE_PUBLIC_KEY_PATH}" "public key for signed agent upgrades, mode 0644 root:root"
 }
 
 # --node-uuid's own sinks (json_kv_str in lib/enrollment.sh and lib/daemon.sh) already
@@ -216,6 +247,10 @@ validate_args() {
 
     if ! validate_node_uuid; then
         fail_invocation "--node-uuid is required and must be a valid uuid (got: '${NODE_UUID}')"
+    fi
+
+    if ! validate_upgrade_public_key; then
+        fail_invocation "--upgrade-public-key must be the base64 of a 32 byte Ed25519 public key"
     fi
     [ -n "${ENROLLMENT_TOKEN}" ] || ENROLLMENT_TOKEN="${LESTA_ENROLLMENT_TOKEN:-}"
     [ -n "${ENROLLMENT_TOKEN}" ] || fail_invocation "LESTA_ENROLLMENT_TOKEN is required"
@@ -495,6 +530,8 @@ bootstrap_agent_daemon() {
 
     daemon_write_config "${CONTROL_PLANE_URL}" "${NODE_UUID}" 60 "1"
     add_change "${AGENT_DAEMON_CAPABILITY}" ensured "${DAEMON_CONFIG_PATH}" "daemon config written, mode 0640 lesta-agent:lesta"
+
+    install_upgrade_public_key
 
     daemon_install_systemd_unit
     add_change "${AGENT_DAEMON_CAPABILITY}" installed "${DAEMON_UNIT_PATH}" "systemd unit written"

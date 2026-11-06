@@ -92,3 +92,10 @@ export type Node = {
     admin_grants?: NodeAdminGrant[];
     tools?: NodeTools;
 };
+
+export type UpgradeKey = {
+    id: string;
+    name: string;
+    public_key: string;
+    nodes: number;
+};

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import NodeCapabilityController from '@/actions/App/Http/Controllers/Nodes/NodeCapabilityController';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
 import NodeServiceController from '@/actions/App/Http/Controllers/Nodes/NodeServiceController';
+import { AgentUpgradeSection } from '@/components/agent-upgrade-section';
 import {
     ConfirmActionDialog,
     useConfirm,
@@ -36,6 +37,7 @@ import type {
     NodeCapability,
     NodeProvisioningOperation,
     OrphanedAccountNodeIdentity,
+    UpgradeKey,
 } from '@/types';
 
 const capabilityOptions = [
@@ -1026,9 +1028,13 @@ function InstalledServicesSection({ node }: { node: Node }) {
 export default function Edit({
     node,
     canManageAdminGrants,
+    upgradeKeys,
+    trustedUpgradeKey,
 }: {
     node: Node;
     canManageAdminGrants: boolean;
+    upgradeKeys: UpgradeKey[];
+    trustedUpgradeKey: string | null;
 }) {
     const capabilities = node.capabilities ?? [];
     const operations = node.recent_operations ?? [];
@@ -1417,6 +1423,13 @@ export default function Edit({
                         />
                     )}
                 </div>
+
+                <AgentUpgradeSection
+                    node={node}
+                    upgradeKeys={upgradeKeys}
+                    trustedUpgradeKey={trustedUpgradeKey}
+                    canManageKeys={canManageAdminGrants}
+                />
 
                 <div className="space-y-4 rounded-lg border p-4">
                     <Heading

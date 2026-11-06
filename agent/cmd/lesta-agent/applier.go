@@ -19,6 +19,7 @@ import (
 
 	"github.com/mikho/LESta/agent/internal/applier"
 	"github.com/mikho/LESta/agent/internal/capability/acme"
+	"github.com/mikho/LESta/agent/internal/capability/agentupgrade"
 	"github.com/mikho/LESta/agent/internal/capability/apache"
 	"github.com/mikho/LESta/agent/internal/capability/backup"
 	"github.com/mikho/LESta/agent/internal/capability/bind9"
@@ -115,9 +116,23 @@ var applierInstances = []applierInstance{
 		socket: applierSocketDir + "/applier-maintenance.sock",
 		hosted: map[string]bool{
 			serviceUninstallCapability: true,
+			agentUpgradeCapability:     true,
 		},
 		timeout: 30 * time.Minute,
 	},
+}
+
+// agentUpgradeConfig reads the node's identity and panel address the same way the daemon does.
+func agentUpgradeConfig() agentupgrade.Config {
+	controlPlaneURL, nodeUUID, _, _ := readDaemonConfig("/etc/lesta/agent/daemon-config.json")
+
+	return agentupgrade.Config{
+		BinaryPath:      "/var/lib/lesta/agent/bin/lesta-agent",
+		KeyPath:         upgradeKeyPath,
+		NodeUUID:        nodeUUID,
+		ControlPlaneURL: controlPlaneURL,
+		CurrentVersion:  agentVersion,
+	}
 }
 
 // installerScript is the node's installer orchestrator: the .install directory recorded by the
@@ -257,6 +272,8 @@ func newHostedCapability(name string) (protocol.Capability, error) {
 		return acme.New(acmeProductionConfig()), nil
 	case serviceUninstallCapability:
 		return serviceuninstall.New(serviceuninstall.Config{Installer: installerScript()}), nil
+	case agentUpgradeCapability:
+		return agentupgrade.New(agentUpgradeConfig()), nil
 	case serviceControlCapability:
 		return servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits}), nil
 	case systemAccountIdentityCapability:

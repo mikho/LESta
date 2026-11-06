@@ -59,6 +59,8 @@ Do this in the LESta admin app first, before touching the server:
 
     The token goes in the environment, not on the command line, where any local user could read it while the installer runs. The control plane address must be https.
 
+    To let administrators upgrade this node's agent from the panel later, also pass `--upgrade-public-key <key>`, the public key of an upgrade key made under the node's page (Admin Guide, Chapter 5, "Upgrading the agent"). It is written to `/etc/lesta/agent/upgrade-public-key`. Without it the node refuses every upgrade request, and the agent is then upgraded by running the installer again from an updated checkout. Running the installer again with a different key replaces it.
+
     This exchanges the token for a long-lived credential (written to `/etc/lesta/agent/node-credential`, root-only), and starts the `lesta-agent-daemon` systemd service, which heartbeats the node's liveness, capabilities and service states back to LESta from here on.
 
     The node must be able to resolve the panel's hostname and trust its TLS certificate. With a private certificate authority, install its certificate on the node first (`/usr/local/share/ca-certificates/`, then `update-ca-certificates`); otherwise enrollment fails with `enrollment_failed`.

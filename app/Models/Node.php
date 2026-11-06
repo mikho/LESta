@@ -12,6 +12,7 @@ use Database\Factories\NodeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -35,6 +36,7 @@ use Illuminate\Validation\ValidationException;
  * @property list<array{name: string, state: string}>|null $service_states
  * @property array<string, int|float>|null $resources
  * @property list<string>|null $php_versions
+ * @property int|null $upgrade_key_id the public key this node trusts for agent upgrades
  * @property bool|null $ping_ok
  * @property float|null $ping_ms
  * @property Carbon|null $pinged_at
@@ -245,6 +247,22 @@ class Node extends Model implements ProviderAdminManaged
         return $this->hasCapability(NodeCapabilityType::Adminer)
             && $this->hasCapability(NodeCapabilityType::WebNginx)
             && $this->toolsWebDomain() !== null;
+    }
+
+    /**
+     * @return BelongsTo<AgentUpgradeKey, $this>
+     */
+    public function upgradeKey(): BelongsTo
+    {
+        return $this->belongsTo(AgentUpgradeKey::class, 'upgrade_key_id');
+    }
+
+    /**
+     * @return HasMany<NodeAgentUpgrade, $this>
+     */
+    public function agentUpgrades(): HasMany
+    {
+        return $this->hasMany(NodeAgentUpgrade::class);
     }
 
     /**

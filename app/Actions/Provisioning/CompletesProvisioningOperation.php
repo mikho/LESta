@@ -25,6 +25,7 @@ class CompletesProvisioningOperation
         private RecordsAccountBackupResult $recordsAccountBackupResult,
         private RecordsNodeServiceState $recordsNodeServiceState,
         private RecordsNodeServiceRemoval $recordsNodeServiceRemoval,
+        private RecordsAgentUpgradeResult $recordsAgentUpgradeResult,
     ) {}
 
     /**
@@ -72,6 +73,7 @@ class CompletesProvisioningOperation
             $this->recordsAccountBackupResult,
             $this->recordsNodeServiceState,
             $this->recordsNodeServiceRemoval,
+            $this->recordsAgentUpgradeResult,
             // Last, so the events see every record above as already updated.
             app(QueuesFinishedWebhookEvents::class),
         ];

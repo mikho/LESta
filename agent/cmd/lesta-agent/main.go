@@ -52,7 +52,15 @@ const (
 	serviceControlCapability = "node.service-control.v1"
 	// serviceUninstallCapability removes one LESta service from the node (the maintenance applier).
 	serviceUninstallCapability = "node.service-uninstall.v1"
-	databaseTenantCapability   = "database.tenant.v1"
+
+	// agentUpgradeCapability replaces this binary with a newer one the node's upgrade key signed for
+	// (the maintenance applier).
+	agentUpgradeCapability = "node.agent-upgrade.v1"
+
+	// upgradeKeyPath holds the node's public upgrade key (base64 of the 32 raw Ed25519 bytes),
+	// installed with the node and replaced only by a signed upgrade.
+	upgradeKeyPath           = "/etc/lesta/agent/upgrade-public-key"
+	databaseTenantCapability = "database.tenant.v1"
 	// databaseControlPlaneCapability has no Go capability dispatch case at
 	// all (it is this application's own database, not a capability the
 	// agent manages on a tenant's behalf, per mariadb/install.sh's own doc
@@ -91,7 +99,7 @@ const (
 	// .install/services/node-health/manifest.json; not derived from git
 	// describe or similar, matching this project's own preference for
 	// explicit, reviewable literals over build-time magic.
-	agentVersion = "1.0.89"
+	agentVersion = "1.0.90"
 )
 
 func main() {
@@ -111,6 +119,13 @@ func main() {
 	// There are no root-only helper modes here. The root-only work they used to do, run through
 	// sudo, is done by the root applier (see applier.go); the unprivileged daemon has no sudo rule
 	// and the binary no mode that would use one.
+
+	// "version" prints the build version and exits: the upgrade capability runs a downloaded binary
+	// with it before installing that binary.
+	if len(os.Args) == 2 && os.Args[1] == "version" {
+		fmt.Println(agentVersion)
+		os.Exit(0)
+	}
 
 	// "daemon" is a distinct, genuinely long-running CLI invocation shape,
 	// never an OperationEnvelope read from stdin: this is the process

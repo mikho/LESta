@@ -25,6 +25,7 @@ use App\Http\Requests\Nodes\StoreNodeRequest;
 use App\Http\Requests\Nodes\StoreNodeToolsDomainRequest;
 use App\Http\Requests\Nodes\UpdateNodeRequest;
 use App\Models\AccountNodeIdentity;
+use App\Models\AgentUpgradeKey;
 use App\Models\CronJob;
 use App\Models\DnsZone;
 use App\Models\MailDomain;
@@ -123,6 +124,10 @@ class NodeController extends Controller
         return Inertia::render('nodes/edit', [
             'node' => $this->presentForEdit($node, $orphanedIdentities),
             'canManageAdminGrants' => $request->user()->hasPermission('nodes.update'),
+            'upgradeKeys' => $request->user()->hasPermission('nodes.update')
+                ? AgentUpgradeKey::query()->orderBy('name')->get()->map(fn (AgentUpgradeKey $key): array => ['id' => $key->uuid, 'name' => $key->name, 'public_key' => $key->public_key, 'nodes' => $key->nodes()->count()])->all()
+                : [],
+            'trustedUpgradeKey' => $node->upgradeKey?->uuid,
         ]);
     }
 

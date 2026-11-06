@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Agent\AgentAccountBackupImportController;
 use App\Http\Controllers\Agent\AgentAccountBackupUploadController;
+use App\Http\Controllers\Agent\AgentBinaryController;
 use App\Http\Controllers\Agent\AgentCronExecutionController;
 use App\Http\Controllers\Agent\AgentEnrollmentController;
 use App\Http\Controllers\Agent\AgentFileOperationController;
@@ -40,3 +41,10 @@ Route::put('agent/v1/account-backup-uploads', [AgentAccountBackupUploadControlle
 Route::get('agent/v1/account-backup-imports', [AgentAccountBackupImportController::class, 'show'])
     ->middleware('throttle:60,1')
     ->name('agent.account-backup-imports');
+
+// A node fetches the agent binary an administrator signed an upgrade for (see UpgradeNodeAgent). No node
+// credential: the one-time token in the Authorization header authorizes it, and the node checks the
+// signature and sha256 itself.
+Route::get('agent/v1/agent-binary', [AgentBinaryController::class, 'show'])
+    ->middleware('throttle:60,1')
+    ->name('agent.agent-binary');
