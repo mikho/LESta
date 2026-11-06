@@ -185,3 +185,11 @@ test('the usage page loads mailbox labels with the page, not once per row', func
 
     expect($mailDomainQueries)->toHaveCount(1);
 });
+
+test('an unknown account public id answers 403 like an account the user may not see', function () {
+    $owner = Membership::factory()->for(Account::factory()->create())->owner()->create()->user;
+    $other = Account::factory()->create();
+
+    $this->actingAs($owner)->get(route('usage.index', ['account' => $other->public_id]))->assertForbidden();
+    $this->actingAs($owner)->get(route('usage.index', ['account' => 'does-not-exist']))->assertForbidden();
+});

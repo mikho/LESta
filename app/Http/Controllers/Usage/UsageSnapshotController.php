@@ -54,14 +54,14 @@ class UsageSnapshotController extends Controller
         }
 
         $account = $accountPublicId !== ''
-            ? Account::where('public_id', $accountPublicId)->firstOrFail()
+            ? Account::where('public_id', $accountPublicId)->first() ?? abort(403)
             : $this->resolveAccount($request->user());
 
         // No account param and no account-scoped membership at all: nothing to be gated from,
         // just nothing to show yet -- mirrors the identical empty-state fix already applied to
         // Domains/DNS/Mail/TenantDatabases/CronJobs's own resolveAccount() (see NoAccountNotice).
-        // The explicit ?account= admin path above still 404s on a bad public id, since that is a
-        // real "this account doesn't exist" error, not "you have no account".
+        // The explicit ?account= admin path answers 403 for an unknown public id too, so it
+        // cannot be used to tell which accounts exist.
         if ($account === null) {
             return Inertia::render('usage/index', [
                 'snapshots' => null,
