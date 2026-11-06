@@ -87,10 +87,11 @@ const (
 
 	// agentVersion is this binary's own build version, reported verbatim in
 	// every enrollment and heartbeat request. Bumped by hand alongside a
-	// real release; not derived from git describe or similar, matching this
-	// project's own preference for explicit, reviewable literals over
-	// build-time magic.
-	agentVersion = "1.0.0"
+	// real release, together with the artifact version in
+	// .install/services/node-health/manifest.json; not derived from git
+	// describe or similar, matching this project's own preference for
+	// explicit, reviewable literals over build-time magic.
+	agentVersion = "1.0.89"
 )
 
 func main() {

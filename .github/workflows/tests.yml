@@ -1499,8 +1499,8 @@ jobs:
           sudo rm -f /var/lib/lesta/agent/bin/lesta-agent.previous
           rm -rf /tmp/agent-gen2
           cp -r agent /tmp/agent-gen2
-          sed -i 's/agentVersion = "1.0.0"/agentVersion = "1.0.0-scenario7-gen2"/' /tmp/agent-gen2/cmd/lesta-agent/main.go
-          grep -q 'agentVersion = "1.0.0-scenario7-gen2"' /tmp/agent-gen2/cmd/lesta-agent/main.go
+          sed -i 's/agentVersion = "\([^"]*\)"/agentVersion = "\1-scenario7-gen2"/' /tmp/agent-gen2/cmd/lesta-agent/main.go
+          grep -q 'agentVersion = ".*-scenario7-gen2"' /tmp/agent-gen2/cmd/lesta-agent/main.go
           (cd /tmp/agent-gen2 && GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/lesta-agent-gen2 ./cmd/lesta-agent)
           test -x /tmp/lesta-agent-gen2
 
