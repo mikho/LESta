@@ -145,15 +145,16 @@ const auditLogShortcut: Shortcut = {
 export default function Index({ websites, moreWebsites }: Props) {
     const { auth } = usePage().props;
 
-    const adminShortcutsForUser: Shortcut[] = auth.is_provider_admin
-        ? adminShortcuts
-        : auth.has_node_admin_grants
-          ? [nodesShortcut]
-          : [];
-
-    if (auth.can_view_audit_log && !auth.has_any_account_membership) {
-        adminShortcutsForUser.push(auditLogShortcut);
-    }
+    const adminShortcutsForUser: Shortcut[] = [
+        ...(auth.is_provider_admin
+            ? adminShortcuts
+            : auth.has_node_admin_grants
+              ? [nodesShortcut]
+              : []),
+        ...(auth.can_view_audit_log && !auth.has_any_account_membership
+            ? [auditLogShortcut]
+            : []),
+    ];
 
     const accountShortcuts = [
         ...(websites === null ? [] : hostingShortcuts),
