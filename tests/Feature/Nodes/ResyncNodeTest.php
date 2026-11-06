@@ -81,3 +81,21 @@ test('resync records one system-initiated audit event with no attributed actor',
         ->whereNull('actor_id')
         ->exists())->toBeTrue();
 });
+
+test('resync skips a web domain whose account has no identity on the node and still resyncs the rest', function () {
+    $node = Node::factory()->create();
+    NodeCapability::factory()->for($node)->create(['capability' => 'web.nginx.v1']);
+    NodeCapability::factory()->for($node)->create(['capability' => 'dns.bind9.v1']);
+
+    $orphanedDomain = WebDomain::factory()->for($node)->create();
+    $healthyDomain = WebDomain::factory()->for($node)->create();
+    AccountNodeIdentity::factory()->for($healthyDomain->account)->for($node)->create(['system_username' => 'lesta-t'.$healthyDomain->account_id]);
+    $dnsZone = DnsZone::factory()->for($node)->create();
+
+    app(ResyncNode::class)->handleSystemInitiated($node);
+
+    expect($orphanedDomain->refresh()->desired_state_version)->toBe(1)
+        ->and(ProvisioningOperation::where('provisionable_id', $orphanedDomain->id)->where('provisionable_type', $orphanedDomain->getMorphClass())->where('operation', 'update')->exists())->toBeFalse()
+        ->and($healthyDomain->refresh()->desired_state_version)->toBe(2)
+        ->and($dnsZone->refresh()->desired_state_version)->toBe(2);
+});

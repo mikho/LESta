@@ -12,7 +12,9 @@ use App\Models\AuditEvent;
 use App\Models\MailAccount;
 use App\Models\Node;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Real disaster recovery for everything on a node EXCEPT the two things a backup archive alone
@@ -56,22 +58,38 @@ class ResyncNode
         });
     }
 
+    /**
+     * A domain whose account has no identity on this node cannot be rendered; it is logged and
+     * skipped (its version bump rolled back with a savepoint) so the rest of the node still resyncs.
+     */
     private function resyncWebDomains(Node $node, string $correlationId): void
     {
         foreach ($node->webDomains()->get() as $webDomain) {
-            $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($node, $webDomain->web_server->value);
+            try {
+                DB::transaction(function () use ($node, $webDomain, $correlationId): void {
+                    $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($node, $webDomain->web_server->value);
 
-            $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
+                    $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
 
-            foreach ($capabilities as $capability) {
-                app(RecordsProvisioningOperation::class)->record(
-                    $webDomain,
-                    $capability,
-                    ProvisioningVerb::Update,
-                    $webDomain->toProvisioningPayload($capability),
-                    $correlationId,
-                    $webDomain->desired_state_version,
-                );
+                    foreach ($capabilities as $capability) {
+                        app(RecordsProvisioningOperation::class)->record(
+                            $webDomain,
+                            $capability,
+                            ProvisioningVerb::Update,
+                            $webDomain->toProvisioningPayload($capability),
+                            $correlationId,
+                            $webDomain->desired_state_version,
+                        );
+                    }
+                });
+            } catch (RuntimeException $exception) {
+                $webDomain->refresh();
+
+                Log::warning('Resync skipped a web domain.', [
+                    'node_id' => $node->getKey(),
+                    'web_domain_id' => $webDomain->getKey(),
+                    'reason' => $exception->getMessage(),
+                ]);
             }
         }
     }
