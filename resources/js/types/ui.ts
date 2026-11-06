@@ -30,3 +30,10 @@ export type LegalDetails = {
     governing_law: string | null;
     updated_at: string | null;
 };
+
+export type SidebarAccount = {
+    name: string;
+    package: string;
+    primary_domain: string | null;
+    previous_sign_in: string | null;
+};

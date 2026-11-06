@@ -65,7 +65,28 @@ class HandleInertiaRequests extends Middleware
                 // The audit log: the platform-wide one, or the user's own accounts' (AuditEventPolicy).
                 'can_view_audit_log' => $request->user() !== null && ($request->user()->hasPermission('audit_events.view_any') || $request->user()->memberships()->whereNotNull('account_id')->exists()),
             ],
+            // The small account overview in the sidebar, on every page.
+            'sidebarAccount' => $this->sidebarAccount($request),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+        ];
+    }
+
+    /**
+     * @return array{name: string, package: string, primary_domain: string|null, previous_sign_in: string|null}|null
+     */
+    private function sidebarAccount(Request $request): ?array
+    {
+        $account = $request->user()?->memberships()->whereNotNull('account_id')->with('account.package')->first()?->account;
+
+        if ($account === null) {
+            return null;
+        }
+
+        return [
+            'name' => $account->name,
+            'package' => $account->package->name,
+            'primary_domain' => $account->webDomains()->orderBy('id')->value('domain'),
+            'previous_sign_in' => $request->user()->previous_login_at?->toIso8601String(),
         ];
     }
 

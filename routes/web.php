@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Dashboard\DashboardController;
+use App\Http\Controllers\Tools\ToolsController;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
@@ -11,6 +12,7 @@ Route::inertia('cookies', 'legal/cookies')->name('legal.cookies');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('tools', [ToolsController::class, 'index'])->name('tools.index');
 });
 
 require __DIR__.'/settings.php';

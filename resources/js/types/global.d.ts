@@ -1,6 +1,6 @@
 import type { Auth } from '@/types/auth';
 import type { GeneratedTenantDatabasePassword } from '@/types/tenant-databases';
-import type { FlashToast, LegalDetails } from '@/types/ui';
+import type { FlashToast, LegalDetails, SidebarAccount } from '@/types/ui';
 
 declare module 'react' {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -15,6 +15,7 @@ declare module '@inertiajs/core' {
             name: string;
             legal: LegalDetails;
             auth: Auth;
+            sidebarAccount: SidebarAccount | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

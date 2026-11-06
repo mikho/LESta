@@ -15,8 +15,10 @@ import {
     ScrollText,
     Server,
     ShieldCheck,
+    Wrench,
     UserRound,
 } from 'lucide-react';
+import { AccountPanel } from '@/components/account-panel';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
 import type { NavGroup } from '@/components/nav-main';
@@ -44,6 +46,7 @@ import nodes from '@/routes/nodes';
 import packages from '@/routes/packages';
 import roles from '@/routes/roles';
 import tenantDatabases from '@/routes/tenant-databases';
+import tools from '@/routes/tools';
 import usage from '@/routes/usage';
 import type { NavItem } from '@/types';
 
@@ -142,6 +145,7 @@ export function AppSidebar() {
         {
             items: [
                 { title: 'Dashboard', href: dashboard(), icon: LayoutGrid },
+                { title: 'Tools', href: tools.index(), icon: Wrench },
             ],
         },
         { label: 'Hosting', items: hostingNavItems },
@@ -182,6 +186,7 @@ export function AppSidebar() {
             </SidebarContent>
 
             <SidebarFooter>
+                <AccountPanel />
                 <NavUser />
             </SidebarFooter>
         </Sidebar>
