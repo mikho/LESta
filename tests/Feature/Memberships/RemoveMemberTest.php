@@ -5,6 +5,7 @@ use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\User;
+use App\Models\Webhook;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
@@ -59,3 +60,16 @@ test('a platform-scope membership cannot be removed through this action', functi
 
     app(RemoveMember::class)->handle($admin->user, $admin);
 })->throws(ValidationException::class);
+
+test('removing a member disables the webhooks they created on the account and leaves the others', function () {
+    $account = Account::factory()->create();
+    $owner = Membership::factory()->for($account)->owner()->create()->user;
+    $member = Membership::factory()->for($account)->member()->create();
+    $theirs = Webhook::factory()->create(['account_id' => $account->id, 'created_by' => $member->user_id]);
+    $ownersOwn = Webhook::factory()->create(['account_id' => $account->id, 'created_by' => $owner->id]);
+
+    app(RemoveMember::class)->handle($owner, $member);
+
+    expect($theirs->refresh()->disabled_at)->not->toBeNull()
+        ->and($ownersOwn->refresh()->disabled_at)->toBeNull();
+});

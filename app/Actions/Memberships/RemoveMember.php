@@ -5,6 +5,7 @@ namespace App\Actions\Memberships;
 use App\Models\AuditEvent;
 use App\Models\Membership;
 use App\Models\User;
+use App\Models\Webhook;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -45,6 +46,14 @@ class RemoveMember
                 'action' => 'membership.removed',
                 'correlation_id' => (string) Str::uuid(),
             ]);
+
+            // Webhooks the member created stop delivering: they would otherwise keep sending the
+            // account's events to an address chosen by someone who no longer has access.
+            Webhook::query()
+                ->where('account_id', $membership->account_id)
+                ->where('created_by', $membership->user_id)
+                ->whereNull('disabled_at')
+                ->update(['disabled_at' => now()]);
 
             $membership->delete();
         });
