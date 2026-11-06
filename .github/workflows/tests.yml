@@ -846,6 +846,7 @@ jobs:
           import hashlib
           import json
           import secrets
+          import uuid
           import socket
           import subprocess
           import sys
@@ -924,7 +925,7 @@ jobs:
                   return data_reply
 
 
-          resource_id = secrets.token_hex(16)
+          resource_id = str(uuid.uuid4())
           create_payload = {
               "domain": DOMAIN,
               "antivirus_enabled": True,

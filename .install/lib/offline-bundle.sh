@@ -141,6 +141,22 @@ NAMES
 # On stdout: the failed pass's own captured output, if both dpkg passes
 # failed, or the daemon-reload's own output if dpkg succeeded but that
 # failed (empty on overall success). Returns 0 on success, 1 otherwise.
+# offline_bundle_wait_for_systemd polls for up to 30 seconds until systemd accepts a command again.
+offline_bundle_wait_for_systemd() {
+    local waited=0
+
+    while [ "${waited}" -lt 30 ]; do
+        if systemctl daemon-reload >/dev/null 2>&1; then
+            return 0
+        fi
+
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    return 0
+}
+
 install_offline_bundle_debs() {
     local bundle_dir="$1" out name names attempt
 
@@ -160,7 +176,10 @@ NAMES
         return 1
     fi
 
-    if out=$(dpkg -i "$@" 2>&1) || out=$(dpkg -i "$@" 2>&1); then
+    # The first attempt can run into systemd re-executing itself (libc6 is in the bundle), which
+    # fails a maintainer script's systemctl call with "Transport endpoint is not connected"; once
+    # systemd answers again, the second attempt finishes the configuration.
+    if out=$(dpkg -i "$@" 2>&1) || { offline_bundle_wait_for_systemd; out=$(dpkg -i "$@" 2>&1); }; then
         # Installing libc6 makes systemd re-execute itself, and for a moment its control socket
         # refuses connections ("Transport endpoint is not connected", seen on Ubuntu 26.04), so
         # the reload is retried briefly.
