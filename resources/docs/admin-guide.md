@@ -153,6 +153,8 @@ Only one removal runs on a node at a time. When the node reports success, the pa
 
 The node's page has an **Agent upgrade** card. It shows the agent version the node reports, and **Upgrade agent** replaces the agent with the release this control plane carries (the newer build you got by updating the panel from git).
 
+The agent version the dashboard and the node page show is what the agent itself reports in its heartbeat (agents before 1.0.90 reported "1.0.0" whatever they were, because the number was never raised in the code; it is raised with every release now). The panel offers an upgrade only when the release it carries is newer than the version the node reports, and a release's version and checksum are shown only if the binary matches its release manifest.
+
 A node never installs anything the panel alone asks for. The upgrade has to be **signed** with a private key that only you hold, and the node checks the signature against the public key it was installed with (`--upgrade-public-key`, see the Installation Guide). The signing happens in your browser: the private key is read there and never sent to the panel, and the panel never stores it.
 
 1. **Make a key.** Under **Upgrade keys**, give it a name and press **Create key pair**. Your browser makes the pair, the panel keeps the public half, and you download the private half as a `.pem` file. It is shown once and cannot be recovered, so keep it somewhere safe and separate (a password manager, an offline disk). One key can serve many nodes, or you can make one per node.
@@ -162,6 +164,8 @@ A node never installs anything the panel alone asks for. The upgrade has to be *
 The node refuses an upgrade that is signed for another node, has expired, is not a newer version than the one running, or whose downloaded binary does not match the signed sha256. It keeps the previous binary, restarts its units onto the new one, and puts the previous binary back by itself if the daemon is not running the new version a minute later.
 
 To change keys without shell access, choose **Key after the upgrade** when you upgrade: the new public key is part of what you sign, and the node switches to it once the upgrade has succeeded. The old private key can then be retired.
+
+Nodes installed before agent 1.0.90 cannot be upgraded from the panel the first time: they have no upgrade key. Run the agent installer on them once, from an updated checkout, with `--upgrade-public-key` (Installation Guide, Chapter 3); from then on the panel can upgrade them. Each upgrade is one node at a time, and the node's recent operations list shows whether it was applied or refused, with the node's reason.
 
 A browser that cannot sign with Ed25519 (older than Chrome 137, Firefox 129 or Safari 17) cannot upgrade or make keys.
 
@@ -187,7 +191,7 @@ Each tenant account gets its own dedicated system user on a node the first time 
 
 - **New backup**: pick a node with an active backup capability, optionally label it. If the dropdown says "No node has an active backup.encrypted-artifacts.v1 capability yet," go declare that capability on a node first (Chapter 5).
 - **Prepare download / Download**: backups are stored encrypted; "Prepare download" decrypts a single-use copy that expires a short time after you request it, then "Download" fetches that copy once.
-- **Restore**: restores mail content and database tables to their state at backup time (overwriting anything since), then automatically re-syncs everything else on the node (web, DNS, cron, mail settings) from what's currently in the database. This is destructive for anything that changed after the backup — there's a confirmation dialog explaining that.
+- **Restore**: restores mail content and database tables to their state at backup time (overwriting anything since), then automatically re-syncs everything else on the node (web, DNS, cron, mail settings) from what's currently in the database. A website whose account has no identity on that node is skipped and logged instead of stopping the whole re-sync; the rest of the node still comes back. This is destructive for anything that changed after the backup — there's a confirmation dialog explaining that.
 - **Delete**: removes the encrypted artifact from disk permanently.
 - A node can also be set to create these automatically every day (Chapter 5, "Scheduled backups").
 
@@ -245,4 +249,5 @@ Set them, then run `php artisan config:cache`. The page texts are drafts: have t
 1. There is no picker for which capabilities `install-selected.sh` has already detected versus what you still need to declare by hand, declaring a capability in the admin app is always a separate, manual step from actually installing it on the server (see the Installation Guide). Installing a service from the panel is not possible; uninstalling is (Chapter 5).
 2. Resellers cannot create new accounts themselves (by design, deferred).
 3. The API covers reading and changing every account resource and the platform administration in the API Guide's Chapter 5; adding and enrolling nodes, whole-node restores and members stay in the panel. The two permissions added with the audit log and webhooks (`audit_events.view_any`, `webhooks.manage`) are given to the full administrator role automatically; a custom role needs them ticked.
-4. If you ever need an admin with narrower platform permissions than "everything" but don't want to build a custom role by hand through the UI, there's no bulk/preset option — every custom role starts from an empty permission set.
+4. Agent upgrades are signed per node and run one node at a time; there is no "upgrade all nodes" button, no per-node history page beyond the recent operations list, and nodes installed before agent 1.0.90 need one installer run with `--upgrade-public-key` first. The private upgrade key is never stored by the panel, so losing it means installing a new public key on the node with the installer.
+5. If you ever need an admin with narrower platform permissions than "everything" but don't want to build a custom role by hand through the UI, there's no bulk/preset option — every custom role starts from an empty permission set.
