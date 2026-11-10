@@ -907,6 +907,26 @@ dovecot_series() {
     printf '%s' "${version:-2.3}"
 }
 
+# dovecot_disable_system_auth switches off Dovecot's stock system authentication. dovecot-core's own
+# conf.d/10-auth.conf includes auth-system.conf.ext, which adds a PAM passdb next to LESta's: any
+# local system user with a password could then log in over IMAP, a password-guessing path that
+# bypasses sshd's own limits. Only the mailboxes in LESta's passwd file may authenticate. The line is
+# commented out (not deleted) and the original kept beside it; a Dovecot package upgrade that writes
+# the file back is caught again by the next run, and by the check after it.
+DOVECOT_STOCK_AUTH_CONF="/etc/dovecot/conf.d/10-auth.conf"
+
+dovecot_disable_system_auth() {
+    [ -f "${DOVECOT_STOCK_AUTH_CONF}" ] || return 0
+    grep -Eq '^[[:space:]]*!include[[:space:]]+auth-system\.conf\.ext' "${DOVECOT_STOCK_AUTH_CONF}" || return 0
+
+    [ -f "${DOVECOT_STOCK_AUTH_CONF}.lesta-orig" ] || cp -p "${DOVECOT_STOCK_AUTH_CONF}" "${DOVECOT_STOCK_AUTH_CONF}.lesta-orig" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" backup_failed "${DOVECOT_STOCK_AUTH_CONF}" "failed to keep a copy of ${DOVECOT_STOCK_AUTH_CONF}"
+
+    sed -i 's|^\([[:space:]]*\)!include[[:space:]]\{1,\}auth-system\.conf\.ext|\1# disabled by LESta, only its own mailboxes may authenticate: !include auth-system.conf.ext|' "${DOVECOT_STOCK_AUTH_CONF}" \
+        || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${DOVECOT_STOCK_AUTH_CONF}" "failed to disable Dovecot's system (PAM) authentication"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${DOVECOT_STOCK_AUTH_CONF}" "stock system (PAM) authentication include commented out, so only LESta's mailboxes can log in over IMAP; the original is kept as ${DOVECOT_STOCK_AUTH_CONF}.lesta-orig"
+}
+
 # render_dovecot_conf prints the fragment for the installed Dovecot series.
 render_dovecot_conf() {
     case "$(dovecot_series)" in
@@ -1433,10 +1453,17 @@ install_mail() {
     # lesta.conf (Dovecot) was already written above, before the dovecot
     # packages were installed (see this function's own comment on why).
 
+    dovecot_disable_system_auth
+
     if ! out=$(doveconf -n 2>&1 >/dev/null); then
         mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_config_invalid "${LESTA_DOVECOT_CONF}" "doveconf -n reported errors: $(printf '%s' "${out}" | tr '\n' ' ')"
     fi
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" validated "" "doveconf -n passed against the real, live-resolved config"
+
+    if doveconf -n 2>/dev/null | grep -Eq '^passdb pam|driver = pam'; then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_system_auth_active "${DOVECOT_STOCK_AUTH_CONF}" "Dovecot still has a system (PAM) passdb, so local system users could log in over IMAP"
+    fi
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" validated "" "doveconf -n shows no system (PAM) passdb: only LESta's mailboxes authenticate"
 
     systemctl enable dovecot || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable dovecot failed"
 
