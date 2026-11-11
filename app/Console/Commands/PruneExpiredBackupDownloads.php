@@ -32,7 +32,7 @@ class PruneExpiredBackupDownloads extends Command
     public function handle(): int
     {
         $expired = Backup::query()
-            ->whereNotNull('download_path')
+            ->where(fn ($query) => $query->whereNotNull('download_path')->orWhereNotNull('download_token_hash'))
             ->where('download_expires_at', '<', now())
             ->get();
 
@@ -45,6 +45,7 @@ class PruneExpiredBackupDownloads extends Command
                 'download_path' => null,
                 'download_ready_at' => null,
                 'download_expires_at' => null,
+                'download_token_hash' => null,
             ])->save();
         }
 

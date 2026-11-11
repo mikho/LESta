@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Agent\AgentAccountBackupImportController;
 use App\Http\Controllers\Agent\AgentAccountBackupUploadController;
+use App\Http\Controllers\Agent\AgentBackupUploadController;
 use App\Http\Controllers\Agent\AgentBinaryController;
 use App\Http\Controllers\Agent\AgentCronExecutionController;
 use App\Http\Controllers\Agent\AgentEnrollmentController;
@@ -35,6 +36,12 @@ Route::prefix('agent/v1')->middleware([AuthenticateNodeCredential::class, 'throt
 Route::put('agent/v1/account-backup-uploads', [AgentAccountBackupUploadController::class, 'store'])
     ->middleware('throttle:600,1')
     ->name('agent.account-backup-uploads');
+
+// A node streams a decrypted whole-node backup here, in chunks, for an administrator to download (see
+// PrepareBackupDownload). No node credential: the one-time token in the Authorization header authorizes it.
+Route::put('agent/v1/backup-uploads', [AgentBackupUploadController::class, 'store'])
+    ->middleware('throttle:600,1')
+    ->name('agent.backup-uploads');
 
 // A node fetches an uploaded account backup here, to seal it as a backup of the account (see
 // ImportAccountBackup). No node credential: the token in the address authorizes it.

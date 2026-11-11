@@ -35,6 +35,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $download_path
  * @property Carbon|null $download_ready_at
  * @property Carbon|null $download_expires_at
+ * @property string|null $download_token_hash
  * @property string|null $error_message
  * @property int $desired_state_version
  * @property Carbon|null $completed_at
@@ -46,6 +47,20 @@ class Backup extends Model implements ProviderAdminManaged
 {
     /** @use HasFactory<BackupFactory> */
     use HasFactory, HasUuid;
+
+    /** The largest decrypted backup the panel accepts from a node for a download. */
+    public const int MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024 * 1024;
+
+    /** How long a node has to send a download after it is asked. */
+    public const int UPLOAD_MINUTES = 120;
+
+    /** How long a finished download waits to be fetched. */
+    public const int READY_MINUTES = 30;
+
+    public static function hashDownloadToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -132,6 +147,23 @@ class Backup extends Model implements ProviderAdminManaged
         return [
             'artifact_path' => $this->artifact_path,
             'encryption_key' => $this->encryption_key,
+        ];
+    }
+
+    /**
+     * An observe operation that has the node decrypt this backup and stream it to the control plane
+     * at a one-time address, in chunks. Like toRestorePayload() it carries the key, since the node
+     * decrypts; the token only authorizes the upload address.
+     *
+     * @return array{artifact_path: string|null, encryption_key: string, upload_url: string, upload_token: string}
+     */
+    public function toDownloadPayload(string $uploadUrl, string $uploadToken): array
+    {
+        return [
+            'artifact_path' => $this->artifact_path,
+            'encryption_key' => $this->encryption_key,
+            'upload_url' => $uploadUrl,
+            'upload_token' => $uploadToken,
         ];
     }
 }

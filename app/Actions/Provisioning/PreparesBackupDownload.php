@@ -72,6 +72,7 @@ class PreparesBackupDownload
             'download_path' => $path,
             'download_ready_at' => now(),
             'download_expires_at' => now()->addMinutes(self::DOWNLOAD_TTL_MINUTES),
+            'download_token_hash' => null,
         ])->save();
     }
 

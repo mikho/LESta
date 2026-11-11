@@ -166,6 +166,7 @@ class BackupController extends Controller
         Gate::authorize('download', $backup);
 
         $notReady = $backup->download_path === null
+            || $backup->download_ready_at === null
             || $backup->download_expires_at === null
             || $backup->download_expires_at->isPast()
             || ! Storage::disk('local')->exists($backup->download_path);
