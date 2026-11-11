@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -44,8 +46,8 @@ func mariadbDumpBinary() string {
 // A configured socket whose file doesn't exist on disk is skipped, not an
 // error: exactly like an empty StateRoots directory, it means that instance
 // simply isn't running on this node.
-func dumpDatabases(ctx context.Context, sudoBinary string, sockets, defaultsFiles map[string]string) (map[string][]byte, []string, error) {
-	dumps := make(map[string][]byte, len(sockets))
+func dumpDatabases(ctx context.Context, sudoBinary string, sockets, defaultsFiles map[string]string, dir string) ([]dumpFile, []string, error) {
+	dumps := make([]dumpFile, 0, len(sockets))
 	included := make([]string, 0, len(sockets))
 
 	for _, capability := range []string{databaseControlPlaneCapability, databaseTenantCapability} {
@@ -60,18 +62,35 @@ func dumpDatabases(ctx context.Context, sudoBinary string, sockets, defaultsFile
 			return nil, nil, fmt.Errorf("checking for %s's own socket at %s: %w", capability, socket, err)
 		}
 
-		dump, err := dumpSocket(ctx, sudoBinary, socket, defaultsFiles[capability])
-		if err != nil {
+		path := filepath.Join(dir, capability+".sql")
+
+		if err := dumpSocketToFile(ctx, sudoBinary, socket, defaultsFiles[capability], path); err != nil {
 			return nil, nil, fmt.Errorf("dumping %s: %w", capability, err)
 		}
 
-		dumps[capability] = dump
+		dumps = append(dumps, dumpFile{capability: capability, path: path})
 		included = append(included, capability)
 	}
 
 	sort.Strings(included)
 
 	return dumps, included, nil
+}
+
+// dumpSocketToFile writes a dump of the instance behind socketPath to path (mode 0600).
+func dumpSocketToFile(ctx context.Context, sudoBinary, socketPath, defaultsFile, path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+
+	err = dumpSocket(ctx, sudoBinary, socketPath, defaultsFile, f)
+
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	return err
 }
 
 // discoverPresentDumpSockets reports which database capabilities currently
@@ -122,7 +141,7 @@ func discoverPresentDumpSockets(sockets map[string]string) []string {
 //
 // defaultsFile, when set, is a MariaDB option file holding a read-only backup account for this
 // instance, and the dump logs in as that account instead of root over unix_socket.
-func dumpSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string) ([]byte, error) {
+func dumpSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string, out io.Writer) error {
 	args := append(authArgs(defaultsFile, "--socket="+socketPath), "--all-databases", "--single-transaction", "--quick")
 
 	var cmd *exec.Cmd
@@ -132,17 +151,15 @@ func dumpSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string
 		cmd = exec.CommandContext(ctx, sudoBinary, append([]string{mariadbDumpBinary()}, args...)...)
 	}
 
-	stdout := &limitedBuffer{max: maxNodeArchiveBytes}
-
 	var stderr bytes.Buffer
-	cmd.Stdout = stdout
+	cmd.Stdout = out
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
 	}
 
-	return stdout.Bytes(), nil
+	return nil
 }
 
 // authArgs returns the connection arguments for a MariaDB client or dump. With an option file it

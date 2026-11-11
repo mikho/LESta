@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 // schedulerCronCapability mirrors mailCapability's own established pattern
@@ -61,12 +60,7 @@ func dirHasContent(root string) bool {
 // database capabilities, not arbitrary media, so the real-world size here
 // stays bounded. A future pass can revisit this if a real deployment's own
 // state roots or database dumps ever grow large enough for it to matter.
-func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, stateRoots map[string]string, included []string, dumps map[string][]byte, dumpedCapabilities []string) ([]byte, error) {
-	buf := &limitedBuffer{max: maxNodeArchiveBytes}
-
-	gz := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gz)
-
+func archiveStateRootsTo(ctx context.Context, tw *tar.Writer, sudoBinary, agentBinaryPath string, stateRoots map[string]string, included []string, dumps []dumpFile) error {
 	for _, capability := range included {
 		// scheduler.account-cron.v1's own StateRoots entry contains
 		// StateRoot/accounts/<run_as>, deliberately root:<run_as> mode
@@ -79,11 +73,11 @@ func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, 
 		if capability == schedulerCronCapability && sudoBinary != "" && agentBinaryPath != "" {
 			nested, err := archiveCronStatePrivileged(ctx, sudoBinary, agentBinaryPath)
 			if err != nil {
-				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+				return fmt.Errorf("archiving %s: %w", capability, err)
 			}
 
 			if err := mergeNestedArchive(tw, nested, capability); err != nil {
-				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+				return fmt.Errorf("archiving %s: %w", capability, err)
 			}
 
 			continue
@@ -92,61 +86,29 @@ func archiveStateRoots(ctx context.Context, sudoBinary, agentBinaryPath string, 
 		// mail.smtp-imap.v1's StateRoot holds the virtual mailboxes (vmail),
 		// owned by the mail user and unreadable by the unprivileged daemon:
 		// root-mediated like cron's state, with the same naming, so every
-		// entry still lands under "mail.smtp-imap.v1/vmail/...".
+		// entry still lands under "mail.smtp-imap.v1/vmail/...". The mailboxes
+		// are the one part that can be large, so they are copied across as
+		// they arrive instead of being collected first.
 		if capability == mailCapability && sudoBinary != "" && agentBinaryPath != "" {
-			nested, err := archiveMailStatePrivileged(ctx, sudoBinary, agentBinaryPath)
-			if err != nil {
-				return nil, fmt.Errorf("archiving %s: %w", capability, err)
-			}
-
-			if err := mergeNestedArchive(tw, nested, capability); err != nil {
-				return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			if err := streamMailStatePrivileged(ctx, sudoBinary, agentBinaryPath, tw, capability); err != nil {
+				return fmt.Errorf("archiving %s: %w", capability, err)
 			}
 
 			continue
 		}
 
 		if err := addDirToTar(tw, stateRoots[capability], capability); err != nil {
-			return nil, fmt.Errorf("archiving %s: %w", capability, err)
+			return fmt.Errorf("archiving %s: %w", capability, err)
 		}
 	}
 
-	for _, capability := range dumpedCapabilities {
-		if err := addBytesToTar(tw, dumps[capability], capability+"/dump.sql"); err != nil {
-			return nil, fmt.Errorf("archiving %s's own dump: %w", capability, err)
+	for _, dump := range dumps {
+		if err := addFileToTar(tw, dump.path, dump.capability+"/dump.sql"); err != nil {
+			return fmt.Errorf("archiving %s's own dump: %w", dump.capability, err)
 		}
 	}
 
-	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("closing tar writer: %w", err)
-	}
-
-	if err := gz.Close(); err != nil {
-		return nil, fmt.Errorf("closing gzip writer: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
-// addBytesToTar writes content as a single regular-file tar entry named
-// name, for data that was never a real file on disk (a mysqldump/
-// mariadb-dump's own stdout), mirroring addDirToTar's own header
-// construction for a real file.
-func addBytesToTar(tw *tar.Writer, content []byte, name string) error {
-	hdr := &tar.Header{
-		Name:    name,
-		Mode:    0o640,
-		Size:    int64(len(content)),
-		ModTime: time.Now(),
-	}
-
-	if err := tw.WriteHeader(hdr); err != nil {
-		return err
-	}
-
-	_, err := tw.Write(content)
-
-	return err
+	return nil
 }
 
 // archiveCronStatePrivileged execs this same agent binary's own
@@ -178,7 +140,12 @@ func archiveCronStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath
 // "<prefix>/<that name>" -- the same "<capability>/..." naming convention
 // addDirToTar already establishes for every other capability's own entries.
 func mergeNestedArchive(tw *tar.Writer, nested []byte, prefix string) error {
-	gz, err := gzip.NewReader(bytes.NewReader(nested))
+	return mergeNestedStream(tw, bytes.NewReader(nested), prefix)
+}
+
+// mergeNestedStream is mergeNestedArchive over a stream, so a large archive is copied entry by entry.
+func mergeNestedStream(tw *tar.Writer, nested io.Reader, prefix string) error {
+	gz, err := gzip.NewReader(nested)
 	if err != nil {
 		return fmt.Errorf("opening nested gzip stream: %w", err)
 	}

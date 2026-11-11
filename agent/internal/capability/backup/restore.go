@@ -1,11 +1,10 @@
 package backup
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -77,68 +76,26 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 		return c.applyAccountRestoreOp(ctx, op, payload)
 	}
 
-	if err := checkArtifactSize(cleaned, maxNodeArchiveBytes); err != nil && !os.IsNotExist(err) {
-		return c.failed(op, "artifact_too_large", err.Error())
-	}
-
-	sealed, err := os.ReadFile(cleaned)
+	plain, closeArtifact, err := readableNodeArtifact(cleaned, *payload.EncryptionKey, maxNodeArchiveBytes)
 	if os.IsNotExist(err) {
 		return c.rejected(op, "artifact_not_found", fmt.Sprintf("no artifact exists at %q", *payload.ArtifactPath), "artifact_path")
+	} else if errors.Is(err, errNodeBackupTooLarge) {
+		return c.failed(op, "artifact_too_large", err.Error())
 	} else if err != nil {
 		return c.failed(op, "artifact_read_failed", err.Error())
 	}
 
-	plaintext, err := Decrypt(*payload.EncryptionKey, sealed)
+	defer closeArtifact()
+
+	verified, err := verifiedReader(plain)
 	if err != nil {
 		return c.failed(op, "decryption_failed", err.Error())
 	}
 
-	dumpsByCapability, vmailFiles, err := extractRestorable(plaintext)
-	if err != nil {
-		return c.failed(op, "archive_read_failed", err.Error())
+	restored, failure := c.restoreFromStream(ctx, verified)
+	if failure != nil {
+		return c.failed(op, failure.code, failure.Error())
 	}
-
-	var restored []string
-
-	if len(vmailFiles) > 0 {
-		if c.cfg.VMailRoot == "" {
-			return c.failed(op, "vmail_root_not_configured", "this node's own config has no VMailRoot set; refusing to restore mail content into an unknown location")
-		}
-
-		var restoreErr error
-		if c.cfg.SudoBinary != "" && c.cfg.AgentBinaryPath != "" {
-			// The mailboxes are owned by the mail user: restoring them (and
-			// their ownership) needs the root helper.
-			restoreErr = restoreVMailPrivileged(ctx, c.cfg.SudoBinary, c.cfg.AgentBinaryPath, vmailFiles)
-		} else {
-			restoreErr = restoreVMail(vmailFiles, c.cfg.VMailRoot)
-		}
-
-		if restoreErr != nil {
-			return c.failed(op, "vmail_restore_failed", restoreErr.Error())
-		}
-
-		restored = append(restored, mailCapability)
-	}
-
-	for capability, sql := range dumpsByCapability {
-		socket, ok := c.cfg.DatabaseDumpSockets[capability]
-		if !ok {
-			continue
-		}
-
-		if _, err := os.Stat(socket); err != nil {
-			continue
-		}
-
-		if err := restoreSocket(ctx, c.cfg.SudoBinary, socket, c.cfg.DatabaseRestoreDefaults[capability], sql); err != nil {
-			return c.failed(op, "database_restore_failed", fmt.Sprintf("%s: %s", capability, err.Error()))
-		}
-
-		restored = append(restored, capability)
-	}
-
-	sort.Strings(restored)
 
 	data, err := json.Marshal(restoredData{RestoredCapabilities: restored})
 	if err != nil {
@@ -152,92 +109,6 @@ func (c *BackupCapability) applyRestore(ctx context.Context, op protocol.Operati
 	result.Data = data
 
 	return result, nil
-}
-
-// extractRestorable reads plaintext (a decrypted, gzip-compressed tar
-// stream) exactly once, picking out only the two entry shapes restore ever
-// acts on: a database capability's own "<capability>/dump.sql" and mail's
-// own real maildir files under vmailPrefix. Every other entry (nginx/apache/
-// bind9/cron/mail's own rendered config) is silently skipped -- restore has
-// no use for it at all, per this file's own top doc comment.
-func extractRestorable(plaintext []byte) (map[string][]byte, []vmailFile, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(plaintext))
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening gzip stream: %w", err)
-	}
-	defer gz.Close()
-
-	tr := tar.NewReader(gz)
-
-	dumps := make(map[string][]byte)
-	var vmailFiles []vmailFile
-
-	budget := newRestoreBudget()
-
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("reading tar entry: %w", err)
-		}
-
-		if hdr.Typeflag == tar.TypeDir && strings.HasPrefix(hdr.Name, vmailPrefix) {
-			if rel := strings.TrimSuffix(strings.TrimPrefix(hdr.Name, vmailPrefix), "/"); rel != "" {
-				if !safeMailFolder(rel) {
-					return nil, nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
-				}
-
-				vmailFiles = append(vmailFiles, vmailFile{relPath: rel, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid, isDir: true})
-			}
-
-			continue
-		}
-
-		if hdr.Typeflag != tar.TypeReg {
-			continue
-		}
-
-		switch {
-		case strings.HasSuffix(hdr.Name, "/dump.sql"):
-			capability := strings.TrimSuffix(hdr.Name, "/dump.sql")
-
-			if err := budget.take(hdr.Size); err != nil {
-				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
-			}
-
-			content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
-			if err != nil {
-				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
-			}
-
-			dumps[capability] = content
-		case strings.HasPrefix(hdr.Name, vmailPrefix):
-			if !safeMailPath(strings.TrimPrefix(hdr.Name, vmailPrefix)) {
-				return nil, nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
-			}
-
-			if err := budget.take(hdr.Size); err != nil {
-				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
-			}
-
-			content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
-			if err != nil {
-				return nil, nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
-			}
-
-			vmailFiles = append(vmailFiles, vmailFile{
-				relPath: strings.TrimPrefix(hdr.Name, vmailPrefix),
-				content: content,
-				mode:    os.FileMode(hdr.Mode).Perm(),
-				uid:     hdr.Uid,
-				gid:     hdr.Gid,
-			})
-		}
-	}
-
-	return dumps, vmailFiles, nil
 }
 
 // restoreVMail writes files into a staging directory first, then swaps each
@@ -256,13 +127,12 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 		}
 	}
 
-	staging, err := os.MkdirTemp(filepath.Dir(liveVMailRoot), "vmail-restore-*")
+	stager, err := newVMailStager(liveVMailRoot)
 	if err != nil {
-		return fmt.Errorf("creating staging directory: %w", err)
+		return err
 	}
-	defer os.RemoveAll(staging)
 
-	domains := make(map[string]struct{})
+	defer stager.cleanup()
 
 	// Folders first (shortest path first), each with its own recorded owner and
 	// mode; a folder a file needs that has no entry of its own is made with that
@@ -270,50 +140,119 @@ func restoreVMail(files []vmailFile, liveVMailRoot string) error {
 	sort.SliceStable(files, func(i, j int) bool { return files[i].isDir && !files[j].isDir })
 
 	for _, f := range files {
-		domain, _, hasRest := strings.Cut(f.relPath, "/")
-		if !hasRest && !f.isDir {
-			continue
-		}
-
-		domains[domain] = struct{}{}
-
-		dest := filepath.Join(staging, f.relPath)
-
 		if f.isDir {
-			if err := os.MkdirAll(dest, 0o750); err != nil {
-				return fmt.Errorf("creating %s: %w", dest, err)
-			}
-
-			if err := os.Chown(dest, f.uid, f.gid); err != nil {
-				return fmt.Errorf("restoring ownership of %s: %w", dest, err)
-			}
-
-			if err := os.Chmod(dest, f.mode&0o770); err != nil {
-				return fmt.Errorf("restoring the mode of %s: %w", dest, err)
-			}
-
-			continue
+			err = stager.addDir(f)
+		} else {
+			err = stager.addFile(f, bytes.NewReader(f.content))
 		}
 
-		if err := mkdirAllOwned(filepath.Dir(dest), staging, f.uid, f.gid); err != nil {
+		if err != nil {
 			return err
-		}
-
-		if err := os.WriteFile(dest, f.content, f.mode&0o660); err != nil {
-			return fmt.Errorf("writing %s: %w", dest, err)
-		}
-
-		if err := os.Chown(dest, f.uid, f.gid); err != nil {
-			return fmt.Errorf("restoring ownership of %s: %w", dest, err)
 		}
 	}
 
-	for domain := range domains {
-		stagedDomainDir := filepath.Join(staging, domain)
-		liveDomainDir := filepath.Join(liveVMailRoot, domain)
+	return stager.commit()
+}
 
-		if err := os.MkdirAll(liveVMailRoot, 0o750); err != nil {
-			return fmt.Errorf("creating %s: %w", liveVMailRoot, err)
+// vmailStager builds restored mail in a staging directory beside the live mail root and swaps each
+// domain folder into place on commit. Entries may arrive one at a time, in any order that has a folder
+// before what is inside it.
+type vmailStager struct {
+	staging string
+	live    string
+	domains map[string]struct{}
+}
+
+func newVMailStager(liveVMailRoot string) (*vmailStager, error) {
+	staging, err := os.MkdirTemp(filepath.Dir(liveVMailRoot), "vmail-restore-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating staging directory: %w", err)
+	}
+
+	return &vmailStager{staging: staging, live: liveVMailRoot, domains: make(map[string]struct{})}, nil
+}
+
+func (s *vmailStager) cleanup() {
+	_ = os.RemoveAll(s.staging)
+}
+
+func (s *vmailStager) addDir(f vmailFile) error {
+	if f.uid == 0 || f.gid == 0 {
+		return fmt.Errorf("refusing %s: mail is never owned by root", f.relPath)
+	}
+
+	domain, _, _ := strings.Cut(f.relPath, "/")
+	s.domains[domain] = struct{}{}
+
+	dest := filepath.Join(s.staging, f.relPath)
+
+	if err := os.MkdirAll(dest, 0o750); err != nil {
+		return fmt.Errorf("creating %s: %w", dest, err)
+	}
+
+	if err := os.Chown(dest, f.uid, f.gid); err != nil {
+		return fmt.Errorf("restoring ownership of %s: %w", dest, err)
+	}
+
+	if err := os.Chmod(dest, f.mode&0o770); err != nil {
+		return fmt.Errorf("restoring the mode of %s: %w", dest, err)
+	}
+
+	return nil
+}
+
+func (s *vmailStager) addFile(f vmailFile, content io.Reader) error {
+	if f.uid == 0 || f.gid == 0 {
+		return fmt.Errorf("refusing %s: mail is never owned by root", f.relPath)
+	}
+
+	domain, _, hasRest := strings.Cut(f.relPath, "/")
+	if !hasRest {
+		// A file straight under the mail root belongs to no domain.
+		return nil
+	}
+
+	s.domains[domain] = struct{}{}
+
+	dest := filepath.Join(s.staging, f.relPath)
+
+	if err := mkdirAllOwned(filepath.Dir(dest), s.staging, f.uid, f.gid); err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.mode&0o660)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", dest, err)
+	}
+
+	_, err = io.Copy(out, content)
+
+	if closeErr := out.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", dest, err)
+	}
+
+	if err := os.Chmod(dest, f.mode&0o660); err != nil {
+		return fmt.Errorf("restoring the mode of %s: %w", dest, err)
+	}
+
+	if err := os.Chown(dest, f.uid, f.gid); err != nil {
+		return fmt.Errorf("restoring ownership of %s: %w", dest, err)
+	}
+
+	return nil
+}
+
+func (s *vmailStager) commit() error {
+	for domain := range s.domains {
+		stagedDomainDir := filepath.Join(s.staging, domain)
+		liveDomainDir := filepath.Join(s.live, domain)
+
+		if err := os.MkdirAll(s.live, 0o750); err != nil {
+			return fmt.Errorf("creating %s: %w", s.live, err)
 		}
 
 		asideDir := liveDomainDir + ".pre-restore"
@@ -369,6 +308,11 @@ func mariadbClientBinary() string {
 // defaultsFile, when set, is the option file of the restore account for this instance, which logs
 // in instead of root. It may not be narrower than it is: the dump rewrites the system schema.
 func restoreSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile string, dumpSQL []byte) error {
+	return restoreSocketFrom(ctx, sudoBinary, socketPath, defaultsFile, bytes.NewReader(dumpSQL))
+}
+
+// restoreSocketFrom is restoreSocket over a stream, so a large dump is never held in memory.
+func restoreSocketFrom(ctx context.Context, sudoBinary, socketPath, defaultsFile string, dump io.Reader) error {
 	args := authArgs(defaultsFile, "--socket="+socketPath)
 
 	var cmd *exec.Cmd
@@ -378,7 +322,7 @@ func restoreSocket(ctx context.Context, sudoBinary, socketPath, defaultsFile str
 		cmd = exec.CommandContext(ctx, sudoBinary, append([]string{mariadbClientBinary()}, args...)...)
 	}
 
-	cmd.Stdin = bytes.NewReader(dumpSQL)
+	cmd.Stdin = dump
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +105,7 @@ func TestRestoreMailFilesRestoresFoldersAndFilesAndRefusesUnsafeNames(t *testing
 		{Name: "example.com/", Typeflag: tar.TypeDir, Mode: 0o700},
 		{Name: "example.com/alice/", Typeflag: tar.TypeDir, Mode: 0o700},
 		{Name: "example.com/alice/cur/1"},
+		{Name: mailCommitEntry},
 	}, map[string]string{"example.com/alice/cur/1": "a message"})
 
 	if code := RestoreMailFiles(cfg, good); code != 0 {
@@ -146,38 +148,25 @@ func TestRestoreMailFilesRestoresFoldersAndFilesAndRefusesUnsafeNames(t *testing
 	}
 }
 
-func TestMailFilesSurviveThePackAndReadRoundTripWithFolders(t *testing.T) {
-	files := []vmailFile{
-		{relPath: "example.com", mode: 0o700, uid: os.Getuid(), gid: os.Getgid(), isDir: true},
-		{relPath: "example.com/bob/cur/2", content: []byte("hi"), mode: 0o600, uid: os.Getuid(), gid: os.Getgid()},
+func TestARestoreRequestWithoutItsCommitEntryRestoresNothing(t *testing.T) {
+	vmail := filepath.Join(t.TempDir(), "vmail")
+
+	cutShort := mailTar(t, []tar.Header{
+		{Name: "example.com/", Typeflag: tar.TypeDir, Mode: 0o700},
+		{Name: "example.com/alice/cur/1"},
+	}, map[string]string{"example.com/alice/cur/1": "a message"})
+
+	if code := RestoreMailFiles(Config{VMailRoot: vmail}, cutShort); code == 0 {
+		t.Fatal("a request that never committed must fail")
 	}
 
-	var request bytes.Buffer
-
-	gz := gzip.NewWriter(&request)
-	tw := tar.NewWriter(gz)
-
-	for _, f := range files {
-		if f.isDir {
-			_ = tw.WriteHeader(&tar.Header{Name: f.relPath + "/", Mode: int64(f.mode), Uid: f.uid, Gid: f.gid, Typeflag: tar.TypeDir})
-
-			continue
-		}
-
-		_ = tw.WriteHeader(&tar.Header{Name: f.relPath, Mode: int64(f.mode), Size: int64(len(f.content)), Uid: f.uid, Gid: f.gid, Typeflag: tar.TypeReg})
-		_, _ = tw.Write(f.content)
+	if _, err := os.Stat(filepath.Join(vmail, "example.com")); err == nil {
+		t.Error("nothing may be made live without the commit entry")
 	}
 
-	_ = tw.Close()
-	_ = gz.Close()
-
-	got, err := readMailFiles(&request)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(got) != 2 || !got[0].isDir || got[0].relPath != "example.com" || string(got[1].content) != "hi" {
-		t.Errorf("unexpected round trip: %+v", got)
+	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(vmail), "vmail-restore-*"))
+	if len(leftovers) != 0 {
+		t.Errorf("the staging directory was left behind: %v", leftovers)
 	}
 }
 
@@ -185,7 +174,9 @@ func TestAWholeNodeRestoreRefusesAMailPathOutsideItsDomain(t *testing.T) {
 	for _, name := range []string{"../escape/x", "example.com/../../etc/cron.d/x", "/etc/passwd"} {
 		archive := mailTar(t, []tar.Header{{Name: vmailPrefix + name, Mode: 0o600, Size: 1, Typeflag: tar.TypeReg}}, map[string]string{vmailPrefix + name: "x"})
 
-		if _, _, err := extractRestorable(archive.Bytes()); err == nil {
+		c := New(Config{ArtifactsRoot: t.TempDir(), VMailRoot: filepath.Join(t.TempDir(), "vmail")})
+
+		if _, failure := c.restoreFromStream(context.Background(), bytes.NewReader(archive.Bytes())); failure == nil {
 			t.Errorf("%s: an unsafe mail path must be refused", name)
 		}
 	}

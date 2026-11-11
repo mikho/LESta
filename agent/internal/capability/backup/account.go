@@ -688,7 +688,7 @@ func fileChecksum(path string) (string, error) {
 // The token is sent in a header; the older form with the token in the path is still accepted
 // for operations queued before the control plane changed.
 var (
-	uploadPathPattern  = regexp.MustCompile(`^/agent/v1/account-backup-uploads(?:/[0-9a-f]{64})?$`)
+	uploadPathPattern  = regexp.MustCompile(`^/agent/v1/(?:account-)?backup-uploads(?:/[0-9a-f]{64})?$`)
 	bearerTokenPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -732,16 +732,34 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 		return accountError("decryption_failed", err.Error())
 	}
 
-	client := cfg.uploadClient()
+	offset, readErr, uploadErr := uploadStream(ctx, cfg.uploadClient(), target, req.UploadToken, sr)
+	if readErr != nil {
+		return accountError("decryption_failed", readErr.Error())
+	}
+
+	if uploadErr != nil {
+		return accountError("upload_failed", uploadErr.Error())
+	}
+
+	data, _ := json.Marshal(accountDownloadData{BytesSent: offset})
+
+	return accountResponse{OK: true, Data: data}
+}
+
+// uploadStream sends everything r yields to target in chunks of downloadChunkSize at increasing offsets,
+// then an empty final chunk. The final chunk goes only once r has been read to its end without an error,
+// so a damaged or cut-short source is never offered as complete. A failure reading r and a failure
+// sending are reported apart.
+func uploadStream(ctx context.Context, client *http.Client, target *url.URL, token string, r io.Reader) (int64, error, error) {
 	buf := make([]byte, downloadChunkSize)
 
 	var offset int64
 
 	for {
-		n, readErr := io.ReadFull(sr, buf)
+		n, readErr := io.ReadFull(r, buf)
 		if n > 0 {
-			if err := uploadChunk(ctx, client, target, req.UploadToken, offset, false, buf[:n]); err != nil {
-				return accountError("upload_failed", err.Error())
+			if err := uploadChunk(ctx, client, target, token, offset, false, buf[:n]); err != nil {
+				return offset, nil, err
 			}
 
 			offset += int64(n)
@@ -752,17 +770,15 @@ func applyAccountDownload(ctx context.Context, cfg Config, req accountRequest, a
 		}
 
 		if readErr != nil {
-			return accountError("decryption_failed", readErr.Error())
+			return offset, readErr, nil
 		}
 	}
 
-	if err := uploadChunk(ctx, client, target, req.UploadToken, offset, true, nil); err != nil {
-		return accountError("upload_failed", err.Error())
+	if err := uploadChunk(ctx, client, target, token, offset, true, nil); err != nil {
+		return offset, nil, err
 	}
 
-	data, _ := json.Marshal(accountDownloadData{BytesSent: offset})
-
-	return accountResponse{OK: true, Data: data}
+	return offset, nil, nil
 }
 
 func (c Config) uploadClient() *http.Client {

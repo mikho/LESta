@@ -1,11 +1,13 @@
 package backup
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 )
 
 // encryptionKeySize is 32 bytes: AES-256's own required key length. Laravel
@@ -46,6 +48,20 @@ func encrypt(hexKey string, plaintext []byte) ([]byte, error) {
 // use it to prove a genuine round trip against a real encrypted artifact
 // rather than just asserting bytes changed.
 func Decrypt(hexKey string, sealed []byte) ([]byte, error) {
+	if bytes.HasPrefix(sealed, []byte(streamMagic)) {
+		sr, err := newSealReader(bytes.NewReader(sealed), hexKey)
+		if err != nil {
+			return nil, err
+		}
+
+		return io.ReadAll(sr)
+	}
+
+	return decryptLegacy(hexKey, sealed)
+}
+
+// decryptLegacy reads an artifact from before streaming: nonce||ciphertext||tag in one message.
+func decryptLegacy(hexKey string, sealed []byte) ([]byte, error) {
 	if len(sealed) < nonceSize {
 		return nil, fmt.Errorf("sealed artifact too short: %d bytes", len(sealed))
 	}

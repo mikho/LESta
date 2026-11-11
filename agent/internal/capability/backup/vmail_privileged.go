@@ -102,7 +102,8 @@ func archiveDirectoryRelative(root string, w io.Writer) error {
 // gzip-compressed tar of mailbox files from stdin, named "<domain>/<user>/...",
 // and puts them back under the mail root (domain folder by domain folder, never
 // an in-place overwrite, see restoreVMail). Every name is checked: a domain
-// folder must be a plain domain name and nothing may climb out of it.
+// folder must be a plain domain name and nothing may climb out of it. The request
+// is acted on as it arrives, but only made live if it ends with mailCommitEntry.
 func RestoreMailFiles(cfg Config, stdin io.Reader) int {
 	if cfg.VMailRoot == "" {
 		fmt.Fprintln(os.Stderr, "backup-restore-mail-files: this node has no mail root configured")
@@ -110,14 +111,7 @@ func RestoreMailFiles(cfg Config, stdin io.Reader) int {
 		return 1
 	}
 
-	files, err := readMailFiles(stdin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "backup-restore-mail-files:", err)
-
-		return 1
-	}
-
-	if err := restoreVMail(files, cfg.VMailRoot); err != nil {
+	if err := restoreMailStream(stdin, cfg.VMailRoot); err != nil {
 		fmt.Fprintln(os.Stderr, "backup-restore-mail-files:", err)
 
 		return 1
@@ -126,38 +120,45 @@ func RestoreMailFiles(cfg Config, stdin io.Reader) int {
 	return 0
 }
 
-// readMailFiles decodes and validates the mailbox files of a restore request.
-func readMailFiles(r io.Reader) ([]vmailFile, error) {
+// restoreMailStream stages the mailbox files of a request as they are read and makes them live only
+// when the request is whole.
+func restoreMailStream(r io.Reader, liveRoot string) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
-		return nil, fmt.Errorf("opening the request: %w", err)
+		return fmt.Errorf("opening the request: %w", err)
 	}
 
 	defer func() { _ = gz.Close() }()
 
+	stager, err := newVMailStager(liveRoot)
+	if err != nil {
+		return err
+	}
+
+	defer stager.cleanup()
+
 	tr := tar.NewReader(gz)
-
-	var files []vmailFile
-
-	budget := newRestoreBudget()
+	committed := false
 
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return files, nil
+			break
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("reading the request: %w", err)
+			return fmt.Errorf("reading the request: %w", err)
 		}
 
 		if hdr.Typeflag == tar.TypeDir {
 			name := strings.TrimSuffix(hdr.Name, "/")
 			if !safeMailFolder(name) {
-				return nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
+				return fmt.Errorf("refusing the unsafe path %q", hdr.Name)
 			}
 
-			files = append(files, vmailFile{relPath: name, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid, isDir: true})
+			if err := stager.addDir(vmailFile{relPath: name, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid, isDir: true}); err != nil {
+				return err
+			}
 
 			continue
 		}
@@ -166,21 +167,30 @@ func readMailFiles(r io.Reader) ([]vmailFile, error) {
 			continue
 		}
 
+		if hdr.Name == mailCommitEntry {
+			committed = true
+
+			continue
+		}
+
 		if !safeMailPath(hdr.Name) {
-			return nil, fmt.Errorf("refusing the unsafe path %q", hdr.Name)
+			return fmt.Errorf("refusing the unsafe path %q", hdr.Name)
 		}
 
-		if err := budget.take(hdr.Size); err != nil {
-			return nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
+		if err := stager.addFile(vmailFile{relPath: hdr.Name, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid}, io.LimitReader(tr, hdr.Size)); err != nil {
+			return err
 		}
-
-		content, err := io.ReadAll(io.LimitReader(tr, hdr.Size))
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", hdr.Name, err)
-		}
-
-		files = append(files, vmailFile{relPath: hdr.Name, content: content, mode: os.FileMode(hdr.Mode).Perm(), uid: hdr.Uid, gid: hdr.Gid})
 	}
+
+	if _, err := io.Copy(io.Discard, gz); err != nil {
+		return fmt.Errorf("reading the request: %w", err)
+	}
+
+	if !committed {
+		return errors.New("the request was cut short; nothing was restored")
+	}
+
+	return stager.commit()
 }
 
 // safeMailFolder is safeMailPath for a folder, which may be the domain folder itself.
@@ -215,67 +225,31 @@ func safeMailPath(name string) bool {
 
 // ---- daemon side ---------------------------------------------------------
 
-// archiveMailStatePrivileged runs this binary's "backup-archive-mail-state" mode
-// as root and returns its tar.
-func archiveMailStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath string) ([]byte, error) {
+// streamMailStatePrivileged runs this binary's "backup-archive-mail-state" mode as root and copies the
+// tar it writes into tw as it arrives, under prefix.
+func streamMailStatePrivileged(ctx context.Context, sudoBinary, agentBinaryPath string, tw *tar.Writer, prefix string) error {
 	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "backup-archive-mail-state")
 
-	stdout := &limitedBuffer{max: maxNodeArchiveBytes}
-
-	var stderr bytes.Buffer
-	cmd.Stdout = stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
-	}
-
-	return stdout.Bytes(), nil
-}
-
-// restoreVMailPrivileged hands the mailbox files to the root helper.
-func restoreVMailPrivileged(ctx context.Context, sudoBinary, agentBinaryPath string, files []vmailFile) error {
-	request := &limitedBuffer{max: maxNodeArchiveBytes}
-
-	gz := gzip.NewWriter(request)
-	tw := tar.NewWriter(gz)
-
-	for _, f := range files {
-		if f.isDir {
-			if err := tw.WriteHeader(&tar.Header{Name: f.relPath + "/", Mode: int64(f.mode), Uid: f.uid, Gid: f.gid, Typeflag: tar.TypeDir}); err != nil {
-				return fmt.Errorf("preparing the mail restore: %w", err)
-			}
-
-			continue
-		}
-
-		hdr := &tar.Header{Name: f.relPath, Mode: int64(f.mode), Size: int64(len(f.content)), Uid: f.uid, Gid: f.gid, Typeflag: tar.TypeReg}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return fmt.Errorf("preparing the mail restore: %w", err)
-		}
-
-		if _, err := tw.Write(f.content); err != nil {
-			return fmt.Errorf("preparing the mail restore: %w", err)
-		}
-	}
-
-	if err := tw.Close(); err != nil {
-		return err
-	}
-
-	if err := gz.Close(); err != nil {
-		return err
-	}
-
-	cmd := exec.CommandContext(ctx, sudoBinary, agentBinaryPath, "backup-restore-mail-files")
-	cmd.Stdin = request
-
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%s: %w", cmd.Path, err)
+	}
+
+	mergeErr := mergeNestedStream(tw, stdout, prefix)
+
+	// Drain what the merge did not read, so the helper is never left blocked on a full pipe.
+	_, _ = io.Copy(io.Discard, stdout)
+
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("%s: %w: %s", cmd.Path, err, strings.TrimSpace(stderr.String()))
 	}
 
-	return nil
+	return mergeErr
 }

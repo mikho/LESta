@@ -162,42 +162,39 @@ func (c *BackupCapability) applyCreate(ctx context.Context, op protocol.Operatio
 	included := discoverIncludedCapabilities(c.cfg.StateRoots)
 	artifactPath := filepath.Join(c.cfg.ArtifactsRoot, op.ResourceID+".tar.enc")
 
-	if checkArtifactSize(artifactPath, maxNodeArchiveBytes) != nil {
-		// Too large to replay-check in memory; fall through, the archive step reports it.
-	} else if sealed, err := os.ReadFile(artifactPath); err == nil {
+	if checksum, size, err := checksumFile(artifactPath); err == nil {
 		replayIncluded := mergeIncludedCapabilities(included, discoverPresentDumpSockets(c.cfg.DatabaseDumpSockets))
 
-		return c.applied(op, protocol.StatusAlreadyApplied, artifactPath, sealed, replayIncluded), nil
+		return c.applied(op, protocol.StatusAlreadyApplied, artifactPath, checksum, size, replayIncluded), nil
 	}
 
 	if ctx.Err() != nil {
 		return protocol.ResultEnvelope{}, ctx.Err()
 	}
 
-	dumps, dumpedCapabilities, err := dumpDatabases(ctx, c.cfg.SudoBinary, c.cfg.DatabaseDumpSockets, c.cfg.DatabaseDumpDefaults)
-	if err != nil {
-		return c.failed(op, "database_dump_failed", err.Error())
-	}
-
-	plaintext, err := archiveStateRoots(ctx, c.cfg.SudoBinary, c.cfg.AgentBinaryPath, c.cfg.StateRoots, included, dumps, dumpedCapabilities)
-	if err != nil {
-		return c.failed(op, "archive_failed", err.Error())
-	}
-
-	sealed, err := encrypt(*payload.EncryptionKey, plaintext)
-	if err != nil {
-		return c.failed(op, "encryption_failed", err.Error())
-	}
-
 	if err := os.MkdirAll(c.cfg.ArtifactsRoot, 0o750); err != nil {
 		return c.failed(op, "artifacts_root_unavailable", err.Error())
 	}
 
-	if err := os.WriteFile(artifactPath, sealed, 0o600); err != nil {
-		return c.failed(op, "artifact_write_failed", err.Error())
+	// The dumps wait in a private directory beside the artifact until they are copied in, then go.
+	dumpDir, err := os.MkdirTemp(c.cfg.ArtifactsRoot, ".dump-*")
+	if err != nil {
+		return c.failed(op, "artifacts_root_unavailable", err.Error())
 	}
 
-	return c.applied(op, protocol.StatusApplied, artifactPath, sealed, mergeIncludedCapabilities(included, dumpedCapabilities)), nil
+	defer func() { _ = os.RemoveAll(dumpDir) }()
+
+	dumps, dumpedCapabilities, err := dumpDatabases(ctx, c.cfg.SudoBinary, c.cfg.DatabaseDumpSockets, c.cfg.DatabaseDumpDefaults, dumpDir)
+	if err != nil {
+		return c.failed(op, "database_dump_failed", err.Error())
+	}
+
+	checksum, size, err := writeNodeArtifact(ctx, c.cfg, artifactPath, *payload.EncryptionKey, included, dumps)
+	if err != nil {
+		return c.failed(op, "archive_failed", err.Error())
+	}
+
+	return c.applied(op, protocol.StatusApplied, artifactPath, checksum, size, mergeIncludedCapabilities(included, dumpedCapabilities)), nil
 }
 
 // mergeIncludedCapabilities combines StateRoots-derived and dump-derived
@@ -284,6 +281,10 @@ func (c *BackupCapability) applyObserve(op protocol.OperationEnvelope) (protocol
 			fmt.Sprintf("artifact_path %q is not within the owned artifacts root %q", *payload.ArtifactPath, c.cfg.ArtifactsRoot), "artifact_path")
 	}
 
+	if payload.UploadURL != nil && *payload.UploadURL != "" {
+		return c.applyNodeDownload(context.Background(), op, payload, cleaned)
+	}
+
 	if err := checkArtifactSize(cleaned, maxNodeDownloadBytes); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return c.failed(op, "artifact_too_large", err.Error()+"; the artifact stays on the node")
 	}
@@ -345,12 +346,11 @@ func (c *BackupCapability) failed(op protocol.OperationEnvelope, code, message s
 // applied builds a Create result carrying artifact metadata (sealed's own
 // checksum doubles as ObservedStateDigest: the digest of the observed state
 // IS the checksum of the artifact that now exists on disk).
-func (c *BackupCapability) applied(op protocol.OperationEnvelope, status protocol.Status, artifactPath string, sealed []byte, included []string) protocol.ResultEnvelope {
-	checksum := checksumOf(sealed)
+func (c *BackupCapability) applied(op protocol.OperationEnvelope, status protocol.Status, artifactPath, checksum string, size int64, included []string) protocol.ResultEnvelope {
 
 	data, err := json.Marshal(artifactData{
 		IncludedCapabilities: included,
-		SizeBytes:            int64(len(sealed)),
+		SizeBytes:            size,
 		Checksum:             checksum,
 		ArtifactPath:         artifactPath,
 	})
