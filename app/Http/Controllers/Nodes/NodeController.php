@@ -31,6 +31,7 @@ use App\Models\DnsZone;
 use App\Models\MailDomain;
 use App\Models\Node;
 use App\Models\NodeAdminGrant;
+use App\Models\NodeAgentUpgrade;
 use App\Models\NodeCapability;
 use App\Models\NodeServiceAction;
 use App\Models\ProvisioningOperation;
@@ -128,6 +129,20 @@ class NodeController extends Controller
                 ? AgentUpgradeKey::query()->orderBy('name')->get()->map(fn (AgentUpgradeKey $key): array => ['id' => $key->uuid, 'name' => $key->name, 'public_key' => $key->public_key, 'nodes' => $key->nodes()->count()])->all()
                 : [],
             'trustedUpgradeKey' => $node->upgradeKey?->uuid,
+            'upgradeHistory' => $node->agentUpgrades()
+                ->with(['user', 'latestProvisioningOperation'])
+                ->latest()
+                ->limit(10)
+                ->get()
+                ->map(fn (NodeAgentUpgrade $upgrade): array => [
+                    'id' => $upgrade->uuid,
+                    'from_version' => $upgrade->from_version,
+                    'to_version' => $upgrade->to_version,
+                    'requested_by' => $upgrade->user?->name,
+                    'requested_at' => $upgrade->created_at?->toIso8601String(),
+                    'status' => $upgrade->latestProvisioningOperation?->status->value ?? 'pending',
+                ])
+                ->all(),
         ]);
     }
 

@@ -205,3 +205,19 @@ test('a node admin without nodes.update cannot manage keys', function () {
 
     $this->actingAs($member)->post(route('agent-upgrade-keys.store'), ['name' => 'Ops', 'public_key' => upgradeKeypair()[0]])->assertForbidden();
 });
+
+test('the node page lists its latest upgrades with who asked and how they ended', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $node = Node::factory()->create();
+
+    NodeAgentUpgrade::factory()->for($node)->create(['user_id' => $admin->id, 'from_version' => '1.0.1', 'to_version' => '1.0.90']);
+    NodeAgentUpgrade::factory()->for(Node::factory())->create(['to_version' => '9.9.9']);
+
+    $this->actingAs($admin)->get(route('nodes.edit', $node))
+        ->assertInertia(fn ($page) => $page
+            ->has('upgradeHistory', 1)
+            ->where('upgradeHistory.0.from_version', '1.0.1')
+            ->where('upgradeHistory.0.to_version', '1.0.90')
+            ->where('upgradeHistory.0.requested_by', $admin->name)
+            ->where('upgradeHistory.0.status', 'pending'));
+});

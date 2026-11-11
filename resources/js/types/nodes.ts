@@ -99,3 +99,12 @@ export type UpgradeKey = {
     public_key: string;
     nodes: number;
 };
+
+export type AgentUpgradeHistoryEntry = {
+    id: string;
+    from_version: string | null;
+    to_version: string;
+    requested_by: string | null;
+    requested_at: string | null;
+    status: string;
+};

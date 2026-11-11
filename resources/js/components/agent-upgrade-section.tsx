@@ -30,7 +30,7 @@ import {
     supportsEd25519,
     upgradeMessage,
 } from '@/lib/upgrade-keys';
-import type { Node, UpgradeKey } from '@/types';
+import type { AgentUpgradeHistoryEntry, Node, UpgradeKey } from '@/types';
 
 type Descriptor = {
     node_uuid: string;
@@ -411,11 +411,13 @@ export function AgentUpgradeSection({
     upgradeKeys,
     trustedUpgradeKey,
     canManageKeys,
+    upgradeHistory,
 }: {
     node: Node;
     upgradeKeys: UpgradeKey[];
     trustedUpgradeKey: string | null;
     canManageKeys: boolean;
+    upgradeHistory: AgentUpgradeHistoryEntry[];
 }) {
     const NONE = 'none';
 
@@ -461,6 +463,40 @@ export function AgentUpgradeSection({
             </div>
 
             <UpgradeDialog node={node} upgradeKeys={upgradeKeys} />
+
+            {upgradeHistory.length > 0 && (
+                <div className="space-y-2 border-t pt-4">
+                    <Heading
+                        variant="small"
+                        title="Upgrade history"
+                        description="The latest upgrades requested for this node."
+                    />
+                    <ul className="divide-y rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
+                        {upgradeHistory.map((entry) => (
+                            <li
+                                key={entry.id}
+                                className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-sm"
+                            >
+                                <div className="min-w-0">
+                                    <p className="font-medium">
+                                        {entry.from_version ?? 'unknown'} to{' '}
+                                        {entry.to_version}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {entry.requested_by ?? 'Unknown user'}
+                                        {entry.requested_at
+                                            ? `, ${new Date(entry.requested_at).toLocaleString()}`
+                                            : ''}
+                                    </p>
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                    {entry.status}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {canManageKeys && (
                 <div className="space-y-3 border-t pt-4">

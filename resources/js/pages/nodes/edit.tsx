@@ -32,6 +32,7 @@ import {
 import customerResources from '@/routes/customer-resources';
 import nodes from '@/routes/nodes';
 import type {
+    AgentUpgradeHistoryEntry,
     Node,
     NodeAdminGrant,
     NodeCapability,
@@ -1030,11 +1031,13 @@ export default function Edit({
     canManageAdminGrants,
     upgradeKeys,
     trustedUpgradeKey,
+    upgradeHistory,
 }: {
     node: Node;
     canManageAdminGrants: boolean;
     upgradeKeys: UpgradeKey[];
     trustedUpgradeKey: string | null;
+    upgradeHistory: AgentUpgradeHistoryEntry[];
 }) {
     const capabilities = node.capabilities ?? [];
     const operations = node.recent_operations ?? [];
@@ -1429,6 +1432,7 @@ export default function Edit({
                     upgradeKeys={upgradeKeys}
                     trustedUpgradeKey={trustedUpgradeKey}
                     canManageKeys={canManageAdminGrants}
+                    upgradeHistory={upgradeHistory}
                 />
 
                 <div className="space-y-4 rounded-lg border p-4">
