@@ -8,7 +8,6 @@ use App\Models\Node;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class IssueNodeEnrollmentToken
 {
@@ -29,14 +28,7 @@ class IssueNodeEnrollmentToken
 
             $token = $node->issueEnrollmentToken();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => $wasEnrolled ? 'node.credential_rotated' : 'node.enrollment_token_issued',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, $wasEnrolled ? 'node.credential_rotated' : 'node.enrollment_token_issued', $actor);
 
             return $token;
         });

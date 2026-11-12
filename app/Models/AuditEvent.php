@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
@@ -60,6 +61,25 @@ class AuditEvent extends Model
     public function auditable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Writes one audit row: what was done ($action) to $auditable, by $actor (null for the system or
+     * an unauthenticated request). Without a $correlationId the change gets a fresh one.
+     *
+     * @param  array<string, mixed>|null  $metadata
+     */
+    public static function record(Model $auditable, string $action, ?Model $actor, ?string $correlationId = null, ?array $metadata = null): self
+    {
+        return self::create([
+            'actor_type' => $actor?->getMorphClass(),
+            'actor_id' => $actor?->getKey(),
+            'auditable_type' => $auditable->getMorphClass(),
+            'auditable_id' => $auditable->getKey(),
+            'action' => $action,
+            'correlation_id' => $correlationId ?? (string) Str::uuid(),
+            'metadata' => $metadata,
+        ]);
     }
 
     /**

@@ -7,7 +7,6 @@ use App\Models\Node;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class DeleteNode
@@ -29,14 +28,7 @@ class DeleteNode
         }
 
         DB::transaction(function () use ($actor, $node): void {
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.deleted',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.deleted', $actor);
 
             $node->delete();
         });

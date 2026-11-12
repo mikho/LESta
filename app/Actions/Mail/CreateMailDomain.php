@@ -46,14 +46,7 @@ class CreateMailDomain
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailDomain->getMorphClass(),
-                'auditable_id' => $mailDomain->getKey(),
-                'action' => 'mail_domain.created',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($mailDomain, 'mail_domain.created', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $mailDomain,

@@ -33,15 +33,7 @@ class SuspendWebDomain
             $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $webDomain->getMorphClass(),
-                'auditable_id' => $webDomain->getKey(),
-                'action' => 'web_domain.suspended',
-                'correlation_id' => $correlationId,
-                'metadata' => ['source' => $source->value],
-            ]);
+            AuditEvent::record($webDomain, 'web_domain.suspended', $actor, $correlationId, ['source' => $source->value]);
 
             foreach ($capabilities as $capability) {
                 app(RecordsProvisioningOperation::class)->record(

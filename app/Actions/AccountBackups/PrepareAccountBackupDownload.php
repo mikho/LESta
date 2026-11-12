@@ -65,14 +65,7 @@ class PrepareAccountBackupDownload
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $backup->getMorphClass(),
-                'auditable_id' => $backup->getKey(),
-                'action' => 'account_backup.download_prepared',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($backup, 'account_backup.download_prepared', $actor, $correlationId);
 
             $scope = app(ResolvesAccountBackupScope::class)->for($backup->account, $backup->node);
 

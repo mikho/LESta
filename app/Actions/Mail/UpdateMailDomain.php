@@ -50,14 +50,7 @@ class UpdateMailDomain
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailDomain->getMorphClass(),
-                'auditable_id' => $mailDomain->getKey(),
-                'action' => 'mail_domain.updated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($mailDomain, 'mail_domain.updated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $mailDomain,

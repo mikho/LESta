@@ -10,7 +10,6 @@ use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -45,14 +44,7 @@ class ConfirmNodeToolsCertificate
                 'certificate_authority' => 'manual',
             ])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.tools_certificate_confirmed',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.tools_certificate_confirmed', $actor);
         });
 
         UpdateWebCapabilityCertificate::dispatch($webDomain->refresh());

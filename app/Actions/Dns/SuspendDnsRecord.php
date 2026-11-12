@@ -34,15 +34,7 @@ class SuspendDnsRecord
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $dnsRecord->getMorphClass(),
-                'auditable_id' => $dnsRecord->getKey(),
-                'action' => 'dns_record.suspended',
-                'correlation_id' => $correlationId,
-                'metadata' => ['source' => $source->value],
-            ]);
+            AuditEvent::record($dnsRecord, 'dns_record.suspended', $actor, $correlationId, ['source' => $source->value]);
 
             app(RecordsProvisioningOperation::class)->record(
                 $dnsZone,

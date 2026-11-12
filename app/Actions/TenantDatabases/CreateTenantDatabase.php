@@ -55,14 +55,7 @@ class CreateTenantDatabase
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.created',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.created', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $tenantDatabase,

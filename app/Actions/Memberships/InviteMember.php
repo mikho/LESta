@@ -67,14 +67,7 @@ class InviteMember
                 'role_id' => $role->id,
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $membership->getMorphClass(),
-                'auditable_id' => $membership->getKey(),
-                'action' => 'membership.invited',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($membership, 'membership.invited', $actor);
 
             return $membership;
         });

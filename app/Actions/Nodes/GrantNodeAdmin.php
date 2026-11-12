@@ -8,7 +8,6 @@ use App\Models\NodeAdminGrant;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -45,14 +44,7 @@ class GrantNodeAdmin
                 'node_id' => $node->id,
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $grant->getMorphClass(),
-                'auditable_id' => $grant->getKey(),
-                'action' => 'node_admin_grant.created',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($grant, 'node_admin_grant.created', $actor);
 
             return $grant;
         });

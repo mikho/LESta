@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Models\Webhook;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class CreateWebhook
 {
@@ -32,15 +31,7 @@ class CreateWebhook
                 'description' => $data['description'] ?? null,
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $webhook->getMorphClass(),
-                'auditable_id' => $webhook->getKey(),
-                'action' => 'webhook.created',
-                'correlation_id' => (string) Str::uuid(),
-                'metadata' => ['url' => $webhook->url, 'events' => $webhook->events],
-            ]);
+            AuditEvent::record($webhook, 'webhook.created', $actor, null, ['url' => $webhook->url, 'events' => $webhook->events]);
 
             return $webhook;
         });

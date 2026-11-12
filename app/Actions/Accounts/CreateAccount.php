@@ -54,14 +54,7 @@ class CreateAccount
                 'role_id' => $ownerRole->id,
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.created',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.created', $actor);
 
             return $account;
         });

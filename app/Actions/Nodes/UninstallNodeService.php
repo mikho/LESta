@@ -59,14 +59,7 @@ class UninstallNodeService
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $action->getMorphClass(),
-                'auditable_id' => $action->getKey(),
-                'action' => 'node_service.uninstall',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($action, 'node_service.uninstall', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $action,

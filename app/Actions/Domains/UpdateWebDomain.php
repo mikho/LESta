@@ -54,14 +54,7 @@ class UpdateWebDomain
             $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $data['web_server'] ?? 'nginx');
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $webDomain->getMorphClass(),
-                'auditable_id' => $webDomain->getKey(),
-                'action' => 'web_domain.updated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($webDomain, 'web_domain.updated', $actor, $correlationId);
 
             foreach ($capabilities as $capability) {
                 app(RecordsProvisioningOperation::class)->record(

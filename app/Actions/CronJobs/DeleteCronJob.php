@@ -26,14 +26,7 @@ class DeleteCronJob
             $capability = app(ResolvesCronCapableNode::class)->resolveFor($cronJob->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $cronJob->getMorphClass(),
-                'auditable_id' => $cronJob->getKey(),
-                'action' => 'cron_job.deleted',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($cronJob, 'cron_job.deleted', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $cronJob,

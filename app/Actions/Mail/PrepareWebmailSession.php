@@ -54,14 +54,7 @@ class PrepareWebmailSession
                 'expires_at' => now()->addSeconds(60),
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailAccount->getMorphClass(),
-                'auditable_id' => $mailAccount->getKey(),
-                'action' => 'mail_account.webmail_session_prepared',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($mailAccount, 'mail_account.webmail_session_prepared', $actor);
 
             return ['url' => "https://{$node->hostname}/", 'field' => '_lesta_token', 'token' => $raw];
         });

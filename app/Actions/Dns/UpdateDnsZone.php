@@ -31,14 +31,7 @@ class UpdateDnsZone
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $dnsZone->getMorphClass(),
-                'auditable_id' => $dnsZone->getKey(),
-                'action' => 'dns_zone.updated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($dnsZone, 'dns_zone.updated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $dnsZone,

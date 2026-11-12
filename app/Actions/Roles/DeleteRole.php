@@ -8,7 +8,6 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class DeleteRole
@@ -41,14 +40,7 @@ class DeleteRole
         }
 
         DB::transaction(function () use ($actor, $role): void {
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $role->getMorphClass(),
-                'auditable_id' => $role->getKey(),
-                'action' => 'role.deleted',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($role, 'role.deleted', $actor);
 
             $role->delete();
         });

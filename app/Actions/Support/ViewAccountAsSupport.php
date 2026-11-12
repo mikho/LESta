@@ -6,7 +6,6 @@ use App\Models\Account;
 use App\Models\AuditEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class ViewAccountAsSupport
 {
@@ -14,14 +13,7 @@ class ViewAccountAsSupport
     {
         Gate::forUser($admin)->authorize('viewAsSupport', $account);
 
-        AuditEvent::create([
-            'actor_type' => $admin->getMorphClass(),
-            'actor_id' => $admin->getKey(),
-            'auditable_type' => $account->getMorphClass(),
-            'auditable_id' => $account->getKey(),
-            'action' => 'account.viewed_as_support',
-            'correlation_id' => (string) Str::uuid(),
-        ]);
+        AuditEvent::record($account, 'account.viewed_as_support', $admin);
 
         return $account;
     }

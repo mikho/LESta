@@ -11,7 +11,6 @@ use App\Models\AuditEvent;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -66,14 +65,7 @@ class ProfileController extends Controller
             return back()->withErrors(['deletion' => implode(' ', $reasons)]);
         }
 
-        AuditEvent::create([
-            'actor_type' => $user->getMorphClass(),
-            'actor_id' => $user->getKey(),
-            'auditable_type' => $user->getMorphClass(),
-            'auditable_id' => $user->getKey(),
-            'action' => 'user.deleted',
-            'correlation_id' => (string) Str::uuid(),
-        ]);
+        AuditEvent::record($user, 'user.deleted', $user);
 
         Auth::logout();
 

@@ -47,14 +47,7 @@ class ResyncNode
             $this->resyncCronJobs($node, $correlationId);
             $this->resyncMailDomains($node, $correlationId);
 
-            AuditEvent::create([
-                'actor_type' => null,
-                'actor_id' => null,
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.resynced',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($node, 'node.resynced', null, $correlationId);
         });
     }
 

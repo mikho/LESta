@@ -11,7 +11,6 @@ use App\Models\WebDomainRedirect;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -61,13 +60,6 @@ class WebDomainRedirectController extends Controller
 
     private function audit(Request $request, WebDomainRedirect $redirect, string $action): void
     {
-        AuditEvent::create([
-            'actor_type' => $request->user()->getMorphClass(),
-            'actor_id' => $request->user()->getKey(),
-            'auditable_type' => $redirect->getMorphClass(),
-            'auditable_id' => $redirect->getKey(),
-            'action' => $action,
-            'correlation_id' => (string) Str::uuid(),
-        ]);
+        AuditEvent::record($redirect, $action, $request->user());
     }
 }

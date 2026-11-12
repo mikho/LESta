@@ -45,14 +45,7 @@ class CreateDnsRecord
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $dnsRecord->getMorphClass(),
-                'auditable_id' => $dnsRecord->getKey(),
-                'action' => 'dns_record.created',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($dnsRecord, 'dns_record.created', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $dnsZone,

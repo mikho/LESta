@@ -72,14 +72,7 @@ class PrepareBackupDownload
                 'download_token_hash' => Backup::hashDownloadToken($token),
             ])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $backup->getMorphClass(),
-                'auditable_id' => $backup->getKey(),
-                'action' => 'backup.download_prepared',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($backup, 'backup.download_prepared', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $backup,

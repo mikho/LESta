@@ -48,15 +48,7 @@ class RestoreAccountBackup
         DB::transaction(function () use ($actor, $backup, $parts, $create): void {
             $backup->forceFill(['last_restore_status' => 'running', 'last_restore_at' => now(), 'last_restore_report' => null, 'last_restore_error' => null])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $backup->getMorphClass(),
-                'auditable_id' => $backup->getKey(),
-                'action' => 'account_backup.restore_started',
-                'correlation_id' => (string) Str::uuid(),
-                'metadata' => ['parts' => $parts],
-            ]);
+            AuditEvent::record($backup, 'account_backup.restore_started', $actor, null, ['parts' => $parts]);
 
             $resolver = app(ResolvesAccountBackupScope::class);
             $present = array_values(array_intersect($parts, $resolver->availableParts($resolver->for($backup->account, $backup->node))));

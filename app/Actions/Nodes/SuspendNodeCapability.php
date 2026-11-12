@@ -8,7 +8,6 @@ use App\Models\NodeCapability;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class SuspendNodeCapability
 {
@@ -23,14 +22,7 @@ class SuspendNodeCapability
         DB::transaction(function () use ($actor, $nodeCapability): void {
             $nodeCapability->suspend(SuspensionSource::Manual);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $nodeCapability->getMorphClass(),
-                'auditable_id' => $nodeCapability->getKey(),
-                'action' => 'node_capability.suspended',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($nodeCapability, 'node_capability.suspended', $actor);
         });
     }
 }

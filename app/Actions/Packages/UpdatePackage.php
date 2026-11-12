@@ -7,7 +7,6 @@ use App\Models\Package;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class UpdatePackage
 {
@@ -25,14 +24,7 @@ class UpdatePackage
                 'is_active' => $data['is_active'],
             ])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $package->getMorphClass(),
-                'auditable_id' => $package->getKey(),
-                'action' => 'package.updated',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($package, 'package.updated', $actor);
 
             return $package;
         });

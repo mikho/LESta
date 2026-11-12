@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\AuditEvent;
+use App\Models\Package;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -56,4 +58,30 @@ test('deleting a row is detected by the chain verification command', function ()
     $this->artisan('audit:verify-chain')
         ->assertExitCode(1)
         ->expectsOutputToContain((string) $lastRow->id);
+});
+
+test('record names the actor, the audited record and the action', function () {
+    $actor = User::factory()->create();
+    $package = Package::factory()->create();
+
+    $correlationId = (string) Str::uuid();
+
+    $event = AuditEvent::record($package, 'package.updated', $actor, $correlationId, ['field' => 'name']);
+
+    expect($event->actor_type)->toBe($actor->getMorphClass())
+        ->and((int) $event->actor_id)->toBe($actor->id)
+        ->and($event->auditable_type)->toBe($package->getMorphClass())
+        ->and((int) $event->auditable_id)->toBe($package->id)
+        ->and($event->action)->toBe('package.updated')
+        ->and($event->correlation_id)->toBe($correlationId)
+        ->and($event->metadata)->toBe(['field' => 'name']);
+});
+
+test('record without an actor or correlation id writes a system event with a fresh correlation id', function () {
+    $event = AuditEvent::record(Package::factory()->create(), 'package.created', null);
+
+    expect($event->actor_type)->toBeNull()
+        ->and($event->actor_id)->toBeNull()
+        ->and(Str::isUuid($event->correlation_id))->toBeTrue()
+        ->and($event->metadata)->toBeNull();
 });

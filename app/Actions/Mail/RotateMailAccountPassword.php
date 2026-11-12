@@ -33,14 +33,7 @@ class RotateMailAccountPassword
             $correlationId = (string) Str::uuid();
 
             // Deliberately never logs the password itself, only that a rotation happened.
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailAccount->getMorphClass(),
-                'auditable_id' => $mailAccount->getKey(),
-                'action' => 'mail_account.password_rotated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($mailAccount, 'mail_account.password_rotated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $mailDomain,

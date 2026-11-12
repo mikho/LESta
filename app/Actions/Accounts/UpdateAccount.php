@@ -8,7 +8,6 @@ use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class UpdateAccount
 {
@@ -35,14 +34,7 @@ class UpdateAccount
                 'package_id' => $data['package_id'] ?? $account->package_id,
             ])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.updated',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.updated', $actor);
         });
     }
 }

@@ -133,14 +133,7 @@ class PublishesDkimDnsRecord
                 $action = 'dns_record.dkim_published';
             }
 
-            AuditEvent::create([
-                'actor_type' => null,
-                'actor_id' => null,
-                'auditable_type' => $record->getMorphClass(),
-                'auditable_id' => $record->getKey(),
-                'action' => $action,
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($record, $action, null, $correlationId);
 
             $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
 

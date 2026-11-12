@@ -28,14 +28,7 @@ class UpdateFile
 
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $webDomain->getMorphClass(),
-            'auditable_id' => $webDomain->getKey(),
-            'action' => $newPath !== null ? 'web_domain.file_renamed' : 'web_domain.file_updated',
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($webDomain, $newPath !== null ? 'web_domain.file_renamed' : 'web_domain.file_updated', $actor, $correlationId);
 
         return app(RecordsProvisioningOperation::class)->record(
             $webDomain,

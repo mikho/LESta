@@ -94,14 +94,7 @@ class CreateAccountBackup
 
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor?->getMorphClass(),
-            'actor_id' => $actor?->getKey(),
-            'auditable_type' => $backup->getMorphClass(),
-            'auditable_id' => $backup->getKey(),
-            'action' => 'account_backup.created',
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($backup, 'account_backup.created', $actor, $correlationId);
 
         app(RecordsProvisioningOperation::class)->record($backup, $capability, ProvisioningVerb::Create, $backup->toCreatePayload($scope), $correlationId, 1);
 

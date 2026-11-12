@@ -116,14 +116,7 @@ class UpgradeNodeAgent
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $upgrade->getMorphClass(),
-                'auditable_id' => $upgrade->getKey(),
-                'action' => 'node.agent_upgrade',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($upgrade, 'node.agent_upgrade', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $upgrade,

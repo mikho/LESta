@@ -8,7 +8,6 @@ use App\Models\NodeCapability;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UpdateNodeCapabilityStatus
@@ -34,14 +33,7 @@ class UpdateNodeCapabilityStatus
         DB::transaction(function () use ($actor, $nodeCapability, $status): void {
             $nodeCapability->forceFill(['status' => $status])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $nodeCapability->getMorphClass(),
-                'auditable_id' => $nodeCapability->getKey(),
-                'action' => 'node_capability.status_changed',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($nodeCapability, 'node_capability.status_changed', $actor);
         });
     }
 }

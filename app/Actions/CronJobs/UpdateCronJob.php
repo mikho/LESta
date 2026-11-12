@@ -35,14 +35,7 @@ class UpdateCronJob
             $capability = app(ResolvesCronCapableNode::class)->resolveFor($cronJob->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $cronJob->getMorphClass(),
-                'auditable_id' => $cronJob->getKey(),
-                'action' => 'cron_job.updated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($cronJob, 'cron_job.updated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $cronJob,

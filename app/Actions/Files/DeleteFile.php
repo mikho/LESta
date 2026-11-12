@@ -22,14 +22,7 @@ class DeleteFile
 
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $webDomain->getMorphClass(),
-            'auditable_id' => $webDomain->getKey(),
-            'action' => 'web_domain.file_deleted',
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($webDomain, 'web_domain.file_deleted', $actor, $correlationId);
 
         return app(RecordsProvisioningOperation::class)->record(
             $webDomain,

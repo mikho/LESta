@@ -31,15 +31,7 @@ class RecordsTenantDatabaseUserChange
         $correlationId = (string) Str::uuid();
 
         // Never the password itself, only which user changed and how.
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $tenantDatabase->getMorphClass(),
-            'auditable_id' => $tenantDatabase->getKey(),
-            'action' => $action,
-            'correlation_id' => $correlationId,
-            'metadata' => ['username' => $databaseUser->username, 'access' => $databaseUser->access->value, 'remote_hosts' => $databaseUser->remoteHosts()],
-        ]);
+        AuditEvent::record($tenantDatabase, $action, $actor, $correlationId, ['username' => $databaseUser->username, 'access' => $databaseUser->access->value, 'remote_hosts' => $databaseUser->remoteHosts()]);
 
         app(RecordsProvisioningOperation::class)->record(
             $tenantDatabase,

@@ -33,14 +33,7 @@ class UnsuspendMailAccount
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailAccount->getMorphClass(),
-                'auditable_id' => $mailAccount->getKey(),
-                'action' => 'mail_account.unsuspended',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($mailAccount, 'mail_account.unsuspended', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $mailDomain,

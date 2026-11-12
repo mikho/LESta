@@ -25,14 +25,7 @@ class CreateNode
                 'hostname' => $data['hostname'],
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.created',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.created', $actor);
 
             return $node;
         });

@@ -29,14 +29,7 @@ class UnsuspendTenantDatabase
             $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.unsuspended',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.unsuspended', $actor, $correlationId);
 
             // No password: unsuspend restores access via GRANT alone, never re-supplying (or
             // even touching) the credential.

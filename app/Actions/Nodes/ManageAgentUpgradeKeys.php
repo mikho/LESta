@@ -8,7 +8,6 @@ use App\Models\Node;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -74,13 +73,6 @@ class ManageAgentUpgradeKeys
 
     private function audit(User $actor, AgentUpgradeKey|Node $subject, string $action): void
     {
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $subject->getMorphClass(),
-            'auditable_id' => $subject->getKey(),
-            'action' => $action,
-            'correlation_id' => (string) Str::uuid(),
-        ]);
+        AuditEvent::record($subject, $action, $actor);
     }
 }

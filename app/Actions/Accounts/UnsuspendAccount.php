@@ -17,7 +17,6 @@ use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class UnsuspendAccount
 {
@@ -47,14 +46,7 @@ class UnsuspendAccount
             $account->cronJobs()->suspendedByCascade()->get()
                 ->each(fn (CronJob $j) => app(UnsuspendCronJob::class)->handle($actor, $j));
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.unsuspended',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.unsuspended', $actor);
         });
     }
 }

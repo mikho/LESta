@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Models\Webhook;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class RemoveMember
@@ -38,14 +37,7 @@ class RemoveMember
                 }
             }
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $membership->getMorphClass(),
-                'auditable_id' => $membership->getKey(),
-                'action' => 'membership.removed',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($membership, 'membership.removed', $actor);
 
             // Webhooks the member created stop delivering: they would otherwise keep sending the
             // account's events to an address chosen by someone who no longer has access.

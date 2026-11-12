@@ -53,14 +53,7 @@ class CreateCronJob
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $cronJob->getMorphClass(),
-                'auditable_id' => $cronJob->getKey(),
-                'action' => 'cron_job.created',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($cronJob, 'cron_job.created', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $cronJob,

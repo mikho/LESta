@@ -25,14 +25,7 @@ class SyncMailDomainLists
         $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $subject->getMorphClass(),
-            'auditable_id' => $subject->getKey(),
-            'action' => $auditAction,
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($subject, $auditAction, $actor, $correlationId);
 
         app(RecordsProvisioningOperation::class)->record(
             $mailDomain,

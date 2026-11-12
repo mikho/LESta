@@ -81,14 +81,7 @@ class DeleteAccount
                 $identity->delete();
             });
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.deleted',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.deleted', $actor);
 
             $account->delete();
         });

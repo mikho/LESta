@@ -32,16 +32,9 @@ class UpdateSshPublicKey
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $identity->getMorphClass(),
-                'auditable_id' => $identity->getKey(),
-                'action' => $sshPublicKey === null
+            AuditEvent::record($identity, $sshPublicKey === null
                     ? 'account_node_identity.ssh_key_removed'
-                    : 'account_node_identity.ssh_key_updated',
-                'correlation_id' => $correlationId,
-            ]);
+                    : 'account_node_identity.ssh_key_updated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $identity,

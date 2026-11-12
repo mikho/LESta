@@ -44,14 +44,7 @@ class ControlNodeService
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $serviceAction->getMorphClass(),
-                'auditable_id' => $serviceAction->getKey(),
-                'action' => "node_service.{$action}",
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($serviceAction, "node_service.{$action}", $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $serviceAction,

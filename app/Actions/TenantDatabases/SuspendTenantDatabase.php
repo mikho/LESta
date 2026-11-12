@@ -33,15 +33,7 @@ class SuspendTenantDatabase
             $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.suspended',
-                'correlation_id' => $correlationId,
-                'metadata' => ['source' => $source->value],
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.suspended', $actor, $correlationId, ['source' => $source->value]);
 
             // No password: suspend never carries credentials in its payload, per the ADR's
             // "database credentials are never included in normal desired-state payloads"

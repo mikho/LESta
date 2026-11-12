@@ -78,14 +78,7 @@ class RotateDkimSelectors extends Command
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => null,
-                'actor_id' => null,
-                'auditable_type' => $mailDomain->getMorphClass(),
-                'auditable_id' => $mailDomain->getKey(),
-                'action' => 'mail_domain.dkim_rotation_started',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($mailDomain, 'mail_domain.dkim_rotation_started', null, $correlationId);
 
             $capability = $this->resolvesMailCapableNode->resolveFor($mailDomain->node);
 

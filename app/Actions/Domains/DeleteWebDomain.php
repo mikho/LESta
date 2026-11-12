@@ -26,14 +26,7 @@ class DeleteWebDomain
             $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $webDomain->getMorphClass(),
-                'auditable_id' => $webDomain->getKey(),
-                'action' => 'web_domain.deleted',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($webDomain, 'web_domain.deleted', $actor, $correlationId);
 
             foreach ($capabilities as $capability) {
                 app(RecordsProvisioningOperation::class)->record(

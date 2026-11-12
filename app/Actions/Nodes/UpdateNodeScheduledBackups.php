@@ -7,7 +7,6 @@ use App\Models\Node;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 /**
  * Toggles Node::backups_scheduled, the opt-in flag CreateScheduledBackups reads to decide which
@@ -25,14 +24,7 @@ class UpdateNodeScheduledBackups
         DB::transaction(function () use ($actor, $node, $enabled): void {
             $node->forceFill(['backups_scheduled' => $enabled])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => $enabled ? 'node.scheduled_backups_enabled' : 'node.scheduled_backups_disabled',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, $enabled ? 'node.scheduled_backups_enabled' : 'node.scheduled_backups_disabled', $actor);
         });
     }
 }

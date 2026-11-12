@@ -18,7 +18,6 @@ use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class SuspendAccount
@@ -58,14 +57,7 @@ class SuspendAccount
             $account->cronJobs()->whereNull('suspended_at')->get()
                 ->each(fn (CronJob $j) => app(SuspendCronJob::class)->handle($actor, $j, SuspensionSource::Cascade));
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.suspended',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.suspended', $actor);
         });
     }
 }

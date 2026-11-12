@@ -26,14 +26,7 @@ class DeleteTenantDatabase
             $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.deleted',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.deleted', $actor, $correlationId);
 
             // No password: delete only ever needs to identify what to drop.
             app(RecordsProvisioningOperation::class)->record(

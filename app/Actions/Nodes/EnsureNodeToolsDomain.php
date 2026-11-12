@@ -10,7 +10,6 @@ use App\Models\Package;
 use App\Models\User;
 use App\Models\WebDomain;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -48,14 +47,7 @@ class EnsureNodeToolsDomain
                 'ssl_mode' => $sslMode,
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor?->getMorphClass(),
-                'actor_id' => $actor?->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.tools_domain_created',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.tools_domain_created', $actor);
 
             return $webDomain;
         });

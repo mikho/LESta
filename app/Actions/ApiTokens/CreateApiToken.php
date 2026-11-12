@@ -8,7 +8,6 @@ use App\Models\AuditEvent;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -54,14 +53,7 @@ class CreateApiToken
                 'expires_at' => now()->addDays($data['expires_in_days'] ?? ApiToken::DEFAULT_DAYS),
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $token->getMorphClass(),
-                'auditable_id' => $token->getKey(),
-                'action' => 'api_token.created',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($token, 'api_token.created', $actor);
 
             return $token;
         });

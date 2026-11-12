@@ -107,14 +107,7 @@ class CreateWebDomain
 
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor?->getMorphClass(),
-            'actor_id' => $actor?->getKey(),
-            'auditable_type' => $webDomain->getMorphClass(),
-            'auditable_id' => $webDomain->getKey(),
-            'action' => 'web_domain.created',
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($webDomain, 'web_domain.created', $actor, $correlationId);
 
         foreach ($capabilities as $capability) {
             app(RecordsProvisioningOperation::class)->record(

@@ -9,7 +9,6 @@ use App\Models\NodeCapability;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class SuspendNode
 {
@@ -34,14 +33,7 @@ class SuspendNode
                 ->get()
                 ->each(fn (NodeCapability $capability) => $capability->suspend(SuspensionSource::Cascade));
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.suspended',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.suspended', $actor);
         });
     }
 }

@@ -51,14 +51,7 @@ class RotateTenantDatabasePassword
             $correlationId = (string) Str::uuid();
 
             // Deliberately never logs either password itself, only that a rotation happened.
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.password_rotated',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.password_rotated', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $tenantDatabase,

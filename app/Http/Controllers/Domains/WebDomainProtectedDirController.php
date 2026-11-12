@@ -13,7 +13,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -159,13 +158,6 @@ class WebDomainProtectedDirController extends Controller
 
     private function audit(Request $request, Model $subject, string $action): void
     {
-        AuditEvent::create([
-            'actor_type' => $request->user()->getMorphClass(),
-            'actor_id' => $request->user()->getKey(),
-            'auditable_type' => $subject->getMorphClass(),
-            'auditable_id' => $subject->getKey(),
-            'action' => $action,
-            'correlation_id' => (string) Str::uuid(),
-        ]);
+        AuditEvent::record($subject, $action, $request->user());
     }
 }

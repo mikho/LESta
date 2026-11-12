@@ -7,7 +7,6 @@ use App\Models\AuditEvent;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -48,14 +47,7 @@ class AssignAccountToReseller
         DB::transaction(function () use ($actor, $account, $resellerAccount): void {
             $account->update(['reseller_account_id' => $resellerAccount->id]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $account->getMorphClass(),
-                'auditable_id' => $account->getKey(),
-                'action' => 'account.reseller_assigned',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($account, 'account.reseller_assigned', $actor);
         });
     }
 }

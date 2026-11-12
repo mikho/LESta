@@ -55,14 +55,7 @@ class PrepareAdminerSession
                 'expires_at' => now()->addSeconds(60),
             ]);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $tenantDatabase->getMorphClass(),
-                'auditable_id' => $tenantDatabase->getKey(),
-                'action' => 'tenant_database.adminer_session_prepared',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($tenantDatabase, 'tenant_database.adminer_session_prepared', $actor, $correlationId);
 
             return ['url' => "https://{$node->hostname}/__lesta-adminer__", 'field' => 'lesta_token', 'token' => $raw];
         });

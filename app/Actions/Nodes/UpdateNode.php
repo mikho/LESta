@@ -7,7 +7,6 @@ use App\Models\Node;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 
 class UpdateNode
 {
@@ -25,14 +24,7 @@ class UpdateNode
                 'mail_hostname' => array_key_exists('mail_hostname', $data) ? $data['mail_hostname'] : $node->mail_hostname,
             ])->save();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $node->getMorphClass(),
-                'auditable_id' => $node->getKey(),
-                'action' => 'node.updated',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($node, 'node.updated', $actor);
         });
     }
 }

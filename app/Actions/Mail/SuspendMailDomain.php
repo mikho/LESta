@@ -43,15 +43,7 @@ class SuspendMailDomain
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $mailDomain->getMorphClass(),
-                'auditable_id' => $mailDomain->getKey(),
-                'action' => 'mail_domain.suspended',
-                'correlation_id' => $correlationId,
-                'metadata' => ['source' => $source->value, 'accounts_suspended' => $accountsSuspended],
-            ]);
+            AuditEvent::record($mailDomain, 'mail_domain.suspended', $actor, $correlationId, ['source' => $source->value, 'accounts_suspended' => $accountsSuspended]);
 
             app(RecordsProvisioningOperation::class)->record(
                 $mailDomain,

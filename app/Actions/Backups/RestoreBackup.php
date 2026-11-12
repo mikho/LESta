@@ -47,14 +47,7 @@ class RestoreBackup
             $capability = app(ResolvesBackupCapableNode::class)->resolveFor($backup->node);
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $backup->getMorphClass(),
-                'auditable_id' => $backup->getKey(),
-                'action' => 'backup.restore_started',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($backup, 'backup.restore_started', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $backup,

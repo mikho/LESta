@@ -9,7 +9,6 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UpdateRole
@@ -52,14 +51,7 @@ class UpdateRole
 
             $role->permissions()->sync($permissionIds);
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $role->getMorphClass(),
-                'auditable_id' => $role->getKey(),
-                'action' => 'role.updated',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($role, 'role.updated', $actor);
         });
     }
 }

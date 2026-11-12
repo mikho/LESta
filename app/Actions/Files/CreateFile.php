@@ -26,14 +26,7 @@ class CreateFile
 
         $correlationId = (string) Str::uuid();
 
-        AuditEvent::create([
-            'actor_type' => $actor->getMorphClass(),
-            'actor_id' => $actor->getKey(),
-            'auditable_type' => $webDomain->getMorphClass(),
-            'auditable_id' => $webDomain->getKey(),
-            'action' => $isDirectory ? 'web_domain.file_directory_created' : 'web_domain.file_created',
-            'correlation_id' => $correlationId,
-        ]);
+        AuditEvent::record($webDomain, $isDirectory ? 'web_domain.file_directory_created' : 'web_domain.file_created', $actor, $correlationId);
 
         return app(RecordsProvisioningOperation::class)->record(
             $webDomain,

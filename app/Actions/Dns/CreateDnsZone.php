@@ -40,14 +40,7 @@ class CreateDnsZone
 
             $correlationId = (string) Str::uuid();
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $dnsZone->getMorphClass(),
-                'auditable_id' => $dnsZone->getKey(),
-                'action' => 'dns_zone.created',
-                'correlation_id' => $correlationId,
-            ]);
+            AuditEvent::record($dnsZone, 'dns_zone.created', $actor, $correlationId);
 
             app(RecordsProvisioningOperation::class)->record(
                 $dnsZone,

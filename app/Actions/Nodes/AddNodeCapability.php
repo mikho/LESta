@@ -11,7 +11,6 @@ use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AddNodeCapability
@@ -48,14 +47,7 @@ class AddNodeCapability
                 ]);
             }
 
-            AuditEvent::create([
-                'actor_type' => $actor->getMorphClass(),
-                'actor_id' => $actor->getKey(),
-                'auditable_type' => $nodeCapability->getMorphClass(),
-                'auditable_id' => $nodeCapability->getKey(),
-                'action' => 'node_capability.added',
-                'correlation_id' => (string) Str::uuid(),
-            ]);
+            AuditEvent::record($nodeCapability, 'node_capability.added', $actor);
 
             return $nodeCapability;
         });
