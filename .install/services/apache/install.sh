@@ -402,9 +402,9 @@ emit_dry_run_result_and_exit() {
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway resource against the real, just-installed apache2"
 
     if [ "${WEB_PROFILE}" = "both" ]; then
-        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
+        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta-apache group (and leave lesta) and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; /etc/apache2/ports.conf would be rewritten to 'Listen 127.0.0.1:8080' only and the stock 000-default site disabled (apache is a loopback-only backend behind nginx); apache2 would be validated, enabled, and health-probed on 127.0.0.1:8080; ${WEB_PROFILE_PATH} would be written with 'both'"
     else
-        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta group and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
+        add_change web.apache.v1 would_install "${OFFLINE_BUNDLE}" "$(apache_would_install_note); ${ASIS_MODULE_PATH} would be verified present; www-data would be added to the lesta-apache group (and leave lesta) and apache2's AppArmor profile extended, so it can read /var/lib/lesta/apache at request time; ${APACHE_LIVE_DIR} and /var/lib/lesta/apache would be created; apache2 would be validated, enabled, and health-probed on 127.0.0.1:80; ${WEB_PROFILE_PATH} would be written with 'apache'"
     fi
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -753,8 +753,13 @@ install_apache() {
     # allow-list under AppArmor's default-deny model, independent of (and in
     # addition to) the Unix group grant. Both gaps are fixed here together,
     # by direct analogy rather than by guessing one at a time.
-    usermod -aG lesta www-data || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta www-data failed"
-    add_change web.apache.v1 group_membership_granted "" "www-data added to the lesta group, so apache2's worker processes can traverse /var/lib/lesta/apache to read mod_asis content"
+    # www-data joins a group of its own, lesta-apache, which owns only /var/lib/lesta/apache. Membership
+    # of the shared lesta group would let a compromised web worker read every other service's state.
+    getent group lesta-apache >/dev/null 2>&1 || groupadd --system lesta-apache \
+        || fail_step "${EXIT_MUTATION_FAILURE}" groupadd_failed /etc/group "failed to create group lesta-apache"
+    usermod -aG lesta-apache www-data || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG lesta-apache www-data failed"
+    ratchet_leave_group www-data lesta
+    add_change web.apache.v1 group_membership_granted "" "www-data added to the lesta-apache group, so apache2's worker processes can read mod_asis content under /var/lib/lesta/apache (and no other lesta state)"
 
     apache_apparmor_local="/etc/apparmor.d/local/usr.sbin.apache2"
     if [ -f "${apache_apparmor_local}" ]; then
@@ -807,9 +812,13 @@ install_apache() {
     # 0770, not 0750: generation.Store's own bookkeeping is written
     # directly into this StateRoot by the real unprivileged daemon too,
     # same reasoning as APACHE_LIVE_DIR just above.
-    ratchet_root_owned_dir /var/lib/lesta/apache 0750 lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
-    add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0770 root:lesta"
-    add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 0770 root:lesta"
+    ratchet_root_owned_dir /var/lib/lesta/apache 0750 lesta-apache || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta/apache "failed to create /var/lib/lesta/apache"
+    # What an earlier installer left in group lesta moves to lesta-apache, and every directory keeps the
+    # setgid bit so the applier's new generations inherit the group (it cannot set it itself).
+    chgrp -R lesta-apache /var/lib/lesta/apache || fail_step "${EXIT_MUTATION_FAILURE}" chgrp_failed /var/lib/lesta/apache "failed to move /var/lib/lesta/apache to group lesta-apache"
+    find /var/lib/lesta/apache -type d -exec chmod g+s {} + || fail_step "${EXIT_MUTATION_FAILURE}" chmod_failed /var/lib/lesta/apache "failed to set the setgid bit under /var/lib/lesta/apache"
+    add_change web.apache.v1 ensured "${APACHE_LIVE_DIR}" "include directory present, mode 0755 root:root"
+    add_change web.apache.v1 ensured /var/lib/lesta/apache "state directory present, mode 2750 root:lesta-apache"
 
     # APACHE_LOG_DIR must exist before apache2ctl configtest below: every
     # rendered vhost's own CustomLog directive names a path under it, and
