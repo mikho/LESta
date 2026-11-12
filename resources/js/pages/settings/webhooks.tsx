@@ -1,16 +1,14 @@
 import { Form, Head, router, usePage } from '@inertiajs/react';
-import { Check, Copy } from 'lucide-react';
 import WebhookController from '@/actions/App/Http/Controllers/Settings/WebhookController';
 import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { OneTimeSecretBanner } from '@/components/one-time-secret-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useClipboard } from '@/hooks/use-clipboard';
 import { formatDateTime } from '@/lib/format';
 
 const formatDateTimeOr = (value: string | null): string =>
@@ -59,44 +57,22 @@ const EVENT_LABELS: Record<string, string> = {
  */
 function CreatedSecretBanner() {
     const secret = usePage().flash?.createdWebhookSecret;
-    const [copiedText, copy] = useClipboard();
 
     if (!secret) {
         return null;
     }
 
-    const IconComponent = copiedText === secret ? Check : Copy;
-
     return (
-        <Alert>
-            <AlertTitle>Copy the signing secret now</AlertTitle>
-            <AlertDescription className="w-full space-y-3">
-                <p>
-                    This is the only time it is shown. Your receiver uses it to
-                    check the Lesta-Signature header of every delivery (see the
-                    API Guide). If it is lost, remove the webhook and add it
-                    again.
-                </p>
-
-                <div className="flex w-full items-stretch overflow-hidden rounded-xl border border-border">
-                    <input
-                        type="text"
-                        readOnly
-                        value={secret}
-                        aria-label="Webhook signing secret"
-                        className="h-full w-full bg-background p-3 font-mono text-sm text-foreground outline-none"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => copy(secret)}
-                        className="border-l border-border px-3 hover:bg-muted"
-                        aria-label="Copy secret"
-                    >
-                        <IconComponent className="w-4" />
-                    </button>
-                </div>
-            </AlertDescription>
-        </Alert>
+        <OneTimeSecretBanner
+            title="Copy the signing secret now"
+            secret={secret}
+            inputLabel="Webhook signing secret"
+            copyLabel="Copy secret"
+        >
+            This is the only time it is shown. Your receiver uses it to check
+            the Lesta-Signature header of every delivery (see the API Guide). If
+            it is lost, remove the webhook and add it again.
+        </OneTimeSecretBanner>
     );
 }
 

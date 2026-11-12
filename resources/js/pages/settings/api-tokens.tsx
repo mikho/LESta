@@ -1,16 +1,14 @@
 import { Form, Head, router, usePage } from '@inertiajs/react';
-import { Check, Copy } from 'lucide-react';
 import ApiTokenController from '@/actions/App/Http/Controllers/Settings/ApiTokenController';
 import { useConfirm } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { OneTimeSecretBanner } from '@/components/one-time-secret-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useClipboard } from '@/hooks/use-clipboard';
 import { formatDateTime } from '@/lib/format';
 
 const formatDateTimeOr = (value: string | null): string =>
@@ -55,44 +53,22 @@ const FAMILIES: { key: string; label: string }[] = [
  */
 function CreatedTokenBanner() {
     const token = usePage().flash?.createdToken;
-    const [copiedText, copy] = useClipboard();
 
     if (!token) {
         return null;
     }
 
-    const IconComponent = copiedText === token ? Check : Copy;
-
     return (
-        <Alert>
-            <AlertTitle>Copy your new token now</AlertTitle>
-            <AlertDescription className="w-full space-y-3">
-                <p>
-                    This is the only time the token is shown. Only a hash of it
-                    is stored; create a new one if it is lost. Send it in the
-                    Authorization header as{' '}
-                    <code className="font-mono">Bearer &lt;token&gt;</code>.
-                </p>
-
-                <div className="flex w-full items-stretch overflow-hidden rounded-xl border border-border">
-                    <input
-                        type="text"
-                        readOnly
-                        value={token}
-                        aria-label="New API token"
-                        className="h-full w-full bg-background p-3 font-mono text-sm text-foreground outline-none"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => copy(token)}
-                        className="border-l border-border px-3 hover:bg-muted"
-                        aria-label="Copy token"
-                    >
-                        <IconComponent className="w-4" />
-                    </button>
-                </div>
-            </AlertDescription>
-        </Alert>
+        <OneTimeSecretBanner
+            title="Copy your new token now"
+            secret={token}
+            inputLabel="New API token"
+            copyLabel="Copy token"
+        >
+            This is the only time the token is shown. Only a hash of it is
+            stored; create a new one if it is lost. Send it in the Authorization
+            header as <code className="font-mono">Bearer &lt;token&gt;</code>.
+        </OneTimeSecretBanner>
     );
 }
 

@@ -1,13 +1,12 @@
 import { Form, Head, usePage } from '@inertiajs/react';
-import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 import TenantDatabaseController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseController';
 import TenantDatabaseUserController from '@/actions/App/Http/Controllers/TenantDatabases/TenantDatabaseUserController';
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { OneTimeSecretBanner } from '@/components/one-time-secret-banner';
 import { ProvisioningPanel } from '@/components/provisioning-badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -21,7 +20,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useClipboard } from '@/hooks/use-clipboard';
 import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import { apiPost } from '@/lib/api';
 import { submitHandoff } from '@/lib/handoff';
@@ -46,42 +44,23 @@ function GeneratedPasswordBanner({
     tenantDatabase: TenantDatabase;
 }) {
     const generated = usePage().flash?.generatedPassword;
-    const [copiedText, copy] = useClipboard();
 
     if (!generated || generated.uuid !== tenantDatabase.uuid) {
         return null;
     }
 
-    const IconComponent = copiedText === generated.password ? Check : Copy;
-
     return (
-        <Alert>
-            <AlertTitle>Save this password now</AlertTitle>
-            <AlertDescription className="w-full space-y-3">
-                <p>
-                    This is the only time the password for{' '}
-                    <span className="font-mono">{generated.database_user}</span>{' '}
-                    is shown. It is not stored anywhere you can retrieve it
-                    again -- rotate the password if it is lost.
-                </p>
-
-                <div className="flex w-full items-stretch overflow-hidden rounded-xl border border-border">
-                    <input
-                        type="text"
-                        readOnly
-                        value={generated.password}
-                        className="h-full w-full bg-background p-3 font-mono text-sm text-foreground outline-none"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => copy(generated.password)}
-                        className="border-l border-border px-3 hover:bg-muted"
-                    >
-                        <IconComponent className="w-4" />
-                    </button>
-                </div>
-            </AlertDescription>
-        </Alert>
+        <OneTimeSecretBanner
+            title="Save this password now"
+            secret={generated.password}
+            inputLabel="Database password"
+            copyLabel="Copy password"
+        >
+            This is the only time the password for{' '}
+            <span className="font-mono">{generated.database_user}</span> is
+            shown. It is not stored anywhere you can retrieve it again -- rotate
+            the password if it is lost.
+        </OneTimeSecretBanner>
     );
 }
 
