@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
+import { Pager } from '@/components/pager';
 import { ResourceStatus } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -305,51 +306,11 @@ export function OwnResourceList<T extends StatusFields>({
                             </div>
                         )}
 
-                        {items.last_page > 1 && (
-                            <nav
-                                aria-label={`${title} pages`}
-                                className="flex items-center justify-between gap-4 text-sm text-muted-foreground"
-                            >
-                                <span>
-                                    Page {items.current_page} of{' '}
-                                    {items.last_page}
-                                </span>
-                                <div className="flex gap-4">
-                                    <PageLink
-                                        href={items.prev_page_url}
-                                        label="Previous"
-                                    />
-                                    <PageLink
-                                        href={items.next_page_url}
-                                        label="Next"
-                                    />
-                                </div>
-                            </nav>
-                        )}
+                        <Pager items={items} label={title} />
                     </>
                 )}
             </div>
         </>
-    );
-}
-
-/**
- * Previous or Next, always present so focus never lands nowhere: a link when there is a page
- * that way, inert text when there is not.
- */
-function PageLink({ href, label }: { href: string | null; label: string }) {
-    return href ? (
-        <Link
-            href={href}
-            preserveScroll
-            className="underline underline-offset-4 pointer-coarse:py-3"
-        >
-            {label}
-        </Link>
-    ) : (
-        <span aria-disabled="true" className="opacity-50">
-            {label}
-        </span>
     );
 }
 

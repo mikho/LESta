@@ -2,6 +2,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import NodeController from '@/actions/App/Http/Controllers/Nodes/NodeController';
 import Heading from '@/components/heading';
+import { Pager } from '@/components/pager';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import nodes from '@/routes/nodes';
@@ -163,27 +164,7 @@ export default function Index({
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{paginatedNodes.total} total</span>
 
-                    <div className="flex gap-2">
-                        {paginatedNodes.prev_page_url && (
-                            <Link
-                                href={paginatedNodes.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Previous
-                            </Link>
-                        )}
-
-                        {paginatedNodes.next_page_url && (
-                            <Link
-                                href={paginatedNodes.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Next
-                            </Link>
-                        )}
-                    </div>
+                    <Pager items={paginatedNodes} label="Nodes" />
                 </div>
             </div>
         </>

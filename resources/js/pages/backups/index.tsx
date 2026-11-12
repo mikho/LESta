@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import BackupController from '@/actions/App/Http/Controllers/Backups/BackupController';
 import Heading from '@/components/heading';
+import { Pager } from '@/components/pager';
 import { ProvisioningBadge } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -328,27 +329,7 @@ export default function Index({
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{paginatedBackups.total} total</span>
 
-                    <div className="flex gap-2">
-                        {paginatedBackups.prev_page_url && (
-                            <Link
-                                href={paginatedBackups.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Previous
-                            </Link>
-                        )}
-
-                        {paginatedBackups.next_page_url && (
-                            <Link
-                                href={paginatedBackups.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Next
-                            </Link>
-                        )}
-                    </div>
+                    <Pager items={paginatedBackups} label="Backups" />
                 </div>
             </div>
         </>

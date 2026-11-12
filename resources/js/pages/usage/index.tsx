@@ -6,6 +6,7 @@ import {
 import type { CustomerListing } from '@/components/customer-resource-index';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
+import { Pager } from '@/components/pager';
 import { formatBytes, formatDateTime, formatRelative } from '@/lib/format';
 import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
@@ -33,37 +34,16 @@ function formatMonth(period: string): string {
 
 function Pagination({
     paginated,
+    label,
 }: {
-    paginated: Pick<
-        Paginated<unknown>,
-        'total' | 'prev_page_url' | 'next_page_url'
-    >;
+    paginated: Paginated<unknown>;
+    label: string;
 }) {
     return (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>{paginated.total} total</span>
 
-            <div className="flex gap-2">
-                {paginated.prev_page_url && (
-                    <Link
-                        href={paginated.prev_page_url}
-                        preserveScroll
-                        className="underline"
-                    >
-                        Previous
-                    </Link>
-                )}
-
-                {paginated.next_page_url && (
-                    <Link
-                        href={paginated.next_page_url}
-                        preserveScroll
-                        className="underline"
-                    >
-                        Next
-                    </Link>
-                )}
-            </div>
+            <Pager items={paginated} label={label} />
         </div>
     );
 }
@@ -262,7 +242,10 @@ export default function Index({
                         </table>
                     </div>
 
-                    <Pagination paginated={paginatedSnapshots} />
+                    <Pagination
+                        paginated={paginatedSnapshots}
+                        label="Daily snapshots"
+                    />
                 </div>
 
                 <div className="space-y-3">
@@ -343,7 +326,10 @@ export default function Index({
                         </table>
                     </div>
 
-                    <Pagination paginated={paginatedRollups} />
+                    <Pagination
+                        paginated={paginatedRollups}
+                        label="Monthly totals"
+                    />
                 </div>
             </div>
         </>

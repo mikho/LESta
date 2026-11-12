@@ -1,5 +1,6 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Head } from '@inertiajs/react';
 import Heading from '@/components/heading';
+import { Pager } from '@/components/pager';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -225,26 +226,12 @@ export default function AuditLogIndex({
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{events.total} total</span>
 
-                    <div className="flex gap-2">
-                        {events.prev_page_url && (
-                            <Link
-                                href={events.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Newer
-                            </Link>
-                        )}
-                        {events.next_page_url && (
-                            <Link
-                                href={events.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Older
-                            </Link>
-                        )}
-                    </div>
+                    <Pager
+                        items={events}
+                        label="Audit log"
+                        previous="Newer"
+                        next="Older"
+                    />
                 </div>
             </div>
         </>

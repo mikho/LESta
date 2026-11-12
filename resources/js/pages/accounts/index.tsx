@@ -2,6 +2,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import AccountController from '@/actions/App/Http/Controllers/Accounts/AccountController';
 import Heading from '@/components/heading';
+import { Pager } from '@/components/pager';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import accounts from '@/routes/accounts';
@@ -144,27 +145,7 @@ export default function Index({
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{paginatedAccounts.total} total</span>
 
-                    <div className="flex gap-2">
-                        {paginatedAccounts.prev_page_url && (
-                            <Link
-                                href={paginatedAccounts.prev_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Previous
-                            </Link>
-                        )}
-
-                        {paginatedAccounts.next_page_url && (
-                            <Link
-                                href={paginatedAccounts.next_page_url}
-                                preserveScroll
-                                className="underline"
-                            >
-                                Next
-                            </Link>
-                        )}
-                    </div>
+                    <Pager items={paginatedAccounts} label="Accounts" />
                 </div>
             </div>
         </>
