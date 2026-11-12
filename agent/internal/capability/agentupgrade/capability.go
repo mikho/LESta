@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mikho/LESta/agent/internal/atomicfile"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
@@ -183,7 +184,7 @@ func (c *AgentUpgradeCapability) apply(ctx context.Context, op protocol.Operatio
 	}
 
 	if p.NextPublicKey != "" {
-		if err := writeAtomic(c.cfg.KeyPath, []byte(p.NextPublicKey+"\n"), 0o644); err != nil {
+		if err := atomicfile.Write(c.cfg.KeyPath, []byte(p.NextPublicKey+"\n"), 0o644); err != nil {
 			return c.fail(op, "key_rotation_failed", err.Error())
 		}
 	}
@@ -388,27 +389,11 @@ func (c *AgentUpgradeCapability) swap(staged string) error {
 		return fmt.Errorf("reading the running binary: %w", err)
 	}
 
-	if err := writeAtomic(c.cfg.BinaryPath+".previous", current, 0o755); err != nil {
+	if err := atomicfile.Write(c.cfg.BinaryPath+".previous", current, 0o755); err != nil {
 		return fmt.Errorf("backing up the running binary: %w", err)
 	}
 
 	return os.Rename(staged, c.cfg.BinaryPath)
-}
-
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	tmp := path + ".tmp"
-
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		return err
-	}
-
-	if err := os.Chmod(tmp, mode); err != nil {
-		os.Remove(tmp)
-
-		return err
-	}
-
-	return os.Rename(tmp, path)
 }
 
 func runVersion(ctx context.Context, binary string) (string, error) {

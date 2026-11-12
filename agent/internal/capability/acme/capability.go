@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mikho/LESta/agent/internal/atomicfile"
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/protocol"
@@ -116,18 +117,18 @@ func (c *AcmeCapability) applyWrite(op protocol.OperationEnvelope) (protocol.Res
 
 	switch payload.Kind {
 	case KindHTTP01Challenge:
-		if err := writeFileAtomic(c.challengeFilePath(payload.Token), []byte(payload.KeyAuthorization), 0o644); err != nil {
+		if err := atomicfile.Write(c.challengeFilePath(payload.Token), []byte(payload.KeyAuthorization), 0o644); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
 	case KindCertificate:
-		if err := writeFileAtomic(c.fullChainPath(payload.Domain), []byte(payload.FullChainPEM), 0o644); err != nil {
+		if err := atomicfile.Write(c.fullChainPath(payload.Domain), []byte(payload.FullChainPEM), 0o644); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
 
 		// The private key gets the stricter mode: never world- or
 		// group-readable, mirroring the ADR's own refused_roots treatment
 		// of /etc/ssl/private for exactly this kind of material.
-		if err := writeFileAtomic(c.privateKeyPath(payload.Domain), []byte(payload.PrivateKeyPEM), 0o600); err != nil {
+		if err := atomicfile.Write(c.privateKeyPath(payload.Domain), []byte(payload.PrivateKeyPEM), 0o600); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
 	}

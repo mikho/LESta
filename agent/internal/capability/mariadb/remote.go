@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/atomicfile"
 )
 
 // Remote access: an extra user with remote hosts gets one more MariaDB
@@ -228,7 +228,7 @@ func syncTLS(ctx context.Context, cfg Config, hostname string) error {
 			continue
 		}
 
-		if err := writeFileAtomically(target, source, file.mode, cfg.TLSGroup); err != nil {
+		if err := atomicfile.WriteOwned(target, source, file.mode, cfg.TLSGroup); err != nil {
 			return err
 		}
 		changed = true
@@ -240,43 +240,6 @@ func syncTLS(ctx context.Context, cfg Config, hostname string) error {
 
 	if _, err := runSQL(ctx, cfg, "FLUSH SSL;\n"); err != nil {
 		return fmt.Errorf("loading the new certificate: %w", err)
-	}
-
-	return nil
-}
-
-// writeFileAtomically writes content to path through a temporary file in
-// the same directory, owned by root and group (when named), with mode.
-func writeFileAtomically(path string, content []byte, mode os.FileMode, group string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, content, mode); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
-	}
-	if err := os.Chmod(tmp, mode); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("setting the mode of %s: %w", tmp, err)
-	}
-
-	if group != "" {
-		g, err := user.LookupGroup(group)
-		if err != nil {
-			os.Remove(tmp)
-			return fmt.Errorf("looking up group %s: %w", group, err)
-		}
-		gid, err := strconv.Atoi(g.Gid)
-		if err != nil {
-			os.Remove(tmp)
-			return fmt.Errorf("group %s has a non-numeric id %q", group, g.Gid)
-		}
-		if err := os.Chown(tmp, 0, gid); err != nil {
-			os.Remove(tmp)
-			return fmt.Errorf("setting the owner of %s: %w", tmp, err)
-		}
-	}
-
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("renaming %s: %w", tmp, err)
 	}
 
 	return nil
@@ -357,7 +320,7 @@ func (c *MariaDBCapability) syncFirewall(ctx context.Context) error {
 		return fmt.Errorf("reading account hosts: %w", err)
 	}
 
-	if err := writeFileAtomically(c.cfg.FirewallElementsPath, []byte(firewallElements(addrs)), 0o640, ""); err != nil {
+	if err := atomicfile.WriteOwned(c.cfg.FirewallElementsPath, []byte(firewallElements(addrs)), 0o640, ""); err != nil {
 		return err
 	}
 

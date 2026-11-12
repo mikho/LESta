@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+
+	"github.com/mikho/LESta/agent/internal/atomicfile"
 )
 
 // resourceIDPattern is a strict UUID shape. Unlike runAsPattern (already
@@ -43,7 +45,7 @@ func sidecarPathFor(stateRoot, runAs, resourceID string) string {
 // argue against passing it as an argument instead).
 func (c *CronCapability) installFragment(resourceID string, content []byte) error {
 	if c.cfg.SudoBinary == "" {
-		return writeFileAtomic(fragmentPathFor(c.cfg.FragmentDir, resourceID), content, 0o644)
+		return atomicfile.Write(fragmentPathFor(c.cfg.FragmentDir, resourceID), content, 0o644)
 	}
 
 	cmd := exec.Command(c.cfg.SudoBinary, c.cfg.AgentBinaryPath, "cron-install-fragment", resourceID) //nolint:gosec // fixed binary, argv-validated resource_id, no shell
@@ -164,7 +166,7 @@ func InstallFragment(cfg Config, resourceID string, r io.Reader) int {
 		return 1
 	}
 
-	if err := writeFileAtomic(fragmentPathFor(cfg.FragmentDir, resourceID), content, 0o644); err != nil {
+	if err := atomicfile.Write(fragmentPathFor(cfg.FragmentDir, resourceID), content, 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "cron-install-fragment:", err)
 
 		return 1
