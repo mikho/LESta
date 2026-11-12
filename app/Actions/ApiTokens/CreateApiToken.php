@@ -50,7 +50,7 @@ class CreateApiToken
                 'name' => $data['name'],
                 'token_hash' => ApiToken::hashToken($plaintext),
                 'abilities' => $abilities,
-                'expires_at' => now()->addDays($data['expires_in_days'] ?? ApiToken::DEFAULT_DAYS),
+                'expires_at' => now()->addDays((int) ($data['expires_in_days'] ?? ApiToken::DEFAULT_DAYS)),
             ]);
 
             AuditEvent::record($token, 'api_token.created', $actor);

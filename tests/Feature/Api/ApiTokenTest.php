@@ -163,3 +163,15 @@ test('a token restricted to an account stops working when its user no longer own
 
     $this->getJson('/api/v1/user', ['Authorization' => 'Bearer lesta_elsewhere'])->assertUnauthorized();
 });
+
+test('a token created from the form, where the number of days arrives as text, gets its expiry', function () {
+    $membership = Membership::factory()->owner()->create();
+
+    $this->actingAs($membership->user)->withSession(confirmedSession())->post(route('api-tokens.store'), [
+        'name' => 'From the form',
+        'abilities' => ['web:read'],
+        'expires_in_days' => '90',
+    ])->assertRedirect(route('api-tokens.index'));
+
+    expect(ApiToken::query()->sole()->expires_at->isSameDay(now()->addDays(90)))->toBeTrue();
+});
