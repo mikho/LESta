@@ -33,6 +33,7 @@ import (
 	"github.com/mikho/LESta/agent/internal/capability/phpfpm"
 	"github.com/mikho/LESta/agent/internal/capability/servicecontrol"
 	"github.com/mikho/LESta/agent/internal/capability/serviceuninstall"
+	"github.com/mikho/LESta/agent/internal/capability/sshaccess"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/protocol"
 )
@@ -117,9 +118,16 @@ var applierInstances = []applierInstance{
 		hosted: map[string]bool{
 			serviceUninstallCapability: true,
 			agentUpgradeCapability:     true,
+			sshAccessCapability:        true,
 		},
 		timeout: 30 * time.Minute,
 	},
+}
+
+// sshAccessConfig is the ssh port capability's configuration: the firewall's own directory keeps
+// the closed state next to the rest of the node's firewall.
+func sshAccessConfig() sshaccess.Config {
+	return sshaccess.Config{ClosedPath: "/etc/lesta/firewall/ssh-closed.nft", Port: 22}
 }
 
 // agentUpgradeConfig reads the node's identity and panel address the same way the daemon does.
@@ -274,6 +282,8 @@ func newHostedCapability(name string) (protocol.Capability, error) {
 		return serviceuninstall.New(serviceuninstall.Config{Installer: installerScript()}), nil
 	case agentUpgradeCapability:
 		return agentupgrade.New(agentUpgradeConfig()), nil
+	case sshAccessCapability:
+		return sshaccess.New(sshAccessConfig()), nil
 	case serviceControlCapability:
 		return servicecontrol.New(servicecontrol.Config{AllowedUnits: servicecontrol.DefaultAllowedUnits}), nil
 	case systemAccountIdentityCapability:
@@ -422,6 +432,14 @@ func runApplier(instanceName string) int {
 	// Files the capabilities create are world-readable like the ones the daemon creates, so a
 	// capability can be moved between the two without a state file becoming unreadable.
 	syscall.Umask(0o022)
+
+	// A closed ssh port is closed again after a reboot. A failure is logged and never stops the
+	// applier: the other capabilities it hosts must still work.
+	if instance.hosted[sshAccessCapability] {
+		if err := sshaccess.Restore(context.Background(), sshAccessConfig()); err != nil {
+			log.Printf("applier: closing the ssh port again: %v", err)
+		}
+	}
 
 	if err := os.Remove(instance.socket); err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(os.Stderr, "lesta-agent applier: removing the old socket: %v\n", err)

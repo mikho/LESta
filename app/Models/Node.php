@@ -24,6 +24,7 @@ use Illuminate\Validation\ValidationException;
  * @property string $hostname
  * @property string|null $mail_hostname
  * @property bool $backups_scheduled
+ * @property bool $ssh_open whether the node's ssh port is open, as the node last reported (node.ssh-access.v1)
  * @property string|null $enrollment_token_hash
  * @property Carbon|null $enrollment_token_expires_at
  * @property string|null $node_credential_hash
@@ -100,6 +101,7 @@ class Node extends Model implements ProviderAdminManaged
             'ping_ms' => 'float',
             'pinged_at' => 'datetime',
             'backups_scheduled' => 'boolean',
+            'ssh_open' => 'boolean',
         ];
     }
 

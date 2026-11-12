@@ -53,6 +53,9 @@ const (
 	// serviceUninstallCapability removes one LESta service from the node (the maintenance applier).
 	serviceUninstallCapability = "node.service-uninstall.v1"
 
+	// sshAccessCapability opens and closes the node's ssh port (the maintenance applier).
+	sshAccessCapability = "node.ssh-access.v1"
+
 	// agentUpgradeCapability replaces this binary with a newer one the node's upgrade key signed for
 	// (the maintenance applier).
 	agentUpgradeCapability = "node.agent-upgrade.v1"
@@ -99,7 +102,7 @@ const (
 	// .install/services/node-health/manifest.json; not derived from git
 	// describe or similar, matching this project's own preference for
 	// explicit, reviewable literals over build-time magic.
-	agentVersion = "1.0.91"
+	agentVersion = "1.0.92"
 )
 
 func main() {
@@ -162,6 +165,19 @@ func run(stdin *os.File, stdout *os.File) error {
 		return fmt.Errorf("decoding operation envelope from stdin: %w", err)
 	}
 
+	// The installers' self-tests build their envelopes in shell, which cannot write the canonical
+	// serialization the digest covers, so this one-shot mode fills in a missing digest. The
+	// daemon's own path never does: an operation from the panel without a matching digest is
+	// rejected in dispatchOperation.
+	if op.RequestDigest == "" {
+		digest, err := protocol.RequestDigest(op)
+		if err != nil {
+			return fmt.Errorf("computing request_digest: %w", err)
+		}
+
+		op.RequestDigest = digest
+	}
+
 	result, err := dispatchOperation(context.Background(), op)
 	if err != nil {
 		return err
@@ -181,6 +197,12 @@ func run(stdin *os.File, stdout *os.File) error {
 // it. Shared by run's own one-shot stdin/stdout path and the daemon's own operations.go,
 // so both routes to applying an OperationEnvelope pick a capability identically.
 func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
+	// An operation damaged on its way here is refused before anything is changed on the node. The
+	// panel sees a rejected result and issues a fresh operation.
+	if err := protocol.VerifyRequestDigest(op); err != nil {
+		return requestDigestRejected(op, err), nil
+	}
+
 	// A capability an applier instance hosts is applied there, as root, and never in this process:
 	// the daemon has no sudo rule and no write access to what the capability changes. The one-shot
 	// stdin mode (run), which the installers' self-tests use, goes the same way, so a self-test proves
@@ -192,6 +214,25 @@ func dispatchOperation(ctx context.Context, op protocol.OperationEnvelope) (prot
 	}
 
 	return dispatchDirect(ctx, op)
+}
+
+// requestDigestRejected is the result for an operation whose request_digest does not match it.
+func requestDigestRejected(op protocol.OperationEnvelope, err error) protocol.ResultEnvelope {
+	field := "request_digest"
+
+	return protocol.ResultEnvelope{
+		ProtocolVersion:      op.ProtocolVersion,
+		Capability:           op.Capability,
+		ResourceID:           op.ResourceID,
+		IdempotencyKey:       op.IdempotencyKey,
+		CorrelationID:        op.CorrelationID,
+		Status:               protocol.StatusRejected,
+		ObservedStateVersion: 0,
+		ObservedStateDigest:  "sha256:" + strings.Repeat("0", 64),
+		GenerationID:         "none",
+		Errors:               []protocol.ResultError{{Code: "request_digest_mismatch", Message: err.Error(), Field: &field}},
+		CompletedAt:          time.Now().UTC(),
+	}
 }
 
 // dispatchDirect applies op in this process, with this process's own privileges.

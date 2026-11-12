@@ -1,0 +1,74 @@
+[
+    {
+        "name": "empty list payload",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "[]",
+        "digest": "sha256:20dd0d889ecade91d32e423962262ef8b8eed5535b05065b6d39d0b3aa9d6bb5"
+    },
+    {
+        "name": "key order and nesting",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"b\":1,\"a\":{\"z\":true,\"y\":null,\"x\":[3,2,1]}}",
+        "digest": "sha256:8b922d157635da90c8912666470b3dcbbf37a691fc742b7cc4aa8e35e3af8ecd"
+    },
+    {
+        "name": "escaped slash and unicode on the wire",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"path\":\"\\/var\\/www\",\"name\":\"Résumé ☃ 😀\"}",
+        "digest": "sha256:273fb90f281c0b68d84f088f64bb33f51e783686e9164d9903a905319e759099"
+    },
+    {
+        "name": "raw unicode on the wire",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"name\":\"Résumé ☃ 😀\"}",
+        "digest": "sha256:ee2fe6cc7efc012b71b3f4c85681e06c275943445f79ef8b1c106e67ec513650"
+    },
+    {
+        "name": "control characters and quotes",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"s\":\"tab\\there\\nline \\\"q\\\" back\\\\slash \\u0001 \\u007f\"}",
+        "digest": "sha256:920641d19374486661cc7b42f996626eaf1dc3a326ab97b5ac91425aa2d977a9"
+    },
+    {
+        "name": "numbers",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"n\":[0,-1,12345678901,1.5,10,1.0e+25,0.30000000000000004]}",
+        "digest": "sha256:689fbddb5c6cc36a19ae698563b9601d2c6bdc2bee98d5005061c7190b8aef97"
+    },
+    {
+        "name": "numeric-looking keys",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "{\"b\":{\"10\":\"x\",\"9\":\"y\",\"a\":\"z\"}}",
+        "digest": "sha256:6de7a1b978677e2b5d4c50561cc2d4da988dbc95338ab862b8b82d862a4afdc1"
+    },
+    {
+        "name": "list of objects",
+        "capability": "web.nginx.v1",
+        "operation": "update",
+        "resource_id": "11111111-1111-1111-1111-111111111111",
+        "desired_state_version": 7,
+        "payload_wire": "[{\"k\":\"v\",\"a\":1},{\"a\":2}]",
+        "digest": "sha256:2d7aa9d831aa148ac4745e4a8195b0e588332b923797424289d05cdb31470ef8"
+    }
+]

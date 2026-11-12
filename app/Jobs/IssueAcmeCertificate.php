@@ -21,6 +21,7 @@ use App\Models\ProvisioningOperation;
 use App\Models\WebDomain;
 use App\Services\Acme\AcmeClientFactory;
 use App\Services\Provisioning\ProvisioningResult;
+use App\Services\Provisioning\RequestDigest;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -371,9 +372,7 @@ class IssueAcmeCertificate implements ShouldQueue
                 'correlation_id' => (string) Str::uuid(),
                 'idempotency_key' => (string) Str::uuid(),
                 'issued_at' => now(),
-                'request_digest' => 'sha256:'.hash('sha256', json_encode([
-                    $capability, $operation->value, $resourceId, $desiredStateVersion, $payload,
-                ], JSON_THROW_ON_ERROR)),
+                'request_digest' => RequestDigest::for($capability, $operation->value, $resourceId, $desiredStateVersion, $payload),
             ]);
 
             $row->forceFill([

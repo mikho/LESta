@@ -870,6 +870,71 @@ function ServicesSection({ node }: { node: Node }) {
 }
 
 /**
+ * The node's ssh port. It is open on every node, as recovery access; closing it also stops SFTP for
+ * every account on the node. Sessions already open are left alone, and the node polls the panel, so
+ * the panel can always open the port again.
+ */
+function SshAccessSection({ node }: { node: Node }) {
+    const open = node.ssh_open ?? true;
+    const [busy, setBusy] = useState(false);
+    const [confirm, confirmDialog] = useConfirm();
+
+    async function change(nextOpen: boolean) {
+        if (
+            !nextOpen &&
+            !(await confirm({
+                title: `Close ssh on ${node.name}?`,
+                description:
+                    'Nobody can connect to port 22 on this node until it is opened here again, and SFTP stops for every account on it. Sessions that are already open stay open.',
+                confirmLabel: 'Close ssh',
+                destructive: true,
+            }))
+        ) {
+            return;
+        }
+
+        setBusy(true);
+        router.put(
+            NodeServiceController.updateSsh.url({ node: node.uuid }),
+            { open: nextOpen },
+            { preserveScroll: true, onFinish: () => setBusy(false) },
+        );
+    }
+
+    return (
+        <div className="space-y-4 rounded-lg border p-4">
+            {confirmDialog}
+            <Heading
+                variant="small"
+                title="SSH access"
+                description="Port 22 is open on every node as recovery access. The node changes its own firewall, and the page shows the port as the node last reported it."
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <div className="flex items-center gap-2">
+                    <span
+                        aria-hidden
+                        className={`inline-block size-2 shrink-0 rounded-full ${open ? 'bg-green-500' : 'bg-red-500'}`}
+                    />
+                    <span className="font-medium">
+                        Port 22 is {open ? 'open' : 'closed'}
+                    </span>
+                </div>
+
+                <Button
+                    size="sm"
+                    variant={open ? 'destructive' : 'outline'}
+                    disabled={busy}
+                    onClick={() => change(!open)}
+                >
+                    {open ? 'Close ssh' : 'Open ssh'}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+/**
  * Removing one LESta service from the node (owner's decision: refused while customer resources on
  * the node use it or another installed service needs it). The node's maintenance applier runs the
  * installer's remove mode; a stateful service's data is moved aside on the node, never deleted.
@@ -1162,6 +1227,8 @@ export default function Edit({
                 <ToolsAddress node={node} />
 
                 <ServicesSection node={node} />
+
+                <SshAccessSection node={node} />
 
                 <InstalledServicesSection node={node} />
 

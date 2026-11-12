@@ -6,6 +6,7 @@ use App\Enums\ProvisioningStatus;
 use App\Enums\ProvisioningVerb;
 use App\Jobs\DispatchProvisioningOperation;
 use App\Models\ProvisioningOperation;
+use App\Services\Provisioning\RequestDigest;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
@@ -43,9 +44,7 @@ class RecordsProvisioningOperation
             'correlation_id' => $correlationId,
             'idempotency_key' => (string) Str::uuid(),
             'issued_at' => now(),
-            'request_digest' => 'sha256:'.hash('sha256', json_encode([
-                $capability, $operation->value, $resourceId, $desiredStateVersion, $payload,
-            ], JSON_THROW_ON_ERROR)),
+            'request_digest' => RequestDigest::for($capability, $operation->value, $resourceId, $desiredStateVersion, $payload),
         ]);
 
         DispatchProvisioningOperation::dispatch($row->id)->afterCommit();

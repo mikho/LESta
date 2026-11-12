@@ -83,6 +83,7 @@ export type Node = {
     suspended_at: string | null;
     suspension_source: SuspensionSource | null;
     backups_scheduled?: boolean;
+    ssh_open?: boolean;
     capabilities_count?: number;
     capabilities?: NodeCapability[];
     services?: NodeService[];

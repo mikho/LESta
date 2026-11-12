@@ -375,6 +375,7 @@ class NodeController extends Controller
             'suspended_at' => $node->suspended_at?->toIso8601String(),
             'suspension_source' => $node->suspension_source?->value,
             'backups_scheduled' => $node->backups_scheduled,
+            'ssh_open' => $node->ssh_open,
             'tools' => $this->presentTools($node),
             'services' => $this->presentServices($node),
             'installed_services' => $this->presentInstalledServices($node),

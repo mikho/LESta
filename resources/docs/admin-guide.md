@@ -138,6 +138,10 @@ The node's own LESta services (its appliers and firewall), `ssh` and the panel's
 
 The node carries the action out a moment later; the row shows "stop requested" until it has, then the new state. Every action is recorded in the audit log. Provider admins with `nodes.update` and the node's own admins can do this.
 
+### SSH access: open and close port 22
+
+Port 22 is open on every node as recovery access. Under **SSH access** on the node page, **Close ssh** has the node's agent drop new connections to port 22, and **Open ssh** lifts that. Closing also stops SFTP for every account on the node, so it asks first. Sessions that are already open stay open, and the closed state survives a reboot. This cannot cut the panel off from the node: the agent reaches the panel by polling it, so the panel can always open the port again. The page shows the port as the node last reported it, and this needs agent 1.0.92 or later on the node.
+
 ### Installed services: uninstall
 
 Under **Installed services**, each LESta service on the node (nginx, Apache, BIND, MariaDB, cron, mail, backups, PHP-FPM, Adminer, webmail) has an **Uninstall** button. Removing one stops it, purges its packages and removes its firewall ports and configuration on the node. Cron is the exception for the package: the OS's own cron and its other jobs stay, only LESta's cron jobs and state go. For MariaDB, mail, backups and webmail the data is moved aside on the node (to `<data directory>-removed-<time>`), never deleted, so it can be recovered by hand. Confirm by typing the node's name.

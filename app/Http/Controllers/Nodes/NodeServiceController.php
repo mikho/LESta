@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Nodes;
 
 use App\Actions\Nodes\ControlNodeService;
+use App\Actions\Nodes\SetNodeSshAccess;
 use App\Actions\Nodes\UninstallNodeService;
 use App\Http\Controllers\Controller;
 use App\Models\Node;
@@ -21,6 +22,22 @@ class NodeServiceController extends Controller
 
         $verb = ['start' => 'Starting', 'stop' => 'Stopping', 'restart' => 'Restarting'][$action];
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':verb :unit on :node. The state updates when the node reports back.', ['verb' => $verb, 'unit' => $unit, 'node' => $node->name])]);
+
+        return back();
+    }
+
+    /**
+     * Open or close the node's ssh port.
+     */
+    public function updateSsh(Request $request, Node $node): RedirectResponse
+    {
+        $open = $request->validate(['open' => ['required', 'boolean']])['open'];
+
+        app(SetNodeSshAccess::class)->handle($request->user(), $node, (bool) $open);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => $open
+            ? __('Opening ssh on :node. The page shows it open once the node reports back.', ['node' => $node->name])
+            : __('Closing ssh on :node. The page shows it closed once the node reports back.', ['node' => $node->name])]);
 
         return back();
     }

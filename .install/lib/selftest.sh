@@ -22,14 +22,15 @@ selftest_new_uuid() {
 }
 
 # selftest_envelope <capability> <operation> <resource_id> <idem> <corr> <desired_state_version> <payload>
-# -> a complete OperationEnvelope JSON object for the given operation.
+# -> a complete OperationEnvelope JSON object for the given operation. It carries no request_digest:
+# the agent's one-shot stdin mode computes it, which shell cannot do (the digest covers a canonical
+# serialization of the payload).
 selftest_envelope() {
     local capability="$1" operation="$2" resource_id="$3" idem="$4" corr="$5" dsv="$6" payload="$7"
-    local issued_at deadline request_digest
+    local issued_at deadline
 
     issued_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     deadline=$(date -u -d '+30 seconds' +%Y-%m-%dT%H:%M:%SZ)
-    request_digest="sha256:$(printf '%s' "${payload}" | sha256sum | awk '{print $1}')"
 
     json_join_object \
         "$(json_kv_str "protocol_version" "1")" \
@@ -41,7 +42,6 @@ selftest_envelope() {
         "$(json_kv_str "correlation_id" "${corr}")" \
         "$(json_kv_str "deadline" "${deadline}")" \
         "$(json_kv_str "issued_at" "${issued_at}")" \
-        "$(json_kv_str "request_digest" "${request_digest}")" \
         "$(json_kv_raw "payload" "${payload}")"
 }
 

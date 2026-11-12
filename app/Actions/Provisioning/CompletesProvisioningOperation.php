@@ -24,6 +24,7 @@ class CompletesProvisioningOperation
         private CascadesRestoreIntoResync $cascadesRestoreIntoResync,
         private RecordsAccountBackupResult $recordsAccountBackupResult,
         private RecordsNodeServiceState $recordsNodeServiceState,
+        private RecordsNodeSshAccess $recordsNodeSshAccess,
         private RecordsNodeServiceRemoval $recordsNodeServiceRemoval,
         private RecordsAgentUpgradeResult $recordsAgentUpgradeResult,
     ) {}
@@ -72,6 +73,7 @@ class CompletesProvisioningOperation
             $this->cascadesRestoreIntoResync,
             $this->recordsAccountBackupResult,
             $this->recordsNodeServiceState,
+            $this->recordsNodeSshAccess,
             $this->recordsNodeServiceRemoval,
             $this->recordsAgentUpgradeResult,
             // Last, so the events see every record above as already updated.

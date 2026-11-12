@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Carbon;
 
 /**
- * One start, stop or restart of a service on a node, asked for in the panel and carried out by the
+ * One start, stop or restart of a service on a node (or one opening or closing of its ssh port), asked for in the panel and carried out by the
  * node's root applier (node.service-control.v1). Only the customer-facing services are on the list;
  * the node's own LESta units, ssh and the control plane's database never are.
  *
@@ -21,7 +21,7 @@ use Illuminate\Support\Carbon;
  * @property int $node_id
  * @property int|null $user_id
  * @property string $unit
- * @property string $action start, stop, restart, or uninstall (unit is then an installer service)
+ * @property string $action start, stop, restart, open or close (ssh port), or uninstall (unit is then an installer service)
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -35,6 +35,14 @@ class NodeServiceAction extends Model
 
     /** Removing a whole LESta service (the node's maintenance applier); unit then holds the service. */
     public const string UNINSTALL_CAPABILITY = 'node.service-uninstall.v1';
+
+    /**
+     * Opening or closing the node's ssh port (node.ssh-access.v1). The action then is open or close
+     * and the unit is SSH_UNIT: the ssh service itself is never started or stopped from here.
+     */
+    public const string SSH_CAPABILITY = 'node.ssh-access.v1';
+
+    public const string SSH_UNIT = 'ssh';
 
     public const array ACTIONS = ['start', 'stop', 'restart'];
 
