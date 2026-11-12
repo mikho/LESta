@@ -664,10 +664,9 @@ jobs:
           password=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
           # envelope <operation> <desired_state_version> <payload>
           envelope() {
-            printf '{"protocol_version":"1","capability":"database.tenant.v1","operation":"%s","resource_id":"%s","desired_state_version":%s,"idempotency_key":"%s","correlation_id":"%s","deadline":"%s","issued_at":"%s","request_digest":"sha256:%s","payload":%s}' \
+            printf '{"protocol_version":"1","capability":"database.tenant.v1","operation":"%s","resource_id":"%s","desired_state_version":%s,"idempotency_key":"%s","correlation_id":"%s","deadline":"%s","issued_at":"%s","payload":%s}' \
               "$1" "${resource}" "$2" "$(cat /proc/sys/kernel/random/uuid)" "$(cat /proc/sys/kernel/random/uuid)" \
-              "$(date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              "$(printf '%s' "$3" | sha256sum | cut -d' ' -f1)" "$3"
+              "$(date -u -d '+60 seconds' +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3"
           }
           base='"database_name":"lesta_0_ciremote","database_user":"lesta_0_ciremote","stats_user":"lesta_0_ciremote_ro"'
           create="{${base},\"password\":\"${password}\",\"stats_password\":\"${password}\",\"users\":[{\"name\":\"lesta_0_ciremote_report\",\"access\":\"read_only\",\"password\":\"${password}\",\"remote_hosts\":[\"203.0.113.5\",\"2001:db8::5\"]}],\"tls_hostname\":\"${host}\",\"suspended\":false}"
@@ -843,7 +842,6 @@ jobs:
       - name: "Real proof: a message containing the EICAR test string is rejected by clamd, GTUBE by spamd, and a clean message still gets through"
         run: |
           sudo tee /tmp/av-spam-proof.py > /dev/null <<'PYEOF'
-          import hashlib
           import json
           import secrets
           import uuid
@@ -866,8 +864,6 @@ jobs:
 
 
           def envelope(operation, resource_id, dsv, payload):
-              payload_json = json.dumps(payload, separators=(",", ":"))
-              digest = hashlib.sha256(payload_json.encode()).hexdigest()
               now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
               deadline = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 30))
               return {
@@ -880,7 +876,6 @@ jobs:
                   "correlation_id": secrets.token_hex(16),
                   "deadline": deadline,
                   "issued_at": now,
-                  "request_digest": f"sha256:{digest}",
                   "payload": payload,
               }
 
