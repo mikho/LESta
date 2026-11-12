@@ -29,7 +29,7 @@ class SuspendDnsZone
 
         DB::transaction(function () use ($actor, $dnsZone, $source): void {
             $dnsZone->suspend($source);
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             // Cascade: only records that are currently active get cascade-suspended. A record
             // already suspended for any reason (including manually) is left untouched, so its

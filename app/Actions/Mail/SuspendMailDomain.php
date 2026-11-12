@@ -29,7 +29,7 @@ class SuspendMailDomain
 
         DB::transaction(function () use ($actor, $mailDomain, $source): void {
             $mailDomain->suspend($source);
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             // Cascade: only accounts that are currently active get cascade-suspended. An account
             // already suspended for any reason (including manually) is left untouched, so its

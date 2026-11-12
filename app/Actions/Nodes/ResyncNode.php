@@ -62,7 +62,7 @@ class ResyncNode
                 DB::transaction(function () use ($node, $webDomain, $correlationId): void {
                     $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($node, $webDomain->web_server->value);
 
-                    $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
+                    $webDomain->bumpDesiredStateVersion();
 
                     foreach ($capabilities as $capability) {
                         app(RecordsProvisioningOperation::class)->record(
@@ -92,7 +92,7 @@ class ResyncNode
         foreach ($node->dnsZones()->get() as $dnsZone) {
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($node);
 
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             app(RecordsProvisioningOperation::class)->record(
                 $dnsZone,
@@ -110,7 +110,7 @@ class ResyncNode
         foreach ($node->cronJobs()->get() as $cronJob) {
             $capability = app(ResolvesCronCapableNode::class)->resolveFor($node);
 
-            $cronJob->forceFill(['desired_state_version' => $cronJob->desired_state_version + 1])->save();
+            $cronJob->bumpDesiredStateVersion();
 
             app(RecordsProvisioningOperation::class)->record(
                 $cronJob,
@@ -136,7 +136,7 @@ class ResyncNode
         foreach ($node->mailDomains()->get() as $mailDomain) {
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($node);
 
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             $passwordsByAccountId = $mailDomain->accounts()->get()
                 ->mapWithKeys(fn (MailAccount $account): array => [$account->id => $account->password])

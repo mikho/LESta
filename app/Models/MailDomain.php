@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasDesiredState;
 use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
 use App\Enums\SuspensionSource;
@@ -52,7 +53,7 @@ use RuntimeException;
 class MailDomain extends Model
 {
     /** @use HasFactory<MailDomainFactory> */
-    use HasFactory, HasUuid, Suspendable;
+    use HasDesiredState, HasFactory, HasUuid, Suspendable;
 
     /**
      * Get the attributes that should be cast.

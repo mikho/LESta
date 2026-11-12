@@ -135,7 +135,7 @@ class PublishesDkimDnsRecord
 
             AuditEvent::record($record, $action, null, $correlationId);
 
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
 

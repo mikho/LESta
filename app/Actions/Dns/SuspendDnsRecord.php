@@ -29,7 +29,7 @@ class SuspendDnsRecord
             // Standalone record suspension (not part of a zone cascade): the zone itself does
             // not transition, so this is recorded as an Update against the zone, not a Suspend.
             $dnsZone = $dnsRecord->dnsZone;
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
             $correlationId = (string) Str::uuid();

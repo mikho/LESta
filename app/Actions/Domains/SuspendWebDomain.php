@@ -28,7 +28,7 @@ class SuspendWebDomain
 
         DB::transaction(function () use ($actor, $webDomain, $source): void {
             $webDomain->suspend($source);
-            $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
+            $webDomain->bumpDesiredStateVersion();
 
             $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();

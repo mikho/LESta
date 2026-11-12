@@ -25,7 +25,7 @@ class RecordsTenantDatabaseUserChange
      */
     public function record(User $actor, TenantDatabase $tenantDatabase, TenantDatabaseUser $databaseUser, string $action, ?string $plaintextPassword = null): void
     {
-        $tenantDatabase->forceFill(['desired_state_version' => $tenantDatabase->desired_state_version + 1])->save();
+        $tenantDatabase->bumpDesiredStateVersion();
 
         $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
         $correlationId = (string) Str::uuid();

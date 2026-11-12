@@ -28,7 +28,7 @@ class UnsuspendDnsRecord
             // Standalone record unsuspension: recorded as an Update against the zone, not an
             // Unsuspend, since the zone itself does not transition.
             $dnsZone = $dnsRecord->dnsZone;
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             $capability = app(ResolvesDnsCapableNode::class)->resolveFor($dnsZone->node);
             $correlationId = (string) Str::uuid();

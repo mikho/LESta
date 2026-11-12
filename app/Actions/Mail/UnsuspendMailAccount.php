@@ -28,7 +28,7 @@ class UnsuspendMailAccount
             // Standalone account unsuspension: recorded as an Update against the domain, not an
             // Unsuspend, since the domain itself does not transition.
             $mailDomain = $mailAccount->mailDomain;
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();

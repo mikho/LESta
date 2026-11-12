@@ -24,7 +24,7 @@ class UnsuspendWebDomain
 
         DB::transaction(function () use ($actor, $webDomain): void {
             $webDomain->unsuspend();
-            $webDomain->forceFill(['desired_state_version' => $webDomain->desired_state_version + 1])->save();
+            $webDomain->bumpDesiredStateVersion();
 
             $capabilities = app(ResolvesWebCapableNode::class)->resolveFor($webDomain->node, $webDomain->web_server->value);
             $correlationId = (string) Str::uuid();

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasDesiredState;
 use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
 use App\Enums\NodeCapabilityType;
@@ -49,7 +50,7 @@ use RuntimeException;
 class WebDomain extends Model
 {
     /** @use HasFactory<WebDomainFactory> */
-    use HasFactory, HasUuid, Suspendable;
+    use HasDesiredState, HasFactory, HasUuid, Suspendable;
 
     /**
      * Mirrors the column default, so a model created in memory reads the same as one loaded.

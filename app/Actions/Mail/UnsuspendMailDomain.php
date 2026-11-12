@@ -25,7 +25,7 @@ class UnsuspendMailDomain
 
         DB::transaction(function () use ($actor, $mailDomain): void {
             $mailDomain->unsuspend();
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             // Reactivate only cascade-sourced accounts; a manually-suspended account stays
             // suspended through a domain-level unsuspend.

@@ -24,7 +24,7 @@ class UnsuspendTenantDatabase
 
         DB::transaction(function () use ($actor, $tenantDatabase): void {
             $tenantDatabase->unsuspend();
-            $tenantDatabase->forceFill(['desired_state_version' => $tenantDatabase->desired_state_version + 1])->save();
+            $tenantDatabase->bumpDesiredStateVersion();
 
             $capability = app(ResolvesTenantDatabaseCapableNode::class)->resolveFor($tenantDatabase->node);
             $correlationId = (string) Str::uuid();

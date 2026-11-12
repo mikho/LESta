@@ -25,7 +25,7 @@ class UnsuspendDnsZone
 
         DB::transaction(function () use ($actor, $dnsZone): void {
             $dnsZone->unsuspend();
-            $dnsZone->forceFill(['desired_state_version' => $dnsZone->desired_state_version + 1])->save();
+            $dnsZone->bumpDesiredStateVersion();
 
             // Reactivate only cascade-sourced records; a manually-suspended record stays
             // suspended through a zone-level unsuspend.

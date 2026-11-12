@@ -30,7 +30,7 @@ class SuspendMailAccount
             // does not transition, so this is recorded as an Update against the domain, not a
             // Suspend, mirroring DnsRecord's own identical precedent.
             $mailDomain = $mailAccount->mailDomain;
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();

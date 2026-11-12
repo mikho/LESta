@@ -27,7 +27,7 @@ class RotateMailAccountPassword
             $mailAccount->forceFill(['password' => $password])->save();
 
             $mailDomain = $mailAccount->mailDomain;
-            $mailDomain->forceFill(['desired_state_version' => $mailDomain->desired_state_version + 1])->save();
+            $mailDomain->bumpDesiredStateVersion();
 
             $capability = app(ResolvesMailCapableNode::class)->resolveFor($mailDomain->node);
             $correlationId = (string) Str::uuid();

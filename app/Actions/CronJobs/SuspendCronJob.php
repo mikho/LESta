@@ -28,7 +28,7 @@ class SuspendCronJob
 
         DB::transaction(function () use ($actor, $cronJob, $source): void {
             $cronJob->suspend($source);
-            $cronJob->forceFill(['desired_state_version' => $cronJob->desired_state_version + 1])->save();
+            $cronJob->bumpDesiredStateVersion();
 
             $capability = app(ResolvesCronCapableNode::class)->resolveFor($cronJob->node);
             $correlationId = (string) Str::uuid();
