@@ -10,6 +10,7 @@ import {
 } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ProvisioningBadge } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -85,21 +86,6 @@ const manualCapabilityStatusOptions: {
     { value: 'not_installed', label: 'Reset to not installed' },
 ];
 
-const operationStatusBadgeClasses: Record<string, string> = {
-    pending:
-        'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
-    dispatched:
-        'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    already_applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    degraded:
-        'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-};
-
 function OperationRow({ operation }: { operation: NodeProvisioningOperation }) {
     return (
         <details className="rounded-lg border p-3">
@@ -107,11 +93,7 @@ function OperationRow({ operation }: { operation: NodeProvisioningOperation }) {
                 <span className="text-sm">
                     {operation.capability} · {operation.operation}
                 </span>
-                <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${operationStatusBadgeClasses[operation.status] ?? ''}`}
-                >
-                    {operation.status.replace('_', ' ')}
-                </span>
+                <ProvisioningBadge status={operation.status} />
             </summary>
 
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">

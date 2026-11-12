@@ -11,10 +11,10 @@ import type {
 } from '@/components/customer-resource-index';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { OwnResourceList } from '@/components/own-resource-list';
-import type { Paginated } from '@/components/own-resource-list';
 import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import customerResources from '@/routes/customer-resources';
 import dns from '@/routes/dns';
+import type { Paginated } from '@/types';
 import type { DnsZone } from '@/types';
 
 /**

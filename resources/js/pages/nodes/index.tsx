@@ -5,16 +5,7 @@ import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import nodes from '@/routes/nodes';
-import type { Node } from '@/types';
-
-type PaginatedNodes = {
-    data: Node[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
+import type { Node, Paginated } from '@/types';
 
 const enrollmentBadgeClasses: Record<Node['enrollment_status'], string> = {
     pending:
@@ -38,7 +29,7 @@ export default function Index({
     nodes: paginatedNodes,
     search: initialSearch,
 }: {
-    nodes: PaginatedNodes;
+    nodes: Paginated<Node>;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);

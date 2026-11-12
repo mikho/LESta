@@ -10,11 +10,11 @@ import type {
 } from '@/components/customer-resource-index';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { OwnResourceList } from '@/components/own-resource-list';
-import type { Paginated } from '@/components/own-resource-list';
 import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import { describeSchedule } from '@/lib/cron-schedule';
 import cronJobs from '@/routes/cron-jobs';
 import customerResources from '@/routes/customer-resources';
+import type { Paginated } from '@/types';
 import type { CronJob } from '@/types';
 
 export default function Index({

@@ -16,16 +16,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
+import type { Paginated } from '@/types';
 import type { RouteDefinition, RouteFormDefinition } from '@/wayfinder';
-
-export type Paginated<T> = {
-    data: T[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
 
 type Confirmation = {
     form: RouteFormDefinition<'post' | 'patch' | 'put' | 'delete'>;

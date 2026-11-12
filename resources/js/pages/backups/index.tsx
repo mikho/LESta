@@ -2,6 +2,7 @@ import { Form, Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import BackupController from '@/actions/App/Http/Controllers/Backups/BackupController';
 import Heading from '@/components/heading';
+import { ProvisioningBadge } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -15,47 +16,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { formatBytes } from '@/lib/format';
 import backups from '@/routes/backups';
-import type { Backup } from '@/types';
-
-type PaginatedBackups = {
-    data: Backup[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
-
-const statusBadgeClasses: Record<Backup['status'], string> = {
-    pending:
-        'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
-    dispatched:
-        'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    already_applied:
-        'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-    rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    degraded:
-        'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-};
-
-function StatusBadge({ status }: { status: Backup['status'] }) {
-    return (
-        <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses[status]}`}
-        >
-            {status.replace('_', ' ')}
-        </span>
-    );
-}
+import type { Backup, Paginated } from '@/types';
 
 export default function Index({
     backups: paginatedBackups,
     search: initialSearch,
 }: {
-    backups: PaginatedBackups;
+    backups: Paginated<Backup>;
     search: string;
 }) {
     const [search, setSearch] = useState(initialSearch);
@@ -149,7 +116,9 @@ export default function Index({
                                         {backup.node_name}
                                     </td>
                                     <td className="px-4 py-2">
-                                        <StatusBadge status={backup.status} />
+                                        <ProvisioningBadge
+                                            status={backup.status}
+                                        />
                                         {backup.error_message && (
                                             <div
                                                 className="mt-1 max-w-xs truncate text-xs text-red-600 dark:text-red-400"

@@ -10,12 +10,12 @@ import type {
 } from '@/components/customer-resource-index';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { OwnResourceList } from '@/components/own-resource-list';
-import type { Paginated } from '@/components/own-resource-list';
 import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import customerResources from '@/routes/customer-resources';
 import domains from '@/routes/domains';
 import { index as ipRulesIndex } from '@/routes/ip-rules';
+import type { Paginated } from '@/types';
 import type { WebDomain } from '@/types';
 
 const sslModeLabels: Record<WebDomain['ssl_mode'], string> = {

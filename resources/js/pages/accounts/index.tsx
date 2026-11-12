@@ -5,23 +5,14 @@ import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import accounts from '@/routes/accounts';
-import type { Account } from '@/types';
-
-type PaginatedAccounts = {
-    data: Account[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
+import type { Account, Paginated } from '@/types';
 
 export default function Index({
     accounts: paginatedAccounts,
     search: initialSearch,
     canCreate,
 }: {
-    accounts: PaginatedAccounts;
+    accounts: Paginated<Account>;
     search: string;
     canCreate: boolean;
 }) {

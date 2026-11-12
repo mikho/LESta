@@ -11,10 +11,10 @@ import type {
 } from '@/components/customer-resource-index';
 import { NoAccountNotice } from '@/components/no-account-notice';
 import { OwnResourceList } from '@/components/own-resource-list';
-import type { Paginated } from '@/components/own-resource-list';
 import { QuietProvisioningStatus } from '@/components/provisioning-badge';
 import customerResources from '@/routes/customer-resources';
 import mail from '@/routes/mail';
+import type { Paginated } from '@/types';
 import type { MailDomain } from '@/types';
 
 export default function Index({

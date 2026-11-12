@@ -10,19 +10,11 @@ import { formatBytes, formatDateTime, formatRelative } from '@/lib/format';
 import accounts from '@/routes/accounts';
 import usage from '@/routes/usage';
 import type {
+    Paginated,
     UsageResourceType,
     UsageSnapshot,
     UsageSnapshotRollup,
 } from '@/types';
-
-type Paginated<T> = {
-    data: T[];
-    current_page: number;
-    last_page: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-    total: number;
-};
 
 const resourceTypeLabels: Record<UsageResourceType, string> = {
     mail_account: 'Mailbox',

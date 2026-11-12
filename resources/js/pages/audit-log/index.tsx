@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import auditLog from '@/routes/audit-log';
+import type { Paginated } from '@/types';
 
 type AuditEntry = {
     id: number;
@@ -14,13 +15,6 @@ type AuditEntry = {
     actor: { name: string; email: string | null } | null;
     via: { kind: 'panel' | 'api' | 'system'; token: string | null };
     ip_address: string | null;
-};
-
-type Paginated<T> = {
-    data: T[];
-    total: number;
-    prev_page_url: string | null;
-    next_page_url: string | null;
 };
 
 type Props = {
