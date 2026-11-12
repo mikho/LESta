@@ -319,8 +319,7 @@ class NodeController extends Controller
             'hostname' => $node->hostname,
             'enrollment_status' => $node->enrollment_status->value,
             'last_seen_at' => $node->last_seen_at?->toIso8601String(),
-            'suspended_at' => $node->suspended_at?->toIso8601String(),
-            'suspension_source' => $node->suspension_source?->value,
+            ...$node->suspensionProps(),
             'capabilities_count' => $node->capabilities_count,
         ];
     }
@@ -372,8 +371,7 @@ class NodeController extends Controller
             'agent_version' => $node->agent_version,
             'last_seen_at' => $node->last_seen_at?->toIso8601String(),
             'agent_reachable' => $node->isAgentReachable(),
-            'suspended_at' => $node->suspended_at?->toIso8601String(),
-            'suspension_source' => $node->suspension_source?->value,
+            ...$node->suspensionProps(),
             'backups_scheduled' => $node->backups_scheduled,
             'ssh_open' => $node->ssh_open,
             'tools' => $this->presentTools($node),
@@ -526,8 +524,7 @@ class NodeController extends Controller
             'capability' => $capability->capability,
             'status' => $capability->status->value,
             'supports_status_tracking' => $type?->supportsStatusTracking() ?? true,
-            'suspended_at' => $capability->suspended_at?->toIso8601String(),
-            'suspension_source' => $capability->suspension_source?->value,
+            ...$capability->suspensionProps(),
             'last_seen_at' => $capability->last_seen_at?->toIso8601String(),
             // Resolution order: an admin's own suspend action is authoritative and always wins,
             // even if the node is currently unreachable; otherwise, an unreachable agent collapses

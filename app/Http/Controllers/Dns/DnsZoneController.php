@@ -189,8 +189,7 @@ class DnsZoneController extends Controller
             'uuid' => $dnsZone->uuid,
             'domain' => $dnsZone->domain,
             'ttl' => $dnsZone->ttl,
-            'suspended_at' => $dnsZone->suspended_at?->toIso8601String(),
-            'suspension_source' => $dnsZone->suspension_source?->value,
+            ...$dnsZone->suspensionProps(),
             ...$this->provisioningProps($dnsZone->latestProvisioningOperation),
             'records_count' => $dnsZone->records_count,
         ];
@@ -207,8 +206,7 @@ class DnsZoneController extends Controller
             'uuid' => $dnsZone->uuid,
             'domain' => $dnsZone->domain,
             'ttl' => $dnsZone->ttl,
-            'suspended_at' => $dnsZone->suspended_at?->toIso8601String(),
-            'suspension_source' => $dnsZone->suspension_source?->value,
+            ...$dnsZone->suspensionProps(),
             ...$this->provisioningProps($dnsZone->latestProvisioningOperation),
             'records' => $dnsZone->records->map(fn (DnsRecord $record): array => $this->presentRecord($record))->all(),
         ];
@@ -227,8 +225,7 @@ class DnsZoneController extends Controller
             'type' => $record->type->value,
             'priority' => $record->priority,
             'value' => $record->value,
-            'suspended_at' => $record->suspended_at?->toIso8601String(),
-            'suspension_source' => $record->suspension_source?->value,
+            ...$record->suspensionProps(),
         ];
     }
 }

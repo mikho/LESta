@@ -193,8 +193,7 @@ class CronJobController extends Controller
             'month' => $cronJob->month,
             'day_of_week' => $cronJob->day_of_week,
             'command' => $cronJob->command,
-            'suspended_at' => $cronJob->suspended_at?->toIso8601String(),
-            'suspension_source' => $cronJob->suspension_source?->value,
+            ...$cronJob->suspensionProps(),
             ...$this->provisioningProps($cronJob->latestProvisioningOperation),
         ];
     }
@@ -214,8 +213,7 @@ class CronJobController extends Controller
             'month' => $cronJob->month,
             'day_of_week' => $cronJob->day_of_week,
             'command' => $cronJob->command,
-            'suspended_at' => $cronJob->suspended_at?->toIso8601String(),
-            'suspension_source' => $cronJob->suspension_source?->value,
+            ...$cronJob->suspensionProps(),
             ...$this->provisioningProps($cronJob->latestProvisioningOperation),
             'executions' => $cronJob->executions->map(fn (CronJobExecution $e): array => [
                 'started_at' => $e->started_at->toIso8601String(),

@@ -224,8 +224,7 @@ class TenantDatabaseController extends Controller
             'uuid' => $tenantDatabase->uuid,
             'label' => $tenantDatabase->label,
             'database_name' => $tenantDatabase->database_name,
-            'suspended_at' => $tenantDatabase->suspended_at?->toIso8601String(),
-            'suspension_source' => $tenantDatabase->suspension_source?->value,
+            ...$tenantDatabase->suspensionProps(),
             ...$this->provisioningProps($tenantDatabase->latestProvisioningOperation),
         ];
     }
@@ -245,8 +244,7 @@ class TenantDatabaseController extends Controller
             'label' => $tenantDatabase->label,
             'database_name' => $tenantDatabase->database_name,
             'database_user' => $tenantDatabase->database_user,
-            'suspended_at' => $tenantDatabase->suspended_at?->toIso8601String(),
-            'suspension_source' => $tenantDatabase->suspension_source?->value,
+            ...$tenantDatabase->suspensionProps(),
             ...$this->provisioningProps($tenantDatabase->latestProvisioningOperation),
         ];
     }

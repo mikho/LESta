@@ -23,6 +23,19 @@ trait Suspendable
     }
 
     /**
+     * The two suspension fields as every page receives them.
+     *
+     * @return array{suspended_at: string|null, suspension_source: string|null}
+     */
+    public function suspensionProps(): array
+    {
+        return [
+            'suspended_at' => $this->suspended_at?->toIso8601String(),
+            'suspension_source' => $this->suspension_source?->value,
+        ];
+    }
+
+    /**
      * Only what was suspended because its parent was (an account, a zone, a mail domain, a node),
      * which is what lifting the parent's suspension brings back.
      *

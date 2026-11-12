@@ -192,8 +192,7 @@ class MailDomainController extends Controller
             'antivirus_enabled' => $mailDomain->antivirus_enabled,
             'antispam_enabled' => $mailDomain->antispam_enabled,
             'dkim_enabled' => $mailDomain->dkim_enabled,
-            'suspended_at' => $mailDomain->suspended_at?->toIso8601String(),
-            'suspension_source' => $mailDomain->suspension_source?->value,
+            ...$mailDomain->suspensionProps(),
             ...$this->provisioningProps($mailDomain->latestProvisioningOperation),
             'accounts_count' => $mailDomain->accounts_count,
         ];
@@ -215,8 +214,7 @@ class MailDomainController extends Controller
             'dkim_selector' => $mailDomain->dkim_selector,
             'dkim_selector_activated_at' => $mailDomain->dkim_selector_activated_at?->toIso8601String(),
             'catchall_email' => $mailDomain->catchall_email,
-            'suspended_at' => $mailDomain->suspended_at?->toIso8601String(),
-            'suspension_source' => $mailDomain->suspension_source?->value,
+            ...$mailDomain->suspensionProps(),
             ...$this->provisioningProps($mailDomain->latestProvisioningOperation),
             'accounts' => $mailDomain->accounts->map(fn (MailAccount $account): array => $this->presentAccount($account))->all(),
         ];
@@ -241,8 +239,7 @@ class MailDomainController extends Controller
             'spam_sensitivity' => $account->spam_sensitivity,
             'spam_allow' => $account->spam_allow ?? [],
             'spam_block' => $account->spam_block ?? [],
-            'suspended_at' => $account->suspended_at?->toIso8601String(),
-            'suspension_source' => $account->suspension_source?->value,
+            ...$account->suspensionProps(),
         ];
     }
 }

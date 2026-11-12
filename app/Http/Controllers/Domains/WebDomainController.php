@@ -280,8 +280,7 @@ class WebDomainController extends Controller
             'certificate_issued_at' => $webDomain->certificate_issued_at?->toIso8601String(),
             'certificate_expires_at' => $webDomain->certificate_expires_at?->toIso8601String(),
             'last_certificate_error' => $webDomain->last_certificate_error,
-            'suspended_at' => $webDomain->suspended_at?->toIso8601String(),
-            'suspension_source' => $webDomain->suspension_source?->value,
+            ...$webDomain->suspensionProps(),
             ...$this->provisioningProps($webDomain->latestProvisioningOperation),
         ];
     }
