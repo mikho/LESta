@@ -64,6 +64,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/log.sh"
 # shellcheck source=../../lib/checkpoint.sh
 . "${INSTALL_ROOT}/lib/checkpoint.sh"
+# shellcheck source=../../lib/bootstrap.sh
+. "${INSTALL_ROOT}/lib/bootstrap.sh"
 # shellcheck source=../../lib/preflight.sh
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
@@ -429,10 +431,6 @@ run_preflight() {
 }
 
 # --- phase 1: bootstrap_webmail_identity ---------------------------------
-
-ensure_lesta_group() {
-    getent group lesta >/dev/null 2>&1 || groupadd --system lesta
-}
 
 bootstrap_webmail_identity() {
     log_info "bootstrap_webmail_identity: ensuring lesta-webmail system user/group"

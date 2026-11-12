@@ -64,6 +64,8 @@ REPO_ROOT=$(CDPATH='' cd -- "${INSTALL_ROOT}/.." && pwd)
 . "${INSTALL_ROOT}/lib/log.sh"
 # shellcheck source=../../lib/checkpoint.sh
 . "${INSTALL_ROOT}/lib/checkpoint.sh"
+# shellcheck source=../../lib/bootstrap.sh
+. "${INSTALL_ROOT}/lib/bootstrap.sh"
 # shellcheck source=../../lib/preflight.sh
 . "${INSTALL_ROOT}/lib/preflight.sh"
 # shellcheck source=../../lib/result.sh
@@ -307,30 +309,11 @@ run_preflight() {
     log_info "preflight passed"
 }
 
-# --- phase 1: bootstrap_base -------------------------------------------
-#
-# Identical to every other leaf-service installer's own bootstrap_base
-# (capability-agnostic). Duplicated rather than shared, matching this
-# project's own established "concrete shared lib files only" scope.
+# --- phase 1: bootstrap_base (lib/bootstrap.sh) ------------------------
 
-ensure_lesta_group() {
-    getent group lesta >/dev/null 2>&1 || groupadd --system lesta
-}
-
-bootstrap_base() {
-    log_info "bootstrap_base: ensuring lesta group/user and base directories"
-
-    ensure_lesta_group
-
-    if ! getent passwd lesta-agent >/dev/null 2>&1; then
-        useradd --system --gid lesta --home-dir /var/lib/lesta --no-create-home \
-            --shell /usr/sbin/nologin --comment "LESta node agent" lesta-agent \
-            || fail_step "${EXIT_MUTATION_FAILURE}" useradd_failed /etc/passwd "failed to create system user lesta-agent"
-        add_change base.os.v1 created /etc/passwd "created system user lesta-agent (via useradd, NSS-mediated)"
-    else
-        add_change base.os.v1 verified /etc/passwd "system user lesta-agent already exists"
-    fi
-
+# bootstrap_php_fpm_selftest_group
+# What this installer needs beyond the shared bootstrap_base, run right after it.
+bootstrap_php_fpm_selftest_group() {
     # lesta-agent's own primary group is the shared "lesta" group (every
     # other capability's own LiveDir permission model depends on that),
     # not a same-named private group the way a real per-account identity
@@ -352,19 +335,6 @@ bootstrap_base() {
     # a pool's socket (listen.group=www-data). The pool is applied, and that check made, by the root
     # applier now, so the membership is taken away (also on a node installed before).
     ratchet_leave_group lesta-agent www-data
-
-    install -d -m 0751 -o root -g lesta /etc/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /etc/lesta "failed to create /etc/lesta"
-    install -d -m 0751 -o root -g lesta /var/lib/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/lib/lesta "failed to create /var/lib/lesta"
-    install -d -m 0751 -o root -g lesta /var/log/lesta || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed /var/log/lesta "failed to create /var/log/lesta"
-    add_change base.os.v1 ensured /etc/lesta "directory present, mode 0751 root:lesta"
-    add_change base.layout.v1 ensured /var/lib/lesta "directory present, mode 0750 root:lesta"
-    add_change base.layout.v1 ensured /var/log/lesta "directory present, mode 0751 root:lesta (nginx workers pass through to reopen their logs)"
-
-    update-ca-certificates >/dev/null 2>&1 || true
-    add_change base.tls.v1 refreshed /etc/ssl/certs "update-ca-certificates run"
-
-    checkpoint_write bootstrap_base "${MANIFEST_DIGEST}"
-    log_info "bootstrap_base complete"
 }
 
 # --- phase 2: bootstrap_firewall_baseline ------------------------------
@@ -765,6 +735,7 @@ main() {
     log_info "preflight passed; beginning apply mutations"
 
     bootstrap_base
+    bootstrap_php_fpm_selftest_group
     install_php_fpm
     bootstrap_node_health
 
