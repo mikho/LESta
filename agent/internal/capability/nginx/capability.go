@@ -2,19 +2,18 @@
 // process-touching counterpart to internal/capability/fake. See payload.go for
 // the request shape and hostname validation, template.go and templates/* for
 // rendering, validate.go for the dotfile-staging + synthetic-config `nginx -t`
-// harness, activate.go for the atomic rename, reload.go for the reload command
+// harness, fragment.Dir for the atomic rename, reload.go for the reload command
 // and HTTP health check, and this file for wiring all six protocol operations
 // through one shared internal pipeline.
 package nginx
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"time"
 
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/opctx"
@@ -41,6 +40,16 @@ func New(cfg Config) *NginxCapability {
 		store:    generation.New(cfg.StateRoot + "/domains"),
 		receipts: idempotency.New(),
 	}
+}
+
+// dir is the live fragment directory.
+func (c *NginxCapability) dir() fragment.Dir {
+	return fragment.Dir{Path: c.cfg.LiveDir, Noun: "fragment"}
+}
+
+// results shapes this capability's result envelopes.
+func (c *NginxCapability) results() fragment.Results {
+	return fragment.Results{Store: c.store, LiveDir: c.cfg.LiveDir}
 }
 
 // Apply implements protocol.Capability.
@@ -75,7 +84,7 @@ func (c *NginxCapability) Apply(ctx context.Context, op protocol.OperationEnvelo
 	case protocol.OperationObserve:
 		result, err = c.observe(ctx, op)
 	default:
-		result, err = c.rejected(op, "unsupported_operation", fmt.Sprintf("operation %q is not supported", op.Operation), "")
+		result, err = c.results().Rejected(op, "unsupported_operation", fmt.Sprintf("operation %q is not supported", op.Operation), "")
 	}
 
 	if err != nil {
@@ -100,11 +109,11 @@ func (c *NginxCapability) Apply(ctx context.Context, op protocol.OperationEnvelo
 func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	if verr := checkResourceBindings(payload, op.ResourceID); verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -113,10 +122,10 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 	}
 
 	if requirePrior && !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 	if !requirePrior && hasCurrent {
-		return c.rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
+		return c.results().Rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
 	n, err := c.store.NextGeneration(op.ResourceID)
@@ -131,7 +140,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 	}
 
 	if len(payload.ProtectedDirs) > 0 && c.cfg.AuthDir == "" {
-		return c.rejected(op, "protected_directories_unavailable", "this node has no directory for protected-directory password files; rerun the nginx installer", "protected_dirs")
+		return c.results().Rejected(op, "protected_directories_unavailable", "this node has no directory for protected-directory password files; rerun the nginx installer", "protected_dirs")
 	}
 
 	if err := ensureLogFiles(c.cfg, filepath.Join(c.cfg.LogDir, op.ResourceID+".access.log"), filepath.Join(c.cfg.LogDir, op.ResourceID+".error.log")); err != nil {
@@ -176,18 +185,18 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 		return protocol.ResultEnvelope{}, err
 	}
 
-	stagingPath, err := c.writeStaging(op.ResourceID, content)
+	stagingPath, err := c.dir().WriteStaging(op.ResourceID, content)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, stagingPath); verr != nil {
-		c.discardStaging(op.ResourceID)
+		c.dir().DiscardStaging(op.ResourceID)
 
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.activateLive(op.ResourceID); err != nil {
+	if err := c.dir().ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -239,7 +248,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 
 	c.pruneAuthFiles(op.ResourceID, auth.Files)
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
 // applyDelete goes through the same rollback-capable pipeline as
@@ -250,7 +259,7 @@ func (c *NginxCapability) applyGeneration(ctx context.Context, op protocol.Opera
 func (c *NginxCapability) applyDelete(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -258,14 +267,14 @@ func (c *NginxCapability) applyDelete(ctx context.Context, op protocol.Operation
 		return protocol.ResultEnvelope{}, err
 	}
 	if !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, ""); verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.removeLive(op.ResourceID); err != nil {
+	if err := c.dir().RemoveLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -300,7 +309,7 @@ func (c *NginxCapability) applyDelete(ctx context.Context, op protocol.Operation
 		leftovers = append(leftovers, protocol.ResultError{Code: "data_not_removed", Message: problem})
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), leftovers)
 }
 
 // observe is read-only: it recomputes the whole-LiveDir digest and compares it
@@ -312,7 +321,7 @@ func (c *NginxCapability) observe(ctx context.Context, op protocol.OperationEnve
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
 	}
 
 	manifest, err := c.store.ReadManifest(op.ResourceID, n)
@@ -326,10 +335,10 @@ func (c *NginxCapability) observe(ctx context.Context, op protocol.OperationEnve
 	}
 
 	if liveDigest == manifest.Digest {
-		return c.buildResult(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
+		return c.results().Build(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
+	return c.results().Build(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
 		{Code: "drift_detected", Message: fmt.Sprintf("live digest %s does not match generation %d's recorded digest %s", liveDigest, n, manifest.Digest)},
 	})
 }
@@ -353,7 +362,7 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 	defer cancel()
 
 	if !requirePrior {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})
 	}
 
@@ -362,7 +371,7 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; no previous generation available to roll back to"}})
 	}
 
@@ -372,13 +381,13 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 	}
 
 	failed := func(reason string) (protocol.ResultEnvelope, error) {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; rollback also failed: " + reason}})
 	}
 
 	var candidatePath string
 	if !prevDeleted {
-		candidatePath, err = c.writeStaging(op.ResourceID, prevContent)
+		candidatePath, err = c.dir().WriteStaging(op.ResourceID, prevContent)
 		if err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
@@ -386,17 +395,17 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, candidatePath); verr != nil {
 		if candidatePath != "" {
-			c.discardStaging(op.ResourceID)
+			c.dir().DiscardStaging(op.ResourceID)
 		}
 
 		return failed(verr.Error())
 	}
 
 	if prevDeleted {
-		if err := c.removeLive(op.ResourceID); err != nil {
+		if err := c.dir().RemoveLive(op.ResourceID); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
-	} else if err := c.activateLive(op.ResourceID); err != nil {
+	} else if err := c.dir().ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -467,82 +476,8 @@ func (c *NginxCapability) recoverFromFailure(ctx context.Context, op protocol.Op
 		return failed("health check: " + healthErr.Error())
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
+	return c.results().Build(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
 		[]protocol.ResultError{{Code: code, Message: message}})
-}
-
-func (c *NginxCapability) rejectedFromValidationError(op protocol.OperationEnvelope, err error) (protocol.ResultEnvelope, error) {
-	var ve *ValidationError
-	if errors.As(err, &ve) {
-		return c.rejected(op, ve.Code, ve.Message, ve.Field)
-	}
-
-	return protocol.ResultEnvelope{}, err
-}
-
-func (c *NginxCapability) rejected(op protocol.OperationEnvelope, code, message, field string) (protocol.ResultEnvelope, error) {
-	var fieldPtr *string
-	if field != "" {
-		fieldPtr = &field
-	}
-
-	return c.buildResult(op, protocol.StatusRejected, c.currentObservedVersionOrZero(op.ResourceID), c.currentGenerationIDOrNone(op.ResourceID),
-		[]protocol.ResultError{{Code: code, Message: message, Field: fieldPtr}})
-}
-
-// buildResult always recomputes the current whole-LiveDir digest fresh: even a
-// rejected or failed result must carry a schema-valid observed_state_digest, and
-// the current live state is always well-defined regardless of this operation's
-// outcome.
-func (c *NginxCapability) buildResult(op protocol.OperationEnvelope, status protocol.Status, observedVersion int, generationID string, errs []protocol.ResultError) (protocol.ResultEnvelope, error) {
-	digest, err := generation.ComputeDigest(c.cfg.LiveDir)
-	if err != nil {
-		return protocol.ResultEnvelope{}, fmt.Errorf("computing observed digest: %w", err)
-	}
-
-	if errs == nil {
-		errs = []protocol.ResultError{}
-	}
-
-	return protocol.ResultEnvelope{
-		ProtocolVersion:      op.ProtocolVersion,
-		Capability:           op.Capability,
-		ResourceID:           op.ResourceID,
-		IdempotencyKey:       op.IdempotencyKey,
-		CorrelationID:        op.CorrelationID,
-		Status:               status,
-		ObservedStateVersion: observedVersion,
-		ObservedStateDigest:  digest,
-		GenerationID:         generationID,
-		Errors:               errs,
-		CompletedAt:          time.Now().UTC(),
-	}, nil
-}
-
-// currentGenerationIDOrNone reports resourceID's current generation as a
-// string, or "none" if this node has no generation history for it at all (e.g.
-// a rejection that never got far enough to establish one).
-func (c *NginxCapability) currentGenerationIDOrNone(resourceID string) string {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return "none"
-	}
-
-	return strconv.Itoa(n)
-}
-
-func (c *NginxCapability) currentObservedVersionOrZero(resourceID string) int {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return 0
-	}
-
-	manifest, err := c.store.ReadManifest(resourceID, n)
-	if err != nil {
-		return 0
-	}
-
-	return manifest.DesiredStateVersion
 }
 
 // servesNoMarker reports whether the template payload selects ever answers

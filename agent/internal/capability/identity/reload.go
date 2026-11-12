@@ -3,13 +3,10 @@ package identity
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
-	"strings"
 	"syscall"
-	"time"
 
-	"github.com/mikho/LESta/agent/internal/opctx"
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // reload issues sshd's reload as its own separate step from activation.
@@ -23,14 +20,7 @@ import (
 // reload` has.
 func (c *IdentityCapability) reload(ctx context.Context) error {
 	if len(c.cfg.ReloadCommand) > 0 {
-		cmd := c.cfg.command(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...)
-
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("sshd reload failed: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-
-		return nil
+		return fragment.Reload(c.cfg.command(ctx, c.cfg.ReloadCommand[0], c.cfg.ReloadCommand[1:]...), "sshd reload")
 	}
 
 	proc, err := os.FindProcess(c.cfg.ReloadPID)
@@ -58,38 +48,5 @@ func (c *IdentityCapability) reload(ctx context.Context) error {
 // CI -- not their Go unit tests -- proves their real system-level
 // behavior.
 func (c *IdentityCapability) waitHealthy(ctx context.Context) error {
-	return pollUntil(ctx, func() error {
-		var d net.Dialer
-
-		conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", c.cfg.Port))
-		if err != nil {
-			return err
-		}
-
-		return conn.Close()
-	})
-}
-
-// pollUntil retries probe with a short backoff until it succeeds or ctx is
-// done. A reload signal returns before sshd has necessarily finished
-// re-reading its config, so a single immediate probe would be flaky.
-func pollUntil(ctx context.Context, probe func() error) error {
-	ctx, cancel := opctx.HealthCheck(ctx)
-	defer cancel()
-
-	var lastErr error
-
-	for {
-		if err := probe(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("health check did not succeed before deadline: %w (last error: %v)", ctx.Err(), lastErr)
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	return fragment.WaitDial(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", c.cfg.Port))
 }

@@ -7,6 +7,8 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // validateCandidate tests a candidate pool fragment for version without
@@ -58,131 +60,53 @@ func (c *PhpFpmCapability) validateCandidate(ctx context.Context, version, resou
 
 // buildSyntheticConfig copies the real (read-only) php-fpm.conf for version
 // and substitutes its `include=<poolDir>/*.conf` line for one pointing at a
-// fresh scratch directory populated with symlinks to every other
-// currently-live pool for that same version, plus the candidate (if any).
-// The returned cleanup func removes the entire scratch tree; callers must
-// defer it.
+// scratch directory of every other currently-live pool for that same
+// version, plus the candidate (if any). The returned cleanup func removes
+// the entire scratch tree; callers must defer it.
+//
+// php-fpm -t refuses to validate a config whose include glob matches zero
+// pools ("No pool defined"), which real deletes hit whenever the resource
+// being removed is the last live pool for that version. A syntax-only
+// placeholder pool, never written to the real poolDir, keeps the synthetic
+// config non-empty without affecting the verdict on the candidate itself.
 func (c *PhpFpmCapability) buildSyntheticConfig(version, resourceID, candidatePath string) (string, func(), error) {
-	tmpDir, err := os.MkdirTemp("", "lesta-phpfpm-validate-")
+	return fragment.SyntheticConfig{
+		Service:          "phpfpm",
+		BaseConfPath:     c.cfg.fpmConfigPath(version),
+		BaseConfName:     "php-fpm.conf",
+		Dir:              c.pools(version),
+		FragmentsDirName: "pool.d",
+		IncludeKeyword:   "include=",
+		Placeholder:      writePlaceholderPool,
+		EditLines: func(lines []string, tmpDir string) []string {
+			return redirectGlobalLog(lines, filepath.Join(tmpDir, "php-fpm.log"))
+		},
+	}.Build(resourceID, candidatePath)
+}
+
+// writePlaceholderPool renders the placeholder pool into fragDir. It runs as
+// whoever is validating, a user that always exists.
+func writePlaceholderPool(fragDir, tmpDir string) error {
+	self, err := user.Current()
 	if err != nil {
-		return "", nil, fmt.Errorf("creating validation scratch directory: %w", err)
+		return fmt.Errorf("looking up the validating user: %w", err)
 	}
 
-	cleanup := func() { _ = os.RemoveAll(tmpDir) }
-
-	fragDir := filepath.Join(tmpDir, "pool.d")
-	if err := os.Mkdir(fragDir, 0o755); err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("creating pool.d scratch directory: %w", err)
-	}
-
-	excludeName := resourceID + ".conf"
-	poolDir := c.cfg.poolDir(version)
-
-	existing, err := filepath.Glob(filepath.Join(poolDir, "*.conf"))
+	placeholder, err := renderPool(poolData{
+		ResourceID:      "lesta-validate-placeholder",
+		AccountUsername: self.Username,
+		SocketPath:      filepath.Join(tmpDir, "placeholder.sock"),
+		Docroot:         tmpDir,
+	})
 	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("listing live pools in %s: %w", poolDir, err)
+		return fmt.Errorf("rendering placeholder pool: %w", err)
 	}
 
-	included := 0
-
-	for _, f := range existing {
-		if filepath.Base(f) == excludeName {
-			continue
-		}
-
-		included++
-
-		if err := os.Symlink(f, filepath.Join(fragDir, filepath.Base(f))); err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("symlinking live pool %s: %w", f, err)
-		}
+	if err := os.WriteFile(filepath.Join(fragDir, "lesta-validate-placeholder.conf"), placeholder, 0o644); err != nil {
+		return fmt.Errorf("writing placeholder pool: %w", err)
 	}
 
-	if candidatePath != "" {
-		if err := os.Symlink(candidatePath, filepath.Join(fragDir, excludeName)); err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("symlinking candidate pool %s: %w", candidatePath, err)
-		}
-	}
-
-	// php-fpm -t refuses to validate a config whose include glob matches
-	// zero pools ("No pool defined"), which real deletes hit whenever the
-	// resource being removed is the last live pool for that version. A
-	// syntax-only placeholder pool, never written to the real poolDir,
-	// keeps the synthetic config non-empty without affecting the verdict
-	// on the candidate itself.
-	if included == 0 && candidatePath == "" {
-		// The placeholder runs as whoever is validating, a user that always exists.
-		self, err := user.Current()
-		if err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("looking up the validating user: %w", err)
-		}
-
-		placeholder, err := renderPool(poolData{
-			ResourceID:      "lesta-validate-placeholder",
-			AccountUsername: self.Username,
-			SocketPath:      filepath.Join(tmpDir, "placeholder.sock"),
-			Docroot:         tmpDir,
-		})
-		if err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("rendering placeholder pool: %w", err)
-		}
-
-		if err := os.WriteFile(filepath.Join(fragDir, "lesta-validate-placeholder.conf"), placeholder, 0o644); err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("writing placeholder pool: %w", err)
-		}
-	}
-
-	fpmConfigPath := c.cfg.fpmConfigPath(version)
-
-	baseConf, err := os.ReadFile(fpmConfigPath)
-	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("reading base php-fpm.conf %s: %w", fpmConfigPath, err)
-	}
-
-	liveGlob := filepath.Join(poolDir, "*.conf")
-	fragGlob := filepath.Join(fragDir, "*.conf")
-
-	lines := strings.Split(string(baseConf), "\n")
-	replaced := false
-
-	for i, line := range lines {
-		if strings.Contains(line, "include=") && strings.Contains(line, liveGlob) {
-			lines[i] = strings.Replace(line, liveGlob, fragGlob, 1)
-			replaced = true
-		}
-	}
-
-	if !replaced {
-		cleanup()
-
-		return "", nil, fmt.Errorf("base php-fpm.conf %s has no `include=%s` line; cannot build a synthetic validation config", fpmConfigPath, liveGlob)
-	}
-
-	lines = redirectGlobalLog(lines, filepath.Join(tmpDir, "php-fpm.log"))
-
-	syntheticPath := filepath.Join(tmpDir, "php-fpm.conf")
-	if err := os.WriteFile(syntheticPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("writing synthetic php-fpm.conf: %w", err)
-	}
-
-	return syntheticPath, cleanup, nil
+	return nil
 }
 
 // redirectGlobalLog points the synthetic configuration's global error_log at the scratch directory.

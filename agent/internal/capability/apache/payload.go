@@ -7,6 +7,7 @@ import (
 	"net"
 	"regexp"
 
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 	"github.com/mikho/LESta/agent/internal/validate"
 )
 
@@ -69,15 +70,7 @@ type Payload struct {
 // ValidationError is a well-formed payload rejection: a schema-shaped (code,
 // message, field) triple the caller turns directly into a rejected
 // ResultEnvelope. It is never a Go error representing "no verdict was reached".
-type ValidationError struct {
-	Code    string
-	Message string
-	Field   string
-}
-
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
-}
+type ValidationError = fragment.ValidationError
 
 // ParsePayload decodes and validates raw as a Payload. Unknown fields are a hard
 // decode error, matching the envelope decode discipline. Domain and every alias

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // placeholderFragmentName is a fixed, never-removed *.conf fragment in
@@ -86,93 +88,23 @@ func (c *Bind9Capability) validateCandidate(ctx context.Context, resourceID stri
 
 // buildSyntheticConfig copies the real (read-only) named.conf and
 // substitutes its `include "<LiveDir>/*.conf";` line for one pointing at a
-// fresh scratch directory populated with symlinks to every other currently-
-// live fragment, plus the candidate (if any). Absolute zone-file paths
-// outside the synthetic config's own directory are standard, well-supported
-// BIND behavior (verified directly against the local install), so the zone
-// data file itself needs no scratch-dir handling; only the stanza does. The
-// returned cleanup func removes the entire scratch tree; callers must defer
-// it.
+// scratch directory of every other currently-live fragment plus the
+// candidate (if any). Absolute zone-file paths outside the synthetic
+// config's own directory are standard, well-supported BIND behavior
+// (verified directly against the local install), so the zone data file
+// itself needs no scratch-dir handling; only the stanza does. The returned
+// cleanup func removes the entire scratch tree; callers must defer it.
 func (c *Bind9Capability) buildSyntheticConfig(resourceID string, candidateStanzaPath string) (string, func(), error) {
 	if err := ensurePlaceholderFragment(c.cfg.LiveDir); err != nil {
 		return "", nil, err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "lesta-bind9-validate-")
-	if err != nil {
-		return "", nil, fmt.Errorf("creating validation scratch directory: %w", err)
-	}
-
-	cleanup := func() { _ = os.RemoveAll(tmpDir) }
-
-	fragDir := filepath.Join(tmpDir, "fragments")
-	if err := os.Mkdir(fragDir, 0o755); err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("creating fragments scratch directory: %w", err)
-	}
-
-	excludeName := resourceID + ".conf"
-
-	existing, err := filepath.Glob(filepath.Join(c.cfg.LiveDir, "*.conf"))
-	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("listing live fragments in %s: %w", c.cfg.LiveDir, err)
-	}
-
-	for _, f := range existing {
-		if filepath.Base(f) == excludeName {
-			continue
-		}
-
-		if err := os.Symlink(f, filepath.Join(fragDir, filepath.Base(f))); err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("symlinking live fragment %s: %w", f, err)
-		}
-	}
-
-	if candidateStanzaPath != "" {
-		if err := os.Symlink(candidateStanzaPath, filepath.Join(fragDir, excludeName)); err != nil {
-			cleanup()
-
-			return "", nil, fmt.Errorf("symlinking candidate fragment %s: %w", candidateStanzaPath, err)
-		}
-	}
-
-	baseConf, err := os.ReadFile(c.cfg.NamedConfPath)
-	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("reading base named.conf %s: %w", c.cfg.NamedConfPath, err)
-	}
-
-	liveGlob := filepath.Join(c.cfg.LiveDir, "*.conf")
-	fragGlob := filepath.Join(fragDir, "*.conf")
-
-	lines := strings.Split(string(baseConf), "\n")
-	replaced := false
-
-	for i, line := range lines {
-		if strings.Contains(line, "include") && strings.Contains(line, liveGlob) {
-			lines[i] = strings.Replace(line, liveGlob, fragGlob, 1)
-			replaced = true
-		}
-	}
-
-	if !replaced {
-		cleanup()
-
-		return "", nil, fmt.Errorf("base named.conf %s has no `include %q;` line; cannot build a synthetic validation config", c.cfg.NamedConfPath, liveGlob)
-	}
-
-	syntheticPath := filepath.Join(tmpDir, "named.conf")
-	if err := os.WriteFile(syntheticPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("writing synthetic named.conf: %w", err)
-	}
-
-	return syntheticPath, cleanup, nil
+	return fragment.SyntheticConfig{
+		Service:          "bind9",
+		BaseConfPath:     c.cfg.NamedConfPath,
+		BaseConfName:     "named.conf",
+		Dir:              c.dir(),
+		FragmentsDirName: "fragments",
+		IncludeKeyword:   "include",
+	}.Build(resourceID, candidateStanzaPath)
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // hostnamePattern matches a dot-separated ASCII hostname: labels of
@@ -75,15 +77,7 @@ type Payload struct {
 // message, field) triple the caller turns directly into a rejected
 // ResultEnvelope. It is never a Go error representing "no verdict was
 // reached".
-type ValidationError struct {
-	Code    string
-	Message string
-	Field   string
-}
-
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
-}
+type ValidationError = fragment.ValidationError
 
 // ParsePayload decodes and validates raw as a Payload. Unknown fields are a
 // hard decode error, matching the envelope decode discipline.

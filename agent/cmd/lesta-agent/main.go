@@ -102,7 +102,7 @@ const (
 	// .install/services/node-health/manifest.json; not derived from git
 	// describe or similar, matching this project's own preference for
 	// explicit, reviewable literals over build-time magic.
-	agentVersion = "1.0.92"
+	agentVersion = "1.0.93"
 )
 
 func main() {

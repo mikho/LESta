@@ -11,7 +11,7 @@
 // real config, mirroring internal/capability/nginx's own staged-render/
 // validate/atomically-activate/reload/health-check/rollback pipeline
 // exactly: see template.go for the Match-block/authorized_keys rendering,
-// validate.go for the synthetic-config `sshd -t` harness, activate.go for
+// validate.go for the synthetic-config `sshd -t` harness, fragment.Dir for
 // the atomic rename, chroot.go for the real ChrootDirectory tree, reload.go
 // for the reload signal and TCP health check, and this file for wiring
 // create/update/delete through one shared pipeline. delete still execs
@@ -32,11 +32,10 @@ package identity
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/opctx"
@@ -60,6 +59,16 @@ func New(cfg Config) *IdentityCapability {
 		store:    generation.New(cfg.StateRoot + "/accounts"),
 		receipts: idempotency.New(),
 	}
+}
+
+// dir is the live fragment directory.
+func (c *IdentityCapability) dir() fragment.Dir {
+	return fragment.Dir{Path: c.cfg.SftpConfigDir, Noun: "Match block"}
+}
+
+// results shapes this capability's result envelopes.
+func (c *IdentityCapability) results() fragment.Results {
+	return fragment.Results{Store: c.store, LiveDir: c.cfg.SftpConfigDir}
 }
 
 // Apply implements protocol.Capability.
@@ -92,7 +101,7 @@ func (c *IdentityCapability) Apply(ctx context.Context, op protocol.OperationEnv
 	case protocol.OperationObserve:
 		result, err = c.observe(ctx, op)
 	default:
-		result, err = c.rejected(op, "unsupported_operation",
+		result, err = c.results().Rejected(op, "unsupported_operation",
 			fmt.Sprintf("operation %q is not supported; system.account-identity.v1 does not implement suspend/unsuspend", op.Operation), "")
 	}
 
@@ -117,7 +126,7 @@ func (c *IdentityCapability) Apply(ctx context.Context, op protocol.OperationEnv
 func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -126,10 +135,10 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 	}
 
 	if requirePrior && !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 	if !requirePrior && hasCurrent {
-		return c.rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
+		return c.results().Rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
 	if !requirePrior {
@@ -162,18 +171,18 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 		return protocol.ResultEnvelope{}, err
 	}
 
-	stagingPath, err := c.writeStaging(op.ResourceID, content)
+	stagingPath, err := c.dir().WriteStaging(op.ResourceID, content)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, stagingPath); verr != nil {
-		c.discardStaging(op.ResourceID)
+		c.dir().DiscardStaging(op.ResourceID)
 
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.activateLive(op.ResourceID); err != nil {
+	if err := c.dir().ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -205,7 +214,7 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 		return protocol.ResultEnvelope{}, err
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
 // applyDelete execs userdel (idempotent: an already-absent username is fine)
@@ -219,7 +228,7 @@ func (c *IdentityCapability) applyGeneration(ctx context.Context, op protocol.Op
 func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -227,14 +236,14 @@ func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.Operat
 		return protocol.ResultEnvelope{}, err
 	}
 	if !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, ""); verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.removeLive(op.ResourceID); err != nil {
+	if err := c.dir().RemoveLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -282,7 +291,7 @@ func (c *IdentityCapability) applyDelete(ctx context.Context, op protocol.Operat
 		}
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
 // observe is read-only: it recomputes the whole-SftpConfigDir digest and
@@ -294,7 +303,7 @@ func (c *IdentityCapability) observe(ctx context.Context, op protocol.OperationE
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
 	}
 
 	manifest, err := c.store.ReadManifest(op.ResourceID, n)
@@ -308,10 +317,10 @@ func (c *IdentityCapability) observe(ctx context.Context, op protocol.OperationE
 	}
 
 	if liveDigest == manifest.Digest {
-		return c.buildResult(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
+		return c.results().Build(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
+	return c.results().Build(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
 		{Code: "drift_detected", Message: fmt.Sprintf("live digest %s does not match generation %d's recorded digest %s", liveDigest, n, manifest.Digest)},
 	})
 }
@@ -330,7 +339,7 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 	defer cancel()
 
 	if !requirePrior {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})
 	}
 
@@ -339,7 +348,7 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; no previous generation available to roll back to"}})
 	}
 
@@ -349,13 +358,13 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 	}
 
 	failed := func(reason string) (protocol.ResultEnvelope, error) {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; rollback also failed: " + reason}})
 	}
 
 	var candidatePath string
 	if !prevDeleted {
-		candidatePath, err = c.writeStaging(op.ResourceID, prevContent)
+		candidatePath, err = c.dir().WriteStaging(op.ResourceID, prevContent)
 		if err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
@@ -363,7 +372,7 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 
 	if verr := c.validateCandidate(ctx, op.ResourceID, candidatePath); verr != nil {
 		if candidatePath != "" {
-			c.discardStaging(op.ResourceID)
+			c.dir().DiscardStaging(op.ResourceID)
 		}
 
 		return failed(verr.Error())
@@ -378,10 +387,10 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 	}
 
 	if prevDeleted {
-		if err := c.removeLive(op.ResourceID); err != nil {
+		if err := c.dir().RemoveLive(op.ResourceID); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
-	} else if err := c.activateLive(op.ResourceID); err != nil {
+	} else if err := c.dir().ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -422,7 +431,7 @@ func (c *IdentityCapability) recoverFromFailure(ctx context.Context, op protocol
 		return failed("health check: " + healthErr.Error())
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
+	return c.results().Build(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
 		[]protocol.ResultError{{Code: code, Message: message}})
 }
 
@@ -449,79 +458,6 @@ func currentPayloadUsername(op protocol.OperationEnvelope, prevPayload Payload, 
 }
 
 func (c *IdentityCapability) failed(op protocol.OperationEnvelope, code, message string) (protocol.ResultEnvelope, error) {
-	return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+	return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 		[]protocol.ResultError{{Code: code, Message: message}})
-}
-
-func (c *IdentityCapability) rejectedFromValidationError(op protocol.OperationEnvelope, err error) (protocol.ResultEnvelope, error) {
-	var ve *ValidationError
-	if errors.As(err, &ve) {
-		return c.rejected(op, ve.Code, ve.Message, ve.Field)
-	}
-
-	return protocol.ResultEnvelope{}, err
-}
-
-func (c *IdentityCapability) rejected(op protocol.OperationEnvelope, code, message, field string) (protocol.ResultEnvelope, error) {
-	var fieldPtr *string
-	if field != "" {
-		fieldPtr = &field
-	}
-
-	return c.buildResult(op, protocol.StatusRejected, c.currentObservedVersionOrZero(op.ResourceID), c.currentGenerationIDOrNone(op.ResourceID),
-		[]protocol.ResultError{{Code: code, Message: message, Field: fieldPtr}})
-}
-
-// buildResult always recomputes the current whole-SftpConfigDir digest
-// fresh: even a rejected or failed result must carry a schema-valid
-// observed_state_digest, and the current live state is always well-defined
-// regardless of this operation's outcome.
-func (c *IdentityCapability) buildResult(op protocol.OperationEnvelope, status protocol.Status, observedVersion int, generationID string, errs []protocol.ResultError) (protocol.ResultEnvelope, error) {
-	digest, err := generation.ComputeDigest(c.cfg.SftpConfigDir)
-	if err != nil {
-		return protocol.ResultEnvelope{}, fmt.Errorf("computing observed digest: %w", err)
-	}
-
-	if errs == nil {
-		errs = []protocol.ResultError{}
-	}
-
-	return protocol.ResultEnvelope{
-		ProtocolVersion:      op.ProtocolVersion,
-		Capability:           op.Capability,
-		ResourceID:           op.ResourceID,
-		IdempotencyKey:       op.IdempotencyKey,
-		CorrelationID:        op.CorrelationID,
-		Status:               status,
-		ObservedStateVersion: observedVersion,
-		ObservedStateDigest:  digest,
-		GenerationID:         generationID,
-		Errors:               errs,
-		CompletedAt:          time.Now().UTC(),
-	}, nil
-}
-
-// currentGenerationIDOrNone reports resourceID's current generation as a
-// string, or "none" if this node has no generation history for it at all.
-func (c *IdentityCapability) currentGenerationIDOrNone(resourceID string) string {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return "none"
-	}
-
-	return strconv.Itoa(n)
-}
-
-func (c *IdentityCapability) currentObservedVersionOrZero(resourceID string) int {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return 0
-	}
-
-	manifest, err := c.store.ReadManifest(resourceID, n)
-	if err != nil {
-		return 0
-	}
-
-	return manifest.DesiredStateVersion
 }

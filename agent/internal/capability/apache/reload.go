@@ -5,13 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os/exec"
-	"strings"
-	"time"
 
-	"github.com/mikho/LESta/agent/internal/opctx"
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // suspendedMarker is the fixed string baked into templates/suspended.html.
@@ -36,12 +33,7 @@ func (c *ApacheCapability) reload(ctx context.Context) error {
 
 	cmd.Env = c.cfg.Env
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("apache2 reload failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-
-	return nil
+	return fragment.Reload(cmd, "apache2 reload")
 }
 
 // waitHealthy polls a real HTTP request to the vhost (ip:port, with the Host
@@ -49,7 +41,7 @@ func (c *ApacheCapability) reload(ctx context.Context) error {
 // body, proving *this* vhost answered, not just that apache2 is alive, or until
 // ctx's deadline is reached.
 func (c *ApacheCapability) waitHealthy(ctx context.Context, ip string, port int, domain, expectedMarker string) error {
-	return pollUntil(ctx, func() error {
+	return fragment.PollUntil(ctx, func() error {
 		url := fmt.Sprintf("http://%s:%d/", ip, port)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -85,39 +77,5 @@ func (c *ApacheCapability) waitHealthy(ctx context.Context, ip string, port int,
 // a rollback that restores a deletion: there is no more per-vhost health to
 // check).
 func (c *ApacheCapability) waitHealthyGeneric(ctx context.Context, ip string, port int) error {
-	return pollUntil(ctx, func() error {
-		var d net.Dialer
-
-		conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ip, port))
-		if err != nil {
-			return err
-		}
-
-		return conn.Close()
-	})
-}
-
-// pollUntil retries probe with a short backoff until it succeeds or ctx is
-// done. A reload signal returns before apache2's workers have necessarily
-// finished picking up the new config, so a single immediate probe would be
-// flaky; polling within the operation's own deadline absorbs that race.
-func pollUntil(ctx context.Context, probe func() error) error {
-	ctx, cancel := opctx.HealthCheck(ctx)
-	defer cancel()
-
-	var lastErr error
-
-	for {
-		if err := probe(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("health check did not succeed before deadline: %w (last error: %v)", ctx.Err(), lastErr)
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	return fragment.WaitDial(ctx, "tcp", fmt.Sprintf("%s:%d", ip, port))
 }

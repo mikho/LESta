@@ -6,9 +6,8 @@ import (
 	"net"
 	"os/exec"
 	"strings"
-	"time"
 
-	"github.com/mikho/LESta/agent/internal/opctx"
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // reload issues named's reload as its own separate step from activation.
@@ -29,12 +28,7 @@ func (c *Bind9Capability) reload(ctx context.Context) error {
 		cmd = c.cfg.command(ctx, args...)
 	}
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("rndc reload failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-
-	return nil
+	return fragment.Reload(cmd, "rndc reload")
 }
 
 // resolverAt returns a net.Resolver pinned at cfg's listen address and port,
@@ -63,7 +57,7 @@ func (c *Bind9Capability) waitHealthy(ctx context.Context, domain, resourceID st
 	resolver := c.resolverAt()
 	qname := reservedRecordName + "." + fqdn(domain)
 
-	return pollUntil(ctx, func() error {
+	return fragment.PollUntil(ctx, func() error {
 		records, err := resolver.LookupTXT(ctx, qname)
 		if err != nil {
 			return err
@@ -85,39 +79,5 @@ func (c *Bind9Capability) waitHealthy(ctx context.Context, domain, resourceID st
 // after delete, and after a rollback that restores a deletion or a
 // suspension: there is no more per-zone health to check).
 func (c *Bind9Capability) waitHealthyGeneric(ctx context.Context) error {
-	return pollUntil(ctx, func() error {
-		var d net.Dialer
-
-		conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", c.cfg.listenAddress(), c.cfg.Port))
-		if err != nil {
-			return err
-		}
-
-		return conn.Close()
-	})
-}
-
-// pollUntil retries probe with a short backoff until it succeeds or ctx is
-// done. A reload signal returns before named has necessarily finished
-// picking up the new config, so a single immediate probe would be flaky;
-// polling within the operation's own deadline absorbs that race.
-func pollUntil(ctx context.Context, probe func() error) error {
-	ctx, cancel := opctx.HealthCheck(ctx)
-	defer cancel()
-
-	var lastErr error
-
-	for {
-		if err := probe(); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("health check did not succeed before deadline: %w (last error: %v)", ctx.Err(), lastErr)
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
+	return fragment.WaitDial(ctx, "tcp", fmt.Sprintf("%s:%d", c.cfg.listenAddress(), c.cfg.Port))
 }

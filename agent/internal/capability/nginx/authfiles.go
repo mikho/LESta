@@ -126,7 +126,7 @@ func (c *NginxCapability) pruneAuthFiles(resourceID string, keep map[string]stri
 // removeAuthFileIfUnused removes an htpasswd file once its grace period is over,
 // unless the resource's live vhost references it again.
 func (c *NginxCapability) removeAuthFileIfUnused(resourceID, file string) {
-	live, err := os.ReadFile(c.livePath(resourceID))
+	live, err := os.ReadFile(c.dir().LivePath(resourceID))
 	if err == nil && strings.Contains(string(live), file) {
 		return
 	}

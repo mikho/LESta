@@ -5,7 +5,7 @@
 // pipeline shape (internal/capability/nginx). See payload.go for the
 // request shape, template.go and templates/pool.conf.tmpl for rendering,
 // validate.go for the dotfile-staging + synthetic-config `php-fpm -t`
-// harness, activate.go for the atomic rename, reload.go for the reload
+// harness, fragment.Dir for the atomic rename, reload.go for the reload
 // command and unix-socket health check, and this file for wiring all six
 // protocol operations through one shared internal pipeline.
 //
@@ -26,11 +26,10 @@ package phpfpm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 	"github.com/mikho/LESta/agent/internal/generation"
 	"github.com/mikho/LESta/agent/internal/idempotency"
 	"github.com/mikho/LESta/agent/internal/opctx"
@@ -84,7 +83,7 @@ func (c *PhpFpmCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 	case protocol.OperationObserve:
 		result, err = c.observe(ctx, op)
 	default:
-		result, err = c.rejected(op, "unsupported_operation", fmt.Sprintf("operation %q is not supported", op.Operation), "")
+		result, err = c.results().Rejected(op, "unsupported_operation", fmt.Sprintf("operation %q is not supported", op.Operation), "")
 	}
 
 	if err != nil {
@@ -105,7 +104,7 @@ func (c *PhpFpmCapability) Apply(ctx context.Context, op protocol.OperationEnvel
 func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.OperationEnvelope, requirePrior bool) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -114,10 +113,10 @@ func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.Oper
 	}
 
 	if requirePrior && !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 	if !requirePrior && hasCurrent {
-		return c.rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
+		return c.results().Rejected(op, "resource_already_exists", "a generation already exists for this resource; use update instead of create", "")
 	}
 
 	// Learn the previously-live version (if any) before doing anything else,
@@ -157,18 +156,18 @@ func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.Oper
 		return protocol.ResultEnvelope{}, err
 	}
 
-	stagingPath, err := c.writeStaging(payload.PhpVersion, op.ResourceID, content)
+	stagingPath, err := c.pools(payload.PhpVersion).WriteStaging(op.ResourceID, content)
 	if err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
 	if verr := c.validateCandidate(ctx, payload.PhpVersion, op.ResourceID, stagingPath); verr != nil {
-		c.discardStaging(payload.PhpVersion, op.ResourceID)
+		c.pools(payload.PhpVersion).DiscardStaging(op.ResourceID)
 
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.activateLive(payload.PhpVersion, op.ResourceID); err != nil {
+	if err := c.pools(payload.PhpVersion).ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -197,11 +196,11 @@ func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.Oper
 	// pool fragment -- see this package's own doc comment for why this is
 	// deliberately never allowed to fail the operation overall.
 	if oldVersion != "" && oldVersion != payload.PhpVersion {
-		_ = c.removeLive(oldVersion, op.ResourceID)
+		_ = c.pools(oldVersion).RemoveLive(op.ResourceID)
 		_ = c.reload(ctx, oldVersion)
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
 // applyDelete goes through the same rollback-capable pipeline as
@@ -212,7 +211,7 @@ func (c *PhpFpmCapability) applyGeneration(ctx context.Context, op protocol.Oper
 func (c *PhpFpmCapability) applyDelete(ctx context.Context, op protocol.OperationEnvelope) (protocol.ResultEnvelope, error) {
 	payload, verr := ParsePayload(op.Payload)
 	if verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
 	hasCurrent, err := c.store.HasCurrent(op.ResourceID)
@@ -220,14 +219,14 @@ func (c *PhpFpmCapability) applyDelete(ctx context.Context, op protocol.Operatio
 		return protocol.ResultEnvelope{}, err
 	}
 	if !hasCurrent {
-		return c.rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no prior generation exists for this resource on this node", "")
 	}
 
 	if verr := c.validateCandidate(ctx, payload.PhpVersion, op.ResourceID, ""); verr != nil {
-		return c.rejectedFromValidationError(op, verr)
+		return c.results().RejectedFromValidationError(op, verr)
 	}
 
-	if err := c.removeLive(payload.PhpVersion, op.ResourceID); err != nil {
+	if err := c.pools(payload.PhpVersion).RemoveLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -253,7 +252,7 @@ func (c *PhpFpmCapability) applyDelete(ctx context.Context, op protocol.Operatio
 		return c.recoverFromFailure(ctx, op, true, "", "health_check_failed", healthErr.Error())
 	}
 
-	return c.buildResult(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
+	return c.results().Build(op, protocol.StatusApplied, op.DesiredStateVersion, strconv.Itoa(n), nil)
 }
 
 // observe is read-only: it recomputes this resource's own version-specific
@@ -265,7 +264,7 @@ func (c *PhpFpmCapability) observe(ctx context.Context, op protocol.OperationEnv
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
+		return c.results().Rejected(op, "unknown_resource", "no generation history exists for this resource on this node", "")
 	}
 
 	manifest, err := c.store.ReadManifest(op.ResourceID, n)
@@ -284,10 +283,10 @@ func (c *PhpFpmCapability) observe(ctx context.Context, op protocol.OperationEnv
 	}
 
 	if liveDigest == manifest.Digest {
-		return c.buildResult(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
+		return c.results().Build(op, protocol.StatusApplied, manifest.DesiredStateVersion, strconv.Itoa(n), nil)
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
+	return c.results().Build(op, protocol.StatusDegraded, manifest.DesiredStateVersion, strconv.Itoa(n), []protocol.ResultError{
 		{Code: "drift_detected", Message: fmt.Sprintf("live digest %s does not match generation %d's recorded digest %s", liveDigest, n, manifest.Digest)},
 	})
 }
@@ -304,7 +303,7 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 	defer cancel()
 
 	if !requirePrior {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message}})
 	}
 
@@ -313,7 +312,7 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 		return protocol.ResultEnvelope{}, err
 	}
 	if !ok {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; no previous generation available to roll back to"}})
 	}
 
@@ -323,7 +322,7 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 	}
 
 	failed := func(reason string) (protocol.ResultEnvelope, error) {
-		return c.buildResult(op, protocol.StatusFailed, op.DesiredStateVersion, c.currentGenerationIDOrNone(op.ResourceID),
+		return c.results().Build(op, protocol.StatusFailed, op.DesiredStateVersion, c.results().CurrentGenerationIDOrNone(op.ResourceID),
 			[]protocol.ResultError{{Code: code, Message: message + "; rollback also failed: " + reason}})
 	}
 
@@ -342,7 +341,7 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 
 	var candidatePath string
 	if !prevDeleted {
-		candidatePath, err = c.writeStaging(rollbackVersion, op.ResourceID, prevContent)
+		candidatePath, err = c.pools(rollbackVersion).WriteStaging(op.ResourceID, prevContent)
 		if err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
@@ -350,17 +349,17 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 
 	if verr := c.validateCandidate(ctx, rollbackVersion, op.ResourceID, candidatePath); verr != nil {
 		if candidatePath != "" {
-			c.discardStaging(rollbackVersion, op.ResourceID)
+			c.pools(rollbackVersion).DiscardStaging(op.ResourceID)
 		}
 
 		return failed(verr.Error())
 	}
 
 	if prevDeleted {
-		if err := c.removeLive(rollbackVersion, op.ResourceID); err != nil {
+		if err := c.pools(rollbackVersion).RemoveLive(op.ResourceID); err != nil {
 			return protocol.ResultEnvelope{}, err
 		}
-	} else if err := c.activateLive(rollbackVersion, op.ResourceID); err != nil {
+	} else if err := c.pools(rollbackVersion).ActivateLive(op.ResourceID); err != nil {
 		return protocol.ResultEnvelope{}, err
 	}
 
@@ -399,83 +398,35 @@ func (c *PhpFpmCapability) recoverFromFailure(ctx context.Context, op protocol.O
 		return failed("health check: " + healthErr.Error())
 	}
 
-	return c.buildResult(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
+	return c.results().Build(op, protocol.StatusDegraded, op.DesiredStateVersion, strconv.Itoa(n),
 		[]protocol.ResultError{{Code: code, Message: message}})
 }
 
-func (c *PhpFpmCapability) rejectedFromValidationError(op protocol.OperationEnvelope, err error) (protocol.ResultEnvelope, error) {
-	var ve *ValidationError
-	if errors.As(err, &ve) {
-		return c.rejected(op, ve.Code, ve.Message, ve.Field)
-	}
-
-	return protocol.ResultEnvelope{}, err
+// results shapes this capability's result envelopes.
+func (c *PhpFpmCapability) results() fragment.Results {
+	return fragment.Results{Store: c.store, Digest: c.observedDigest}
 }
 
-func (c *PhpFpmCapability) rejected(op protocol.OperationEnvelope, code, message, field string) (protocol.ResultEnvelope, error) {
-	var fieldPtr *string
-	if field != "" {
-		fieldPtr = &field
-	}
-
-	return c.buildResult(op, protocol.StatusRejected, c.currentObservedVersionOrZero(op.ResourceID), c.currentGenerationIDOrNone(op.ResourceID),
-		[]protocol.ResultError{{Code: code, Message: message, Field: fieldPtr}})
+// pools is version's own live pool directory.
+func (c *PhpFpmCapability) pools(version string) fragment.Dir {
+	return fragment.Dir{Path: c.cfg.poolDir(version), Noun: "pool fragment"}
 }
 
-// buildResult reports a fixed placeholder digest when this resource has no
+// observedDigest reports a fixed placeholder digest when this resource has no
 // current generation at all yet (a rejected create never got far enough to
 // know which version's own poolDir it would have used); otherwise the real
 // current generation's own recorded version resolves which poolDir to
 // digest fresh.
-func (c *PhpFpmCapability) buildResult(op protocol.OperationEnvelope, status protocol.Status, observedVersion int, generationID string, errs []protocol.ResultError) (protocol.ResultEnvelope, error) {
+func (c *PhpFpmCapability) observedDigest(resourceID string) (string, error) {
 	digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	if n, ok, err := c.store.CurrentGeneration(op.ResourceID); err == nil && ok {
-		if payload, merr := c.readGenerationMeta(op.ResourceID, n); merr == nil {
+	if n, ok, err := c.store.CurrentGeneration(resourceID); err == nil && ok {
+		if payload, merr := c.readGenerationMeta(resourceID, n); merr == nil {
 			if d, derr := generation.ComputeDigest(c.cfg.poolDir(payload.PhpVersion)); derr == nil {
 				digest = d
 			}
 		}
 	}
 
-	if errs == nil {
-		errs = []protocol.ResultError{}
-	}
-
-	return protocol.ResultEnvelope{
-		ProtocolVersion:      op.ProtocolVersion,
-		Capability:           op.Capability,
-		ResourceID:           op.ResourceID,
-		IdempotencyKey:       op.IdempotencyKey,
-		CorrelationID:        op.CorrelationID,
-		Status:               status,
-		ObservedStateVersion: observedVersion,
-		ObservedStateDigest:  digest,
-		GenerationID:         generationID,
-		Errors:               errs,
-		CompletedAt:          time.Now().UTC(),
-	}, nil
-}
-
-func (c *PhpFpmCapability) currentGenerationIDOrNone(resourceID string) string {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return "none"
-	}
-
-	return strconv.Itoa(n)
-}
-
-func (c *PhpFpmCapability) currentObservedVersionOrZero(resourceID string) int {
-	n, ok, err := c.store.CurrentGeneration(resourceID)
-	if err != nil || !ok {
-		return 0
-	}
-
-	manifest, err := c.store.ReadManifest(resourceID, n)
-	if err != nil {
-		return 0
-	}
-
-	return manifest.DesiredStateVersion
+	return digest, nil
 }

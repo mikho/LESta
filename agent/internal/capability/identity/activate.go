@@ -6,59 +6,6 @@ import (
 	"path/filepath"
 )
 
-// stagingPath is a dotfile in SftpConfigDir itself: same filesystem as the
-// eventual live file (required for an atomic os.Rename), and invisible to
-// sshd's own *.conf glob Include (its name ends in .staging, not .conf).
-func (c *IdentityCapability) stagingPath(resourceID string) string {
-	return filepath.Join(c.cfg.SftpConfigDir, "."+resourceID+".conf.staging")
-}
-
-func (c *IdentityCapability) livePath(resourceID string) string {
-	return filepath.Join(c.cfg.SftpConfigDir, resourceID+".conf")
-}
-
-// writeStaging renders content into resourceID's staging dotfile, returning
-// its path for validateCandidate and activateLive to use.
-func (c *IdentityCapability) writeStaging(resourceID string, content []byte) (string, error) {
-	path := c.stagingPath(resourceID)
-
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		return "", fmt.Errorf("writing staged Match block for %s: %w", resourceID, err)
-	}
-
-	return path, nil
-}
-
-// discardStaging removes a staging dotfile after a rejected validation; the
-// generation number that would have been spent is not, since activation was
-// never reached for it.
-func (c *IdentityCapability) discardStaging(resourceID string) {
-	_ = os.Remove(c.stagingPath(resourceID))
-}
-
-// activateLive atomically renames the validated staging dotfile over the
-// live Match-block fragment.
-func (c *IdentityCapability) activateLive(resourceID string) error {
-	if err := os.Rename(c.stagingPath(resourceID), c.livePath(resourceID)); err != nil {
-		return fmt.Errorf("activating live Match block for %s: %w", resourceID, err)
-	}
-
-	return nil
-}
-
-// removeLive deletes the live Match-block fragment (delete's own
-// "activation" step: there is no new content to rename in, only an absence
-// to make real). Removing an already-absent fragment is not an error, so a
-// rollback that re-removes it after a partial failure stays idempotent.
-func (c *IdentityCapability) removeLive(resourceID string) error {
-	err := os.Remove(c.livePath(resourceID))
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("removing live Match block for %s: %w", resourceID, err)
-	}
-
-	return nil
-}
-
 // writeAuthorizedKeys atomically replaces username's own centralized
 // authorized_keys file (Config.AuthorizedKeysDir/<username>): write to a
 // same-directory temp file, then os.Rename over the real path, so a
