@@ -17,7 +17,7 @@ Laravel never executes host commands and never calls `.install`, directly or thr
 - Service configuration is rendered by the agent into staged generations, validated, atomically activated, health-checked, and rollback-capable.
 - A blank server may select `nginx`, `apache`, or `both`. In the `both` profile, nginx owns public ports 80 and 443 and proxies to Apache on a LESta-owned loopback port.
 
-Seven services have a real, independently-runnable installer: `nginx`, `apache`, `bind9`, `mariadb`, `cron`, `mail`, `backups` (plus `agent-daemon`, the separate node-enrollment installer). `firewall` and `node-health` bootstrap automatically inside every one of those; `acme` and `statistics` have no standalone installer at all -- their own real support (TLS issuance, access-log directives, a stats database account) is built into the web server/mariadb installers above and one admin-UI declaration step, not a fifth or sixth script that was ever meant to exist independently. `.install/scripts/install-selected.sh` runs several of the seven together in the correct dependency order from one invocation, including its `--prune` option for removing services no longer wanted. See the in-app Installation Guide (`/docs/installation-guide` in the running application, sourced from `resources/docs/installation-guide.md`) for the full operator walkthrough.
+Ten services have a real, independently-runnable installer: `nginx`, `apache`, `php-fpm`, `bind9`, `mariadb`, `cron`, `mail`, `backups`, `adminer`, `webmail` (plus `agent-daemon`, the separate node-enrollment installer). `firewall` and `node-health` bootstrap automatically inside every one of those; `acme` and `statistics` have no standalone installer at all -- their own real support (TLS issuance, access-log directives, a stats database account) is built into the web server/mariadb installers above and one admin-UI declaration step, not a fifth or sixth script that was ever meant to exist independently. `.install/scripts/install-selected.sh` runs several of the ten together in the correct dependency order from one invocation, including its `--prune` option for removing services no longer wanted. See the in-app Installation Guide (`/docs/installation-guide` in the running application, sourced from `resources/docs/installation-guide.md`) for the full operator walkthrough.
 
 ## Getting `.install` onto a fresh node
 
@@ -41,6 +41,12 @@ See the Installation Guide's own Chapter 2 for the full walkthrough, including `
   README.md
   INSTALLER-CONTRACT.md
   manifest.schema.json
+  install-result.schema.json
+  lib/
+  scripts/
+    install-selected.sh
+    build-release.sh
+    validate-contract.mjs
   profiles/
     README.md
     schema.json
@@ -53,6 +59,7 @@ See the Installation Guide's own Chapter 2 for the full walkthrough, including `
   services/
     nginx/
     apache/
+    php-fpm/
     acme/
     bind9/
     mariadb/
@@ -62,7 +69,12 @@ See the Installation Guide's own Chapter 2 for the full walkthrough, including `
     backups/
     statistics/
     node-health/
+    agent-daemon/
+    adminer/
+    webmail/
 ```
+
+`lib/` holds the helpers every leaf installer sources rather than copies: `checkpoint.sh` (checkpoints and the gated writes under `/etc/lesta`), `bootstrap.sh` (the shared first phase, `bootstrap_base` and `ensure_lesta_group`), `offline-bundle.sh`, `uninstall.sh` (behind `--prune`), and the smaller helpers the installers share (preflight, checksums, firewall, applier and daemon units, enrollment, self-tests, result and log output).
 
 The base layer is shared. Service manifests contain only service-specific metadata. Runtime templates do not live here, because the node agent must version and test the renderer together with its protocol and activation logic. `.install` may reference a signed agent release, but it must not become a second template engine.
 

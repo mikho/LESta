@@ -1,6 +1,6 @@
 # Installer Contract
 
-Every installer and the shared bootstrap runner must satisfy this contract. This document is normative. Eight real installers exist today (`nginx`, `apache`, `bind9`, `mariadb`, `cron`, `mail`, `backups`, `agent-daemon`), plus `.install/scripts/install-selected.sh`, a combined installer that runs several of the first seven together in dependency order (see "Combined installation" below).
+Every installer and the shared bootstrap runner must satisfy this contract. This document is normative. Eleven real installers exist today (`nginx`, `apache`, `php-fpm`, `bind9`, `mariadb`, `cron`, `mail`, `backups`, `adminer`, `webmail`, `agent-daemon`), plus `.install/scripts/install-selected.sh`, a combined installer that runs several of the first ten together in dependency order (see "Combined installation" below).
 
 ## Invocation
 
@@ -90,7 +90,7 @@ Upgrades use side-by-side generations. The prior healthy generation remains avai
 
 ## Combined installation
 
-`.install/scripts/install-selected.sh` takes `--services <comma-separated list>` (from `nginx,apache,bind9,mariadb,cron,mail,backups`) and runs each selected leaf installer's own `install.sh`, in the order its own `depends_on`/`provides` graph requires, forwarding `--dry-run`/`--apply`/`--yes` and each service's own required flags unchanged. It is bound by every rule above over a *sequence* of leaf installers rather than one:
+`.install/scripts/install-selected.sh` takes `--services <comma-separated list>` (from `nginx,apache,bind9,mariadb,cron,mail,backups,php-fpm,adminer,webmail`) and runs each selected leaf installer's own `install.sh`, in the order its own `depends_on`/`provides` graph requires, forwarding `--dry-run`/`--apply`/`--yes` and each service's own required flags unchanged. It is bound by every rule above over a *sequence* of leaf installers rather than one:
 
 - Non-interactive, `--dry-run`-first, JSONL output, the same exit codes.
 - Fail-closed before any mutation if a selected service's own dependency is not satisfiable by another selected service *and* not already really installed on the node (checked directly — `dpkg`/`systemctl`/real state-root presence — the same check `--prune` uses to decide what's actually there) — exit `12`, naming exactly which service needs exactly which other one. It never silently selects a service the operator did not ask for. Adding one more service to an already-provisioned node only needs that one service in `--services`: an already-installed prerequisite satisfies the dependency without being re-listed or re-run.
