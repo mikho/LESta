@@ -6,4 +6,5 @@ Before planning or editing, find the row whose globs match the file's path and r
 | --- | --- |
 | tests/Browser/** | .ai/rules/browser.md |
 | agent/internal/capability/** | .ai/rules/capability.md |
+| resources/js/** | .ai/rules/js.md |
 | .install/services/** | .ai/rules/services.md |
