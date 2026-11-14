@@ -14,9 +14,9 @@
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37.2",
-        "laravel/framework": ">=13.30.0 <13.34.0",
+        "laravel/framework": ">=13.40.0 <14.0.0",
         "laravel/tinker": "^3.0",
-        "laravel/wayfinder": "^0.1.14"
+        "laravel/wayfinder": "^0.1.23"
     },
     "require-dev": {
         "fakerphp/faker": "^1.24",

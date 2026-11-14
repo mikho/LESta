@@ -20,12 +20,12 @@ class EnsureNodeToolsDomain extends Command
 
     public function handle(EnsureNodeToolsDomainAction $action): int
     {
-        $reference = (string) $this->argument('node');
+        $reference = $this->argument('node');
         $node = Node::query()->where('uuid', $reference)->orWhere('name', $reference)->firstOrFail();
 
-        $sslMode = (string) $this->option('ssl-mode');
+        $sslMode = $this->option('ssl-mode');
 
-        if (! in_array($sslMode, ['lets_encrypt', 'manual', 'none'], true)) {
+        if (! is_string($sslMode) || ! in_array($sslMode, ['lets_encrypt', 'manual', 'none'], true)) {
             $this->error('--ssl-mode must be lets_encrypt, manual or none.');
 
             return self::INVALID;
