@@ -6,7 +6,7 @@ This is a working manual for setting up a real infrastructure node — the actua
 
 ## Chapter 1: Prerequisites
 
-- **Operating system**: Ubuntu 24.04 or 26.04 (`.install/base/manifest.json`'s own `supported_ubuntu`). The versions differ by release: on 24.04 a node gets MariaDB 11.4 and PHP 8.1 to 8.4 (from the ondrej/php PPA); on 26.04 it gets MariaDB 11.8 (11.4 has no package repository for 26.04) and PHP 8.5 from Ubuntu's own archive (the PPA has no 26.04 suite), with Dovecot 2.4. The panel only offers a domain the PHP versions its server reports.
+- **Operating system**: Ubuntu 24.04 or 26.04 (`.install/base/manifest.json`'s own `supported_ubuntu`). The versions differ by release: on 24.04 a node gets MariaDB 11.4 and PHP 8.1 to 8.4 (8.3 from Ubuntu, the others from packages.sury.org/php); on 26.04 it gets MariaDB 11.8 (11.4 has no package repository for 26.04) and PHP 8.5 from Ubuntu's own archive, with Dovecot 2.4. A node that still lists the frozen ondrej/php PPA is moved to packages.sury.org/php by the next installer run; the installed PHP packages stay. The panel only offers a domain the PHP versions its server reports.
 - **A dedicated machine or VM per node.** LESta's own model is one agent per physical/virtual server; nothing here is written to share a node's identity across two separate LESta deployments.
 - **Root or sudo access** on that server, since installers create system users, packages, and firewall rules.
 - **Outbound network access** to Ubuntu's package archives (or a pre-built offline bundle — see Chapter 4).

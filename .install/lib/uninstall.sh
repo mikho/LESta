@@ -164,12 +164,12 @@ uninstall_service_owned_roots() {
         fi
 
         # php-fpm: never a whole pool.d (it may hold the control-plane app's
-        # own pool, and adminer/webmail's), and never the ondrej/php apt
-        # source the control-plane app may also install from. Its own
+        # own pool, and adminer/webmail's), and never the packages.sury.org/php
+        # apt source the control-plane app may also install from. Its own
         # per-domain pools are removed by uninstall_remove_php_fpm_pools.
         if [ "${service_id}" = "php-fpm" ]; then
             case "${path}" in
-                */fpm/pool.d | *ondrej-php*) continue ;;
+                */fpm/pool.d | *sury-php*) continue ;;
             esac
         fi
 

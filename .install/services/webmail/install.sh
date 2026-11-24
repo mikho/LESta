@@ -36,7 +36,7 @@ WEBMAIL_CAPABILITY="mail.webmail.v1"
 # php-fpm/install.sh's own PHP_VERSIONS list guarantees 8.3 (Ubuntu 24.04's
 # own native package) on any node that already has web.php-fpm.v1.
 WEBMAIL_PHP_VERSION="8.3"
-# Ubuntu 26.04 has no ondrej/php suite, so php-fpm/install.sh installs 8.5 only there.
+# On Ubuntu 26.04 php-fpm/install.sh installs 8.5 only, from Ubuntu's own archive.
 if [ "$(. /etc/os-release 2>/dev/null; printf '%s' "${VERSION_ID:-}")" = "26.04" ]; then
     WEBMAIL_PHP_VERSION="8.5"
 fi
@@ -473,6 +473,7 @@ install_php_extensions() {
 
     log_info "install_php_extensions: installing ${missing}"
 
+    retire_ondrej_php_ppa "${WEBMAIL_CAPABILITY}" || emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get update 2>&1); then
         add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"

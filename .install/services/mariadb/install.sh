@@ -680,6 +680,7 @@ SOURCES
         mv -f "${MARIADB_SOURCES_LIST}.tmp" "${MARIADB_SOURCES_LIST}"
         add_change mariadb installed "${MARIADB_SOURCES_LIST}" "apt source pinned to MariaDB ${MARIADB_PINNED_SERIES} (codename ${MARIADB_CODENAME})"
 
+        retire_ondrej_php_ppa mariadb || emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         if ! out=$(apt-get update 2>&1); then
             add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${MARIADB_SOURCES_LIST}"
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"

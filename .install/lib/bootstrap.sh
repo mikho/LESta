@@ -7,6 +7,9 @@
 # base directories every service shares. Capability-agnostic, so one copy serves them all; a
 # service that needs more at this point (php-fpm's self-test group) adds its own step after
 # bootstrap_base in its main().
+#
+# Also the PHP package repository pin (ensure_sury_php_repo, retire_ondrej_php_ppa), which
+# php-fpm and every installer that runs apt-get update share.
 
 ensure_lesta_group() {
     getent group lesta >/dev/null 2>&1 || groupadd --system lesta
@@ -85,4 +88,100 @@ bootstrap_stop_unit() {
     fi
 
     return 1
+}
+
+# --- PHP package repository ------------------------------------------------------------------
+#
+# Ondřej Surý's PHP packages for Ubuntu (8.1 to 8.5, beside Ubuntu's own single version) are
+# published at packages.sury.org/php. His Launchpad PPA ppa:ondrej/php, which LESta pinned until
+# 2026-11-24, was frozen around 2026-11-20 and its Release Label renamed to "PPA for PHP
+# (deprecated)", which makes every apt-get update on a node still listing it fail. The repository
+# is pinned the way mariadb/install.sh pins MariaDB's: a downloaded keyring that must hold exactly
+# SURY_PHP_KEY_FINGERPRINT (DEB.SURY.ORG Automatic Signing Key, expires 2028-02-04, so a rotated
+# key fails closed here until this constant follows it), trusted for that one source only
+# (signed-by, outside trusted.gpg.d), and a hand-written sources file.
+SURY_PHP_KEYRING="/etc/apt/keyrings/lesta-sury-php.gpg"
+SURY_PHP_KEY_FINGERPRINT="15058500A0235D97F5D10063B188E2B695BD4743"
+SURY_PHP_SOURCES_LIST="/etc/apt/sources.list.d/lesta-sury-php.list"
+ONDREJ_PPA_KEYRINGS="/etc/apt/keyrings/lesta-ondrej-php.gpg /etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg"
+# Set to 1 when ensure_sury_php_repo or retire_ondrej_php_ppa changed an apt source, so the caller
+# knows its package lists need an apt-get update.
+# shellcheck disable=SC2034 # read by php-fpm/install.sh
+PHP_APT_SOURCES_CHANGED=0
+
+# ensure_sury_php_repo <capability> pins packages.sury.org/php for this node's Ubuntu codename.
+# Idempotent: LESta's own pin, or one the base image already carries under another file (a second
+# entry for the same URL with a different signed-by makes apt fail), is kept as it is. Returns 1
+# after add_error when the key cannot be fetched or is not exactly the pinned one; the caller
+# emits the result.
+ensure_sury_php_repo() {
+    local capability="$1" out codename existing
+
+    existing=$(grep -rl 'packages\.sury\.org/php' /etc/apt/sources.list.d/ 2>/dev/null | head -1 || true)
+    if [ -n "${existing}" ]; then
+        add_change "${capability}" verified "${existing}" "packages.sury.org/php already pinned"
+
+        return 0
+    fi
+
+    log_info "ensure_sury_php_repo: pinning packages.sury.org/php (key fingerprint ${SURY_PHP_KEY_FINGERPRINT})"
+
+    install -d -m 0755 /etc/apt/keyrings
+    if ! out=$(curl -fsSL --proto '=https' -o "${SURY_PHP_KEYRING}.tmp" https://packages.sury.org/php/apt.gpg 2>&1); then
+        rm -f "${SURY_PHP_KEYRING}.tmp"
+        add_error sury_php_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${SURY_PHP_KEYRING}"
+
+        return 1
+    fi
+    if ! verify_keyring_fingerprints "${SURY_PHP_KEYRING}.tmp" "${SURY_PHP_KEY_FINGERPRINT}"; then
+        rm -f "${SURY_PHP_KEYRING}.tmp"
+        add_error sury_php_keyring_unexpected "the downloaded key is not exactly ${SURY_PHP_KEY_FINGERPRINT}; refusing to trust it" "${SURY_PHP_KEYRING}"
+
+        return 1
+    fi
+    mv -f "${SURY_PHP_KEYRING}.tmp" "${SURY_PHP_KEYRING}"
+    chmod 0644 "${SURY_PHP_KEYRING}"
+    add_change "${capability}" installed "${SURY_PHP_KEYRING}" "packages.sury.org signing key (fingerprint ${SURY_PHP_KEY_FINGERPRINT}) downloaded, checked, and trusted for that repository only"
+
+    codename=$(preflight_os_release_field VERSION_CODENAME)
+    cat > "${SURY_PHP_SOURCES_LIST}.tmp" <<SOURCES
+# packages.sury.org/php: the multi-version PHP-FPM packages web.php-fpm.v1 installs beside
+# Ubuntu's own version. Managed by LESta; do not edit by hand.
+deb [arch=amd64 signed-by=${SURY_PHP_KEYRING}] https://packages.sury.org/php/ ${codename} main
+SOURCES
+    mv -f "${SURY_PHP_SOURCES_LIST}.tmp" "${SURY_PHP_SOURCES_LIST}"
+    add_change "${capability}" installed "${SURY_PHP_SOURCES_LIST}" "apt source pinned to packages.sury.org/php (codename ${codename})"
+    # shellcheck disable=SC2034 # read by php-fpm/install.sh
+    PHP_APT_SOURCES_CHANGED=1
+}
+
+# retire_ondrej_php_ppa <capability> runs before an installer's apt-get update: when any apt
+# source still lists the frozen ondrej/php PPA (LESta's own ondrej-php.list from before
+# 2026-11-24, or a base image's own entry), it pins packages.sury.org/php in its place and removes
+# the PPA source and LESta's old keyring. That is Ondřej's own migration: no installed package is
+# removed or downgraded, and their next updates come from sury. On 26.04, where PHP comes from
+# Ubuntu's own archive, the PPA source is only removed. Returns 1 after add_error, like
+# ensure_sury_php_repo.
+retire_ondrej_php_ppa() {
+    local capability="$1" sources file keyring
+
+    sources=$(grep -rl 'ppa\.launchpadcontent\.net/ondrej/php' /etc/apt/sources.list.d/ 2>/dev/null || true)
+    [ -n "${sources}" ] || return 0
+
+    if [ "$(preflight_os_release_field VERSION_ID)" != "26.04" ]; then
+        ensure_sury_php_repo "${capability}" || return 1
+    fi
+
+    for file in ${sources}; do
+        rm -f "${file}"
+        add_change "${capability}" removed "${file}" "ondrej/php PPA source removed: the PPA is frozen and its renamed Release Label makes apt-get update fail; PHP updates come from packages.sury.org/php"
+    done
+    for keyring in ${ONDREJ_PPA_KEYRINGS}; do
+        if [ -e "${keyring}" ]; then
+            rm -f "${keyring}"
+            add_change "${capability}" removed "${keyring}" "the ondrej/php PPA's keyring, no longer used by any source"
+        fi
+    done
+    # shellcheck disable=SC2034 # read by php-fpm/install.sh
+    PHP_APT_SOURCES_CHANGED=1
 }

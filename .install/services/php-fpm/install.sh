@@ -27,14 +27,14 @@
 # provisioned lesta-t{account_id} OS identity (see
 # agent/internal/capability/phpfpm's own package doc comment) -- this
 # installer creates no new tenant-facing identity of its own, only the
-# fixed per-version pool.d directories and the ondrej/php packages.
+# fixed per-version pool.d directories and the sury.org PHP packages.
 #
 # **Bounded PHP version set, by design**: PHP_VERSIONS below names exactly
 # the versions Laravel's own App\Enums\PhpVersion allows a tenant to
-# select (8.1 to 8.5; a node installs the ones its Ubuntu release can, see select_php_versions) -- never an unbounded "whatever ondrej/php
+# select (8.1 to 8.5; a node installs the ones its Ubuntu release can, see select_php_versions) -- never an unbounded "whatever sury.org
 # ships," matching this project's own "no unrestricted service editor"
 # principle (ADR 0002). 8.3 is Ubuntu 24.04's own native package; the
-# other three come from the ondrej/php PPA.
+# other three come from packages.sury.org/php.
 set -eu
 
 # --- constants -------------------------------------------------------------
@@ -47,7 +47,7 @@ WEB_PHP_FPM_CAPABILITY="web.php-fpm.v1"
 # supportedPhpVersions map and App\Enums\PhpVersion both allow. Keep all
 # three in lockstep.
 PHP_VERSIONS="8.1 8.2 8.3 8.4"
-PHP_USE_PPA=1
+PHP_USE_SURY_REPO=1
 SELFTEST_PHP_VERSION="8.3"
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -95,22 +95,8 @@ PHP_POOL_BASE_DIR="/etc/php"
 PHP_SOCKET_ROOT="/run/lesta-php"
 PHP_FPM_STATE_ROOT="/var/lib/lesta/php-fpm"
 
-# ondrej/php PPA (Launchpad): real, long-standing, publicly documented
-# signing key for the Ondřej Surý PHP package family (the same key signs
-# both the Debian sury.org repo and this Ubuntu Launchpad PPA). Fetched via
-# Ubuntu's own keyserver HTTPS REST endpoint, never `add-apt-repository
-# ppa:ondrej/php` (which itself pipes a remote fetch into apt's own
-# keyring machinery with no separate audit step) and never piping a
-# remote script into a shell directly, per
-# .install/INSTALLER-CONTRACT.md's own "Supply chain" section -- mirrors
-# mariadb/install.sh's own manual keyring + hand-written sources.list
-# discipline exactly.
-# Outside /etc/apt/trusted.gpg.d, so apt trusts the key for the PPA only (its signed-by), never for
-# Ubuntu's own repositories; the download is refused unless it is exactly PHP_PPA_KEY_FULL_FINGERPRINT.
-PHP_PPA_KEYRING="/etc/apt/keyrings/lesta-ondrej-php.gpg"
-PHP_PPA_LEGACY_KEYRING="/etc/apt/trusted.gpg.d/ondrej-php-keyring.gpg"
-PHP_PPA_KEY_FULL_FINGERPRINT="14AA40EC0831756756D7F66C4F4EA0AAE5267A6C"
-PHP_PPA_SOURCES_LIST="/etc/apt/sources.list.d/ondrej-php.list"
+# PHP 8.1, 8.2 and 8.4 come from packages.sury.org/php, pinned by lib/bootstrap.sh's
+# ensure_sury_php_repo (it replaced the frozen ondrej/php PPA on 2026-11-24).
 
 SUDOERS_LESTA_PHP_FPM_PATH="/etc/sudoers.d/lesta-php-fpm"
 
@@ -257,7 +243,7 @@ emit_dry_run_result_and_exit() {
 
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway PHP ${SELFTEST_PHP_VERSION} pool against the real, just-installed php8.3-fpm"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" would_install "" "the ondrej/php PPA would be pinned; php${PHP_VERSIONS# } (space-separated: ${PHP_VERSIONS}) would be installed via apt-get; each version's own pool.d directory would be created, mode 0770 root:lesta, with its default www pool disabled; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No firewall phase runs: this service's own manifest declares no ports"
+    add_change "${WEB_PHP_FPM_CAPABILITY}" would_install "" "packages.sury.org/php would be pinned (replacing the frozen ondrej/php PPA if listed); php${PHP_VERSIONS# } (space-separated: ${PHP_VERSIONS}) would be installed via apt-get; each version's own pool.d directory would be created, mode 0770 root:lesta, with its default www pool disabled; any sudo rule an earlier installer wrote would be removed (the root applier does the privileged work). No firewall phase runs: this service's own manifest declares no ports"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -346,83 +332,6 @@ bootstrap_php_fpm_selftest_group() {
 
 # --- phase 3: install_php_fpm -------------------------------------------
 
-# ensure_ondrej_php_repo pins the ondrej/php PPA the same way
-# mariadb/install.sh pins the MariaDB Foundation repository: a manually
-# downloaded, fixed-fingerprint GPG keyring plus a hand-written
-# sources.list entry, never `add-apt-repository` or a remote script
-# piped into a shell.
-# Idempotent: a second apply verifies the existing keyring/sources file
-# rather than re-downloading them.
-# Some base images (this project's own included) already ship the same
-# PPA pre-trusted under a different file, in deb822 .sources format with
-# an inline-armored Signed-By -- a second, differently-formatted entry
-# for the identical PPA URL makes apt fail outright with a Signed-By
-# conflict. Detect that case first and reuse the image's own entry
-# instead of writing a conflicting duplicate.
-ensure_ondrej_php_repo() {
-    local out codename foreign_source
-
-    if [ -f "${PHP_PPA_KEYRING}" ] && [ -f "${PHP_PPA_SOURCES_LIST}" ]; then
-        add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${PHP_PPA_SOURCES_LIST}" "ondrej/php PPA already pinned from a prior apply"
-
-        return 0
-    fi
-
-    # LESta's own list is never foreign: one left from before the key moved out of trusted.gpg.d is
-    # rewritten below.
-    foreign_source=$(grep -rl 'ppa\.launchpadcontent\.net/ondrej/php' /etc/apt/sources.list.d/ 2>/dev/null | grep -vxF "${PHP_PPA_SOURCES_LIST}" | head -1 || true)
-
-    if [ -n "${foreign_source}" ]; then
-        add_change "${WEB_PHP_FPM_CAPABILITY}" verified "${foreign_source}" "ondrej/php PPA already pinned by the base image under a different file; reusing it instead of writing a conflicting duplicate"
-
-        return 0
-    fi
-
-    log_info "ensure_ondrej_php_repo: pinning the ondrej/php PPA (key fingerprint ${PHP_PPA_KEY_FULL_FINGERPRINT})"
-
-    install -d -m 0755 /etc/apt/keyrings
-    if ! out=$(curl -fsSL --proto '=https' -o "${PHP_PPA_KEYRING}" \
-        "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&exact=on&search=0x${PHP_PPA_KEY_FULL_FINGERPRINT}" 2>&1); then
-        rm -f "${PHP_PPA_KEYRING}"
-        add_error ondrej_php_keyring_fetch_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${PHP_PPA_KEYRING}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-
-    # keyserver.ubuntu.com's own "mr" (machine-readable) export returns a
-    # bare ASCII-armored public key block, not a binary keyring gpg
-    # expects for signed-by -- dearmor it in place.
-    if ! out=$(gpg --dearmor --yes --output "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEYRING}" 2>&1); then
-        rm -f "${PHP_PPA_KEYRING}" "${PHP_PPA_KEYRING}.tmp"
-        add_error ondrej_php_keyring_dearmor_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${PHP_PPA_KEYRING}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-    if ! verify_keyring_fingerprints "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEY_FULL_FINGERPRINT}"; then
-        rm -f "${PHP_PPA_KEYRING}" "${PHP_PPA_KEYRING}.tmp"
-        add_error ondrej_php_keyring_unexpected "the downloaded key is not exactly ${PHP_PPA_KEY_FULL_FINGERPRINT}; refusing to trust it" "${PHP_PPA_KEYRING}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-    mv -f "${PHP_PPA_KEYRING}.tmp" "${PHP_PPA_KEYRING}"
-    chmod 0644 "${PHP_PPA_KEYRING}"
-    rm -f "${PHP_PPA_LEGACY_KEYRING}"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${PHP_PPA_KEYRING}" "ondrej/php PPA's release signing key (fingerprint ${PHP_PPA_KEY_FULL_FINGERPRINT}) downloaded, checked, and trusted for the PPA only"
-
-    codename=$(preflight_os_release_field VERSION_CODENAME)
-
-    cat > "${PHP_PPA_SOURCES_LIST}.tmp" <<SOURCES
-# ondrej/php PPA (Launchpad): the real multi-version PHP-FPM package
-# source web.php-fpm.v1 depends on for every version except Ubuntu's own
-# native default. Managed by LESta; do not edit by hand.
-deb [arch=amd64 signed-by=${PHP_PPA_KEYRING}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu ${codename} main
-SOURCES
-    mv -f "${PHP_PPA_SOURCES_LIST}.tmp" "${PHP_PPA_SOURCES_LIST}"
-    add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${PHP_PPA_SOURCES_LIST}" "apt source pinned to the ondrej/php PPA (codename ${codename})"
-
-    if ! out=$(apt-get update 2>&1); then
-        add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${PHP_PPA_SOURCES_LIST}"
-        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-    fi
-}
-
 # disable_default_pool <version>
 # Ubuntu/ondrej's own php<version>-fpm package ships one default pool
 # enabled out of the box (pool.d/www.conf, running as www-data on its own
@@ -507,13 +416,14 @@ IDLEPOOL
     add_change "${WEB_PHP_FPM_CAPABILITY}" installed "${pool_dir}/lesta-idle.conf" "idle pool written so php${version}-fpm starts while no site uses it"
 }
 
-# select_php_versions narrows PHP_VERSIONS to what the node's Ubuntu release can install. The
-# ondrej/php PPA publishes no suite for 26.04 (resolute), so there PHP comes from Ubuntu's own
-# archive, which ships 8.5 only; 24.04 keeps 8.1 to 8.4 from the PPA.
+# select_php_versions narrows PHP_VERSIONS to what the node's Ubuntu release installs. On 26.04
+# (resolute) PHP comes from Ubuntu's own archive, which ships 8.5 only (the ondrej/php PPA had no
+# suite for it; packages.sury.org/php now does, a backlog item); 24.04 keeps 8.1 to 8.4, three of
+# them from packages.sury.org/php.
 select_php_versions() {
     if [ "$(preflight_os_release_field VERSION_ID)" = "26.04" ]; then
         PHP_VERSIONS="8.5"
-        PHP_USE_PPA=0
+        PHP_USE_SURY_REPO=0
         SELFTEST_PHP_VERSION="8.5"
     fi
 }
@@ -523,13 +433,13 @@ install_php_fpm() {
 
     local version out pkgs=""
 
-    if [ "${PHP_USE_PPA}" -eq 1 ]; then
-        ensure_ondrej_php_repo
-    elif [ -e "${PHP_PPA_SOURCES_LIST}" ]; then
-        # A node upgraded from 24.04 (or an earlier run of this installer) still lists a PPA that
-        # has no suite for this release, which makes every apt-get update fail.
-        rm -f "${PHP_PPA_SOURCES_LIST}" || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${PHP_PPA_SOURCES_LIST}" "failed to remove the ondrej/php source"
-        add_change "${WEB_PHP_FPM_CAPABILITY}" removed "${PHP_PPA_SOURCES_LIST}" "ondrej/php PPA source removed: it publishes no suite for this Ubuntu release"
+    retire_ondrej_php_ppa "${WEB_PHP_FPM_CAPABILITY}" || emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    if [ "${PHP_USE_SURY_REPO}" -eq 1 ]; then
+        ensure_sury_php_repo "${WEB_PHP_FPM_CAPABILITY}" || emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+    if [ "${PHP_APT_SOURCES_CHANGED}" -eq 1 ] && ! out=$(apt-get update 2>&1); then
+        add_error apt_update_failed "$(printf '%s' "${out}" | tr '\n' ' ')" "${SURY_PHP_SOURCES_LIST}"
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
 
     for version in ${PHP_VERSIONS}; do
@@ -606,7 +516,7 @@ TMPFILES
 
 # --- phase 4: bootstrap_node_health --------------------------------------
 #
-# Self-test exercises exactly one representative version (8.3 where the PPA versions
+# Self-test exercises exactly one representative version (8.3 where the sury.org versions
 # exist, else the node's only one, see select_php_versions; 8.3 is Ubuntu 24.04's
 # own native package) with a real create-then-delete round trip against
 # the real, just-installed php8.3-fpm. The throwaway pool runs as
