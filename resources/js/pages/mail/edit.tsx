@@ -8,6 +8,7 @@ import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { MoreActionsMenu } from '@/components/own-resource-list';
 import { ProvisioningPanel } from '@/components/provisioning-badge';
+import { ScannerSwitch } from '@/components/scanner-switch';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -342,11 +343,19 @@ function EditMailAccountDialog({
                                     Spam
                                 </legend>
 
-                                {!mailDomain.antispam_enabled && (
+                                {!mailDomain.antispam_available ? (
                                     <p className="text-xs text-muted-foreground">
-                                        Spam checking is off for this domain, so
+                                        This server has no spam checking, so
                                         only the block list applies.
                                     </p>
+                                ) : (
+                                    !mailDomain.antispam_enabled && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Spam checking is off for this
+                                            domain, so only the block list
+                                            applies.
+                                        </p>
+                                    )
                                 )}
 
                                 <div className="grid gap-2">
@@ -808,31 +817,23 @@ export default function Edit({
                                     />
                                 </div>
 
-                                <div className="flex items-center space-x-3">
-                                    <FormCheckbox
-                                        id="antivirus_enabled"
-                                        name="antivirus_enabled"
-                                        defaultChecked={
-                                            mailDomain.antivirus_enabled
-                                        }
-                                    />
-                                    <Label htmlFor="antivirus_enabled">
-                                        Scan incoming mail for viruses
-                                    </Label>
-                                </div>
+                                <ScannerSwitch
+                                    name="antivirus_enabled"
+                                    label="Scan incoming mail for viruses"
+                                    unavailable="Virus scanning is not installed on this server."
+                                    available={mailDomain.antivirus_available}
+                                    defaultChecked={
+                                        mailDomain.antivirus_enabled
+                                    }
+                                />
 
-                                <div className="flex items-center space-x-3">
-                                    <FormCheckbox
-                                        id="antispam_enabled"
-                                        name="antispam_enabled"
-                                        defaultChecked={
-                                            mailDomain.antispam_enabled
-                                        }
-                                    />
-                                    <Label htmlFor="antispam_enabled">
-                                        Scan incoming mail for spam
-                                    </Label>
-                                </div>
+                                <ScannerSwitch
+                                    name="antispam_enabled"
+                                    label="Scan incoming mail for spam"
+                                    unavailable="Spam checking is not installed on this server."
+                                    available={mailDomain.antispam_available}
+                                    defaultChecked={mailDomain.antispam_enabled}
+                                />
 
                                 <div className="grid gap-2">
                                     <div className="flex items-center space-x-3">

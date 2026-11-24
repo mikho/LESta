@@ -264,7 +264,7 @@ emit_dry_run_result_and_exit() {
     fi
     add_change "${ADMINER_CAPABILITY}" would_install "${DEPLOY_DIR}" "${DEPLOY_DIR} would be created (root:lesta-adminer, mode 0750); adminer.php and adminer-lesta-login.php would be checksum-verified against the manifest and copied in, mode 0640 root:lesta-adminer"
     add_change "${ADMINER_CAPABILITY}" would_write "${CONTROL_PLANE_URL_FILE}" "the control plane base URL would be parsed from ${DAEMON_CONFIG_PATH}'s own control_plane_url field and written here, mode 0644 root:lesta-adminer"
-    add_change "${ADMINER_CAPABILITY}" would_install "${ADMINER_POOL_CONF}" "a dedicated static PHP ${ADMINER_PHP_VERSION}-FPM pool (pm.max_children=3) would be written, listening on ${ADMINER_SOCKET_PATH}, open_basedir restricted to ${DEPLOY_DIR}:/tmp; php${ADMINER_PHP_VERSION}-fpm would be reloaded"
+    add_change "${ADMINER_CAPABILITY}" would_install "${ADMINER_POOL_CONF}" "a dedicated on-demand PHP ${ADMINER_PHP_VERSION}-FPM pool (pm.max_children=3) would be written, listening on ${ADMINER_SOCKET_PATH}, open_basedir restricted to ${DEPLOY_DIR}:/tmp; php${ADMINER_PHP_VERSION}-fpm would be reloaded"
     add_change "${ADMINER_CAPABILITY}" would_ensure "${ADMINER_STATE_ROOT}" "presence-marker directory would be created, mode 0750 root:lesta"
 
     emit_result_and_exit would_change "${EXIT_OK}"
@@ -437,7 +437,7 @@ install_php_extensions() {
     fi
 
     # shellcheck disable=SC2086
-    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get install -y ${missing} 2>&1); then
+    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${missing} 2>&1); then
         add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
@@ -561,10 +561,13 @@ listen.owner = lesta-adminer
 listen.group = www-data
 listen.mode = 0660
 
-; Static, not dynamic: this is one fixed, node-wide, low-traffic admin
-; tool, never a per-tenant pool sized for real traffic.
-pm = static
+; On demand: one fixed, node-wide, low-traffic admin tool that is idle
+; nearly always, so no process runs until someone opens it, and a process
+; exits after 30 idle seconds (a node keeps its memory small; see the vault's
+; "Minimal memory footprint"). At most three at once.
+pm = ondemand
 pm.max_children = 3
+pm.process_idle_timeout = 30s
 
 ; Defense in depth, never the primary boundary -- the primary boundary is
 ; this pool's own dedicated lesta-adminer OS uid/gid, per Web Application
@@ -591,7 +594,7 @@ php_admin_flag[allow_url_fopen] = on
 POOLCONF
     mv -f "${ADMINER_POOL_CONF}.tmp" "${ADMINER_POOL_CONF}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${ADMINER_POOL_CONF}" "failed to activate ${ADMINER_POOL_CONF}"
-    add_change "${ADMINER_CAPABILITY}" installed "${ADMINER_POOL_CONF}" "dedicated static pool written: pm.max_children=3, listen=${ADMINER_SOCKET_PATH}, open_basedir=${DEPLOY_DIR}:/tmp"
+    add_change "${ADMINER_CAPABILITY}" installed "${ADMINER_POOL_CONF}" "dedicated on-demand pool written: pm.max_children=3, idle timeout 30s, listen=${ADMINER_SOCKET_PATH}, open_basedir=${DEPLOY_DIR}:/tmp"
 
     if ! "/usr/sbin/php-fpm${ADMINER_PHP_VERSION}" -t >/dev/null 2>&1; then
         fail_step "${EXIT_HEALTH_FAILURE}" pool_config_invalid "${ADMINER_POOL_CONF}" "php-fpm${ADMINER_PHP_VERSION} -t rejected the rendered pool config"
@@ -607,7 +610,8 @@ POOLCONF
 
 # --- phase 5: run_adminer_selftest ---------------------------------------
 
-# This capability is a single, static, always-on, node-wide pool, never a
+# This capability is a single, fixed, node-wide pool (its socket always
+# listening, its processes started on demand), never a
 # per-resource lifecycle the way nginx/php-fpm's own pools are (there is
 # nothing to create-then-delete here): health is proven the same way the
 # pool config itself was already validated above (php-fpm -t), plus

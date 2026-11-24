@@ -2560,8 +2560,10 @@ All the fields of [Suspension](/docs/api-reference/chapter-14#suspension), and:
 | `id` | string (uuid) | yes |  |
 | `account_id` | string | no | Only in the admin lists. |
 | `domain` | string | yes |  |
-| `antivirus_enabled` | boolean | yes |  |
-| `antispam_enabled` | boolean | yes |  |
+| `antivirus_enabled` | boolean | yes | The domain's setting. It only scans when antivirus_available is true. |
+| `antispam_enabled` | boolean | yes | The domain's setting. It only scores when antispam_available is true. |
+| `antivirus_available` | boolean | yes | Whether the domain's server has a virus scanner (ClamAV). It is optional on a server; without it antivirus_enabled is kept but does nothing. |
+| `antispam_available` | boolean | yes | Whether the domain's server has spam scoring (SpamAssassin). It is optional on a server; without it antispam_enabled is kept but does nothing. |
 | `dkim_enabled` | boolean | yes |  |
 | `dkim_selector` | string | yes |  |
 | `catchall_email` | string or null | yes |  |

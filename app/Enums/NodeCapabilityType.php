@@ -56,6 +56,8 @@ enum NodeCapabilityType: string
     case FilesManager = 'files.manager.v1';
     case Adminer = 'tools.adminer.v1';
     case Webmail = 'mail.webmail.v1';
+    case MailAntivirus = 'mail.antivirus.v1';
+    case MailAntispam = 'mail.antispam.v1';
 
     /**
      * Whether this capability has a real, singular, node-wide "installed or not" concept an

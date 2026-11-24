@@ -685,7 +685,7 @@ SOURCES
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
 
-        if ! out=$(apt-get install -y mariadb-server mariadb-client 2>&1); then
+        if ! out=$(apt-get install -y --no-install-recommends mariadb-server mariadb-client 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
@@ -885,6 +885,44 @@ DEFAULTS
     add_change "${capability}" installed "${defaults_file}" "restore account ${RESTORE_USER}@localhost (all privileges except FILE, SUPER, SHUTDOWN, PROCESS and the binary log and replication ones) and its option file, mode 0600 root:root"
 }
 
+# The memory settings below are LESta's small-node defaults (a node should
+# run on little memory; see the vault's "Minimal memory footprint"): MariaDB's
+# own defaults reserve a 128 MB MyISAM key buffer and a 128 MB Aria page
+# cache that LESta never uses (every table is InnoDB; Aria only holds
+# internal temporary tables), and size threads and table caches for 151
+# connections. The InnoDB buffer pool is the one cache that serves real
+# queries, so it stays: 64 MB for the panel's own small database, MariaDB's
+# 128 MB for customer databases. performance_schema is already off by
+# default and is pinned off. Each instance gets every key explicitly, since
+# the tenant instance also reads the plain [mysqld] group.
+#
+# render_control_plane_conf -> the [mysqld] fragment for the DEFAULT
+# instance. Only datadir and port are relocated; socket, pid-file and
+# log-error stay at Ubuntu's stock package defaults (see this file's top
+# comment).
+render_control_plane_conf() {
+    cat <<CONF
+# Managed by LESta. Do not edit by hand.
+#
+# Read by the DEFAULT mariadbd instance (systemctl start mariadb.service,
+# no --defaults-group-suffix) -- the plain [mysqld] group, not a
+# group-suffixed one. Only datadir and port are overridden here; socket,
+# pid-file, and log-error are left at Ubuntu's own stock package defaults.
+[mysqld]
+port = ${CONTROL_PLANE_PORT}
+datadir = ${CONTROL_PLANE_DATADIR}
+performance_schema = OFF
+innodb_buffer_pool_size = 64M
+innodb_log_buffer_size = 4M
+key_buffer_size = 8M
+aria_pagecache_buffer_size = 16M
+max_connections = 50
+thread_cache_size = 8
+table_open_cache = 400
+table_definition_cache = 400
+CONF
+}
+
 # install_mariadb_control_plane relocates the default mariadb.service
 # instance (almost certainly already auto-started by the package's own
 # postinst against the stock /var/lib/mysql datadir) onto this project's own
@@ -899,6 +937,20 @@ install_mariadb_control_plane() {
     if [ -f "${CONTROL_PLANE_CONF_FRAGMENT}" ] && grep -qF "datadir = ${CONTROL_PLANE_DATADIR}" "${CONTROL_PLANE_CONF_FRAGMENT}" 2>/dev/null; then
         log_info "install_mariadb_control_plane: ${CONTROL_PLANE_CONF_FRAGMENT} already points at ${CONTROL_PLANE_DATADIR}; treating this as a rerun against an already-migrated instance"
         add_change database.control-plane.v1 verified "${CONTROL_PLANE_CONF_FRAGMENT}" "already migrated to ${CONTROL_PLANE_DATADIR} by a prior apply"
+
+        # An older release's fragment (datadir and port only) gets the
+        # memory settings; the instance restarts only when the file changed.
+        render_control_plane_conf > "${CONTROL_PLANE_CONF_FRAGMENT}.tmp"
+        if ! cmp -s "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" "${CONTROL_PLANE_CONF_FRAGMENT}"; then
+            mv -f "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" "${CONTROL_PLANE_CONF_FRAGMENT}"
+            chmod 0644 "${CONTROL_PLANE_CONF_FRAGMENT}"
+            if ! out=$(systemctl restart mariadb.service 2>&1); then
+                mariadb_fail_health "${EXIT_HEALTH_FAILURE}" mariadb_control_plane_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+            fi
+            add_change database.control-plane.v1 restarted "${CONTROL_PLANE_CONF_FRAGMENT}" "[mysqld] option group rewritten with the small-node memory settings and mariadb.service restarted to load it"
+        else
+            rm -f "${CONTROL_PLANE_CONF_FRAGMENT}.tmp"
+        fi
 
         systemctl daemon-reload || fail_step "${EXIT_MUTATION_FAILURE}" systemctl_daemon_reload_failed "" "systemctl daemon-reload failed"
         if ! out=$(systemctl enable --now mariadb.service 2>&1); then
@@ -967,20 +1019,10 @@ install_mariadb_control_plane() {
     # socket/pid-file/log-error are left at Ubuntu's own stock package
     # defaults, deliberately not relocated (see this file's own top comment
     # and the CONTROL_PLANE_* constants block for why).
-    cat > "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" <<CONF
-# Managed by LESta. Do not edit by hand.
-#
-# Read by the DEFAULT mariadbd instance (systemctl start mariadb.service,
-# no --defaults-group-suffix) -- the plain [mysqld] group, not a
-# group-suffixed one. Only datadir and port are overridden here; socket,
-# pid-file, and log-error are left at Ubuntu's own stock package defaults.
-[mysqld]
-port = ${CONTROL_PLANE_PORT}
-datadir = ${CONTROL_PLANE_DATADIR}
-CONF
+    render_control_plane_conf > "${CONTROL_PLANE_CONF_FRAGMENT}.tmp"
     mv -f "${CONTROL_PLANE_CONF_FRAGMENT}.tmp" "${CONTROL_PLANE_CONF_FRAGMENT}"
     chmod 0644 "${CONTROL_PLANE_CONF_FRAGMENT}"
-    add_change database.control-plane.v1 installed "${CONTROL_PLANE_CONF_FRAGMENT}" "[mysqld] option group written with datadir and port set explicitly"
+    add_change database.control-plane.v1 installed "${CONTROL_PLANE_CONF_FRAGMENT}" "[mysqld] option group written with datadir, port and the small-node memory settings"
 
     # --- AppArmor: same local-override file the tenant phase already
     # appends to, extended with a second allow-block for the control-plane
@@ -1116,7 +1158,8 @@ install_mariadb_tenant() {
         add_change database.tenant.v1 installed "${TENANT_TLS_DIR}" "self-signed certificate seeded for TLS connections, until the node hostname's certificate replaces it"
     fi
 
-    # --- [mysqld.tenant] config fragment: every instance-distinguishing key
+    # --- [mysqld.tenant] config fragment (memory settings: see
+    # render_control_plane_conf's comment): every instance-distinguishing key
     # explicitly set (see this file's own top comment for why omitting any
     # one of these risks silently sharing the control-plane instance's own
     # socket/datadir/port) -------------------------------------------------
@@ -1142,6 +1185,15 @@ bind-address = *
 log-error = ${TENANT_LOGFILE}
 ssl_cert = ${TENANT_TLS_DIR}/fullchain.pem
 ssl_key = ${TENANT_TLS_DIR}/privkey.pem
+performance_schema = OFF
+innodb_buffer_pool_size = 128M
+innodb_log_buffer_size = 8M
+key_buffer_size = 8M
+aria_pagecache_buffer_size = 32M
+max_connections = 100
+thread_cache_size = 16
+table_open_cache = 1000
+table_definition_cache = 400
 CONF
     # A changed fragment (an older release's, bound to 127.0.0.1 without TLS) needs the running
     # instance restarted to take effect; an unchanged one never restarts it.

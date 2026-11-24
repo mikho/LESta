@@ -304,7 +304,7 @@ emit_dry_run_result_and_exit() {
     add_change "${WEBMAIL_CAPABILITY}" would_install "${PLUGIN_DEST_DIR}" "lesta_autologin.php checksum-verified and copied in; control-plane-url.txt parsed from ${DAEMON_CONFIG_PATH}"
     add_change "${WEBMAIL_CAPABILITY}" would_write "${ROUNDCUBE_CONFIG}" "config.inc.php for imap_host ssl://${MAIL_HOSTNAME}:993, smtp_host tls://${MAIL_HOSTNAME}:587, mode 0640 root:lesta-webmail"
     add_change "${WEBMAIL_CAPABILITY}" would_ensure "${ROUNDCUBE_DB}" "SQLite schema created or upgraded by Roundcube's own bin/initdb.sh --update, run as lesta-webmail"
-    add_change "${WEBMAIL_CAPABILITY}" would_install "${WEBMAIL_POOL_CONF}" "a dedicated static PHP ${WEBMAIL_PHP_VERSION}-FPM pool (pm.max_children=4) would be written, listening on ${WEBMAIL_SOCKET_PATH}, open_basedir ${DEPLOY_DIR}:${WEBMAIL_STATE_ROOT}:/tmp; php${WEBMAIL_PHP_VERSION}-fpm would be reloaded"
+    add_change "${WEBMAIL_CAPABILITY}" would_install "${WEBMAIL_POOL_CONF}" "a dedicated on-demand PHP ${WEBMAIL_PHP_VERSION}-FPM pool (pm.max_children=4, idle timeout 30s) would be written, listening on ${WEBMAIL_SOCKET_PATH}, open_basedir ${DEPLOY_DIR}:${WEBMAIL_STATE_ROOT}:/tmp; php${WEBMAIL_PHP_VERSION}-fpm would be reloaded"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -479,7 +479,7 @@ install_php_extensions() {
     fi
 
     # shellcheck disable=SC2086
-    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get install -y ${missing} 2>&1); then
+    if ! out=$(DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${missing} 2>&1); then
         add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi
@@ -857,10 +857,13 @@ listen.owner = lesta-webmail
 listen.group = www-data
 listen.mode = 0660
 
-; Static, not dynamic: one fixed, node-wide webmail instance, never a
-; per-tenant pool sized for real traffic.
-pm = static
+; On demand: one fixed, node-wide webmail instance that is idle most of
+; the time, so no process runs until someone opens webmail, and a process
+; exits after 30 idle seconds (a node keeps its memory small; see the
+; vault's "Minimal memory footprint"). At most four at once.
+pm = ondemand
 pm.max_children = 4
+pm.process_idle_timeout = 30s
 
 ; Defense in depth, never the primary boundary (that is this pool's own
 ; dedicated lesta-webmail OS uid/gid). open_basedir covers only Roundcube's
@@ -889,7 +892,7 @@ php_admin_value[post_max_size] = 25M
 POOLCONF
     mv -f "${WEBMAIL_POOL_CONF}.tmp" "${WEBMAIL_POOL_CONF}" \
         || fail_step "${EXIT_MUTATION_FAILURE}" write_failed "${WEBMAIL_POOL_CONF}" "failed to activate ${WEBMAIL_POOL_CONF}"
-    add_change "${WEBMAIL_CAPABILITY}" installed "${WEBMAIL_POOL_CONF}" "dedicated static pool written: pm.max_children=4, listen=${WEBMAIL_SOCKET_PATH}, open_basedir=${DEPLOY_DIR}:${WEBMAIL_STATE_ROOT}:/tmp"
+    add_change "${WEBMAIL_CAPABILITY}" installed "${WEBMAIL_POOL_CONF}" "dedicated on-demand pool written: pm.max_children=4, idle timeout 30s, listen=${WEBMAIL_SOCKET_PATH}, open_basedir=${DEPLOY_DIR}:${WEBMAIL_STATE_ROOT}:/tmp"
 
     if ! "/usr/sbin/php-fpm${WEBMAIL_PHP_VERSION}" -t >/dev/null 2>&1; then
         fail_step "${EXIT_HEALTH_FAILURE}" pool_config_invalid "${WEBMAIL_POOL_CONF}" "php-fpm${WEBMAIL_PHP_VERSION} -t rejected the rendered pool config"

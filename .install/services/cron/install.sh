@@ -430,7 +430,7 @@ install_cron() {
         fi
         add_change "${SCHEDULER_CRON_CAPABILITY}" installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
     else
-        if ! out=$(apt-get install -y cron 2>&1); then
+        if ! out=$(apt-get install -y --no-install-recommends cron 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi

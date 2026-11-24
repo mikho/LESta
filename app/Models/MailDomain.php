@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Concerns\HasDesiredState;
 use App\Concerns\HasUuid;
 use App\Concerns\Suspendable;
+use App\Enums\NodeCapabilityType;
 use App\Enums\SuspensionSource;
 use Database\Factories\MailDomainFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -129,6 +130,20 @@ class MailDomain extends Model
     public function node(): BelongsTo
     {
         return $this->belongsTo(Node::class);
+    }
+
+    /**
+     * Whether this domain's node has the scanner behind a per-domain switch: ClamAV
+     * (mail.antivirus.v1) or SpamAssassin (mail.antispam.v1). Both are optional on a node, to keep
+     * its memory small. Without the scanner the switch is kept as the owner left it but does
+     * nothing, so the panel shows it as not available rather than on. Reads the node's loaded
+     * capabilities; load node.capabilities first when presenting a list.
+     */
+    public function scannerAvailable(NodeCapabilityType $scanner): bool
+    {
+        return $this->node->capabilities->contains(
+            fn (NodeCapability $capability): bool => $capability->capability === $scanner->value && $capability->suspended_at === null,
+        );
     }
 
     /**

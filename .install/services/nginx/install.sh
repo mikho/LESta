@@ -692,7 +692,7 @@ install_waf_rules() {
         return 0
     fi
 
-    if ! out=$(apt-get install -y libnginx-mod-http-modsecurity modsecurity-crs 2>&1); then
+    if ! out=$(apt-get install -y --no-install-recommends libnginx-mod-http-modsecurity modsecurity-crs 2>&1); then
         add_change web.nginx.v1 skipped /etc/lesta/waf "WAF packages could not be installed (domains cannot enable the WAF on this node): $(printf '%s' "${out}" | tail -n 3 | tr '\n' ' ')"
         return 0
     fi
@@ -754,7 +754,7 @@ install_nginx() {
         fi
         add_change web.nginx.v1 installed "${OFFLINE_BUNDLE}" "dpkg -i ${OFFLINE_BUNDLE}/*.deb succeeded (fully offline, no network access used); dpkg-query reports version ${installed_version}"
     else
-        if ! out=$(apt-get install -y nginx 2>&1); then
+        if ! out=$(apt-get install -y --no-install-recommends nginx 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi

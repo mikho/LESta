@@ -44,7 +44,7 @@ class CustomerResourceController extends ApiController
     {
         Gate::authorize('viewAnyAcrossAccounts', MailDomain::class);
 
-        return MailDomainResource::collection($this->list($request, MailDomain::query()->withCount('accounts')->with('latestProvisioningOperation'), domain: true));
+        return MailDomainResource::collection($this->list($request, MailDomain::query()->withCount('accounts')->with(['latestProvisioningOperation', 'node.capabilities']), domain: true));
     }
 
     public function databases(Request $request): AnonymousResourceCollection

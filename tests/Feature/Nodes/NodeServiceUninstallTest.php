@@ -125,3 +125,29 @@ test('the node page shows each removable service and what blocks it', function (
         ->where('node.installed_services.1.name', 'cron')
         ->where('node.installed_services.1.blockers', []));
 });
+
+test('removing mail also takes its optional scanners off the node', function () {
+    $node = nodeWithCapabilities('mail.smtp-imap.v1', 'mail.antivirus.v1', 'mail.antispam.v1', 'web.nginx.v1');
+    $action = NodeServiceAction::factory()->for($node)->create(['unit' => 'mail', 'action' => 'uninstall']);
+    $operation = ProvisioningOperation::factory()->create([
+        'provisionable_type' => $action->getMorphClass(),
+        'provisionable_id' => $action->id,
+        'node_id' => $node->id,
+        'resource_id' => $action->uuid,
+        'capability' => 'node.service-uninstall.v1',
+        'payload' => ['service' => 'mail', 'confirm_data_loss' => true],
+        'status' => ProvisioningStatus::Dispatched,
+    ]);
+
+    app(CompletesProvisioningOperation::class)->handle($operation, new ProvisioningResult(
+        status: ProvisioningStatus::Applied,
+        observedStateVersion: 1,
+        observedStateDigest: 'sha256:'.str_repeat('0', 64),
+        generationId: 'none',
+        errors: [],
+        completedAt: now(),
+        data: ['service' => 'mail', 'changes' => []],
+    ));
+
+    expect($node->capabilities()->pluck('capability')->all())->toBe(['web.nginx.v1']);
+});

@@ -4746,7 +4746,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Suspension'
         - type: object
-          required: [id, domain, antivirus_enabled, antispam_enabled, dkim_enabled, dkim_selector, catchall_email, accounts_count, provisioning, created_at]
+          required: [id, domain, antivirus_enabled, antispam_enabled, antivirus_available, antispam_available, dkim_enabled, dkim_selector, catchall_email, accounts_count, provisioning, created_at]
           properties:
             id:
               type: string
@@ -4758,8 +4758,16 @@ components:
               type: string
             antivirus_enabled:
               type: boolean
+              description: The domain's setting. It only scans when antivirus_available is true.
             antispam_enabled:
               type: boolean
+              description: The domain's setting. It only scores when antispam_available is true.
+            antivirus_available:
+              type: boolean
+              description: Whether the domain's server has a virus scanner (ClamAV). It is optional on a server; without it antivirus_enabled is kept but does nothing.
+            antispam_available:
+              type: boolean
+              description: Whether the domain's server has spam scoring (SpamAssassin). It is optional on a server; without it antispam_enabled is kept but does nothing.
             dkim_enabled:
               type: boolean
             dkim_selector:

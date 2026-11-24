@@ -1,6 +1,6 @@
 # Mail
 
-Real, shipped mail hosting capability: Exim4 (SMTP submission/relay) and Dovecot (IMAP), with DKIM signing (automatic key rotation), real ClamAV antivirus and SpamAssassin antispam scanning on incoming mail, per-mailbox quotas, and mailbox password rotation. TLS for the submission (587)/smtps (465)/imaps (993) listeners reuses the existing WebDomain+ACME flow rather than a separate certificate mechanism -- see "Manual prerequisite" below.
+Real, shipped mail hosting capability: Exim4 (SMTP submission/relay) and Dovecot (IMAP), with DKIM signing (automatic key rotation), optional ClamAV antivirus and SpamAssassin antispam scanning on incoming mail (off on a new node: `--antivirus`/`--antispam`, each its own capability, `mail.antivirus.v1`/`mail.antispam.v1`), per-mailbox quotas, and mailbox password rotation. TLS for the submission (587)/smtps (465)/imaps (993) listeners reuses the existing WebDomain+ACME flow rather than a separate certificate mechanism -- see "Manual prerequisite" below.
 
 ## Manual prerequisite
 
@@ -22,11 +22,13 @@ If the Dovecot include line is missing, `install.sh` fails preflight with exit c
 ## `install.sh` flags
 
 ```
-install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--offline-bundle <path>] [--yes] [--help]
+install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--antivirus|--no-antivirus] [--antispam|--no-antispam] [--offline-bundle <path>] [--yes] [--help]
 ```
 
 - `--mail-hostname <fqdn>` — **required** with `--dry-run`/`--apply`. The real hostname whose already-issued ACME certificate (see step 3 above) becomes this node's mail TLS certificate.
-- `--offline-bundle <path>` — optional. Installs `exim4-daemon-heavy`, `dovecot-imapd`/`dovecot-lmtpd`/`dovecot-sieve`, `clamav-daemon`/`clamav-freshclam`, and `spamassassin` from a pre-verified offline bundle (built by `.install/scripts/build-release.sh`) instead of Ubuntu's package archive, mirroring `mariadb/install.sh`'s own precedent.
+- `--antivirus` / `--no-antivirus` — install ClamAV (clamd keeps its signature database in memory, about 1 GB; `ConcurrentDatabaseReload no` keeps it to one copy during updates) or stop it and purge the packages it brought. Without either, a re-run keeps what the node has; a new node gets none. Exim gets the `malware` condition only while ClamAV is on.
+- `--antispam` / `--no-antispam` — the same for SpamAssassin (`spamd` limited to two children, plus `libmail-spf-perl` and `gnupg`, the two recommended packages scoring needs). `--no-antispam` never removes `gnupg`.
+- `--offline-bundle <path>` — optional. Installs `exim4-daemon-heavy`, `dovecot-imapd`/`dovecot-lmtpd`/`dovecot-sieve`, and, exactly when selected, `clamav-daemon`/`clamav-freshclam` and `spamassassin`/`spamd` from a pre-verified offline bundle (built by `.install/scripts/build-release.sh`) instead of Ubuntu's package archive, mirroring `mariadb/install.sh`'s own precedent.
 - `--prepare-config` — see "Manual prerequisite" above. Requires `--yes`. Never run implicitly by `--dry-run`/`--apply`.
 
 ## What health-checking actually proves, and what doesn't run on a live node

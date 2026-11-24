@@ -4,6 +4,7 @@ use App\Models\Account;
 use App\Models\IdempotencyReceipt;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
+use App\Models\NodeCapability;
 
 /**
  * @param  list<string>  $abilities
@@ -110,4 +111,13 @@ test('mail writes need mail:write', function () {
     [$account, $auth, $mailDomain] = mailWriteOwner(['mail:read']);
 
     $this->postJson(mailPath($account, '/'.$mailDomain->uuid.'/mailboxes'), ['local_part' => 'x'], $auth)->assertForbidden();
+});
+
+test('a mail domain reports whether its node has each scanner', function () {
+    [$account, $auth, $mailDomain] = mailWriteOwner();
+    NodeCapability::factory()->for($mailDomain->node)->create(['capability' => 'mail.antivirus.v1']);
+
+    $this->getJson(mailPath($account, '/'.$mailDomain->uuid), $auth)->assertOk()
+        ->assertJsonPath('data.antivirus_available', true)
+        ->assertJsonPath('data.antispam_available', false);
 });

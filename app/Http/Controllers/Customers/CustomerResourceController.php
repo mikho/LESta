@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customers;
 
+use App\Enums\NodeCapabilityType;
 use App\Http\Controllers\Controller;
 use App\Models\CronJob;
 use App\Models\DnsZone;
@@ -142,6 +143,19 @@ class CustomerResourceController extends Controller
     }
 
     /**
+     * A mail scanner switch as the customer sees it: off, on, or not available when the node has
+     * no such scanner (it is optional on a node), whatever the switch says.
+     */
+    private function scannerFact(MailDomain $domain, bool $enabled, NodeCapabilityType $scanner): string
+    {
+        if (! $domain->scannerAvailable($scanner)) {
+            return 'Not available on this server';
+        }
+
+        return $enabled ? 'On' : 'Off';
+    }
+
+    /**
      * @return array{title: string, facts: list<array<string, string>>, tables: list<array<string, mixed>>}
      */
     private function mailDomain(MailDomain $domain): array
@@ -151,8 +165,8 @@ class CustomerResourceController extends Controller
         return [
             'title' => $domain->domain,
             'facts' => [
-                $this->fact('Antivirus', $domain->antivirus_enabled ? 'On' : 'Off'),
-                $this->fact('Antispam', $domain->antispam_enabled ? 'On' : 'Off'),
+                $this->fact('Antivirus', $this->scannerFact($domain, $domain->antivirus_enabled, NodeCapabilityType::MailAntivirus)),
+                $this->fact('Antispam', $this->scannerFact($domain, $domain->antispam_enabled, NodeCapabilityType::MailAntispam)),
                 $this->fact('DKIM', $domain->dkim_enabled ? 'On' : 'Off'),
                 $this->fact('DKIM selector', $domain->dkim_selector ?? 'None'),
                 $this->fact('Catch-all', $domain->catchall_email ?? 'None'),

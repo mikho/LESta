@@ -17,6 +17,7 @@ Every installer and the shared bootstrap runner must satisfy this contract. This
 - Offline installation from a previously verified bundle is supported.
 - Repository configuration is pinned to approved Ubuntu sources and an explicit release.
 - A failed signature or checksum verification exits before mutation.
+- Packages are installed with `--no-install-recommends`; a recommended package a service needs is named explicitly. A heavy optional part (ClamAV, SpamAssassin) is an opt-in flag with its own capability, off on a new node. Enforced by `validate-contract.mjs`.
 
 ## Preflight
 

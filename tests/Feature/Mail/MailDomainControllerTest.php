@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\NodeCapabilityType;
 use App\Models\Account;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
@@ -176,4 +177,54 @@ test('destroying a mail domain redirects to the index', function () {
         ->assertRedirect(route('mail.index'));
 
     expect(MailDomain::find($mailDomain->id))->toBeNull();
+});
+
+test('the scanner switches are offered only where the node has the scanner', function () {
+    [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
+    NodeCapability::factory()->for($node)->create(['capability' => 'mail.antispam.v1']);
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['antivirus_enabled' => true, 'antispam_enabled' => true]);
+
+    $this->actingAs($owner)
+        ->get(route('mail.create'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('mail/create')
+            ->where('antivirusAvailable', false)
+            ->where('antispamAvailable', true)
+        );
+
+    $this->actingAs($owner)
+        ->get(route('mail.edit', $mailDomain))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('mailDomain.antivirus_enabled', true)
+            ->where('mailDomain.antivirus_available', false)
+            ->where('mailDomain.antispam_available', true)
+        );
+
+    $this->actingAs($owner)
+        ->get(route('mail.index'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('mailDomains.data.0.antivirus_available', false)
+            ->where('mailDomains.data.0.antispam_available', true)
+        );
+});
+
+test('a suspended scanner capability counts as not available', function () {
+    [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
+    NodeCapability::factory()->for($node)->create(['capability' => 'mail.antivirus.v1', 'suspended_at' => now()]);
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create();
+
+    expect($mailDomain->scannerAvailable(NodeCapabilityType::MailAntivirus))->toBeFalse();
+});
+
+test('saving the edit form without the scanner fields keeps the stored setting for when a scanner is installed', function () {
+    [$account, $owner, $node] = actingAsOwnerWithMailCapableAccount();
+    $mailDomain = MailDomain::factory()->for($account)->for($node)->create(['antivirus_enabled' => true, 'antispam_enabled' => false]);
+
+    $this->actingAs($owner)
+        ->put(route('mail.update', $mailDomain), ['dkim_enabled' => '0'])
+        ->assertRedirect(route('mail.edit', $mailDomain));
+
+    expect($mailDomain->refresh())
+        ->antivirus_enabled->toBeTrue()
+        ->antispam_enabled->toBeFalse();
 });

@@ -1,4 +1,5 @@
 # shellcheck shell=sh
+# shellcheck disable=SC3043
 #
 # .install/lib/bootstrap.sh
 #
@@ -34,7 +35,54 @@ bootstrap_base() {
 
     update-ca-certificates >/dev/null 2>&1 || true
     add_change base.tls.v1 refreshed /etc/ssl/certs "update-ca-certificates run"
+    bootstrap_trim_os_services
 
     checkpoint_write bootstrap_base "${MANIFEST_DIGEST}"
     log_info "bootstrap_base complete"
+}
+
+# bootstrap_trim_os_services stops Ubuntu services a hosting node never uses, to keep its memory
+# small (vault: "Minimal memory footprint"): ModemManager (cellular modems), udisks2 (desktop disk
+# management), multipathd (SAN multipath, unless the node has multipath devices) and
+# networkd-dispatcher (network event hooks, unless the node has hooks of its own), and fwupd's
+# daily metadata refresh timer, which is what starts fwupd (fwupd itself exits after five idle
+# minutes, so it is left alone). Each is disabled and stopped, never removed:
+# no package is touched, `systemctl enable --now <unit>` brings one back, and `fwupdmgr` still
+# works by hand. Left alone: unattended-upgrades (a security function) and snapd, which something
+# at boot starts again through its socket even when disabled, so only removing the package would
+# keep it off, and LESta does not remove OS packages it does not own. Only a unit that is enabled or running is changed, so a re-run records nothing new.
+bootstrap_trim_os_services() {
+    local unit
+
+    for unit in ModemManager.service udisks2.service fwupd-refresh.timer; do
+        bootstrap_stop_unit "${unit}" || true
+    done
+
+    # multipathd.socket is static (it cannot be disabled, and udev may open it again during the same
+    # boot); with the service disabled it is not started at boot, so it is only stopped alongside.
+    if ! dmsetup ls --target multipath 2>/dev/null | grep -qv '^No devices found'; then
+        if bootstrap_stop_unit multipathd.service; then
+            systemctl stop multipathd.socket >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if ! find /etc/networkd-dispatcher -type f 2>/dev/null | grep -q .; then
+        bootstrap_stop_unit networkd-dispatcher.service || true
+    fi
+}
+
+# bootstrap_stop_unit <unit> disables and stops one unit when it is enabled or active (return 0); a
+# unit the node does not have, or that is already off, is left as it is (return 1).
+bootstrap_stop_unit() {
+    local unit="$1"
+
+    systemctl cat "${unit}" >/dev/null 2>&1 || return 1
+
+    if systemctl is-enabled --quiet "${unit}" 2>/dev/null || systemctl is-active --quiet "${unit}" 2>/dev/null; then
+        systemctl disable --now "${unit}" >/dev/null 2>&1 || systemctl stop "${unit}" >/dev/null 2>&1 || true
+        add_change base.os.v1 disabled "${unit}" "${unit} disabled and stopped: a hosting node does not use it (systemctl enable --now ${unit} brings it back)"
+        return 0
+    fi
+
+    return 1
 }

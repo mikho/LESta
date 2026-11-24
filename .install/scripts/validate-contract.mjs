@@ -494,6 +494,25 @@ for (const shellFile of discoverShellFiles()) {
     });
 }
 
+// Check 3b: every apt-get install an installer runs skips Recommends. A node carries only what its
+// services need (the vault's "Minimal memory footprint"); a recommended package a service really
+// needs is named in the install line. Matches a command, at the start of a line or inside $(...),
+// optionally behind VAR=value assignments; text inside messages and comments is not a command.
+const APT_INSTALL_COMMAND = /(^|\$\()\s*([A-Z_]+=\S+\s+)*apt-get\s+install\b/;
+
+for (const shellFile of discoverShellFiles()) {
+    const context = relPath(shellFile);
+    const lines = readFileSync(shellFile, 'utf8').split('\n');
+    lines.forEach((line, index) => {
+        if (line.trim().startsWith('#') || !APT_INSTALL_COMMAND.test(line.trim())) {
+            return;
+        }
+        if (!line.includes('--no-install-recommends')) {
+            violate(`${context}:${index + 1}`, `apt_install_with_recommends: an installer's apt-get install must pass --no-install-recommends: ${line.trim()}`);
+        }
+    });
+}
+
 const PLACEHOLDER_SENTINELS = ['unsigned', 'none', 'todo', 'n/a', 'changeme', 'example.com'];
 
 for (const [manifestPath, manifest] of manifestsByPath) {

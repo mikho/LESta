@@ -113,7 +113,7 @@ Still on the node's edit page, under **Capabilities**: a dropdown lets you tell 
 - `tls.acme.v1`
 - `database.tenant.v1`
 - `scheduler.account-cron.v1`
-- `mail.smtp-imap.v1`, `mail.webmail.v1`
+- `mail.smtp-imap.v1`, `mail.webmail.v1`, `mail.antivirus.v1`, `mail.antispam.v1` (the last two only after the mail installer ran with `--antivirus` or `--antispam`; without them a mail domain's virus and spam switches show as not available, see the Installation Guide)
 - `backup.encrypted-artifacts.v1`
 - `metrics.usage.v1`
 - `files.manager.v1`, `tools.adminer.v1`

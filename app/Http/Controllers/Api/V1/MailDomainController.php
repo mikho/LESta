@@ -27,7 +27,7 @@ class MailDomainController extends ApiController
 
         return MailDomainResource::collection($account->mailDomains()
             ->withCount('accounts')
-            ->with('latestProvisioningOperation')
+            ->with(['latestProvisioningOperation', 'node.capabilities'])
             ->when($request->filled('filter.domain'), fn ($query) => $query->where('domain', $request->string('filter.domain')->lower()->toString()))
             ->orderBy('id')
             ->cursorPaginate($this->limit($request)));
@@ -37,7 +37,7 @@ class MailDomainController extends ApiController
     {
         Gate::authorize('view', $mailDomain);
 
-        return new MailDomainResource($mailDomain->loadCount('accounts')->load('latestProvisioningOperation'));
+        return new MailDomainResource($mailDomain->loadCount('accounts')->load(['latestProvisioningOperation', 'node.capabilities']));
     }
 
     public function store(StoreMailDomainRequest $request, Account $account): JsonResponse
@@ -80,6 +80,6 @@ class MailDomainController extends ApiController
 
     private function fresh(MailDomain $mailDomain): MailDomainResource
     {
-        return new MailDomainResource($mailDomain->refresh()->loadCount('accounts')->load('latestProvisioningOperation'));
+        return new MailDomainResource($mailDomain->refresh()->loadCount('accounts')->load(['latestProvisioningOperation', 'node.capabilities']));
     }
 }

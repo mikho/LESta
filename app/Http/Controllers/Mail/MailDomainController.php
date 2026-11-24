@@ -10,12 +10,14 @@ use App\Actions\Mail\UpdateMailDomain;
 use App\Concerns\ListsCustomerResources;
 use App\Concerns\PresentsProvisioningStatus;
 use App\Concerns\ResolvesCurrentAccount;
+use App\Enums\NodeCapabilityType;
 use App\Exceptions\ResourceQuotaExceededException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Mail\StoreMailDomainRequest;
 use App\Http\Requests\Mail\UpdateMailDomainRequest;
 use App\Models\MailAccount;
 use App\Models\MailDomain;
+use App\Models\Node;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -41,7 +43,7 @@ class MailDomainController extends Controller
                 'search' => '',
                 'customers' => $this->customerListing(
                     $request,
-                    MailDomain::query()->withCount('accounts')->with(['latestProvisioningOperation']),
+                    MailDomain::query()->withCount('accounts')->with(['latestProvisioningOperation', 'node.capabilities']),
                     fn (MailDomain $item): array => $this->presentForIndex($item),
                     'domain',
                     ['domain' => 'mail_domains.domain', 'mailboxes' => 'accounts_count'],
@@ -62,7 +64,7 @@ class MailDomainController extends Controller
 
         $mailDomains = $account->mailDomains()
             ->withCount('accounts')
-            ->with('latestProvisioningOperation')
+            ->with(['latestProvisioningOperation', 'node.capabilities'])
             ->when($search !== '', fn ($query) => $query->where('domain', 'like', '%'.$search.'%'))
             ->orderBy('domain')
             ->paginate(15)
@@ -90,7 +92,12 @@ class MailDomainController extends Controller
 
         Gate::authorize('create', [MailDomain::class, $account]);
 
-        return Inertia::render('mail/create');
+        $node = Node::firstWithActiveCapability(NodeCapabilityType::MailSmtpImap);
+
+        return Inertia::render('mail/create', [
+            'antivirusAvailable' => $node?->hasCapability(NodeCapabilityType::MailAntivirus) ?? false,
+            'antispamAvailable' => $node?->hasCapability(NodeCapabilityType::MailAntispam) ?? false,
+        ]);
     }
 
     /**
@@ -122,7 +129,7 @@ class MailDomainController extends Controller
     {
         Gate::authorize('update', $mailDomain);
 
-        $mailDomain->load(['accounts', 'latestProvisioningOperation']);
+        $mailDomain->load(['accounts', 'latestProvisioningOperation', 'node.capabilities']);
 
         return Inertia::render('mail/edit', [
             'mailDomain' => $this->presentForEdit($mailDomain),
@@ -191,6 +198,8 @@ class MailDomainController extends Controller
             'domain' => $mailDomain->domain,
             'antivirus_enabled' => $mailDomain->antivirus_enabled,
             'antispam_enabled' => $mailDomain->antispam_enabled,
+            'antivirus_available' => $mailDomain->scannerAvailable(NodeCapabilityType::MailAntivirus),
+            'antispam_available' => $mailDomain->scannerAvailable(NodeCapabilityType::MailAntispam),
             'dkim_enabled' => $mailDomain->dkim_enabled,
             ...$mailDomain->suspensionProps(),
             ...$this->provisioningProps($mailDomain->latestProvisioningOperation),
@@ -210,6 +219,8 @@ class MailDomainController extends Controller
             'domain' => $mailDomain->domain,
             'antivirus_enabled' => $mailDomain->antivirus_enabled,
             'antispam_enabled' => $mailDomain->antispam_enabled,
+            'antivirus_available' => $mailDomain->scannerAvailable(NodeCapabilityType::MailAntivirus),
+            'antispam_available' => $mailDomain->scannerAvailable(NodeCapabilityType::MailAntispam),
             'dkim_enabled' => $mailDomain->dkim_enabled,
             'dkim_selector' => $mailDomain->dkim_selector,
             'dkim_selector_activated_at' => $mailDomain->dkim_selector_activated_at?->toIso8601String(),

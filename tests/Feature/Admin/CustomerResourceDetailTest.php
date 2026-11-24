@@ -10,6 +10,7 @@ use App\Models\MailAccount;
 use App\Models\MailDomain;
 use App\Models\Membership;
 use App\Models\Node;
+use App\Models\NodeCapability;
 use App\Models\ProvisioningOperation;
 use App\Models\TenantDatabase;
 use App\Models\WebDomain;
@@ -125,4 +126,18 @@ test('the dns page lists the zone\'s records and the cron page its recent runs',
     $this->actingAs($admin)
         ->get(route('customer-resources.show', ['cron-jobs', $job->uuid]))
         ->assertInertia(fn (Assert $page) => $page->where('resource.tables.0.rows.0.2', '7'));
+});
+
+test('a mail scanner the node does not have is shown as not available, not as on', function () {
+    $admin = Membership::factory()->providerAdmin()->create()->user;
+    $mailDomain = customerResource(MailDomain::class);
+    $mailDomain->update(['antivirus_enabled' => true, 'antispam_enabled' => true]);
+    NodeCapability::factory()->for($mailDomain->node)->create(['capability' => 'mail.antispam.v1']);
+
+    $this->actingAs($admin)
+        ->get(route('customer-resources.show', ['mail', $mailDomain->uuid]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('resource.facts', fn ($facts) => collect($facts)->contains(fn ($fact) => $fact['label'] === 'Antivirus' && $fact['value'] === 'Not available on this server')
+                && collect($facts)->contains(fn ($fact) => $fact['label'] === 'Antispam' && $fact['value'] === 'On'))
+        );
 });

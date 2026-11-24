@@ -74,6 +74,8 @@ SELECTED=""
 WEB_SERVER=""
 WEB_PROFILE=""
 MAIL_HOSTNAME=""
+# Each one of --antivirus/--no-antivirus/--antispam/--no-antispam, forwarded to mail only.
+MAIL_SCANNER_FLAGS=""
 MANAGEMENT_PORT=""
 OFFLINE_BUNDLE_NGINX=""
 OFFLINE_BUNDLE_APACHE=""
@@ -122,6 +124,13 @@ Usage: install-selected.sh --dry-run|--apply|--version --services <list> [option
   --mail-hostname <fqdn>       Forwarded to mail/install.sh and
                                 webmail/install.sh when either is selected
                                 (required in that case).
+  --antivirus | --no-antivirus Forwarded to mail/install.sh: install ClamAV
+                                (about 1 GB of memory) or remove it. Without
+                                either, mail keeps what the node has, and a
+                                new node gets none.
+  --antispam | --no-antispam   Forwarded to mail/install.sh: install
+                                SpamAssassin (about 130 MB) or remove it,
+                                with the same default.
   --offline-bundle <svc>=<path>
                                 Forwards --offline-bundle <path> to that one
                                 service's own install.sh. Repeatable (one
@@ -224,6 +233,10 @@ parse_args() {
                 [ "$#" -ge 2 ] || fail_invocation "--mail-hostname requires an argument"
                 MAIL_HOSTNAME="$2"
                 shift 2
+                ;;
+            --antivirus | --no-antivirus | --antispam | --no-antispam)
+                MAIL_SCANNER_FLAGS="${MAIL_SCANNER_FLAGS} $1"
+                shift
                 ;;
             --management-port)
                 [ "$#" -ge 2 ] || fail_invocation "--management-port requires an argument"
@@ -479,6 +492,9 @@ service_args() {
         mail)
             printf '%s\n' --mail-hostname
             printf '%s\n' "${MAIL_HOSTNAME}"
+            for flag in ${MAIL_SCANNER_FLAGS}; do
+                printf '%s\n' "${flag}"
+            done
             if [ -n "${OFFLINE_BUNDLE_MAIL}" ]; then
                 printf '%s\n' --offline-bundle
                 printf '%s\n' "${OFFLINE_BUNDLE_MAIL}"

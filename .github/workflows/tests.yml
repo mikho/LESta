@@ -796,10 +796,10 @@ jobs:
             -out /var/lib/lesta/acme/certs/mail.lesta-ci.invalid/fullchain.pem
 
       - name: Dry-run mail against a real Ubuntu host (must mutate nothing)
-        run: sudo sh .install/services/mail/install.sh --dry-run --mail-hostname mail.lesta-ci.invalid
+        run: sudo sh .install/services/mail/install.sh --dry-run --mail-hostname mail.lesta-ci.invalid --antivirus --antispam
 
       - name: Apply mail (real mutation on this disposable CI runner)
-        run: sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid
+        run: sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --antivirus --antispam
 
       - name: Diagnose mail apply failure (only runs if the step above failed)
         if: failure()
@@ -1079,8 +1079,15 @@ jobs:
           sudo systemctl is-active mariadb@tenant.service
           sudo systemctl is-active cron
 
-      - name: Re-apply mail (idempotent rerun must still succeed)
-        run: sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid
+      - name: Re-apply mail (idempotent rerun must still succeed, and keep the scanners it has without --antivirus/--antispam)
+        run: |
+          sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid
+          test -d /var/lib/lesta/mail-antivirus
+          test -d /var/lib/lesta/mail-antispam
+          sudo grep -q '^av_scanner = clamd:' /etc/exim4/exim4.conf
+          sudo grep -q '^spamd_address = 127.0.0.1 783' /etc/exim4/exim4.conf
+          sudo grep -q '^ConcurrentDatabaseReload no' /etc/clamav/clamd.conf
+          sudo systemctl is-active clamav-daemon
 
       - name: Relax AppArmor for named before running the disposable-harness tests
         run: |
@@ -3045,7 +3052,7 @@ jobs:
       - name: "Scenario 26: --offline-bundle install must succeed with zero configured apt sources (real network isolation, not simulated)"
         run: |
           set +e
-          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --offline-bundle /tmp/lesta-mail-bundle 2>/tmp/scenario26-stderr.log)
+          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --antivirus --antispam --offline-bundle /tmp/lesta-mail-bundle 2>/tmp/scenario26-stderr.log)
           status=$?
           set -e
           echo "${result}"
@@ -3116,7 +3123,7 @@ jobs:
       - name: "Scenario 27: tampered offline bundle must be rejected with exit 13 before any mutation"
         run: |
           set +e
-          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --offline-bundle /tmp/lesta-mail-bundle-tampered 2>/tmp/scenario27-stderr.log)
+          result=$(sudo sh .install/services/mail/install.sh --apply --yes --mail-hostname mail.lesta-ci.invalid --antivirus --antispam --offline-bundle /tmp/lesta-mail-bundle-tampered 2>/tmp/scenario27-stderr.log)
           status=$?
           set -e
           echo "${result}"

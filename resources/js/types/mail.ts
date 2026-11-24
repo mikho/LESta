@@ -21,6 +21,9 @@ export type MailDomain = {
     domain: string;
     antivirus_enabled: boolean;
     antispam_enabled: boolean;
+    /** Whether the domain's server has the scanner; both are optional on a server. */
+    antivirus_available: boolean;
+    antispam_available: boolean;
     dkim_enabled: boolean;
     dkim_selector?: string;
     dkim_selector_activated_at?: string | null;

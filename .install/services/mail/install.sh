@@ -47,15 +47,24 @@
 #
 # --offline-bundle support mirrors mariadb/install.sh's own precedent
 # exactly (the closest existing multi-package bundle): exim4-daemon-heavy,
-# dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam,
-# and spamassassin are all vendored and retained together as one bundle/one
-# generation, since they are installed and rolled back as a unit here, the
-# same "one shared package underlies both" framing mariadb/install.sh's own
-# comment uses for its two systemd instances.
+# dovecot-imapd/dovecot-lmtpd/dovecot-sieve, and, when selected,
+# clamav-daemon/clamav-freshclam and spamassassin/spamd are vendored and
+# retained together as one bundle/one generation, since they are installed
+# and rolled back as a unit here, the same "one shared package underlies
+# both" framing mariadb/install.sh's own comment uses for its two systemd
+# instances. The bundle must hold exactly the scanners selected (see
+# preflight_check_bundle_matches_scanners).
 #
-# Real antivirus/antispam scanning: clamav-daemon (clamd, a real virus
-# scanner) and spamassassin (spamd, a real spam scorer) are installed and
-# health-probed like every other real daemon this installer manages.
+# Antivirus and antispam scanning are optional, off on a new node: clamd
+# alone keeps its signature database in memory (about 1 GB resident) and
+# spamd starts three ~130 MB Perl processes, so they are installed only with
+# --antivirus / --antispam, each its own capability (mail.antivirus.v1,
+# mail.antispam.v1) with a presence marker the agent reports, so the panel
+# offers the per-domain switch only where the scanner exists. Without a
+# flag a re-run keeps what the node has; --no-antivirus / --no-antispam
+# stop the daemon and purge exactly the packages it brought. When selected,
+# clamd and spamd are installed and health-probed like every other daemon
+# this installer manages.
 # domains.list's own sibling antivirus.list/antispam.list flag files (the Go
 # agent has rendered these unconditionally since Phase 30, previously never
 # read by anything) now gate a new acl_check_data: stanza via ACL variables
@@ -64,11 +73,11 @@
 # unambiguous "$domain" when multiple hosted-domain recipients are in the
 # same transaction -- the RCPT-time accumulation is message-scoped and
 # survives to DATA time, exactly the mechanism Exim's own ACL variable
-# design exists for. Both `malware`/`spam` ACL conditions use /defer_ok: a
-# scanner daemon that is briefly unreachable defers the message (a real,
-# retried 4xx) rather than either hard-rejecting legitimate mail or silently
-# accepting everything unscanned -- the safer of Exim's own two documented
-# failure modes for content scanning.
+# design exists for. Both `malware`/`spam` ACL conditions use /defer_ok,
+# which makes a scanner error count as "not found": a scanner that is down
+# lets mail through unscanned rather than deferring it. That is why a
+# scanner that is not installed must not be offered at all, and why the
+# condition is left out of exim4.conf entirely when its scanner is off.
 #
 # Real CI is this scanning path's own proof, not a local dry run: real
 # ClamAV virus detection is proven with an EICAR test string (the standard,
@@ -167,6 +176,24 @@ ACME_CERTS_ROOT="/var/lib/lesta/acme/certs"
 CLAMD_SOCKET="/run/clamav/clamd.ctl"
 SPAMD_PORT=783
 
+# The optional scanners: their capabilities and the presence markers the
+# agent stats to report them (agent/cmd/lesta-agent/main.go's
+# CapabilityStateRoots). Outside MAIL_STATE_ROOT on purpose, so nothing the
+# mail capability does to its own state root can touch them.
+MAIL_ANTIVIRUS_CAPABILITY="mail.antivirus.v1"
+MAIL_ANTISPAM_CAPABILITY="mail.antispam.v1"
+ANTIVIRUS_MARKER_DIR="/var/lib/lesta/mail-antivirus"
+ANTISPAM_MARKER_DIR="/var/lib/lesta/mail-antispam"
+ANTIVIRUS_PACKAGES="clamav-daemon clamav-freshclam"
+# Installed without Recommends like every package LESta installs; the two
+# recommended packages spam scoring does need are named: libmail-spf-perl
+# (SPF checks, among SpamAssassin's strongest signals) and gnupg (sa-update
+# verifies rule updates with it). Left out: spamc, sa-compile (a C compiler
+# and make), DMARC and BSD::Resource.
+ANTISPAM_PACKAGES="spamassassin spamd libmail-spf-perl gnupg"
+# What --no-antispam purges: never gnupg, which other tools on the node use.
+ANTISPAM_PURGE_PACKAGES="spamassassin spamd libmail-spf-perl"
+
 # CHECKPOINT_PATH/RELEASE_PATH: this installer's own paths, distinct from
 # every other leaf-service installer's own (see lib/checkpoint.sh's own top
 # comment).
@@ -179,6 +206,12 @@ MODE=""
 YES=0
 MAIL_HOSTNAME=""
 OFFLINE_BUNDLE=""
+# on, off, or empty (keep what the node has; off on a new node), as asked
+# on the command line; ANTIVIRUS/ANTISPAM hold the resolved on/off.
+ANTIVIRUS_REQUESTED=""
+ANTISPAM_REQUESTED=""
+ANTIVIRUS="off"
+ANTISPAM="off"
 RUN_ID=""
 MANIFEST_DIGEST=""
 CHANGES=""
@@ -188,7 +221,7 @@ ERRORS=""
 
 usage() {
     cat <<'USAGE' >&2
-Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--offline-bundle <path>] [--yes] [--help]
+Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname <fqdn>] [--antivirus|--no-antivirus] [--antispam|--no-antispam] [--offline-bundle <path>] [--yes] [--help]
 
   --dry-run                Run preflight and report what would change. No mutation.
   --apply                  Apply the installer. Requires --yes and --mail-hostname.
@@ -212,13 +245,25 @@ Usage: install.sh --dry-run|--apply|--version|--prepare-config [--mail-hostname 
                            /var/lib/lesta/acme/certs/<fqdn>/{fullchain,
                            privkey}.pem before this installer will apply --
                            see this file's own top comment.
+  --antivirus              Install ClamAV (clamd + freshclam, about 1 GB of
+                           memory) and offer per-domain virus scanning.
+  --no-antivirus           Stop ClamAV and purge the packages it brought.
+                           Without either flag a re-run keeps what the node
+                           has; a new node gets no virus scanner.
+  --antispam               Install SpamAssassin (spamd, about 130 MB) and
+                           offer per-domain spam scoring.
+  --no-antispam            Stop spamd and purge the packages it brought.
+                           Without either flag a re-run keeps what the node
+                           has; a new node gets no spam scorer.
   --offline-bundle <path>  Optional. Installs exim4-daemon-heavy and
                            dovecot-imapd/dovecot-lmtpd/dovecot-sieve from a
                            pre-vendored, checksum-verified bundle (see
                            .install/scripts/build-release.sh) instead of a
                            live apt-get install, requiring no network
-                           access. All four packages are retained and
-                           rolled back together as one generation.
+                           access. Every package is retained and rolled
+                           back together as one generation. The bundle must
+                           hold ClamAV and SpamAssassin exactly when they
+                           are selected.
   --yes                    Required with --apply/--prepare-config: non-interactive confirmation.
   --help                   Print this message.
 USAGE
@@ -265,6 +310,16 @@ parse_args() {
                 ;;
             --mail-hostname=*)
                 MAIL_HOSTNAME="${1#--mail-hostname=}"
+                shift
+                ;;
+            --antivirus | --no-antivirus)
+                [ -z "${ANTIVIRUS_REQUESTED}" ] || fail_invocation "only one of --antivirus/--no-antivirus may be given"
+                if [ "$1" = "--antivirus" ]; then ANTIVIRUS_REQUESTED="on"; else ANTIVIRUS_REQUESTED="off"; fi
+                shift
+                ;;
+            --antispam | --no-antispam)
+                [ -z "${ANTISPAM_REQUESTED}" ] || fail_invocation "only one of --antispam/--no-antispam may be given"
+                if [ "$1" = "--antispam" ]; then ANTISPAM_REQUESTED="on"; else ANTISPAM_REQUESTED="off"; fi
                 shift
                 ;;
             --offline-bundle)
@@ -330,6 +385,44 @@ validate_args() {
     fi
 }
 
+# mail_scanner_present <marker_dir> <unit...> -> 0 when the node has this
+# scanner: its marker exists, or (a node installed before the scanners were
+# optional, which had both unconditionally) one of its units is enabled.
+mail_scanner_present() {
+    local marker="$1" unit
+    shift
+
+    [ -d "${marker}" ] && return 0
+
+    for unit in "$@"; do
+        [ -n "${unit}" ] || continue
+        systemctl is-enabled --quiet "${unit}" 2>/dev/null && return 0
+    done
+
+    return 1
+}
+
+# mail_package_installed <package> -> 0 when dpkg has it fully installed.
+mail_package_installed() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'
+}
+
+# resolve_scanners sets ANTIVIRUS/ANTISPAM to on or off: what was asked, or
+# else what the node already has. Read-only, so --dry-run reports it too.
+resolve_scanners() {
+    if [ -n "${ANTIVIRUS_REQUESTED}" ]; then
+        ANTIVIRUS="${ANTIVIRUS_REQUESTED}"
+    elif mail_scanner_present "${ANTIVIRUS_MARKER_DIR}" clamav-daemon; then
+        ANTIVIRUS="on"
+    fi
+
+    if [ -n "${ANTISPAM_REQUESTED}" ]; then
+        ANTISPAM="${ANTISPAM_REQUESTED}"
+    elif mail_scanner_present "${ANTISPAM_MARKER_DIR}" "$(discover_spamd_unit_name)"; then
+        ANTISPAM="on"
+    fi
+}
+
 # --- result accumulation / emission -----------------------------------------
 
 manifest_capabilities_required_json() {
@@ -383,7 +476,22 @@ mail_would_install_note() {
         printf 'every vendored .deb in %s would be sha256-verified against %s/%s, then installed offline via dpkg -i (no network access required)%s' \
             "${OFFLINE_BUNDLE}" "${OFFLINE_BUNDLE}" "${BUNDLE_MANIFEST_FILENAME}" "$(offline_bundle_would_retain_note mail "${OFFLINE_BUNDLE}" exim4-daemon-heavy)"
     else
-        printf 'exim4-daemon-heavy, dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/clamav-freshclam, and spamassassin/spamd would be installed'
+        printf 'exim4-daemon-heavy and dovecot-imapd/dovecot-lmtpd/dovecot-sieve would be installed'
+    fi
+
+    printf '; antivirus (%s) %s; antispam (%s) %s' \
+        "${ANTIVIRUS_PACKAGES}" "$(mail_scanner_note "${ANTIVIRUS}" clamav-daemon)" \
+        "${ANTISPAM_PACKAGES}" "$(mail_scanner_note "${ANTISPAM}" spamd)"
+}
+
+# mail_scanner_note <on|off> <package> -> what --apply would do with one scanner.
+mail_scanner_note() {
+    if [ "$1" = "on" ]; then
+        printf 'would be installed, enabled and health-probed'
+    elif mail_package_installed "$2"; then
+        printf 'would be stopped and its packages purged if present'
+    else
+        printf 'would not be installed'
     fi
 }
 
@@ -394,7 +502,7 @@ emit_dry_run_result_and_exit() {
     add_change base.os.v1 would_ensure /etc/lesta "base directories and lesta/lesta-agent identity would be created or verified; install-state classification: ${install_state}"
     add_change firewall.baseline.v1 would_apply "${NFT_TABLE_PATH}" "deny-by-default nftables table would be loaded and ${FIREWALL_UNIT_PATH} installed and enabled, unioned with any other service already registered on this node"
     add_change node.health.v1 would_install "${AGENT_BINARY_DEST}" "vendored agent binary would be checksum-verified and copied into place, then self-tested by creating and deleting a throwaway mail domain against the real, just-installed exim/dovecot"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "$(mail_would_install_note); ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config (including a real acl_check_data malware/spam gate) for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; all four services (exim4, dovecot, clamav-daemon, spamassassin) would be enabled, restarted, and health-probed"
+    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" would_install "${OFFLINE_BUNDLE}" "$(mail_would_install_note); ${EXIM_CONF_PATH} would be written outright (non-split mode) with a real ACL/router/transport/authenticator config (with a malware/spam gate only for the scanners selected) for hostname ${MAIL_HOSTNAME}, using the certificate at ${ACME_CERTS_ROOT}/${MAIL_HOSTNAME}/; ${LESTA_DOVECOT_CONF} would be written and !include-d from ${DOVECOT_CONF_PATH}; the vmail system identity would be created; exim4 and dovecot would be enabled, restarted, and health-probed"
 
     emit_result_and_exit would_change "${EXIT_OK}"
 }
@@ -530,7 +638,11 @@ PORTS
     preflight_check_mail_tls_certificate || failed=1
 
     if [ -n "${OFFLINE_BUNDLE}" ]; then
-        preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}" || failed=1
+        if preflight_check_offline_bundle_present "${OFFLINE_BUNDLE}"; then
+            preflight_check_bundle_matches_scanners || failed=1
+        else
+            failed=1
+        fi
     fi
 
     if [ "${failed}" -ne 0 ]; then
@@ -538,6 +650,32 @@ PORTS
     fi
 
     log_info "preflight passed"
+}
+
+# preflight_check_bundle_matches_scanners -> an offline bundle installs every
+# package it declares, so it must hold clamav-daemon exactly when antivirus
+# is on and spamd exactly when antispam is on; anything else would put a
+# scanner on the node that nobody selected, or leave a selected one out.
+preflight_check_bundle_matches_scanners() {
+    local names status=0 has
+
+    names=$(offline_bundle_artifact_names "${OFFLINE_BUNDLE}/${BUNDLE_MANIFEST_FILENAME}")
+
+    has=off
+    printf '%s\n' "${names}" | grep -q '^clamav-daemon_' && has=on
+    if [ "${has}" != "${ANTIVIRUS}" ]; then
+        add_error offline_bundle_scanner_mismatch "antivirus is ${ANTIVIRUS} but clamav-daemon in the offline bundle is ${has}: rebuild the bundle to match, or pass --antivirus/--no-antivirus to match the bundle" "${OFFLINE_BUNDLE}"
+        status=1
+    fi
+
+    has=off
+    printf '%s\n' "${names}" | grep -q '^spamd_' && has=on
+    if [ "${has}" != "${ANTISPAM}" ]; then
+        add_error offline_bundle_scanner_mismatch "antispam is ${ANTISPAM} but spamd in the offline bundle is ${has}: rebuild the bundle to match, or pass --antispam/--no-antispam to match the bundle" "${OFFLINE_BUNDLE}"
+        status=1
+    fi
+
+    return "${status}"
 }
 
 # --- phase 1: bootstrap_base (lib/bootstrap.sh) ------------------------
@@ -577,6 +715,36 @@ mail_write_file() {
 # ever advertised once TLS is active (auth_advertise_hosts), so a
 # credential is never sent in the clear.
 render_exim_conf() {
+    local av_option="" spam_option="" av_acl="" spam_acl=""
+
+    # The scanner options and ACL conditions are written only for a scanner
+    # that is selected: with /defer_ok, a condition whose scanner is missing
+    # would let every message through unscanned while looking switched on.
+    if [ "${ANTIVIRUS}" = "on" ]; then
+        av_option="av_scanner = clamd:${CLAMD_SOCKET}"
+        av_acl=$(cat <<'AVACL'
+  deny    condition = ${if eq{$acl_m_av}{1}{1}{0}}
+          malware = */defer_ok
+          message = "This message contains a virus ($malware_name) and was rejected"
+AVACL
+)
+    fi
+
+    if [ "${ANTISPAM}" = "on" ]; then
+        spam_option="spamd_address = 127.0.0.1 ${SPAMD_PORT}"
+        spam_acl=$(cat <<'SPAMACL'
+  warn    condition = ${if eq{$acl_m_spam}{1}{1}{0}}
+          spam = Debian-exim:true/defer_ok
+          add_header = X-Lesta-Spam-Score: $spam_score
+          add_header = X-Lesta-Spam-Score-Int: ${if <{$spam_score_int}{0}{0}{$spam_score_int}}
+
+  deny    condition = ${if eq{$acl_m_spam}{1}{1}{0}}
+          condition = ${if >={${if def:spam_score_int{$spam_score_int}{0}}}{150}{1}{0}}
+          message = "This message was rejected as spam (score: $spam_score)"
+SPAMACL
+)
+    fi
+
     cat <<EXIMCONF
 # Managed entirely by LESta's mail installer
 # (.install/services/mail/install.sh). Any hand edits are overwritten on
@@ -607,8 +775,8 @@ acl_smtp_rcpt = acl_check_rcpt
 acl_smtp_data = acl_check_data
 acl_not_smtp = acl_check_not_smtp
 
-av_scanner = clamd:${CLAMD_SOCKET}
-spamd_address = 127.0.0.1 ${SPAMD_PORT}
+${av_option}
+${spam_option}
 
 begin acl
 
@@ -682,9 +850,7 @@ acl_check_rcpt:
 # retried 4xx) rather than either hard-rejecting legitimate mail or
 # silently accepting it unscanned.
 acl_check_data:
-  deny    condition = \${if eq{\$acl_m_av}{1}{1}{0}}
-          malware = */defer_ok
-          message = "This message contains a virus (\$malware_name) and was rejected"
+${av_acl}
 
   # Spam is marked, not refused, so each mailbox can decide (its own
   # sensitivity, allow and block lists, in its Sieve script): every message
@@ -694,14 +860,7 @@ acl_check_data:
   # also covers SpamAssassin's GTUBE test pattern) is refused outright.
   warn    remove_header = X-Lesta-Spam-Score : X-Lesta-Spam-Score-Int
 
-  warn    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
-          spam = Debian-exim:true/defer_ok
-          add_header = X-Lesta-Spam-Score: \$spam_score
-          add_header = X-Lesta-Spam-Score-Int: \${if <{\$spam_score_int}{0}{0}{\$spam_score_int}}
-
-  deny    condition = \${if eq{\$acl_m_spam}{1}{1}{0}}
-          condition = \${if >={\${if def:spam_score_int{\$spam_score_int}{0}}}{150}{1}{0}}
-          message = "This message was rejected as spam (score: \$spam_score)"
+${spam_acl}
 
   accept
 
@@ -1067,10 +1226,14 @@ discover_spamd_unit_name() {
 # of the restart list rather than aborting the whole rollback over an
 # optional, not-yet-relevant unit.
 mail_fail_health() {
-    local units="exim4 dovecot clamav-daemon" spamd_unit
+    local units="exim4 dovecot" spamd_unit
+
+    if [ "${ANTIVIRUS}" = "on" ]; then
+        units="${units} clamav-daemon"
+    fi
 
     spamd_unit=$(discover_spamd_unit_name)
-    if [ -n "${spamd_unit}" ]; then
+    if [ "${ANTISPAM}" = "on" ] && [ -n "${spamd_unit}" ]; then
         units="${units} ${spamd_unit}"
     fi
 
@@ -1166,10 +1329,200 @@ wait_for_health_probe() {
     return 1
 }
 
+# mail_apt_install <capability> <package...> -> apt-get install, failing the
+# run with the apt output on error.
+mail_apt_install() {
+    local capability="$1" out
+    shift
+
+    if ! out=$(apt-get install -y --no-install-recommends "$@" 2>&1); then
+        add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
+        emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
+    fi
+    add_change "${capability}" installed "" "apt-get install -y $* succeeded"
+}
+
+# mail_purge_packages <capability> <package...> -> purges the named packages
+# that are installed, then exactly the packages that purge left orphaned:
+# the autoremove candidates after, minus those before. A plain
+# `apt-get autoremove` would also take whatever else the node had
+# orphaned (old kernels, an operator's leftovers), which is not ours.
+mail_purge_packages() {
+    local capability="$1" pkg present="" before after orphans out
+    shift
+
+    for pkg in "$@"; do
+        mail_package_installed "${pkg}" && present="${present} ${pkg}"
+    done
+    [ -n "${present}" ] || return 0
+
+    before=$(mktemp) after=$(mktemp)
+    apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | sort > "${before}"
+
+    # shellcheck disable=SC2086 # one word per package, intended
+    if ! out=$(apt-get purge -y ${present} 2>&1); then
+        rm -f "${before}" "${after}"
+        fail_step "${EXIT_MUTATION_FAILURE}" apt_purge_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+
+    apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | sort > "${after}"
+    orphans=$(grep -vxF -f "${before}" "${after}" || true)
+    rm -f "${before}" "${after}"
+
+    if [ -n "${orphans}" ]; then
+        # shellcheck disable=SC2086 # one word per package, intended
+        if ! out=$(apt-get purge -y ${orphans} 2>&1); then
+            fail_step "${EXIT_MUTATION_FAILURE}" apt_purge_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+        fi
+    fi
+
+    add_change "${capability}" purged "" "purged${present}; orphaned dependencies purged with it: $(printf '%s' "${orphans:-none}" | tr '\n' ' ')"
+}
+
+# mail_apply_antivirus -> with ANTIVIRUS=on installs ClamAV, lets clamd scan
+# Exim's spool, starts it and marks mail.antivirus.v1 present; with off,
+# stops it and purges it if the node has it. exim4.conf already matches
+# (render_exim_conf), and Exim was restarted before this runs, so mail never
+# waits on a scanner that is going away.
+mail_apply_antivirus() {
+    local out clamd_conf=/etc/clamav/clamd.conf
+
+    if [ "${ANTIVIRUS}" != "on" ]; then
+        if [ -d "${ANTIVIRUS_MARKER_DIR}" ] || mail_package_installed clamav-daemon; then
+            systemctl disable --now clamav-daemon clamav-freshclam >/dev/null 2>&1 || true
+            ratchet_leave_group Debian-exim clamav
+            ratchet_leave_group clamav Debian-exim
+            # shellcheck disable=SC2086 # one word per package, intended
+            mail_purge_packages "${MAIL_ANTIVIRUS_CAPABILITY}" ${ANTIVIRUS_PACKAGES}
+            rm -rf "${ANTIVIRUS_MARKER_DIR}"
+            add_change "${MAIL_ANTIVIRUS_CAPABILITY}" removed "${ANTIVIRUS_MARKER_DIR}" "antivirus switched off: clamd stopped and removed"
+        fi
+        return 0
+    fi
+
+    if [ -z "${OFFLINE_BUNDLE}" ]; then
+        # shellcheck disable=SC2086 # one word per package, intended
+        mail_apt_install "${MAIL_ANTIVIRUS_CAPABILITY}" ${ANTIVIRUS_PACKAGES}
+    fi
+
+    # Debian-exim needs clamd's Unix socket (CLAMD_SOCKET, group clamav), and
+    # clamd is passed a spool file PATH to scan, not the message, so clamav
+    # needs to read Exim's spool (Debian-exim group). Without the second,
+    # clamd failed to open the file and, through /defer_ok, the message was
+    # passed as clean (found in CI).
+    usermod -aG clamav Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG clamav Debian-exim failed"
+    usermod -aG Debian-exim clamav || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG Debian-exim clamav failed"
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" group_membership_granted "" "Debian-exim is in clamav (clamd's socket) and clamav in Debian-exim (Exim's spool files)"
+
+    # clamd will not start without a virus database; freshclam's postinst
+    # fetches the first one, which can take minutes on a fresh node.
+    wait_for_clamav_database || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_database_missing "/var/lib/clamav" "no real ClamAV virus database (main.cvd/main.cld) appeared after waiting for clamav-freshclam's own first signature fetch"
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" verified "/var/lib/clamav" "a real ClamAV virus database is present"
+
+    # AllowSupplementaryGroups: older clamd drops its supplementary groups at
+    # startup, which would undo the Debian-exim grant (ClamAV 1.x ignores it
+    # as deprecated, keeping them). ConcurrentDatabaseReload no: by default
+    # clamd loads each signature update next to the old database and swaps,
+    # holding two copies (about 2 GB) for the length of the load, several
+    # times a day; without it scanning pauses for those seconds instead.
+    mail_clamd_set "${clamd_conf}" AllowSupplementaryGroups true
+    mail_clamd_set "${clamd_conf}" ConcurrentDatabaseReload no
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" configured "${clamd_conf}" "AllowSupplementaryGroups true, ConcurrentDatabaseReload no (one signature database in memory, never two)"
+
+    systemctl enable clamav-daemon clamav-freshclam || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable clamav-daemon clamav-freshclam failed"
+
+    if ! out=$(systemctl restart clamav-daemon 2>&1); then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" enabled "" "systemctl enable clamav-daemon + systemctl restart clamav-daemon succeeded"
+
+    wait_for_health_probe clamd_health_probe 60 \
+        || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_health_check_failed "${CLAMD_SOCKET}" "clamd did not answer a real PING/PONG protocol probe over ${CLAMD_SOCKET} after restart"
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" healthy "" "real PING/PONG protocol probe against clamd's own socket succeeded"
+
+    ratchet_root_owned_dir "${ANTIVIRUS_MARKER_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${ANTIVIRUS_MARKER_DIR}" "failed to create ${ANTIVIRUS_MARKER_DIR}"
+    add_change "${MAIL_ANTIVIRUS_CAPABILITY}" ensured "${ANTIVIRUS_MARKER_DIR}" "presence marker for ${MAIL_ANTIVIRUS_CAPABILITY}"
+}
+
+# mail_clamd_set <file> <option> <value> -> sets one clamd.conf option,
+# replacing a commented or uncommented line, or appending it.
+mail_clamd_set() {
+    local file="$1" option="$2" value="$3"
+
+    if grep -qE "^#?${option}( |\$)" "${file}" 2>/dev/null; then
+        sed -i "s/^#\?${option}\( .*\)\?\$/${option} ${value}/" "${file}" \
+            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${file}" "failed to set ${option} ${value} in ${file}"
+    else
+        printf '%s %s\n' "${option}" "${value}" >> "${file}" \
+            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${file}" "failed to append ${option} ${value} to ${file}"
+    fi
+}
+
+# mail_apply_antispam -> with ANTISPAM=on installs SpamAssassin, starts spamd
+# with two children at most and marks mail.antispam.v1 present; with off,
+# stops it and purges it if the node has it.
+mail_apply_antispam() {
+    local out spamd_unit_name
+
+    if [ "${ANTISPAM}" != "on" ]; then
+        if [ -d "${ANTISPAM_MARKER_DIR}" ] || mail_package_installed spamd; then
+            spamd_unit_name=$(discover_spamd_unit_name)
+            [ -z "${spamd_unit_name}" ] || systemctl disable --now "${spamd_unit_name}" >/dev/null 2>&1 || true
+            # shellcheck disable=SC2086 # one word per package, intended
+            mail_purge_packages "${MAIL_ANTISPAM_CAPABILITY}" ${ANTISPAM_PURGE_PACKAGES}
+            rm -rf "${ANTISPAM_MARKER_DIR}"
+            add_change "${MAIL_ANTISPAM_CAPABILITY}" removed "${ANTISPAM_MARKER_DIR}" "antispam switched off: spamd stopped and removed"
+        fi
+        return 0
+    fi
+
+    # spamd is its own binary package, not pulled in by spamassassin (found
+    # in CI on 24.04), so both are named.
+    if [ -z "${OFFLINE_BUNDLE}" ]; then
+        # shellcheck disable=SC2086 # one word per package, intended
+        mail_apt_install "${MAIL_ANTISPAM_CAPABILITY}" ${ANTISPAM_PACKAGES}
+    fi
+
+    # Older packaging keeps spamd disabled until ENABLED=1.
+    if [ -f /etc/default/spamassassin ]; then
+        sed -i 's/^ENABLED=.*/ENABLED=1/' /etc/default/spamassassin \
+            || fail_step "${EXIT_MUTATION_FAILURE}" spamassassin_enable_flag_failed /etc/default/spamassassin "failed to set ENABLED=1 in /etc/default/spamassassin"
+    fi
+
+    # Each spamd child is a full Perl interpreter with the rule set loaded
+    # (about 130 MB); the package starts up to five. Two serve a small node.
+    if [ -f /etc/default/spamd ]; then
+        sed -i 's/^OPTIONS=.*/OPTIONS="--create-prefs --max-children 2 --min-children 1 --min-spare 1 --max-spare 1 --helper-home-dir"/' /etc/default/spamd \
+            || fail_step "${EXIT_MUTATION_FAILURE}" spamd_options_failed /etc/default/spamd "failed to set OPTIONS in /etc/default/spamd"
+        add_change "${MAIL_ANTISPAM_CAPABILITY}" configured /etc/default/spamd "spamd limited to two children (--max-children 2 --min-children 1 --max-spare 1)"
+    fi
+
+    # The unit name varies by Ubuntu release ("spamassassin.service" does not
+    # exist on 24.04, found in CI), so it is looked up.
+    spamd_unit_name=$(discover_spamd_unit_name)
+    if [ -z "${spamd_unit_name}" ]; then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_unit_not_found "" "neither spamd.service nor spamassassin.service exists after installing the spamassassin package"
+    fi
+
+    systemctl enable "${spamd_unit_name}" || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable ${spamd_unit_name} failed"
+
+    if ! out=$(systemctl restart "${spamd_unit_name}" 2>&1); then
+        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
+    fi
+    add_change "${MAIL_ANTISPAM_CAPABILITY}" enabled "" "systemctl enable ${spamd_unit_name} + systemctl restart ${spamd_unit_name} succeeded"
+
+    wait_for_health_probe spamd_health_probe 30 \
+        || mail_fail_health "${EXIT_HEALTH_FAILURE}" spamd_health_check_failed "" "spamd did not answer a real PING/PONG protocol probe on 127.0.0.1:${SPAMD_PORT} after restart"
+    add_change "${MAIL_ANTISPAM_CAPABILITY}" healthy "" "real PING/PONG protocol probe against spamd succeeded"
+
+    ratchet_root_owned_dir "${ANTISPAM_MARKER_DIR}" 0755 root || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${ANTISPAM_MARKER_DIR}" "failed to create ${ANTISPAM_MARKER_DIR}"
+    add_change "${MAIL_ANTISPAM_CAPABILITY}" ensured "${ANTISPAM_MARKER_DIR}" "presence marker for ${MAIL_ANTISPAM_CAPABILITY}"
+}
+
 install_mail() {
     log_info "install_mail: installing exim4/dovecot and activating ${MAIL_SMTP_IMAP_CAPABILITY}"
 
-    local out installed_version spamd_unit_name clamd_conf
+    local out installed_version
 
     # --- vmail: the fixed, shared virtual-mailbox identity every hosted
     # account's own maildir is delivered under (see render_dovecot_conf's
@@ -1218,39 +1571,24 @@ install_mail() {
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" written "${LESTA_DOVECOT_CONF}" "complete Dovecot fragment written for hostname ${MAIL_HOSTNAME}, before dovecot-core's own package postinst can restart the service against it"
 
     # --- exim4-daemon-heavy (the "heavy" variant is required for DKIM
-    # support; exim4-daemon-light is compiled without it),
-    # dovecot-imapd/dovecot-lmtpd/dovecot-sieve, clamav-daemon/
-    # clamav-freshclam (real virus scanning), and spamassassin (real spam
-    # scoring) ------------------------------------------------------------
+    # support; exim4-daemon-light is compiled without it) and
+    # dovecot-imapd/dovecot-lmtpd/dovecot-sieve. The optional scanners are
+    # installed later, by mail_apply_antivirus/mail_apply_antispam --------
     if [ -n "${OFFLINE_BUNDLE}" ]; then
         install_mail_offline_bundle "${OFFLINE_BUNDLE}"
     else
-        if ! out=$(apt-get install -y exim4-daemon-heavy 2>&1); then
+        if ! out=$(apt-get install -y --no-install-recommends exim4-daemon-heavy 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
         add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y exim4-daemon-heavy succeeded"
 
-        if ! out=$(apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1); then
+        if ! out=$(apt-get install -y --no-install-recommends dovecot-imapd dovecot-lmtpd dovecot-sieve 2>&1); then
             add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
             emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
         fi
         add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y dovecot-imapd dovecot-lmtpd dovecot-sieve succeeded"
 
-        # spamd is a real, separate binary package on Ubuntu 24.04, built
-        # from the same spamassassin source but version-locked to it as its
-        # own dependency, not the other way around: it is not pulled in by
-        # installing "spamassassin" alone, Depends or Recommends (confirmed
-        # for real via packages.ubuntu.com and a real CI failure in the
-        # --offline-bundle path, where excluding Recommends during its own
-        # dependency-closure computation -- itself required for an
-        # unrelated, already-fixed real bug -- left spamd out entirely).
-        # Named explicitly here so both install paths always get it.
-        if ! out=$(apt-get install -y clamav-daemon clamav-freshclam spamassassin spamd 2>&1); then
-            add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
-            emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
-        fi
-        add_change "${MAIL_SMTP_IMAP_CAPABILITY}" installed "" "apt-get install -y clamav-daemon clamav-freshclam spamassassin spamd succeeded"
     fi
 
     installed_version=$(dpkg-query -W -f='${Version}' exim4-daemon-heavy 2>/dev/null || true)
@@ -1324,26 +1662,6 @@ install_mail() {
     # Files an earlier version gave to lesta.
     find "${DKIM_KEY_ROOT}" "${DOVECOT_LIVE_DIR}" -group lesta -exec chgrp -h "${MAIL_SECRET_GROUP}" {} + 2>/dev/null || true
 
-    # Debian-exim also needs real access to clamd's own Unix socket
-    # (CLAMD_SOCKET) to actually connect for av_scanner scanning: ClamAV's
-    # own Debian packaging creates that socket group-owned by clamav, not
-    # world-writable, the exact same "a non-owning system identity needs an
-    # explicit group grant to use a real local socket" lesson already
-    # learned for DKIM keys just above, applied proactively here rather
-    # than waiting to rediscover it via a real connection-refused failure.
-    usermod -aG clamav Debian-exim || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG clamav Debian-exim failed"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "Debian-exim added to the clamav group, so Exim can connect to clamd's own Unix socket"
-
-    # The reverse direction matters just as much: over a Unix socket, clamd
-    # is passed a spool file PATH to scan, not the message content itself
-    # (confirmed for real via CI: without this, clamd hits a permission
-    # error opening Exim's own spool file, and because the malware ACL
-    # condition below uses /defer_ok, that scan error was silently treated
-    # as "no virus found" rather than surfacing as a failure at all -- a
-    # well-documented real Exim/ClamAV integration gap, not something
-    # specific to this installer).
-    usermod -aG Debian-exim clamav || fail_step "${EXIT_MUTATION_FAILURE}" usermod_failed "" "usermod -aG Debian-exim clamav failed"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" group_membership_granted "" "clamav added to the Debian-exim group, so clamd can read the spool files Exim passes it by path for scanning"
 
     # StateRoot itself, explicitly, before any of its children: `install -d`
     # creates missing parents too, but only the leaf directory named on the
@@ -1441,78 +1759,8 @@ install_mail() {
     mail_health_probe 993 || mail_fail_health "${EXIT_HEALTH_FAILURE}" dovecot_health_check_failed "" "dovecot did not answer a TCP health probe on 127.0.0.1:993 after restart"
     add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "TCP health probe against 127.0.0.1:993 succeeded"
 
-    # --- clamav-daemon: clamd will not start at all without a real virus
-    # database already present under /var/lib/clamav (main.cvd/main.cld,
-    # daily.cvd/daily.cld) -- clamav-freshclam's own postinst already
-    # attempts a first real signature fetch synchronously, but this waits
-    # and retries explicitly rather than trusting that timing blindly,
-    # mirroring this file's own repeated "verify the real dependency is
-    # ready before starting what depends on it" discipline (the same
-    # discipline behind lesta.conf's own before-package-install ordering
-    # above). A disposable node with no real network path to ClamAV's own
-    # CDN will fail here loudly, not with a confusing later clamd crash.
-    wait_for_clamav_database || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_database_missing "/var/lib/clamav" "no real ClamAV virus database (main.cvd/main.cld) appeared after waiting for clamav-freshclam's own first signature fetch"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "/var/lib/clamav" "a real ClamAV virus database is present"
-
-    # clamd drops every one of its own supplementary group memberships at
-    # startup by default, a real ClamAV hardening feature -- so the
-    # usermod -aG Debian-exim clamav grant above would otherwise never
-    # actually take effect inside the running clamd process itself.
-    clamd_conf=/etc/clamav/clamd.conf
-    if grep -qE '^#?AllowSupplementaryGroups' "${clamd_conf}" 2>/dev/null; then
-        sed -i 's/^#\?AllowSupplementaryGroups.*/AllowSupplementaryGroups true/' "${clamd_conf}" \
-            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${clamd_conf}" "failed to set AllowSupplementaryGroups true in ${clamd_conf}"
-    else
-        printf '\nAllowSupplementaryGroups true\n' >> "${clamd_conf}" \
-            || fail_step "${EXIT_MUTATION_FAILURE}" clamd_conf_write_failed "${clamd_conf}" "failed to append AllowSupplementaryGroups true to ${clamd_conf}"
-    fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" configured "${clamd_conf}" "AllowSupplementaryGroups true set: clamd would otherwise drop its own Debian-exim group membership at startup and be unable to read Exim's spool files it is asked to scan"
-
-    systemctl enable clamav-daemon || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable clamav-daemon failed"
-
-    if ! out=$(systemctl restart clamav-daemon 2>&1); then
-        mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
-    fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable clamav-daemon + systemctl restart clamav-daemon succeeded"
-
-    wait_for_health_probe clamd_health_probe 30 \
-        || mail_fail_health "${EXIT_HEALTH_FAILURE}" clamav_daemon_health_check_failed "${CLAMD_SOCKET}" "clamd did not answer a real PING/PONG protocol probe over ${CLAMD_SOCKET} after restart"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "real PING/PONG protocol probe against clamd's own socket succeeded"
-
-    # --- spamassassin: the spamd service Debian's own packaging ships is
-    # disabled by default (ENABLED=0 in /etc/default/spamassassin) until an
-    # operator explicitly opts in -- flip it here, the same "package
-    # installs, service starts disabled until explicitly enabled" pattern
-    # already confirmed real for Dovecot's own postinst behavior elsewhere
-    # in this file, just gated by a config flag instead of an include line.
-    if [ -f /etc/default/spamassassin ]; then
-        sed -i 's/^ENABLED=.*/ENABLED=1/' /etc/default/spamassassin \
-            || fail_step "${EXIT_MUTATION_FAILURE}" spamassassin_enable_flag_failed /etc/default/spamassassin "failed to set ENABLED=1 in /etc/default/spamassassin"
-    fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" configured /etc/default/spamassassin "ENABLED=1 set: spamd would otherwise stay disabled per Debian's own packaging default"
-
-    # The real systemd unit name this package ships varies by Ubuntu release
-    # (confirmed for real via CI: "spamassassin.service" does not exist on
-    # 24.04, unlike every other real daemon this installer manages by a
-    # fixed, known unit name) -- discovered at runtime from the real
-    # installed unit list rather than hardcoding a single guessed name a
-    # second time.
-    spamd_unit_name=$(discover_spamd_unit_name)
-    if [ -z "${spamd_unit_name}" ]; then
-        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_unit_not_found "" "neither spamd.service nor spamassassin.service exists after installing the spamassassin package"
-    fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" verified "" "real systemd unit for spamd is ${spamd_unit_name}"
-
-    systemctl enable "${spamd_unit_name}" || mail_fail_health "${EXIT_HEALTH_FAILURE}" systemctl_enable_failed "" "systemctl enable ${spamd_unit_name} failed"
-
-    if ! out=$(systemctl restart "${spamd_unit_name}" 2>&1); then
-        mail_fail_health "${EXIT_HEALTH_FAILURE}" spamassassin_restart_failed "" "$(printf '%s' "${out}" | tr '\n' ' ')"
-    fi
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" enabled "" "systemctl enable ${spamd_unit_name} + systemctl restart ${spamd_unit_name} succeeded"
-
-    wait_for_health_probe spamd_health_probe 30 \
-        || mail_fail_health "${EXIT_HEALTH_FAILURE}" spamd_health_check_failed "" "spamd did not answer a real PING/PONG protocol probe on 127.0.0.1:${SPAMD_PORT} after restart"
-    add_change "${MAIL_SMTP_IMAP_CAPABILITY}" healthy "" "real PING/PONG protocol probe against spamd succeeded"
+    mail_apply_antivirus
+    mail_apply_antispam
 
     checkpoint_write install_mail "${MANIFEST_DIGEST}"
     log_info "install_mail complete"
@@ -1609,6 +1857,7 @@ main() {
 
     parse_args "$@"
     validate_args
+    resolve_scanners
 
     if [ "${MODE}" = "version" ]; then
         emit_version_and_exit

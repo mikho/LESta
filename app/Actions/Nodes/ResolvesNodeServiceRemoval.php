@@ -26,7 +26,8 @@ class ResolvesNodeServiceRemoval
         'bind9' => ['dns.bind9.v1'],
         'mariadb' => ['database.tenant.v1'],
         'cron' => ['scheduler.account-cron.v1'],
-        'mail' => ['mail.smtp-imap.v1'],
+        // The optional scanners go with mail: its installer owns them, and removing mail removes them.
+        'mail' => ['mail.smtp-imap.v1', 'mail.antivirus.v1', 'mail.antispam.v1'],
         'backups' => ['backup.encrypted-artifacts.v1'],
         'php-fpm' => ['web.php-fpm.v1'],
         'adminer' => ['tools.adminer.v1'],

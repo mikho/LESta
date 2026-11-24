@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Enums\NodeCapabilityType;
 use App\Models\MailDomain;
 use Illuminate\Http\Request;
 
@@ -21,6 +22,8 @@ class MailDomainResource extends ApiResource
             'domain' => $this->domain,
             'antivirus_enabled' => $this->antivirus_enabled,
             'antispam_enabled' => $this->antispam_enabled,
+            'antivirus_available' => $this->scannerAvailable(NodeCapabilityType::MailAntivirus),
+            'antispam_available' => $this->scannerAvailable(NodeCapabilityType::MailAntispam),
             'dkim_enabled' => $this->dkim_enabled,
             'dkim_selector' => $this->dkim_selector,
             'catchall_email' => $this->catchall_email,

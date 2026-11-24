@@ -539,7 +539,7 @@ install_php_fpm() {
     done
 
     # shellcheck disable=SC2086
-    if ! out=$(apt-get install -y ${pkgs} 2>&1); then
+    if ! out=$(apt-get install -y --no-install-recommends ${pkgs} 2>&1); then
         add_error apt_install_failed "$(printf '%s' "${out}" | tr '\n' ' ')" ""
         emit_result_and_exit failed "${EXIT_MUTATION_FAILURE}"
     fi

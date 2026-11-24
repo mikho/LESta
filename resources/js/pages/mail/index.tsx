@@ -61,7 +61,11 @@ export default function Index({
                     {
                         header: 'Antivirus',
                         cell: (item) =>
-                            item.antivirus_enabled ? (
+                            !item.antivirus_available ? (
+                                <span className="text-muted-foreground">
+                                    Not available
+                                </span>
+                            ) : item.antivirus_enabled ? (
                                 'On'
                             ) : (
                                 <span className="font-medium text-amber-700 dark:text-amber-400">
@@ -72,7 +76,11 @@ export default function Index({
                     {
                         header: 'Antispam',
                         cell: (item) =>
-                            item.antispam_enabled ? (
+                            !item.antispam_available ? (
+                                <span className="text-muted-foreground">
+                                    Not available
+                                </span>
+                            ) : item.antispam_enabled ? (
                                 'On'
                             ) : (
                                 <span className="font-medium text-amber-700 dark:text-amber-400">

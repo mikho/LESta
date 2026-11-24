@@ -3,12 +3,19 @@ import MailDomainController from '@/actions/App/Http/Controllers/Mail/MailDomain
 import { FormCheckbox } from '@/components/form-checkbox';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ScannerSwitch } from '@/components/scanner-switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { index } from '@/routes/mail';
 
-export default function Create() {
+export default function Create({
+    antivirusAvailable,
+    antispamAvailable,
+}: {
+    antivirusAvailable: boolean;
+    antispamAvailable: boolean;
+}) {
     return (
         <>
             <Head title="Add mail domain" />
@@ -39,27 +46,21 @@ export default function Create() {
                                 <InputError message={errors.domain} />
                             </div>
 
-                            <div className="flex items-center space-x-3">
-                                <FormCheckbox
-                                    id="antivirus_enabled"
-                                    name="antivirus_enabled"
-                                    defaultChecked
-                                />
-                                <Label htmlFor="antivirus_enabled">
-                                    Scan incoming mail for viruses
-                                </Label>
-                            </div>
+                            <ScannerSwitch
+                                name="antivirus_enabled"
+                                label="Scan incoming mail for viruses"
+                                unavailable="Virus scanning is not installed on this server."
+                                available={antivirusAvailable}
+                                defaultChecked
+                            />
 
-                            <div className="flex items-center space-x-3">
-                                <FormCheckbox
-                                    id="antispam_enabled"
-                                    name="antispam_enabled"
-                                    defaultChecked
-                                />
-                                <Label htmlFor="antispam_enabled">
-                                    Scan incoming mail for spam
-                                </Label>
-                            </div>
+                            <ScannerSwitch
+                                name="antispam_enabled"
+                                label="Scan incoming mail for spam"
+                                unavailable="Spam checking is not installed on this server."
+                                available={antispamAvailable}
+                                defaultChecked
+                            />
 
                             <div className="flex items-center space-x-3">
                                 <FormCheckbox

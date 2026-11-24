@@ -56,6 +56,8 @@ const capabilityOptions = [
     'files.manager.v1',
     'tools.adminer.v1',
     'mail.webmail.v1',
+    'mail.antivirus.v1',
+    'mail.antispam.v1',
 ] as const;
 
 const capabilityDisplayStatusBadgeClasses: Record<string, string> = {

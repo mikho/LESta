@@ -90,6 +90,15 @@ const (
 	// the whole install step (vendored Roundcube plus a dedicated pool).
 	webmailCapability = "mail.webmail.v1"
 
+	// mailAntivirusCapability and mailAntispamCapability are the optional
+	// scanners .install/services/mail/install.sh adds with --antivirus and
+	// --antispam (ClamAV alone is about 1 GB of memory, so neither is on by
+	// default). No dispatch case: the mail capability already renders the
+	// per-domain lists Exim reads; these only report that the scanner is
+	// there, so the panel offers the per-domain switch where it works.
+	mailAntivirusCapability = "mail.antivirus.v1"
+	mailAntispamCapability  = "mail.antispam.v1"
+
 	// webProfilePath is the one shared artifact both apache/install.sh and
 	// nginx/install.sh's own --web-server both orchestration write: a single
 	// trimmed line ("apache" or "both"). apacheProductionConfig reads it at
@@ -102,7 +111,7 @@ const (
 	// .install/services/node-health/manifest.json; not derived from git
 	// describe or similar, matching this project's own preference for
 	// explicit, reviewable literals over build-time magic.
-	agentVersion = "1.0.93"
+	agentVersion = "1.0.94"
 )
 
 func main() {
@@ -887,7 +896,7 @@ func identityProductionConfig() identity.Config {
 // per-deployment, per-node values with no single correct compiled-in
 // default.
 //
-// CapabilityStateRoots's twelve literal values must stay in lockstep with
+// CapabilityStateRoots's fourteen literal values must stay in lockstep with
 // nginxProductionConfig's/bind9ProductionConfig's/apacheProductionConfig's/
 // phpfpmProductionConfig's/acmeProductionConfig's/mariadbProductionConfig's/
 // cronProductionConfig's/mailProductionConfig's own StateRoot fields,
@@ -905,7 +914,9 @@ func identityProductionConfig() identity.Config {
 // does have a leaf-service installer of its own, since it vendors real
 // artifacts and owns a dedicated system user/pool nothing else shares).
 // webmailCapability (/var/lib/lesta/webmail) is the same shape, created by
-// .install/services/webmail/install.sh.
+// .install/services/webmail/install.sh. mailAntivirusCapability and
+// mailAntispamCapability (/var/lib/lesta/mail-antivirus, -antispam) are
+// markers the mail installer creates only with --antivirus/--antispam.
 // This function never invokes those capabilities, it only os.Stats their
 // fixed StateRoot to report presence. metricsUsageCapability and
 // systemAccountIdentityCapability are
@@ -959,6 +970,8 @@ func daemonProductionConfig() daemon.Config {
 			filesManagerCapability:             "/var/lib/lesta/files-manager",
 			adminerCapability:                  "/var/lib/lesta/adminer",
 			webmailCapability:                  "/var/lib/lesta/webmail",
+			mailAntivirusCapability:            "/var/lib/lesta/mail-antivirus",
+			mailAntispamCapability:             "/var/lib/lesta/mail-antispam",
 		},
 		// The services behind each capability, reported up or down on the admin dashboard. A unit
 		// that does not exist on this node (an unused PHP version, Apache on an nginx node) is
@@ -971,6 +984,8 @@ func daemonProductionConfig() daemon.Config {
 			databaseTenantCapability: {"mariadb@tenant"},
 			schedulerCronCapability:  {"cron"},
 			mailSmtpImapCapability:   {"exim4", "dovecot"},
+			mailAntivirusCapability:  {"clamav-daemon", "clamav-freshclam"},
+			mailAntispamCapability:   {"spamd", "spamassassin"},
 		},
 		PhpPoolBase: "/etc/php",
 		CoreUnits:   []string{"lesta-applier", "lesta-applier-identity", "lesta-applier-tenant", "lesta-applier-backup", "lesta-firewall", "mariadb", "ssh"},

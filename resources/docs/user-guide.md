@@ -36,6 +36,7 @@ Click through from "Your accounts," or from the dashboard, to reach your account
 
 - **Add domain**: the domain name, optional other addresses for the same site (one per line, such as the www address), **HTTPS** (automatic, with a free Let's Encrypt certificate, is chosen for you when the server offers it; or your own certificate; or off) and **PHP** (the newest version is chosen when the server offers PHP; pick "No PHP" for plain HTML files). **Advanced** holds the web server (nginx, or Apache where offered) and the template.
 - **The domain's page** (click its name or **Manage**) groups its settings into Site, HTTPS, Protection (hotlink protection and the web application firewall; fine-tuning is folded away) and Advanced, followed by Redirects, Password-protected folders, SFTP access and, last, Suspend or delete. **This domain here** shows whether the same domain also has a DNS zone and mail on the server, with a link to each or to add it.
+- **Shortcuts on each row**: beside **Manage**, icons open the site in a new tab, its **Files** and its **Logs and traffic**. On a phone they are in the row's **⋯** menu instead.
 - **Suspend / Unsuspend**: takes the site offline/back online without deleting it.
 - **Delete**: removes it permanently, and with it the site's files and logs on the server. Take a backup first (Chapter 8) if you might want them back.
 
@@ -68,7 +69,7 @@ On a domain's own page you also find:
 
 `Mail` in the sidebar (`/mail`). Mail is organized as **domains** containing **mailboxes**, the same shape as DNS.
 
-- **Add domain**: the domain name, a **catch-all email** (optional — where mail to unrecognized addresses at this domain goes), and three toggles: scan incoming mail for viruses, scan for spam (both on by default), and sign outgoing mail with DKIM (off by default — turning it on starts real key generation, and the key rotates automatically on a schedule you don't need to manage).
+- **Add domain**: the domain name, a **catch-all email** (optional — where mail to unrecognized addresses at this domain goes), and three toggles: scan incoming mail for viruses, scan for spam (both on by default, where your server has the scanner; otherwise the page says it is not installed on this server, and the list shows **Not available**), and sign outgoing mail with DKIM (off by default — turning it on starts real key generation, and the key rotates automatically on a schedule you don't need to manage).
 - Inside a domain's edit page, **Add mailbox**: a name (the part before the `@`), optional quota in MB, optional forwarding address, a "forward only, don't keep a copy" toggle, and an autoreply toggle with its own message.
     - **Read this before adding a mailbox:** the mailbox's password is generated automatically and shown to you **exactly once**, in a dialog, right after you create it (or after you rotate it). It cannot be recovered afterward — if you close the dialog without copying it, use **New password** (under **⋯** next to the mailbox) to get a new one.
 - Each mailbox can be edited (quota, forwarding, autoreply — not its name), have its password rotated, suspended/unsuspended, or deleted, all from the same page. Deleting a mailbox deletes its mail on the server too.
