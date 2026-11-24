@@ -1,4 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
+import { ExternalLink, FolderOpen, ScrollText } from 'lucide-react';
 import WebDomainController from '@/actions/App/Http/Controllers/Domains/WebDomainController';
 import {
     CustomerResourceIndex,
@@ -142,6 +143,23 @@ export default function Index({
             }}
             name={(webDomain) => webDomain.domain}
             manageHref={(webDomain) => WebDomainController.edit(webDomain)}
+            quickActions={(webDomain) => [
+                {
+                    label: 'Open site',
+                    icon: ExternalLink,
+                    externalUrl: `${webDomain.ssl_mode === 'none' ? 'http' : 'https'}://${webDomain.domain}`,
+                },
+                {
+                    label: 'Files',
+                    icon: FolderOpen,
+                    href: domains.files.index(webDomain),
+                },
+                {
+                    label: 'Logs',
+                    icon: ScrollText,
+                    href: domains.logs.index(webDomain),
+                },
+            ]}
             columns={[
                 {
                     header: 'Aliases',
@@ -163,8 +181,6 @@ export default function Index({
                 },
             ]}
             moreActions={(webDomain) => [
-                { label: 'Files', href: domains.files.index(webDomain) },
-                { label: 'Logs', href: domains.logs.index(webDomain) },
                 webDomain.suspended_at
                     ? {
                           label: 'Unsuspend',

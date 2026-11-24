@@ -1,5 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { Ellipsis } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog';
@@ -16,6 +17,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { isApplying, usePollWhile } from '@/hooks/use-poll-while';
 import type { Paginated } from '@/types';
 import type { RouteDefinition, RouteFormDefinition } from '@/wayfinder';
@@ -36,6 +42,14 @@ export type RowAction =
     | { label: string; href: RouteDefinition<'get'> | string; testId?: string }
     | { label: string; confirm: Confirmation; testId?: string };
 
+/**
+ * A one-click shortcut on a row: an icon beside Manage on a wide screen, the first items of the
+ * More menu on a phone. An external address opens in a new tab, outside Inertia.
+ */
+export type QuickAction = { label: string; icon: LucideIcon } & (
+    { href: RouteDefinition<'get'> } | { externalUrl: string }
+);
+
 export type OwnResourceColumn<T> = {
     header: string;
     cell: (item: T) => ReactNode;
@@ -54,8 +68,8 @@ type StatusFields = {
 /**
  * The list a customer sees of their own resources of one kind, the same on every such page: a
  * labelled search with an announced count, the resource's name as the way in, one status column
- * that stays quiet while all is well and explains itself when not, one Manage button per row and
- * everything else in a More menu, a first-run empty state that leads to Add, and a page that keeps
+ * that stays quiet while all is well and explains itself when not, one Manage button per row (with
+ * optional icon shortcuts beside it) and everything else in a More menu, a first-run empty state that leads to Add, and a page that keeps
  * itself current while the server is still applying a change.
  */
 export function OwnResourceList<T extends StatusFields>({
@@ -73,6 +87,7 @@ export function OwnResourceList<T extends StatusFields>({
     name,
     renderName,
     manageHref,
+    quickActions,
     moreActions,
     empty,
 }: {
@@ -91,6 +106,7 @@ export function OwnResourceList<T extends StatusFields>({
     /** What the name cell shows, when that is more than the plain name (a cron job's command). */
     renderName?: (item: T) => ReactNode;
     manageHref: (item: T) => RouteDefinition<'get'>;
+    quickActions?: (item: T) => QuickAction[];
     moreActions: (item: T) => RowAction[];
     empty: { title: string; body: string };
 }) {
@@ -294,6 +310,11 @@ export function OwnResourceList<T extends StatusFields>({
                                                         manageHref={manageHref(
                                                             item,
                                                         )}
+                                                        quickActions={
+                                                            quickActions?.(
+                                                                item,
+                                                            ) ?? []
+                                                        }
                                                         actions={moreActions(
                                                             item,
                                                         )}
@@ -317,10 +338,12 @@ export function OwnResourceList<T extends StatusFields>({
 function RowActions({
     name,
     manageHref,
+    quickActions,
     actions,
 }: {
     name: string;
     manageHref: RouteDefinition<'get'>;
+    quickActions: QuickAction[];
     actions: RowAction[];
 }) {
     return (
@@ -336,8 +359,81 @@ function RowActions({
                 </Link>
             </Button>
 
-            <MoreActionsMenu name={name} actions={actions} />
+            {quickActions.map((action) => (
+                <QuickActionButton
+                    key={action.label}
+                    name={name}
+                    action={action}
+                />
+            ))}
+
+            <MoreActionsMenu
+                name={name}
+                quickActions={quickActions}
+                actions={actions}
+            />
         </div>
+    );
+}
+
+/**
+ * The link a quick action leads to, named for the row ("Files for example.com"). A plain element,
+ * not a component, so the Button, Tooltip and menu item Slots can merge their props into it.
+ */
+function quickActionLink(
+    name: string,
+    action: QuickAction,
+    children: ReactNode,
+): ReactNode {
+    const label = `${action.label} for ${name}`;
+
+    if ('externalUrl' in action) {
+        return (
+            <a
+                href={action.externalUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={label}
+            >
+                {children}
+            </a>
+        );
+    }
+
+    return (
+        <Link href={action.href} aria-label={label}>
+            {children}
+        </Link>
+    );
+}
+
+function QuickActionButton({
+    name,
+    action,
+}: {
+    name: string;
+    action: QuickAction;
+}) {
+    const Icon = action.icon;
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    asChild
+                    className="hidden size-8 md:inline-flex pointer-coarse:size-11"
+                >
+                    {quickActionLink(
+                        name,
+                        action,
+                        <Icon aria-hidden className="size-4" />,
+                    )}
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>{action.label}</TooltipContent>
+        </Tooltip>
     );
 }
 
@@ -348,9 +444,12 @@ function RowActions({
  */
 export function MoreActionsMenu({
     name,
+    quickActions = [],
     actions,
 }: {
     name: string;
+    /** Shown in the menu on a phone only, where the row has no room for their icons. */
+    quickActions?: QuickAction[];
     actions: RowAction[];
 }) {
     const [confirming, setConfirming] = useState<Confirmation | null>(null);
@@ -363,7 +462,7 @@ export function MoreActionsMenu({
             'confirm' in action,
     );
 
-    if (actions.length === 0) {
+    if (actions.length === 0 && quickActions.length === 0) {
         return null;
     }
 
@@ -375,12 +474,24 @@ export function MoreActionsMenu({
                         variant="ghost"
                         size="icon"
                         aria-label={`More actions for ${name}`}
-                        className="size-8 pointer-coarse:size-11"
+                        className={`size-8 pointer-coarse:size-11 ${actions.length === 0 ? 'md:hidden' : ''}`}
                     >
                         <Ellipsis aria-hidden className="size-4" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                    {quickActions.map((action) => (
+                        <DropdownMenuItem
+                            key={action.label}
+                            asChild
+                            className="md:hidden"
+                        >
+                            {quickActionLink(name, action, action.label)}
+                        </DropdownMenuItem>
+                    ))}
+                    {quickActions.length > 0 && actions.length > 0 && (
+                        <DropdownMenuSeparator className="md:hidden" />
+                    )}
                     {links.map((action) => (
                         <DropdownMenuItem
                             key={action.label}
