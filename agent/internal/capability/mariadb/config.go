@@ -77,6 +77,16 @@ type Config struct {
 	// NftBinary is the nft executable. Empty means "nft" resolved via PATH.
 	// Fixed, for MariaDBBinary's reason.
 	NftBinary string
+	// BindConfPath is the option file the tenant instance's config fragment
+	// includes last, setting its bind-address: 127.0.0.1 while no account
+	// has a remote host, every address while one does. Rewritten after a
+	// firewall change; a changed file restarts the instance. Empty skips it
+	// (the disposable test instance).
+	BindConfPath string
+	// RestartCommand restarts the tenant instance after BindConfPath
+	// changed. Empty means systemctl restart mariadb@tenant.service; tests
+	// use a stand-in.
+	RestartCommand []string
 }
 
 func (c Config) mariadbBinary() string {
@@ -105,6 +115,15 @@ func (c Config) nftCommand(ctx context.Context, args ...string) *exec.Cmd {
 	}
 
 	return exec.CommandContext(ctx, binary, args...)
+}
+
+// restartCommand builds the tenant instance restart.
+func (c Config) restartCommand(ctx context.Context) *exec.Cmd {
+	if len(c.RestartCommand) > 0 {
+		return exec.CommandContext(ctx, c.RestartCommand[0], c.RestartCommand[1:]...)
+	}
+
+	return exec.CommandContext(ctx, "systemctl", "restart", "mariadb@tenant.service")
 }
 
 func (c Config) host() string {

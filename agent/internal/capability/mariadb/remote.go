@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mikho/LESta/agent/internal/atomicfile"
+	"github.com/mikho/LESta/agent/internal/capability/fragment"
 )
 
 // Remote access: an extra user with remote hosts gets one more MariaDB
@@ -180,8 +181,9 @@ func syncRemoteAccounts(ctx context.Context, cfg Config, payload Payload, gone [
 
 // applyRemoteAccess brings remote access in line after an operation's own
 // DDL: the certificate when a user connects remotely, the remote accounts,
-// then the firewall when any remote account changed. A node that never had
-// a remote user never runs nft. Returns the result error code on failure.
+// then the firewall and the bind address when any remote account changed.
+// A node that never had a remote user never runs nft. Returns the result
+// error code on failure.
 func (c *MariaDBCapability) applyRemoteAccess(ctx context.Context, payload Payload, gone []User) (string, error) {
 	if payload.hasRemoteHosts() {
 		if err := syncTLS(ctx, c.cfg, payload.TLSHostname); err != nil {
@@ -303,10 +305,57 @@ func accountHostAddresses(ctx context.Context, cfg Config) ([]netip.Addr, error)
 	return addrs, nil
 }
 
+// bindConf is the option file that sets the tenant instance's
+// bind-address: every address only while some account has a remote host,
+// loopback otherwise, so a firewall mistake cannot expose an instance
+// nobody connects to remotely. mariadb/install.sh writes byte-identical
+// content (render_tenant_bind_conf), so a rerun does not restart it.
+func bindConf(remote bool) string {
+	address := "127.0.0.1"
+	if remote {
+		address = "*"
+	}
+
+	return "# Managed by LESta (database.tenant.v1). Do not edit by hand.\n" +
+		"# Every address while a database user has remote access, loopback otherwise.\n" +
+		"[mysqld.tenant]\n" +
+		"bind-address = " + address + "\n"
+}
+
+// syncBind rewrites Config.BindConfPath for remote and, when it changed,
+// restarts the tenant instance and waits until it answers again. The
+// restart drops every open tenant connection, so it only happens when the
+// first remote host arrives or the last one goes.
+func (c *MariaDBCapability) syncBind(ctx context.Context, remote bool) error {
+	if c.cfg.BindConfPath == "" {
+		return nil
+	}
+
+	content := []byte(bindConf(remote))
+	if current, err := os.ReadFile(c.cfg.BindConfPath); err == nil && bytes.Equal(current, content) {
+		return nil
+	}
+
+	// World-readable: every MariaDB client on the node reads it through
+	// the fragment's !include, and it holds nothing secret.
+	if err := atomicfile.Write(c.cfg.BindConfPath, content, 0o644); err != nil {
+		return err
+	}
+
+	if out, err := c.cfg.restartCommand(ctx).CombinedOutput(); err != nil {
+		return fmt.Errorf("restarting the tenant instance: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return fragment.PollUntil(ctx, func() error {
+		_, err := runSQL(ctx, c.cfg, "SELECT 1;\n")
+		return err
+	})
+}
+
 // syncFirewall rewrites Config.FirewallElementsPath from the server's
-// account hosts and loads it with nft. Derived from the server, never from
-// one database's payload, so every database's remote hosts stay open
-// whichever one changed.
+// account hosts and loads it with nft, then the bind-address with them.
+// Derived from the server, never from one database's payload, so every
+// database's remote hosts stay open whichever one changed.
 func (c *MariaDBCapability) syncFirewall(ctx context.Context) error {
 	if c.cfg.FirewallElementsPath == "" {
 		return nil
@@ -327,6 +376,10 @@ func (c *MariaDBCapability) syncFirewall(ctx context.Context) error {
 	cmd := c.cfg.nftCommand(ctx, "-f", c.cfg.FirewallElementsPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("loading %s: %w: %s", c.cfg.FirewallElementsPath, err, strings.TrimSpace(string(out)))
+	}
+
+	if err := c.syncBind(ctx, len(addrs) > 0); err != nil {
+		return fmt.Errorf("switching the bind address: %w", err)
 	}
 
 	return nil

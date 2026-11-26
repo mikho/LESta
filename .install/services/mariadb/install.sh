@@ -146,6 +146,11 @@ TENANT_AGENT_STATE_DIR="/var/lib/lesta/mariadb/tenant-agent-state"
 # The certificate and key the tenant instance presents to remote clients: seeded self-signed here,
 # replaced by the node hostname's certificate when the agent gives a database user remote access.
 TENANT_TLS_DIR="/var/lib/lesta/mariadb/tenant-tls"
+# The option file the tenant fragment includes last, setting bind-address: loopback until a database
+# user has a remote host, every address while one does. The agent rewrites it when that changes
+# (agent/internal/capability/mariadb/remote.go, bindConf); render_tenant_bind_conf writes the same bytes.
+TENANT_CONF_DIR="/var/lib/lesta/mariadb/tenant-conf"
+TENANT_BIND_CONF="${TENANT_CONF_DIR}/bind.cnf"
 TENANT_SOCKET="/run/mysqld/mysqld.tenant.sock"
 TENANT_PIDFILE="/run/mysqld/mysqld.tenant.pid"
 TENANT_LOGFILE="/var/log/mysql/mariadb-tenant.log"
@@ -773,6 +778,29 @@ SOURCES
 # connect check: mariadbd's own InnoDB initialization (and, on a fresh
 # datadir, mariadb-install-db itself) can take a real moment after the
 # process starts.
+# tenant_has_remote_accounts succeeds when the running tenant instance has an account at a single
+# remote address, the same test as the agent's accountHostAddresses: loopback, unspecified and
+# non-address hosts ('localhost', '%') do not count. A tenant instance that is not running yet (a
+# fresh node) has none.
+tenant_has_remote_accounts() {
+    local hosts
+    [ -S "${TENANT_SOCKET}" ] || return 1
+    hosts=$(mariadb --socket="${TENANT_SOCKET}" -u root -N -B -e "SELECT DISTINCT Host FROM mysql.user" 2>/dev/null) || return 1
+    printf '%s\n' "${hosts}" \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*$' \
+        | grep -Evx '127\.[0-9.]+|0\.0\.0\.0|::1?|::ffff:127\.[0-9.]+' \
+        | grep -q .
+}
+
+# render_tenant_bind_conf <address> prints the bind option file, byte-identical to the agent's
+# bindConf so a rerun never restarts the instance for nothing.
+render_tenant_bind_conf() {
+    printf '# Managed by LESta (database.tenant.v1). Do not edit by hand.\n'
+    printf '# Every address while a database user has remote access, loopback otherwise.\n'
+    printf '[mysqld.tenant]\n'
+    printf 'bind-address = %s\n' "$1"
+}
+
 mariadb_health_probe() {
     local socket="$1" attempt=0
 
@@ -1113,7 +1141,7 @@ CREDS
 install_mariadb_tenant() {
     log_info "install_mariadb_tenant: activating database.tenant.v1"
 
-    local out admin_password apparmor_local_mariadbd tenant_conf_changed
+    local out admin_password apparmor_local_mariadbd tenant_conf_changed tenant_bind_address tenant_bind_changed
 
     # mysql's own lesta-group membership (needed to traverse /var/lib/lesta
     # to reach this datadir) is granted once, shared by both instance
@@ -1159,14 +1187,35 @@ install_mariadb_tenant() {
         add_change database.tenant.v1 installed "${TENANT_TLS_DIR}" "self-signed certificate seeded for TLS connections, until the node hostname's certificate replaces it"
     fi
 
+    # --- bind address -------------------------------------------------------
+    #
+    # Loopback until a database user has remote access, so a flushed or mistaken firewall cannot
+    # expose an instance nobody connects to remotely. Remote accounts require TLS (REQUIRE SSL); the
+    # instance-wide require_secure_transport is not set, because the sites on this node connect over
+    # TCP to 127.0.0.1 without TLS.
+    install -d -m 0755 -o root -g root "${TENANT_CONF_DIR}" || fail_step "${EXIT_MUTATION_FAILURE}" mkdir_failed "${TENANT_CONF_DIR}" "failed to create ${TENANT_CONF_DIR}"
+    tenant_bind_address="127.0.0.1"
+    if tenant_has_remote_accounts; then
+        tenant_bind_address="*"
+    fi
+    render_tenant_bind_conf "${tenant_bind_address}" > "${TENANT_BIND_CONF}.tmp"
+    tenant_bind_changed=0
+    if ! cmp -s "${TENANT_BIND_CONF}.tmp" "${TENANT_BIND_CONF}"; then
+        tenant_bind_changed=1
+    fi
+    chmod 0644 "${TENANT_BIND_CONF}.tmp"
+    mv -f "${TENANT_BIND_CONF}.tmp" "${TENANT_BIND_CONF}"
+    add_change database.tenant.v1 installed "${TENANT_BIND_CONF}" "tenant instance bound to ${tenant_bind_address}"
+
     # --- [mysqld.tenant] config fragment (memory settings: see
     # render_control_plane_conf's comment): every instance-distinguishing key
     # explicitly set (see this file's own top comment for why omitting any
     # one of these risks silently sharing the control-plane instance's own
     # socket/datadir/port) -------------------------------------------------
     #
-    # bind-address = *: remote access listens on every address. Nothing reaches
-    # the port from outside unless the agent put the client's address in the
+    # bind-address = 127.0.0.1 here, and the !include last overrides it with the
+    # bind file above. Even when that opens every address, nothing reaches the
+    # port from outside unless the agent put the client's address in the
     # firewall's remote database sets (lib/firewall.sh), and only accounts the
     # agent created for that address, which require TLS, accept it.
     cat > "${TENANT_CONF_FRAGMENT}.tmp" <<CONF
@@ -1182,7 +1231,7 @@ port = ${TENANT_PORT}
 datadir = ${TENANT_DATADIR}
 socket = ${TENANT_SOCKET}
 pid-file = ${TENANT_PIDFILE}
-bind-address = *
+bind-address = 127.0.0.1
 log-error = ${TENANT_LOGFILE}
 ssl_cert = ${TENANT_TLS_DIR}/fullchain.pem
 ssl_key = ${TENANT_TLS_DIR}/privkey.pem
@@ -1195,16 +1244,20 @@ max_connections = 100
 thread_cache_size = 16
 table_open_cache = 1000
 table_definition_cache = 400
+!include ${TENANT_BIND_CONF}
 CONF
-    # A changed fragment (an older release's, bound to 127.0.0.1 without TLS) needs the running
-    # instance restarted to take effect; an unchanged one never restarts it.
+    # A changed fragment or bind file needs the running instance restarted to take effect; an
+    # unchanged one never restarts it.
     tenant_conf_changed=0
     if ! cmp -s "${TENANT_CONF_FRAGMENT}.tmp" "${TENANT_CONF_FRAGMENT}"; then
         tenant_conf_changed=1
     fi
+    if [ "${tenant_bind_changed}" = "1" ]; then
+        tenant_conf_changed=1
+    fi
     mv -f "${TENANT_CONF_FRAGMENT}.tmp" "${TENANT_CONF_FRAGMENT}"
     chmod 0644 "${TENANT_CONF_FRAGMENT}"
-    add_change database.tenant.v1 installed "${TENANT_CONF_FRAGMENT}" "[mysqld.tenant] option group written with every instance-distinguishing key set explicitly (port ${TENANT_PORT}, datadir, socket, pid-file, bind-address, log-error, ssl_cert, ssl_key)"
+    add_change database.tenant.v1 installed "${TENANT_CONF_FRAGMENT}" "[mysqld.tenant] option group written with every instance-distinguishing key set explicitly (port ${TENANT_PORT}, datadir, socket, pid-file, bind-address, log-error, ssl_cert, ssl_key), including ${TENANT_BIND_CONF} last"
 
     # --- AppArmor: expected repeat of bind9's own gap for named/
     # /var/lib/lesta/bind, adapted for mariadbd's own profile -------------
@@ -1227,6 +1280,14 @@ CONF
                 printf '%s/** rwk,\n' "${TENANT_DATADIR}"
             } >> "${apparmor_local_mariadbd}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_mariadbd}" "failed to append the ${TENANT_DATADIR} allowance to ${apparmor_local_mariadbd}"
             add_change database.tenant.v1 apparmor_extended "${apparmor_local_mariadbd}" "granted mariadbd read/write access to ${TENANT_DATADIR} via Ubuntu's own local-override include point"
+        fi
+        if ! grep -qF "${TENANT_CONF_DIR}" "${apparmor_local_mariadbd}" 2>/dev/null; then
+            {
+                printf '\n# Added by LESta: mariadbd must read the bind address file the tenant fragment includes.\n'
+                printf '%s/ r,\n' "${TENANT_CONF_DIR}"
+                printf '%s/* r,\n' "${TENANT_CONF_DIR}"
+            } >> "${apparmor_local_mariadbd}" || fail_step "${EXIT_MUTATION_FAILURE}" apparmor_override_write_failed "${apparmor_local_mariadbd}" "failed to append the ${TENANT_CONF_DIR} allowance to ${apparmor_local_mariadbd}"
+            add_change database.tenant.v1 apparmor_extended "${apparmor_local_mariadbd}" "granted mariadbd read access to ${TENANT_CONF_DIR}"
         fi
         if ! grep -qF "${TENANT_TLS_DIR}" "${apparmor_local_mariadbd}" 2>/dev/null; then
             {

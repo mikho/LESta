@@ -51,9 +51,9 @@ bootstrap_base() {
 # daily metadata refresh timer, which is what starts fwupd (fwupd itself exits after five idle
 # minutes, so it is left alone). Each is disabled and stopped, never removed:
 # no package is touched, `systemctl enable --now <unit>` brings one back, and `fwupdmgr` still
-# works by hand. Left alone: unattended-upgrades (a security function) and snapd, which something
-# at boot starts again through its socket even when disabled, so only removing the package would
-# keep it off, and LESta does not remove OS packages it does not own. Only a unit that is enabled or running is changed, so a re-run records nothing new.
+# works by hand. Left alone: unattended-upgrades (a security function). snapd is the one exception
+# that is removed (bootstrap_purge_snapd), since a disabled snapd is started again through its
+# socket. Only a unit that is enabled or running is changed, so a re-run records nothing new.
 bootstrap_trim_os_services() {
     local unit
 
@@ -72,6 +72,35 @@ bootstrap_trim_os_services() {
     if ! find /etc/networkd-dispatcher -type f 2>/dev/null | grep -q .; then
         bootstrap_stop_unit networkd-dispatcher.service || true
     fi
+
+    bootstrap_purge_snapd
+}
+
+# SNAPD_APT_PIN keeps snapd from coming back as another package's dependency once it is purged.
+SNAPD_APT_PIN="/etc/apt/preferences.d/lesta-no-snapd"
+
+# bootstrap_purge_snapd removes snapd (about 37 MB resident, user's decision 2026-11-26) when no
+# snap is installed, and pins it away. A disabled snapd is started again at boot through its socket,
+# so removal is the only way to keep it off. Ubuntu's cloud images install no snap on a server, and
+# only snapd itself is removed (ubuntu-server merely recommends it). A node with snaps keeps snapd,
+# logged. `rm SNAPD_APT_PIN && apt-get install snapd` brings it back. A failed purge is logged and
+# the install goes on: snapd running costs memory, not correctness.
+bootstrap_purge_snapd() {
+    dpkg-query -W -f='${Status}' snapd 2>/dev/null | grep -q 'install ok installed' || return 0
+
+    if find /var/lib/snapd/snaps -maxdepth 1 -name '*.snap' 2>/dev/null | grep -q .; then
+        log_info "bootstrap_purge_snapd: snaps are installed, snapd is kept"
+        return 0
+    fi
+
+    if ! DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 purge -y snapd >/dev/null 2>&1; then
+        log_info "bootstrap_purge_snapd: apt-get purge snapd failed, snapd is kept"
+        return 0
+    fi
+
+    printf 'Package: snapd\nPin: release a=*\nPin-Priority: -10\n' > "${SNAPD_APT_PIN}"
+    chmod 0644 "${SNAPD_APT_PIN}"
+    add_change base.os.v1 removed snapd "snapd purged and pinned away (${SNAPD_APT_PIN}): no snap was installed, and a disabled snapd starts again through its socket"
 }
 
 # bootstrap_stop_unit <unit> disables and stops one unit when it is enabled or active (return 0); a

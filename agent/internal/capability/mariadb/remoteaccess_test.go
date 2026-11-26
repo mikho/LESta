@@ -68,8 +68,10 @@ func writeTestCertificate(t *testing.T, dir, commonName string) {
 // certificate: each remote host gets its own TLS-only account copying the
 // local password and grant, the node hostname's certificate replaces the
 // seeded one, and rotations, access changes, suspension, removal and delete
-// all reach the remote accounts and the firewall's allow list. nft itself
-// is replaced by `true`; the rendered script is checked instead.
+// all reach the remote accounts and the firewall's allow list, and the
+// instance listens on every address only while a remote host exists. nft
+// and the restart are replaced by stand-ins; the rendered files and the
+// number of restarts are checked instead.
 func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 	requireRealMariaDB(t)
 
@@ -92,6 +94,8 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	firewallPath := filepath.Join(prefix, "db-remote.nft")
+	bindPath := filepath.Join(prefix, "bind.cnf")
+	restartLog := filepath.Join(prefix, "restarts")
 
 	d := newDisposableMariaDB(t, "--ssl-cert="+filepath.Join(tlsDir, "fullchain.pem"), "--ssl-key="+filepath.Join(tlsDir, "privkey.pem"))
 	cfg := d.Config
@@ -99,6 +103,8 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 	cfg.TLSDir = tlsDir
 	cfg.FirewallElementsPath = firewallPath
 	cfg.NftBinary = "true"
+	cfg.BindConfPath = bindPath
+	cfg.RestartCommand = []string{"sh", "-c", "echo restart >> " + restartLog}
 	capability := mariadb.New(cfg)
 	ctx := context.Background()
 
@@ -143,6 +149,21 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 		return string(content)
 	}
 
+	bind := func(t *testing.T, wantAddress string, wantRestarts int) {
+		t.Helper()
+		content, err := os.ReadFile(bindPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), "[mysqld.tenant]\nbind-address = "+wantAddress+"\n") {
+			t.Fatalf("the bind file should set %s:\n%s", wantAddress, content)
+		}
+		restarts, _ := os.ReadFile(restartLog)
+		if got := strings.Count(string(restarts), "restart"); got != wantRestarts {
+			t.Fatalf("expected %d restarts, got %d", wantRestarts, got)
+		}
+	}
+
 	password := randomHex(t, 24)
 
 	t.Run("a create with remote hosts makes one TLS-only account per host with the local password and grant", func(t *testing.T) {
@@ -170,6 +191,7 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 			!strings.Contains(content, "add element inet lesta db_remote_v6 { 2001:db8::5 }") {
 			t.Fatalf("the firewall script should allow both hosts:\n%s", content)
 		}
+		bind(t, "*", 1)
 	})
 
 	t.Run("the instance now presents the node hostname's certificate", func(t *testing.T) {
@@ -214,6 +236,7 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 		if content := firewall(t); strings.Contains(content, "2001:db8::5") || !strings.Contains(content, "198.51.100.7, 203.0.113.5") {
 			t.Fatalf("the firewall script should follow the hosts:\n%s", content)
 		}
+		bind(t, "*", 1)
 	})
 
 	t.Run("suspend leaves remote accounts without grants and unsuspend gives them back", func(t *testing.T) {
@@ -236,10 +259,12 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 		if content := firewall(t); strings.Contains(content, "add element") {
 			t.Fatalf("the allow list should be empty:\n%s", content)
 		}
+		bind(t, "127.0.0.1", 2)
 	})
 
 	t.Run("deleting the database drops the remote accounts of its users", func(t *testing.T) {
 		apply(t, "remote again", protocol.OperationUpdate, withReport(tenantPayload(databaseName, databaseName, nil, false), "full", nil, "203.0.113.5"))
+		bind(t, "*", 3)
 		apply(t, "delete", protocol.OperationDelete, tenantPayload(databaseName, databaseName, nil, false))
 		if count := sql(t, "SELECT COUNT(*) FROM mysql.user WHERE User LIKE 'lesta\\_1\\_shop%';"); count != "0" {
 			t.Fatalf("every account of the database should be gone, count %s", count)
@@ -247,6 +272,7 @@ func TestMariaDBCapability_RemoteAccessLifecycle(t *testing.T) {
 		if content := firewall(t); strings.Contains(content, "add element") {
 			t.Fatalf("the allow list should be empty after the delete:\n%s", content)
 		}
+		bind(t, "127.0.0.1", 4)
 	})
 }
 

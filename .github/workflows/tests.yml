@@ -640,11 +640,13 @@ jobs:
       - name: Re-apply mariadb (idempotent rerun must still succeed)
         run: sudo sh .install/services/mariadb/install.sh --apply --yes
 
-      - name: The tenant instance offers TLS on every address, with the seeded certificate
+      - name: The tenant instance offers TLS with the seeded certificate, on loopback only while no user has remote access
         run: |
           have_ssl=$(sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "SHOW GLOBAL VARIABLES LIKE 'have_ssl'" | cut -f2)
           [ "${have_ssl}" = "YES" ] || { echo "the tenant instance should have TLS, have_ssl=${have_ssl}" >&2; exit 1; }
-          sudo ss -H -tln | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3307 ' || { echo "the tenant instance should listen on every address" >&2; sudo ss -H -tln; exit 1; }
+          sudo ss -H -tln | grep -q '127\.0\.0\.1:3307 ' || { echo "the tenant instance should listen on 127.0.0.1" >&2; sudo ss -H -tln; exit 1; }
+          if sudo ss -H -tln | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3307 '; then echo "the tenant instance should not listen on every address without a remote user" >&2; sudo ss -H -tln; exit 1; fi
+          [ "$(stat -c '%U:%G %a' /var/lib/lesta/mariadb/tenant-conf/bind.cnf)" = "root:root 644" ]
           sudo test -s /var/lib/lesta/mariadb/tenant-tls/fullchain.pem
           [ "$(sudo stat -c '%U:%G %a' /var/lib/lesta/mariadb/tenant-tls/privkey.pem)" = "root:mysql 640" ]
           sudo systemctl show -p RestrictAddressFamilies lesta-applier.service | grep -q AF_NETLINK || { echo "the applier should be allowed netlink" >&2; exit 1; }
@@ -683,6 +685,18 @@ jobs:
           mariadb --host=127.0.0.1 --port=3307 --protocol=TCP --ssl --ssl-ca=/tmp/ci-node-ca.pem --ssl-verify-server-cert \
             -u lesta_0_ciremote_report --password="${password}" -N -B -e "SHOW STATUS LIKE 'Ssl_cipher'" | grep -q .
 
+          # The first remote user restarted the instance on every address; a remote account refuses a connection without TLS.
+          listens_everywhere() { sudo ss -H -tln | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3307 '; }
+          listens_everywhere || { echo "the tenant instance should listen on every address with a remote user" >&2; sudo ss -H -tln; exit 1; }
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "CREATE USER 'lesta_0_ciremote_probe'@'127.0.0.1' IDENTIFIED BY '${password}' REQUIRE SSL"
+          if mariadb --host=127.0.0.1 --port=3307 --protocol=TCP --skip-ssl -u lesta_0_ciremote_probe --password="${password}" -e 'SELECT 1' 2>/dev/null; then
+            echo "an account that requires TLS should refuse a connection without it" >&2; exit 1
+          fi
+          sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "DROP USER 'lesta_0_ciremote_probe'@'127.0.0.1'"
+          # An installer rerun derives the same bind address from the accounts and leaves it open.
+          sudo sh .install/services/mariadb/install.sh --apply --yes > /tmp/mariadb-rerun.json
+          listens_everywhere || { echo "an installer rerun should keep every address while a remote user exists" >&2; exit 1; }
+
           # The boot path: the firewall unit loads the sets again after the table, even from nothing.
           sudo nft delete table inet lesta
           sudo systemctl restart lesta-firewall.service
@@ -693,6 +707,8 @@ jobs:
           out=$(envelope delete 2 "${delete}" | sudo -u lesta-agent -- "${agent}")
           echo "${out}" | grep -Eq '"status": ?"applied"'
           if sudo nft list set inet lesta db_remote_v4 | grep -q '203.0.113.5'; then echo "the delete should empty the remote access set" >&2; exit 1; fi
+          if listens_everywhere; then echo "the last remote user gone should bind the tenant instance to loopback again" >&2; sudo ss -H -tln; exit 1; fi
+          sudo ss -H -tln | grep -q '127\.0\.0\.1:3307 '
           remaining=$(sudo mariadb --socket=/run/mysqld/mysqld.tenant.sock -u root -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User LIKE 'lesta\\_0\\_ciremote%'")
           [ "${remaining}" = "0" ] || { echo "the delete should drop every account, ${remaining} left" >&2; exit 1; }
 

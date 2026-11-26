@@ -111,7 +111,7 @@ const (
 	// .install/services/node-health/manifest.json; not derived from git
 	// describe or similar, matching this project's own preference for
 	// explicit, reviewable literals over build-time magic.
-	agentVersion = "1.0.94"
+	agentVersion = "1.0.95"
 )
 
 func main() {
@@ -614,6 +614,9 @@ func mariadbProductionConfig() mariadb.Config {
 		TLSGroup:             "mysql",
 		FirewallElementsPath: "/etc/lesta/firewall/db-remote.nft",
 		NftBinary:            "/usr/sbin/nft",
+		// The tenant instance listens on loopback until a database user has
+		// a remote host (mariadb/install.sh's TENANT_BIND_CONF).
+		BindConfPath: "/var/lib/lesta/mariadb/tenant-conf/bind.cnf",
 		// No SudoBinary: the defaults file is root:lesta 0640, so the daemon
 		// runs the client as itself. The client can run shell commands, so it
 		// must never be run as root.
