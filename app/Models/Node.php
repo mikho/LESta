@@ -37,6 +37,9 @@ use Illuminate\Validation\ValidationException;
  * @property list<array{name: string, state: string}>|null $service_states
  * @property array<string, int|float>|null $resources
  * @property list<string>|null $php_versions
+ * @property list<array{mount_point: string, total_bytes: int, free_bytes: int, available_bytes: int}>|null $filesystems
+ * @property list<array{name: string, version: string}>|null $packages
+ * @property Carbon|null $inventory_reported_at when filesystems and packages were last reported
  * @property int|null $upgrade_key_id the public key this node trusts for agent upgrades
  * @property bool|null $ping_ok
  * @property float|null $ping_ms
@@ -97,6 +100,9 @@ class Node extends Model implements ProviderAdminManaged
             'service_states' => 'array',
             'resources' => 'array',
             'php_versions' => 'array',
+            'filesystems' => 'array',
+            'packages' => 'array',
+            'inventory_reported_at' => 'datetime',
             'ping_ok' => 'boolean',
             'ping_ms' => 'float',
             'pinged_at' => 'datetime',

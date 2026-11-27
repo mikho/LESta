@@ -377,6 +377,9 @@ class NodeController extends Controller
             'tools' => $this->presentTools($node),
             'services' => $this->presentServices($node),
             'installed_services' => $this->presentInstalledServices($node),
+            'filesystems' => $node->filesystems ?? [],
+            'packages' => $node->packages ?? [],
+            'inventory_reported_at' => $node->inventory_reported_at?->toIso8601String(),
             'capabilities' => $node->capabilities
                 ->map(fn (NodeCapability $capability): array => $this->presentCapability($node, $capability))
                 ->all(),

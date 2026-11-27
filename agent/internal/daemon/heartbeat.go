@@ -40,6 +40,8 @@ type heartbeatRequest struct {
 	Services        []serviceStatus    `json:"services"`
 	Resources       *nodeResources     `json:"resources,omitempty"`
 	PHPVersions     []string           `json:"php_versions,omitempty"`
+	Filesystems     []filesystemUsage  `json:"filesystems"`
+	Packages        []installedPackage `json:"packages"`
 	Timestamp       string             `json:"timestamp"`
 }
 
@@ -82,6 +84,8 @@ func sendHeartbeat(client *http.Client, cfg *Config, credential string) ([]proto
 	req.Capabilities, req.Services = capabilityHealth(cfg)
 	req.Resources = readNodeResources("/proc")
 	req.PHPVersions = installedPhpVersions("/etc/php")
+	req.Filesystems = readFilesystems("/proc/self/mounts", syscallStatfs)
+	req.Packages = readStackPackages("/var/lib/dpkg/status")
 
 	body, err := json.Marshal(req)
 	if err != nil {

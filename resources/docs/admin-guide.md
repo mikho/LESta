@@ -138,6 +138,10 @@ The node's own LESta services (its appliers and firewall), `ssh` and the panel's
 
 The node carries the action out a moment later; the row shows "stop requested" until it has, then the new state. Every action is recorded in the audit log. Provider admins with `nodes.update` and the node's own admins can do this.
 
+### Disks and packages
+
+Under **Disks and packages** the node page shows each disk of the node with how full it is, as `df` counts it, and turns red at 90 percent. The dashboard shows the same figure next to the node's load and memory. Below the disks are the LESta stack packages installed on the node (nginx, Apache, BIND, MariaDB, Exim, Dovecot, the virus and spam scanners, cron and each PHP-FPM version), with the version the node has. The node reports both with every heartbeat, which needs agent 1.0.96 or later.
+
 ### SSH access: open and close port 22
 
 Port 22 is open on every node as recovery access. Under **SSH access** on the node page, **Close ssh** has the node's agent drop new connections to port 22, and **Open ssh** lifts that. Closing also stops SFTP for every account on the node, so it asks first. Sessions that are already open stay open, and the closed state survives a reboot. This cannot cut the panel off from the node: the agent reaches the panel by polling it, so the panel can always open the port again. The page shows the port as the node last reported it, and this needs agent 1.0.92 or later on the node.

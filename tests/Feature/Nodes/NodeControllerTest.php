@@ -341,3 +341,22 @@ test('deleting a node with zero dependents succeeds and its node capabilities ar
     expect(Node::find($id))->toBeNull()
         ->and(NodeCapability::where('node_id', $id)->count())->toBe(0);
 });
+
+test('the edit page shows the disks and packages the node last reported', function () {
+    $node = Node::factory()->create([
+        'filesystems' => [['mount_point' => '/', 'total_bytes' => 1000, 'free_bytes' => 50, 'available_bytes' => 0]],
+        'packages' => [['name' => 'nginx', 'version' => '1.24.0-2ubuntu7']],
+        'inventory_reported_at' => now(),
+    ]);
+    $delegatedAdmin = User::factory()->create();
+    NodeAdminGrant::factory()->for($delegatedAdmin)->for($node)->create();
+
+    $this->actingAs($delegatedAdmin)
+        ->get(route('nodes.edit', $node))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('nodes/edit')
+            ->where('node.filesystems.0.mount_point', '/')
+            ->where('node.packages.0.version', '1.24.0-2ubuntu7')
+            ->whereType('node.inventory_reported_at', 'string')
+        );
+});

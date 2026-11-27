@@ -3,6 +3,7 @@ import { CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect } from 'react';
 import Heading from '@/components/heading';
 import { NoAccountNotice } from '@/components/no-account-notice';
+import { DISK_FULL_PERCENT, diskUsedPercent } from '@/components/node-disks';
 import { usePollWhile } from '@/hooks/use-poll-while';
 import { formatBytes, formatRelative } from '@/lib/format';
 import { dashboard } from '@/routes';
@@ -12,6 +13,7 @@ import domains from '@/routes/domains';
 import mail from '@/routes/mail';
 import nodes from '@/routes/nodes';
 import tenantDatabases from '@/routes/tenant-databases';
+import type { NodeFilesystem } from '@/types';
 
 type DashboardAccount = {
     name: string;
@@ -75,6 +77,7 @@ type NodeStatus = {
     heartbeat: { online: boolean; last_seen_at: string | null };
     ping: { ok: boolean; ms: number | null; at: string } | null;
     resources: NodeResources | null;
+    filesystems: NodeFilesystem[];
     services: { name: string; state: string }[];
     capabilities: { capability: string; status: string }[];
 };
@@ -93,7 +96,13 @@ type NodeResources = {
 };
 
 /** Load, memory, threads and uptime from the node's last heartbeat. */
-function NodeResourceLine({ resources }: { resources: NodeResources }) {
+function NodeResourceLine({
+    resources,
+    filesystems,
+}: {
+    resources: NodeResources;
+    filesystems: NodeFilesystem[];
+}) {
     const memoryUsed =
         resources.memory_total_kb === 0
             ? 0
@@ -135,6 +144,29 @@ function NodeResourceLine({ resources }: { resources: NodeResources }) {
                     {days > 0 ? `${days} d` : '< 1 d'}
                 </dd>
             </div>
+            {filesystems.map((filesystem) => {
+                const percent = diskUsedPercent(filesystem);
+
+                return (
+                    <div key={filesystem.mount_point}>
+                        <dt className="inline">
+                            Disk{' '}
+                            <span className="font-mono">
+                                {filesystem.mount_point}
+                            </span>{' '}
+                        </dt>
+                        <dd
+                            className={
+                                percent >= DISK_FULL_PERCENT
+                                    ? 'inline font-medium text-red-600 dark:text-red-400'
+                                    : 'inline text-foreground'
+                            }
+                        >
+                            {percent}% of {formatBytes(filesystem.total_bytes)}
+                        </dd>
+                    </div>
+                );
+            })}
         </dl>
     );
 }
@@ -371,7 +403,10 @@ function NodeStatusPanel({ nodeStatus }: { nodeStatus: NodeStatus[] }) {
                         </div>
 
                         {node.heartbeat.online && node.resources && (
-                            <NodeResourceLine resources={node.resources} />
+                            <NodeResourceLine
+                                resources={node.resources}
+                                filesystems={node.filesystems}
+                            />
                         )}
 
                         <div className="min-w-0 text-sm">

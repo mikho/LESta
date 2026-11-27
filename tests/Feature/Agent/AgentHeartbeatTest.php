@@ -284,3 +284,78 @@ test('a heartbeat stores the installed PHP versions', function () {
         ->postJson('/agent/v1/heartbeat', heartbeatPayload(['php_versions' => ['not-a-version']]))
         ->assertUnprocessable();
 });
+
+test('a heartbeat stores disks and packages, dropping each bad entry alone', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $disk = fn (string $mountPoint, mixed $total = 1000, mixed $free = 400, mixed $available = 300): array => [
+        'mount_point' => $mountPoint, 'total_bytes' => $total, 'free_bytes' => $free, 'available_bytes' => $available,
+    ];
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload([
+            'filesystems' => [
+                $disk('/home'),
+                $disk('/'),
+                $disk('/<script>alert(1)</script>'),
+                $disk('/mnt/../etc'),
+                $disk('/negative', -1),
+                $disk('/text', '1000'),
+                $disk('/huge', 1.0e30, 1.0e30, 1.0e30),
+                $disk('/free-above-total', 1000, 5000, 4000),
+                $disk('/'),
+                'not an object',
+            ],
+            'packages' => [
+                ['name' => 'nginx', 'version' => '1.24.0-2ubuntu7'],
+                ['name' => 'mariadb-server', 'version' => '1:11.4.14 maria'],
+                ['name' => '<b>bind9</b>', 'version' => '9.18'],
+                ['name' => 'cron', 'version' => str_repeat('1', 65)],
+                ['name' => 'apache2', 'version' => '2.4.58-1ubuntu8'],
+            ],
+        ]))
+        ->assertOk();
+
+    $node->refresh();
+
+    expect(array_column($node->filesystems, 'mount_point'))->toBe(['/', '/free-above-total', '/home', '/huge'])
+        ->and($node->filesystems[1])->toBe(['mount_point' => '/free-above-total', 'total_bytes' => 1000, 'free_bytes' => 1000, 'available_bytes' => 1000])
+        ->and($node->filesystems[3]['total_bytes'])->toBe(PHP_INT_MAX)
+        ->and($node->packages)->toBe([
+            ['name' => 'apache2', 'version' => '2.4.58-1ubuntu8'],
+            ['name' => 'nginx', 'version' => '1.24.0-2ubuntu7'],
+        ])
+        ->and($node->inventory_reported_at)->not->toBeNull();
+});
+
+test('a heartbeat keeps at most sixteen disks', function () {
+    $node = Node::factory()->create();
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $filesystems = array_map(fn (int $i): array => [
+        'mount_point' => sprintf('/data%02d', $i), 'total_bytes' => 10, 'free_bytes' => 5, 'available_bytes' => 5,
+    ], range(0, 16));
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload(['filesystems' => $filesystems, 'packages' => []]))
+        ->assertOk();
+
+    expect($node->fresh()->filesystems)->toHaveCount(16)
+        ->and($node->fresh()->filesystems[15]['mount_point'])->toBe('/data15');
+});
+
+test('a heartbeat without disks and packages keeps the last ones', function () {
+    $node = Node::factory()->create([
+        'filesystems' => [['mount_point' => '/', 'total_bytes' => 10, 'free_bytes' => 5, 'available_bytes' => 5]],
+        'packages' => [['name' => 'nginx', 'version' => '1.24.0']],
+    ]);
+    $credential = $node->completeEnrollment('1', '1.0.0');
+
+    $this->withHeader('Authorization', 'Bearer '.$credential)
+        ->postJson('/agent/v1/heartbeat', heartbeatPayload())
+        ->assertOk();
+
+    expect($node->fresh()->filesystems)->toHaveCount(1)
+        ->and($node->fresh()->packages)->toBe([['name' => 'nginx', 'version' => '1.24.0']]);
+});

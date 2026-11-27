@@ -57,7 +57,9 @@ RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=-/var/lib/lesta/agent/daemon-state
-ProtectHome=yes
+# read-only, not yes: the heartbeat reports disk usage per file system, and with yes a /home on its
+# own disk is hidden behind a tmpfs. The daemon still writes nothing there.
+ProtectHome=read-only
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

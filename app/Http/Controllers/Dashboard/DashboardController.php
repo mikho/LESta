@@ -129,6 +129,7 @@ class DashboardController extends Controller
                 'at' => $node->pinged_at->toIso8601String(),
             ],
             'resources' => $node->resources,
+            'filesystems' => $node->filesystems ?? [],
             'services' => $node->service_states ?? [],
             'capabilities' => $node->capabilities
                 ->filter(fn ($capability): bool => $capability->status->value !== 'not_installed')

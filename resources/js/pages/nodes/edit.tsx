@@ -10,6 +10,7 @@ import {
 } from '@/components/confirm-action-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { NodeDisks } from '@/components/node-disks';
 import { ProvisioningBadge } from '@/components/provisioning-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -729,6 +730,63 @@ function ToolsAddress({ node }: { node: Node }) {
  * database are only shown). The node's root applier runs the action; the state updates when the
  * node reports back.
  */
+/** Disk usage per file system and the installed stack packages, from the node's last heartbeat. */
+function InventorySection({ node }: { node: Node }) {
+    const filesystems = node.filesystems ?? [];
+    const packages = node.packages ?? [];
+
+    return (
+        <div className="space-y-4 rounded-lg border p-4">
+            <Heading
+                variant="small"
+                title="Disks and packages"
+                description={
+                    node.inventory_reported_at
+                        ? `As the node reported them ${new Date(node.inventory_reported_at).toLocaleString()}.`
+                        : 'As the node last reported them.'
+                }
+            />
+
+            {node.inventory_reported_at === null ||
+            node.inventory_reported_at === undefined ? (
+                <p className="text-sm text-muted-foreground">
+                    The node has not reported its disks and packages yet (an
+                    agent older than 1.0.96 does not).
+                </p>
+            ) : (
+                <>
+                    {filesystems.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            No disks reported.
+                        </p>
+                    ) : (
+                        <NodeDisks filesystems={filesystems} />
+                    )}
+
+                    {packages.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            No LESta stack packages reported.
+                        </p>
+                    ) : (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm">
+                            {packages.map((installed) => (
+                                <div key={installed.name} className="contents">
+                                    <dt className="font-mono">
+                                        {installed.name}
+                                    </dt>
+                                    <dd className="font-mono break-all text-muted-foreground">
+                                        {installed.version}
+                                    </dd>
+                                </div>
+                            ))}
+                        </dl>
+                    )}
+                </>
+            )}
+        </div>
+    );
+}
+
 function ServicesSection({ node }: { node: Node }) {
     const services = node.services ?? [];
     const [busy, setBusy] = useState<string | null>(null);
@@ -1229,6 +1287,8 @@ export default function Edit({
                 <ToolsAddress node={node} />
 
                 <ServicesSection node={node} />
+
+                <InventorySection node={node} />
 
                 <SshAccessSection node={node} />
 

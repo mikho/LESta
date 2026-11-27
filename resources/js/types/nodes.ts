@@ -70,6 +70,20 @@ export type InstalledNodeService = {
     last_error: string | null;
 };
 
+/** One disk as the node last reported it (statfs at its mount point). */
+export type NodeFilesystem = {
+    mount_point: string;
+    total_bytes: number;
+    free_bytes: number;
+    available_bytes: number;
+};
+
+/** One LESta stack package installed on the node, with the version dpkg reports. */
+export type NodePackage = {
+    name: string;
+    version: string;
+};
+
 export type Node = {
     uuid: string;
     name: string;
@@ -92,6 +106,9 @@ export type Node = {
     orphaned_identities?: OrphanedAccountNodeIdentity[];
     admin_grants?: NodeAdminGrant[];
     tools?: NodeTools;
+    filesystems?: NodeFilesystem[];
+    packages?: NodePackage[];
+    inventory_reported_at?: string | null;
 };
 
 export type UpgradeKey = {

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Agent;
 
+use App\Actions\Nodes\RecordNodeInventory;
 use App\Enums\NodeCapabilityStatus;
 use App\Enums\NodeCapabilityType;
 use App\Enums\ProvisioningStatus;
@@ -70,6 +71,8 @@ class AgentHeartbeatController extends Controller
             if (is_array($validated['resources'] ?? null)) {
                 $node->forceFill(['resources' => $validated['resources']])->save();
             }
+
+            app(RecordNodeInventory::class)->handle($node, $validated);
 
             $reportedHealth = array_column($validated['capabilities'] ?? [], 'health_state', 'capability');
 
