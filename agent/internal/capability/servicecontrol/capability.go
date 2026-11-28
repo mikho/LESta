@@ -82,26 +82,66 @@ func (c *ServiceControlCapability) Apply(ctx context.Context, op protocol.Operat
 	return res, nil
 }
 
-func (c *ServiceControlCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
-	if op.Operation != protocol.OperationUpdate {
-		return c.envelope(op, protocol.StatusRejected, "", "unsupported_operation", fmt.Sprintf("operation %q is not supported; only update", op.Operation), "")
+// ValidationError is a well-formed payload rejection: the code, message and field of the rejected
+// result.
+type ValidationError struct {
+	Code    string
+	Message string
+	Field   string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
+}
+
+// ValidatePayload runs every check this capability makes on an operation's payload before it
+// touches the system, and nothing that depends on the node's configuration: whether the unit is on
+// the node's allow list is checked in Apply. The operation signer calls it before signing.
+func ValidatePayload(operation protocol.Operation, resourceID string, raw json.RawMessage) error {
+	if _, verr := parsePayload(operation, raw); verr != nil {
+		return verr
+	}
+
+	return nil
+}
+
+func parsePayload(operation protocol.Operation, raw json.RawMessage) (payload, *ValidationError) {
+	if operation != protocol.OperationUpdate {
+		return payload{}, &ValidationError{Code: "unsupported_operation", Message: fmt.Sprintf("operation %q is not supported; only update", operation)}
 	}
 
 	var p payload
 
-	dec := json.NewDecoder(bytes.NewReader(op.Payload))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&p); err != nil {
-		return c.envelope(op, protocol.StatusRejected, "", "invalid_payload", err.Error(), "")
+		return payload{}, &ValidationError{Code: "invalid_payload", Message: err.Error()}
 	}
 
 	if !actions[p.Action] {
-		return c.envelope(op, protocol.StatusRejected, "", "invalid_action", "action must be start, stop or restart", "action")
+		return payload{}, &ValidationError{Code: "invalid_action", Message: "action must be start, stop or restart", Field: "action"}
 	}
 
-	if !unitPattern.MatchString(p.Unit) || !c.allowed(p.Unit) {
-		return c.envelope(op, protocol.StatusRejected, "", "unit_not_allowed", fmt.Sprintf("%q is not a service the panel may control", p.Unit), "unit")
+	if !unitPattern.MatchString(p.Unit) {
+		return payload{}, unitNotAllowed(p.Unit)
+	}
+
+	return p, nil
+}
+
+func unitNotAllowed(unit string) *ValidationError {
+	return &ValidationError{Code: "unit_not_allowed", Message: fmt.Sprintf("%q is not a service the panel may control", unit), Field: "unit"}
+}
+
+func (c *ServiceControlCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
+	p, verr := parsePayload(op.Operation, op.Payload)
+	if verr == nil && !c.allowed(p.Unit) {
+		verr = unitNotAllowed(p.Unit)
+	}
+
+	if verr != nil {
+		return c.envelope(op, protocol.StatusRejected, "", verr.Code, verr.Message, verr.Field)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)

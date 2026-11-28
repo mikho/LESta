@@ -107,14 +107,36 @@ func (c *SSHAccessCapability) Apply(ctx context.Context, op protocol.OperationEn
 	return res, nil
 }
 
-func (c *SSHAccessCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
-	if op.Operation != protocol.OperationUpdate {
-		return c.envelope(op, protocol.StatusRejected, nil, "unsupported_operation", fmt.Sprintf("operation %q is not supported; only update", op.Operation), "")
+// ValidationError is a well-formed payload rejection: the code, message and field of the rejected
+// result.
+type ValidationError struct {
+	Code    string
+	Message string
+	Field   string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
+}
+
+// ValidatePayload runs every check this capability makes on an operation's payload before it
+// touches the system. The operation signer calls it before signing; Apply makes the same checks.
+func ValidatePayload(operation protocol.Operation, resourceID string, raw json.RawMessage) error {
+	if _, verr := parsePayload(operation, raw); verr != nil {
+		return verr
+	}
+
+	return nil
+}
+
+func parsePayload(operation protocol.Operation, raw json.RawMessage) (payload, *ValidationError) {
+	if operation != protocol.OperationUpdate {
+		return payload{}, &ValidationError{Code: "unsupported_operation", Message: fmt.Sprintf("operation %q is not supported; only update", operation)}
 	}
 
 	var p payload
 
-	dec := json.NewDecoder(bytes.NewReader(op.Payload))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&p); err != nil || p.Open == nil {
@@ -123,7 +145,16 @@ func (c *SSHAccessCapability) apply(ctx context.Context, op protocol.OperationEn
 			message = err.Error()
 		}
 
-		return c.envelope(op, protocol.StatusRejected, nil, "invalid_payload", message, "open")
+		return payload{}, &ValidationError{Code: "invalid_payload", Message: message, Field: "open"}
+	}
+
+	return p, nil
+}
+
+func (c *SSHAccessCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
+	p, verr := parsePayload(op.Operation, op.Payload)
+	if verr != nil {
+		return c.envelope(op, protocol.StatusRejected, nil, verr.Code, verr.Message, verr.Field)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

@@ -139,18 +139,99 @@ func (c *AgentUpgradeCapability) Apply(ctx context.Context, op protocol.Operatio
 	return res, nil
 }
 
-func (c *AgentUpgradeCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
-	if op.Operation != protocol.OperationUpdate {
-		return c.reject(op, "unsupported_operation", fmt.Sprintf("operation %q is not supported; only update", op.Operation))
+// ValidationError is a well-formed payload rejection: the code and message of the rejected result.
+type ValidationError struct {
+	Code    string
+	Message string
+	Field   string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
+}
+
+// ValidatePayload runs every check this capability makes on an operation's payload before it
+// touches the system, and nothing that depends on the node: the signature against the node's
+// pinned key, the node identity, the expiry against the clock, the running version and the
+// download address's host and scheme are checked in Apply. The operation signer calls it before
+// signing.
+func ValidatePayload(operation protocol.Operation, resourceID string, raw json.RawMessage) error {
+	p, verr := parsePayload(operation, raw)
+	if verr != nil {
+		return verr
+	}
+
+	if verr := checkShape(p); verr != nil {
+		return verr
+	}
+
+	if verr := checkDownloadShape(p); verr != nil {
+		return verr
+	}
+
+	return nil
+}
+
+func parsePayload(operation protocol.Operation, raw json.RawMessage) (payload, *ValidationError) {
+	if operation != protocol.OperationUpdate {
+		return payload{}, &ValidationError{Code: "unsupported_operation", Message: fmt.Sprintf("operation %q is not supported; only update", operation)}
 	}
 
 	var p payload
 
-	dec := json.NewDecoder(bytes.NewReader(op.Payload))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&p); err != nil {
-		return c.reject(op, "invalid_payload", err.Error())
+		return payload{}, &ValidationError{Code: "invalid_payload", Message: err.Error()}
+	}
+
+	return p, nil
+}
+
+// checkShape runs the checks on the signed fields that need no key: their formats.
+func checkShape(p payload) *ValidationError {
+	if !versionPattern.MatchString(p.Version) {
+		return &ValidationError{Code: "invalid_version", Message: "the version must look like 1.2.3"}
+	}
+
+	if !sha256Pattern.MatchString(p.SHA256) {
+		return &ValidationError{Code: "invalid_sha256", Message: "the sha256 must be 64 lowercase hex characters"}
+	}
+
+	if p.NextPublicKey != "" {
+		if _, err := decodeKey(p.NextPublicKey); err != nil {
+			return &ValidationError{Code: "invalid_next_key", Message: err.Error()}
+		}
+	}
+
+	signature, err := base64.StdEncoding.DecodeString(p.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return &ValidationError{Code: "invalid_signature", Message: "the signature must be the base64 of a 64 byte Ed25519 signature"}
+	}
+
+	return nil
+}
+
+// checkDownloadShape is the part of downloadSource that needs no configuration: the address is
+// the agent binary endpoint with no query, and the token has the right form.
+func checkDownloadShape(p payload) *ValidationError {
+	target, err := url.Parse(p.DownloadURL)
+	if err != nil || target.Host == "" || target.RawQuery != "" || !pathPattern.MatchString(target.Path) {
+		return &ValidationError{Code: "invalid_download", Message: "the download address is not the control plane's agent binary address"}
+	}
+
+	if !tokenPattern.MatchString(p.DownloadToken) {
+		return &ValidationError{Code: "invalid_download", Message: "the download token is not valid"}
+	}
+
+	return nil
+}
+
+func (c *AgentUpgradeCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
+	p, verr := parsePayload(op.Operation, op.Payload)
+	if verr != nil {
+		return c.reject(op, verr.Code, verr.Message)
 	}
 
 	publicKey, err := c.loadKey()
@@ -219,24 +300,11 @@ func decodeKey(encoded string) (ed25519.PublicKey, error) {
 // check runs every test that does not touch the network or the disk and returns an error code
 // and message, or "" when the request is acceptable.
 func (c *AgentUpgradeCapability) check(p payload, key ed25519.PublicKey) (string, string) {
-	if !versionPattern.MatchString(p.Version) {
-		return "invalid_version", "the version must look like 1.2.3"
+	if verr := checkShape(p); verr != nil {
+		return verr.Code, verr.Message
 	}
 
-	if !sha256Pattern.MatchString(p.SHA256) {
-		return "invalid_sha256", "the sha256 must be 64 lowercase hex characters"
-	}
-
-	if p.NextPublicKey != "" {
-		if _, err := decodeKey(p.NextPublicKey); err != nil {
-			return "invalid_next_key", err.Error()
-		}
-	}
-
-	signature, err := base64.StdEncoding.DecodeString(p.Signature)
-	if err != nil || len(signature) != ed25519.SignatureSize {
-		return "invalid_signature", "the signature must be the base64 of a 64 byte Ed25519 signature"
-	}
+	signature, _ := base64.StdEncoding.DecodeString(p.Signature)
 
 	if !ed25519.Verify(key, SignedMessage(p.NodeUUID, p.Version, p.SHA256, p.ExpiresAt, p.NextPublicKey), signature) {
 		return "signature_mismatch", "the signature does not verify against this node's upgrade key"

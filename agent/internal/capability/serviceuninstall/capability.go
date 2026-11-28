@@ -98,22 +98,52 @@ func (c *ServiceUninstallCapability) Apply(ctx context.Context, op protocol.Oper
 	return res, nil
 }
 
-func (c *ServiceUninstallCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
-	if op.Operation != protocol.OperationDelete {
-		return c.envelope(op, protocol.StatusRejected, "", []protocol.ResultError{resultError("unsupported_operation", fmt.Sprintf("operation %q is not supported; only delete", op.Operation))}, nil)
+// ValidationError is a well-formed payload rejection: the code and message of the rejected result.
+type ValidationError struct {
+	Code    string
+	Message string
+	Field   string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s (field=%s)", e.Code, e.Message, e.Field)
+}
+
+// ValidatePayload runs every check this capability makes on an operation's payload before it
+// touches the system. The operation signer calls it before signing; Apply makes the same checks.
+func ValidatePayload(operation protocol.Operation, resourceID string, raw json.RawMessage) error {
+	if _, verr := parsePayload(operation, raw); verr != nil {
+		return verr
+	}
+
+	return nil
+}
+
+func parsePayload(operation protocol.Operation, raw json.RawMessage) (payload, *ValidationError) {
+	if operation != protocol.OperationDelete {
+		return payload{}, &ValidationError{Code: "unsupported_operation", Message: fmt.Sprintf("operation %q is not supported; only delete", operation)}
 	}
 
 	var p payload
 
-	dec := json.NewDecoder(bytes.NewReader(op.Payload))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&p); err != nil {
-		return c.envelope(op, protocol.StatusRejected, "", []protocol.ResultError{resultError("invalid_payload", err.Error())}, nil)
+		return payload{}, &ValidationError{Code: "invalid_payload", Message: err.Error()}
 	}
 
 	if !allowed(p.Service) {
-		return c.envelope(op, protocol.StatusRejected, "", []protocol.ResultError{resultError("service_not_allowed", fmt.Sprintf("%q is not a service the panel may remove", p.Service))}, nil)
+		return payload{}, &ValidationError{Code: "service_not_allowed", Message: fmt.Sprintf("%q is not a service the panel may remove", p.Service)}
+	}
+
+	return p, nil
+}
+
+func (c *ServiceUninstallCapability) apply(ctx context.Context, op protocol.OperationEnvelope) protocol.ResultEnvelope {
+	p, verr := parsePayload(op.Operation, op.Payload)
+	if verr != nil {
+		return c.envelope(op, protocol.StatusRejected, "", []protocol.ResultError{resultError(verr.Code, verr.Message)}, nil)
 	}
 
 	if err := c.cfg.TrustInstaller(c.cfg.Installer); err != nil {
